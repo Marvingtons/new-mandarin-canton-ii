@@ -233,8 +233,54 @@ export default function HomeChoreography() {
           );
       });
 
-      /* (Scene 5 retired with the wheel — the spotlight grid's
-         featured/plate/up-next transitions carry this section now.) */
+      /* ---- SCENE 5: Spotlight entrance (once) — rail items stagger,
+         the featured card curtain-reveals, small cards follow.
+         clearProps so the component's own transitions (dim/swap)
+         and hover scales are never fighting stale inline styles. */
+      const spt = document.querySelector<HTMLElement>("[data-spt]");
+      if (spt) {
+        const tl = gsap.timeline({
+          scrollTrigger: { trigger: spt, start: "top 80%", once: true },
+        });
+        tl.from(
+          spt.querySelectorAll("[data-spt-rail-item]"),
+          {
+            autoAlpha: 0,
+            y: 16,
+            duration: 0.5,
+            stagger: 0.08,
+            ease: "power1.out",
+            clearProps: "all",
+          },
+          0,
+        );
+        const card = spt.querySelector<HTMLElement>("[data-spt-card]");
+        if (card) {
+          tl.fromTo(
+            card,
+            { clipPath: "inset(0 100% 0 0)" },
+            {
+              clipPath: "inset(0 0 0 0)",
+              duration: 0.7,
+              ease: "power1.out",
+              clearProps: "clipPath",
+            },
+            0.1,
+          );
+        }
+        tl.from(
+          spt.querySelectorAll("[data-spt-small]"),
+          {
+            autoAlpha: 0,
+            y: 16,
+            duration: 0.5,
+            stagger: 0.12,
+            ease: "power1.out",
+            clearProps: "all",
+          },
+          0.22,
+        );
+      }
 
       /* ---- SCENE 6: seal signature — the closing echo ---- */
       const sig = document.querySelector<HTMLElement>("[data-seal-sig]");

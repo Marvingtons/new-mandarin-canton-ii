@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { SpicyMark } from "@/components/MenuSection";
@@ -10,6 +10,10 @@ import { menu } from "@/data/menu";
 import type { MenuItem } from "@/data/menu";
 
 const COUNT = 6;
+/** Curtain-wipe duration — the transaction commits when it ends. */
+const WIPE_MS = 620;
+/** Plate/counter/smalls swap their content at this point of the wipe. */
+const SWAP_MS = 220;
 
 /** Homepage-only blurbs — the menu page stays description-free. */
 const blurbs: Record<string, string> = {
@@ -38,31 +42,41 @@ const items: MenuItem[] = (
   menu.find((c) => c.id === "mandarin-specialties")?.items ?? []
 ).slice(0, COUNT);
 
-/** Static rail elements — hoisted so re-renders bail out of their
-    subtrees (SplitText owns the heading's DOM after mount).
-    The heading is built locally (not BilingualHeading) because the
-    ghost here bleeds off the rail's LEFT edge and is cropped at the
-    section boundary, instead of reserving room above the English. */
-const railHeading = (
-  <div className="relative">
+/* ---- static rail pieces, hoisted so re-renders bail out of their
+   subtrees (SplitText owns the heading's DOM after mount) ---- */
+
+const railHead = (
+  <div className="spt-head">
+    {/* ghost 招牌菜 bleeds off the rail's left edge; the SECTION's
+        overflow:hidden crops it (page.tsx) — no clip tricks here */}
     <span
       aria-hidden="true"
       lang="zh-Hant"
-      className="sp-ghost font-chinese text-5xl font-bold leading-none text-gold/35 sm:text-6xl"
+      className="spt-ghost font-chinese font-bold text-gold/[0.13]"
     >
       招牌菜
     </span>
     <h2
       data-bh-text
-      className="relative font-display text-3xl leading-tight text-lacquer sm:text-4xl"
+      className="relative font-display text-3xl text-lacquer sm:text-4xl"
     >
       House Favorites
     </h2>
-    <span aria-hidden="true" className="bh-rule mt-3 block h-px w-12 bg-gold" />
+    <span aria-hidden="true" className="bh-rule spt-rule" />
   </div>
 );
+
+const railIntro = (
+  <p
+    data-spt-rail-item
+    className="spt-intro max-w-[24ch] font-display text-lg italic leading-snug text-ink/75"
+  >
+    The dishes our regulars come back for.
+  </p>
+);
+
 const railLink = (
-  <p>
+  <p data-spt-rail-item className="spt-link-row">
     <Link
       href="/menu#mandarin-specialties"
       className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
@@ -73,7 +87,7 @@ const railLink = (
 );
 
 /** Photo or tone-panel placeholder, filling its positioned parent. */
-function DishPanel({ item }: { item: MenuItem }) {
+function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean }) {
   const photo = dishPhotoByItemId[item.id];
   if (photo.src) {
     return (
@@ -81,7 +95,7 @@ function DishPanel({ item }: { item: MenuItem }) {
         src={photo.src}
         alt={photo.alt}
         fill
-        sizes="(min-width: 1024px) 44vw, 100vw"
+        sizes={small ? "(min-width: 900px) 25vw, 50vw" : "(min-width: 900px) 40vw, 100vw"}
         className="object-cover"
       />
     );
@@ -104,46 +118,79 @@ function DishPanel({ item }: { item: MenuItem }) {
       <div
         aria-hidden="true"
         lang="zh-Hant"
-        className="absolute inset-0 flex select-none items-center justify-center font-chinese text-5xl font-bold tracking-[0.3em] text-ivory/10"
+        className={`absolute inset-0 flex select-none items-center justify-center font-chinese font-bold text-ivory/10 ${
+          small ? "text-3xl tracking-[0.2em]" : "text-6xl tracking-[0.3em]"
+        }`}
       >
         富源
       </div>
-      <span className="absolute bottom-2 left-3 text-[0.6rem] uppercase tracking-[0.22em] text-ivory/60">
-        Photo
-      </span>
+      {!small && (
+        <span className="absolute bottom-2 left-3 text-[0.6rem] uppercase tracking-[0.22em] text-ivory/60">
+          Photo
+        </span>
+      )}
     </>
   );
 }
 
 /**
- * "Spotlight" House Favorites: asymmetric editorial grid — text rail
- * left, one large featured dish center, the next two dishes stacked
- * right. Arrows/keys/clicks rotate the featured dish; the featured
- * photo changes via a direction-aware curtain wipe while the plate
- * text rises in. Ships working on the tone-panel placeholders.
+ * "Spotlight" House Favorites — one structural CSS grid (rail /
+ * featured card / up-next column), align-items:stretch. The featured
+ * card's intrinsic height (photo 4/5 + in-card plate) sets the row;
+ * the right column stretches to equal it and its two cards flex to
+ * fill — the alignment holds at every width by construction.
+ *
+ * Dish changes are a guarded transaction: overlay layer curtain-wipes
+ * over the base photo (direction-aware), plate/counter/smalls swap
+ * their content mid-wipe, and the base commits when the wipe ends.
  */
 export default function FavoritesSpotlight() {
-  // One state object + functional updates so rapid clicks (multiple
-  // events per frame) chain correctly instead of reading a stale idx.
-  const [spot, setSpot] = useState<{
-    idx: number;
-    prevIdx: number;
-    dir: 1 | -1;
-  }>({ idx: 0, prevIdx: 0, dir: 1 });
-  const { idx, prevIdx, dir } = spot;
+  /** Committed photo in the base layer. */
+  const [baseIdx, setBaseIdx] = useState(0);
+  /** What the plate, counter, and small cards currently show. */
+  const [faceIdx, setFaceIdx] = useState(0);
+  /** Incoming photo riding the wipe overlay, or null when idle. */
+  const [overlay, setOverlay] = useState<{ idx: number; dir: 1 | -1 } | null>(
+    null,
+  );
+  /** True during the swap window — dims smalls, drops the plate. */
+  const [swapping, setSwapping] = useState(false);
+  const busy = useRef(false);
+  const timers = useRef<number[]>([]);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
-  const step = (direction: 1 | -1) =>
-    setSpot((s) => ({
-      idx: (s.idx + direction + COUNT) % COUNT,
-      prevIdx: s.idx,
-      dir: direction,
-    }));
-  const promote = (target: number) =>
-    setSpot((s) =>
-      target === s.idx
-        ? s
-        : { idx: ((target % COUNT) + COUNT) % COUNT, prevIdx: s.idx, dir: 1 },
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach((t) => window.clearTimeout(t));
+  }, []);
+
+  const advance = (target: number, dir: 1 | -1) => {
+    const t = ((target % COUNT) + COUNT) % COUNT;
+    if (busy.current || t === faceIdx) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // instant, fully functional
+      setBaseIdx(t);
+      setFaceIdx(t);
+      return;
+    }
+    busy.current = true;
+    setOverlay({ idx: t, dir });
+    setSwapping(true);
+    timers.current.push(
+      window.setTimeout(() => {
+        setFaceIdx(t);
+        setSwapping(false);
+      }, SWAP_MS),
     );
+    timers.current.push(
+      window.setTimeout(() => {
+        setBaseIdx(t);
+        setOverlay(null);
+        busy.current = false;
+      }, WIPE_MS),
+    );
+  };
+  const step = (dir: 1 | -1) => advance(faceIdx + dir, dir);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowLeft") {
@@ -155,40 +202,34 @@ export default function FavoritesSpotlight() {
     }
   };
 
-  const featured = items[idx];
-  const upNext = [items[(idx + 1) % COUNT], items[(idx + 2) % COUNT]];
+  const face = items[faceIdx];
 
   return (
-    <div data-fav-spotlight className="sp-grid" onKeyDown={onKeyDown}>
-      {/* ---- left rail ---- */}
-      <div className="sp-rail flex flex-col gap-8">
-        {/* -mt-[11px] lifts the English CAP (not the text box) onto the
-            frames' top line at lg — measured: cap sits 11px below the
-            box top at text-4xl/leading-tight */}
-        <div className="lg:-mt-[11px]">{railHeading}</div>
-        <p className="max-w-xs font-display text-lg italic leading-snug text-ink/75">
-          The dishes our regulars come back for.
-        </p>
+    <div data-spt className="spt-grid" onKeyDown={onKeyDown}>
+      {/* ---- left rail (display:contents under 900px so the controls
+              can reorder after the small cards) ---- */}
+      <div className="spt-rail">
+        {railHead}
+        {railIntro}
         {railLink}
-        {/* controls live high on the rail, right below the menu link */}
-        <div className="flex items-center gap-3">
+        <div data-spt-rail-item className="spt-controls flex items-center gap-3">
           <button
             type="button"
             aria-label="Previous dish"
-            className="sp-btn sp-btn-prev"
+            className="spt-btn spt-btn-prev"
             onClick={() => step(-1)}
           >
-            <span className="sp-glyph" aria-hidden="true">
+            <span className="spt-glyph" aria-hidden="true">
               ←
             </span>
           </button>
           <button
             type="button"
             aria-label="Next dish"
-            className="sp-btn sp-btn-next"
+            className="spt-btn spt-btn-next"
             onClick={() => step(1)}
           >
-            <span className="sp-glyph" aria-hidden="true">
+            <span className="spt-glyph" aria-hidden="true">
               →
             </span>
           </button>
@@ -196,98 +237,114 @@ export default function FavoritesSpotlight() {
             className="ml-2 inline-flex items-baseline gap-1.5 font-display text-ink"
             aria-live="polite"
           >
-            <span key={idx} className="sp-count-in inline-block text-2xl">
-              {String(idx + 1).padStart(2, "0")}
+            <span
+              key={faceIdx}
+              className="spt-count-in text-[26px] leading-none"
+            >
+              {String(faceIdx + 1).padStart(2, "0")}
             </span>
-            <span className="text-sm text-ink/60">
+            <span className="text-sm leading-none text-ink/60">
               / {String(COUNT).padStart(2, "0")}
             </span>
           </span>
         </div>
       </div>
 
-      {/* ---- featured photo (center) ---- */}
-      <div className="sp-featured-photo mt-8 lg:mt-0">
-        <div className="border-2 border-gold p-[2px]">
-          <div className="relative aspect-[4/5] overflow-hidden border border-gold/45">
-            {/* previous dish sits beneath; the new one wipes over it */}
-            <div className="absolute inset-0">
-              <DishPanel item={items[prevIdx]} />
-            </div>
-            <div
-              key={idx}
-              className={`absolute inset-0 ${dir === 1 ? "sp-wipe-ltr" : "sp-wipe-rtl"}`}
-            >
-              <DishPanel item={featured} />
-            </div>
+      {/* ---- featured card: ONE framed object — photo + plate ---- */}
+      <div
+        data-spt-card
+        className="spt-card"
+        onTouchStart={(e) => {
+          touchStart.current = {
+            x: e.touches[0].clientX,
+            y: e.touches[0].clientY,
+          };
+        }}
+        onTouchEnd={(e) => {
+          const start = touchStart.current;
+          touchStart.current = null;
+          if (!start) return;
+          const dx = e.changedTouches[0].clientX - start.x;
+          const dy = e.changedTouches[0].clientY - start.y;
+          if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+            step(dx < 0 ? 1 : -1);
+          }
+        }}
+      >
+        <div className="spt-photo">
+          <div className="absolute inset-0">
+            <DishPanel item={items[baseIdx]} />
           </div>
-        </div>
-      </div>
-
-      {/* ---- featured plate: paper panel under the frame, matching
-              the site's card plate language (panel is static; only the
-              text inside rises on dish change) ---- */}
-      <div className="sp-featured-plate mt-4 lg:-mt-3">
-        <div className="border-t-2 border-gold bg-cream px-5 py-4">
-          <div key={idx} className="sp-rise" aria-live="polite">
-            <div className="flex items-baseline gap-2">
-              <h3 className="font-display text-2xl text-ink">
-                {featured.name}
-              </h3>
-              {featured.spicy && <SpicyMark />}
+          {overlay && (
+            <div
+              className={`absolute inset-0 ${
+                overlay.dir === 1 ? "spt-wipe-ltr" : "spt-wipe-rtl"
+              }`}
+            >
+              <DishPanel item={items[overlay.idx]} />
             </div>
-            {featured.chineseName && (
+          )}
+        </div>
+        <div className="spt-plate">
+          <div
+            className={`spt-plate-body ${swapping ? "is-out" : ""}`}
+            aria-live="polite"
+          >
+            <div className="flex items-baseline gap-2">
+              <h3 className="font-display text-2xl text-ink">{face.name}</h3>
+              {face.spicy && <SpicyMark />}
+            </div>
+            {face.chineseName && (
               <p
                 lang="zh-Hant"
-                className="mt-0.5 font-chinese text-sm text-ink/55"
+                className="mt-0.5 font-chinese text-sm tracking-[0.18em] text-ink/55"
               >
-                {featured.chineseName}
+                {face.chineseName}
               </p>
             )}
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-ink/70">
-              {blurbs[featured.id]}
+            <p className="mt-2 max-w-md text-sm italic leading-relaxed text-ink/70">
+              {blurbs[face.id]}
             </p>
-            <p className="mt-2 font-semibold text-lacquer">
-              ${featured.price.toFixed(2)}
+            <p className="mt-2 font-medium text-lacquer">
+              ${face.price.toFixed(2)}
             </p>
           </div>
         </div>
       </div>
 
-      {/* ---- up next (right, two stacked) ---- */}
-      {upNext.map((dish, n) => (
-        <button
-          key={n}
-          type="button"
-          className={`sp-next ${n === 0 ? "sp-next-1" : "sp-next-2"} mt-8 flex h-full w-full flex-col text-left lg:mt-0`}
-          aria-label={`${dish.name} — bring to spotlight`}
-          onClick={() => promote(items.indexOf(dish))}
-        >
-          <div className="flex min-h-0 flex-1 border border-gold/60 p-[2px]">
-            <div className="relative aspect-[4/5] flex-1 overflow-hidden border border-gold/45 lg:aspect-auto">
-              <div
-                key={dish.id}
-                className={`sp-small-in absolute inset-0 ${n === 1 ? "sp-small-in-2" : ""}`}
-              >
-                <div className="sp-inner absolute inset-0">
-                  <DishPanel item={dish} />
+      {/* ---- up next: the two dishes after the featured one ---- */}
+      <div className="spt-next-col">
+        {([1, 2] as const).map((n) => {
+          const dish = items[(faceIdx + n) % COUNT];
+          return (
+            <button
+              key={n}
+              type="button"
+              data-spt-small
+              className={`spt-small ${swapping ? "is-dim" : ""}`}
+              aria-label={`${dish.name} — bring to spotlight`}
+              onClick={() => advance(faceIdx + n, 1)}
+            >
+              <div className="spt-small-frame">
+                <div className="relative flex-1 overflow-hidden">
+                  <div className="spt-sm-inner absolute inset-0">
+                    <DishPanel item={dish} small />
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-          {/* caption bar UNDER the frame. At lg the 5px translate drops
-              the TEXT BASELINE onto the featured photo's bottom edge
-              (measured descender) without changing the grid row math. */}
-          <div className="flex items-baseline justify-between gap-3 px-1 pb-1 pt-3 lg:translate-y-[5px] lg:pb-0">
-            <span className="sp-name truncate font-display text-sm text-ink">
-              {dish.name}
-            </span>
-            <span className="shrink-0 text-sm font-semibold text-lacquer">
-              ${dish.price.toFixed(2)}
-            </span>
-          </div>
-        </button>
-      ))}
+              {/* caption BELOW the frame, never inside it */}
+              <div className="spt-small-cap">
+                <span className="spt-sm-name truncate font-display">
+                  {dish.name}
+                </span>
+                <span className="spt-sm-price shrink-0">
+                  ${dish.price.toFixed(2)}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

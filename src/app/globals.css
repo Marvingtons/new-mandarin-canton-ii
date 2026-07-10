@@ -245,55 +245,117 @@ body {
 }
 
 /* ---- Motion depth: reactive tier (hover) ---- */
-/* FavoritesSpotlight (see FavoritesSpotlight.tsx): asymmetric
-   editorial grid — rail / featured / up-next. The featured photo
-   spans two equal rows, so the stacked up-next cells (frame +
-   caption) combined + gap match its height exactly; the plate row
-   overhangs below on the center column only. */
-@media (min-width: 1024px) {
-  .sp-grid {
-    display: grid;
-    grid-template-columns: 30fr 44fr 26fr;
-    grid-template-rows: 1fr 1fr auto;
-    column-gap: 36px;
-    row-gap: 36px;
-  }
-  .sp-rail {
-    grid-column: 1;
-    grid-row: 1 / 4;
-  }
-  .sp-featured-photo {
-    grid-column: 2;
-    grid-row: 1 / 3;
-  }
-  .sp-featured-plate {
-    grid-column: 2;
-    grid-row: 3;
-  }
-  .sp-next-1 {
-    grid-column: 3;
-    grid-row: 1;
-  }
-  .sp-next-2 {
-    grid-column: 3;
-    grid-row: 2;
-  }
+/* FavoritesSpotlight "Spotlight" (see FavoritesSpotlight.tsx): one
+   structural grid — rail / featured card / up-next column with
+   align-items:stretch. The featured card's intrinsic height (photo
+   4/5 + in-card plate) sets the row; the right column stretches to
+   equal it and its two cards flex to fill. No fixed heights. */
+.spt-grid {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
-/* rail ghost 招牌菜 — bleeds off the rail's LEFT edge, cropped flush
-   at the section's content boundary (clip-path cuts exactly the
-   overhang: left offset and inset share the ghost's em basis) */
-.sp-ghost {
+/* under 900px the rail dissolves so its controls can reorder after
+   the small cards (heading/intro/link keep their DOM order) */
+.spt-rail {
+  display: contents;
+}
+.spt-controls {
+  order: 10;
+}
+.spt-head {
+  position: relative;
+}
+/* line-height 1 + cap trim: the CAP of "House Favorites" sits on the
+   frames' top line. -0.195em is Playfair Display's measured gap from
+   line-box top to cap top (em-relative, so it tracks the font size) */
+.spt-head h2 {
+  line-height: 1;
+  margin-top: -0.195em;
+}
+.spt-ghost {
+  position: absolute;
+  left: -28px;
+  top: -18px;
   pointer-events: none;
   user-select: none;
   white-space: nowrap;
-  position: absolute;
-  left: -0.45em;
-  top: 50%;
-  transform: translateY(-56%);
-  clip-path: inset(0 0 0 0.45em);
+  font-size: 96px;
+  line-height: 1;
 }
-/* direction-aware curtain wipe for the featured photo */
-@keyframes sp-wipe-ltr {
+.spt-rule {
+  display: block;
+  margin-top: 14px;
+  width: 44px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light));
+}
+@media (min-width: 900px) {
+  .spt-grid {
+    display: grid;
+    grid-template-columns: 27% 1fr 29%;
+    gap: 44px;
+    align-items: stretch;
+  }
+  .spt-rail {
+    display: block;
+  }
+  .spt-controls {
+    order: 0;
+    margin-top: 42px;
+  }
+  .spt-intro {
+    margin-top: 26px;
+  }
+  .spt-link-row {
+    margin-top: 24px;
+  }
+  .spt-ghost {
+    font-size: 150px;
+    left: -0.35em;
+    top: -0.2em;
+  }
+}
+/* ---- featured card: ONE object — double gold frame, photo on top,
+   plate inside under a 2px gold rule. Zero gap between them. ---- */
+.spt-card {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--cream);
+  border: 1px solid var(--gold);
+  outline: 1px solid rgba(207, 165, 46, 0.5);
+  outline-offset: -4px;
+}
+.spt-photo {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 380px;
+  overflow: hidden;
+  touch-action: pan-y; /* swipe advances; vertical scroll stays native */
+}
+@media (min-width: 900px) {
+  .spt-photo {
+    aspect-ratio: 4 / 5;
+    min-height: 0;
+  }
+}
+.spt-plate {
+  border-top: 2px solid var(--gold);
+  padding: 20px 22px;
+}
+.spt-plate-body {
+  transition:
+    opacity 220ms var(--ease-out-soft),
+    transform 220ms var(--ease-out-soft);
+}
+.spt-plate-body.is-out {
+  opacity: 0;
+  transform: translateY(8px);
+}
+/* direction-aware curtain wipe for the incoming featured photo */
+@keyframes spt-wipe-ltr {
   from {
     clip-path: inset(0 100% 0 0);
   }
@@ -301,7 +363,7 @@ body {
     clip-path: inset(0 0 0 0);
   }
 }
-@keyframes sp-wipe-rtl {
+@keyframes spt-wipe-rtl {
   from {
     clip-path: inset(0 0 0 100%);
   }
@@ -309,37 +371,89 @@ body {
     clip-path: inset(0 0 0 0);
   }
 }
-.sp-wipe-ltr {
-  animation: sp-wipe-ltr var(--t-slow) var(--ease-out-soft) both;
+.spt-wipe-ltr {
+  animation: spt-wipe-ltr 620ms var(--ease-out-soft) both;
 }
-.sp-wipe-rtl {
-  animation: sp-wipe-rtl var(--t-slow) var(--ease-out-soft) both;
+.spt-wipe-rtl {
+  animation: spt-wipe-rtl 620ms var(--ease-out-soft) both;
 }
-/* plate / small-frame / counter entrances */
-@keyframes sp-rise-in {
+/* counter fade-swap */
+@keyframes spt-count-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
-.sp-rise {
-  animation: sp-rise-in var(--t-med) var(--ease-out-soft) both;
+.spt-count-in {
+  display: inline-block;
+  animation: spt-count-in var(--t-fast) var(--ease-out-soft) both;
 }
-.sp-small-in {
-  animation: sp-rise-in var(--t-med) var(--ease-out-soft) both;
+/* ---- up-next column ---- */
+.spt-next-col {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  min-height: 0;
 }
-.sp-small-in-2 {
-  animation-delay: 60ms;
+@media (min-width: 900px) {
+  .spt-next-col {
+    flex-direction: column;
+    gap: 36px;
+  }
 }
-.sp-count-in {
-  animation: sp-rise-in var(--t-fast) var(--ease-out-soft) both;
+.spt-small {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  transition: opacity 160ms var(--ease-out-soft);
 }
-/* arrows — same language as the old wheel controls */
-.sp-btn {
+.spt-small.is-dim {
+  opacity: 0.35;
+  transition-duration: 140ms;
+}
+.spt-small-frame {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 150px;
+  padding: 3px;
+  background: var(--cream);
+  border: 1px solid var(--gold);
+  outline: 1px solid rgba(207, 165, 46, 0.4);
+  outline-offset: -3px;
+}
+@media (min-width: 900px) {
+  .spt-small-frame {
+    min-height: 0;
+  }
+}
+.spt-sm-inner {
+  transition: transform var(--t-med) var(--ease-out-soft);
+}
+.spt-small-cap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+}
+.spt-sm-name {
+  font-size: 15.5px;
+  line-height: 1;
+  color: var(--ink);
+  transition: color var(--t-fast) var(--ease-out-soft);
+}
+.spt-sm-price {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--lacquer);
+}
+/* arrows — gold-bordered 44px circles */
+.spt-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -352,51 +466,43 @@ body {
     transform var(--t-fast) var(--ease-stamp),
     background-color var(--t-fast) var(--ease-out-soft);
 }
-.sp-glyph {
+.spt-glyph {
   display: inline-block;
   transition: transform var(--t-fast) var(--ease-out-soft);
 }
-/* up-next hover: photo breathes, name warms to lacquer */
-.sp-inner {
-  transition: transform var(--t-med) var(--ease-out-soft);
-}
-.sp-name {
-  /* pinned to the ink token — the button context must never tint it */
-  color: var(--ink);
-  transition: color var(--t-fast) var(--ease-out-soft);
-}
+/* hovers touch inner elements only — never the card wrapper */
 @media (hover: hover) {
-  .sp-btn:hover {
+  .spt-btn:hover {
     transform: scale(1.08);
     background-color: rgba(var(--ink-rgb), 0.05);
   }
-  .sp-btn-prev:hover .sp-glyph {
+  .spt-btn-prev:hover .spt-glyph {
     transform: translateX(-2px);
   }
-  .sp-btn-next:hover .sp-glyph {
+  .spt-btn-next:hover .spt-glyph {
     transform: translateX(2px);
   }
-  .sp-next:hover .sp-inner {
-    transform: scale(1.04);
+  .spt-small:hover .spt-sm-inner {
+    transform: scale(1.045);
   }
-  .sp-next:hover .sp-name {
+  .spt-small:hover .spt-sm-name {
     color: var(--lacquer);
   }
 }
 /* keyboard focus parity */
-.sp-btn:focus-visible {
+.spt-btn:focus-visible {
   transform: scale(1.08);
 }
-.sp-btn-prev:focus-visible .sp-glyph {
+.spt-btn-prev:focus-visible .spt-glyph {
   transform: translateX(-2px);
 }
-.sp-btn-next:focus-visible .sp-glyph {
+.spt-btn-next:focus-visible .spt-glyph {
   transform: translateX(2px);
 }
-.sp-next:focus-visible .sp-inner {
-  transform: scale(1.04);
+.spt-small:focus-visible .spt-sm-inner {
+  transform: scale(1.045);
 }
-.sp-next:focus-visible .sp-name {
+.spt-small:focus-visible .spt-sm-name {
   color: var(--lacquer);
 }
 /* Review card: quieter — the gold rule under the quote extends */
@@ -550,30 +656,31 @@ body {
   .cat-link::after,
   .brand-seal,
   .arrow-link .arrow,
-  .sp-btn,
-  .sp-glyph,
-  .sp-inner {
+  .spt-btn,
+  .spt-glyph,
+  .spt-sm-inner,
+  .spt-small,
+  .spt-plate-body {
     transition: none;
   }
   .kw-card:hover .kw-rule,
   .brand-link:hover .brand-seal,
   .arrow-link:hover .arrow,
-  .sp-btn:hover,
-  .sp-btn:focus-visible,
-  .sp-btn-prev:hover .sp-glyph,
-  .sp-btn-next:hover .sp-glyph,
-  .sp-btn-prev:focus-visible .sp-glyph,
-  .sp-btn-next:focus-visible .sp-glyph,
-  .sp-next:hover .sp-inner,
-  .sp-next:focus-visible .sp-inner {
+  .spt-btn:hover,
+  .spt-btn:focus-visible,
+  .spt-btn-prev:hover .spt-glyph,
+  .spt-btn-next:hover .spt-glyph,
+  .spt-btn-prev:focus-visible .spt-glyph,
+  .spt-btn-next:focus-visible .spt-glyph,
+  .spt-small:hover .spt-sm-inner,
+  .spt-small:focus-visible .spt-sm-inner {
     transform: none;
   }
-  /* spotlight swaps become instant; the name-color change stays */
-  .sp-wipe-ltr,
-  .sp-wipe-rtl,
-  .sp-rise,
-  .sp-small-in,
-  .sp-count-in {
+  /* spotlight swaps become instant (JS also short-circuits them);
+     the name-color change stays */
+  .spt-wipe-ltr,
+  .spt-wipe-rtl,
+  .spt-count-in {
     animation: none;
   }
   /* ambient motion off */

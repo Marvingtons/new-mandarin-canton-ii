@@ -21,8 +21,9 @@ export default function HomePage() {
       <HeroVideo />
 
       {/* House Favorites — spotlight grid (heading, link, and controls
-          live in the component's left rail) */}
-      <section className="bg-paper">
+          live in the component's left rail). overflow-hidden crops the
+          rail ghost's left bleed so it never causes a scrollbar. */}
+      <section className="overflow-hidden bg-paper">
         <div className="mx-auto max-w-5xl px-4 py-16">
           <FavoritesSpotlight />
         </div>
