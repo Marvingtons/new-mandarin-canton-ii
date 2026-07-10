@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import BilingualHeading from "@/components/BilingualHeading";
 import { SpicyMark } from "@/components/MenuSection";
 import { photos } from "@/data/images";
 import type { SitePhoto } from "@/data/images";
@@ -40,8 +39,28 @@ const items: MenuItem[] = (
 ).slice(0, COUNT);
 
 /** Static rail elements — hoisted so re-renders bail out of their
-    subtrees (SplitText owns the heading's DOM after mount). */
-const railHeading = <BilingualHeading en="House Favorites" zh="招牌菜" />;
+    subtrees (SplitText owns the heading's DOM after mount).
+    The heading is built locally (not BilingualHeading) because the
+    ghost here bleeds off the rail's LEFT edge and is cropped at the
+    section boundary, instead of reserving room above the English. */
+const railHeading = (
+  <div className="relative">
+    <span
+      aria-hidden="true"
+      lang="zh-Hant"
+      className="sp-ghost font-chinese text-5xl font-bold leading-none text-gold/35 sm:text-6xl"
+    >
+      招牌菜
+    </span>
+    <h2
+      data-bh-text
+      className="relative font-display text-3xl leading-tight text-lacquer sm:text-4xl"
+    >
+      House Favorites
+    </h2>
+    <span aria-hidden="true" className="bh-rule mt-3 block h-px w-12 bg-gold" />
+  </div>
+);
 const railLink = (
   <p>
     <Link
@@ -143,14 +162,16 @@ export default function FavoritesSpotlight() {
     <div data-fav-spotlight className="sp-grid" onKeyDown={onKeyDown}>
       {/* ---- left rail ---- */}
       <div className="sp-rail flex flex-col gap-8">
-        {/* -mt cancels the heading's ghost padding at lg so the English
-            cap-height shares the frames' top baseline */}
-        <div className="lg:-mt-10">{railHeading}</div>
+        {/* -mt-[11px] lifts the English CAP (not the text box) onto the
+            frames' top line at lg — measured: cap sits 11px below the
+            box top at text-4xl/leading-tight */}
+        <div className="lg:-mt-[11px]">{railHeading}</div>
         <p className="max-w-xs font-display text-lg italic leading-snug text-ink/75">
           The dishes our regulars come back for.
         </p>
         {railLink}
-        <div className="mt-auto flex items-center gap-3 pt-2">
+        {/* controls live high on the rail, right below the menu link */}
+        <div className="flex items-center gap-3">
           <button
             type="button"
             aria-label="Previous dish"
@@ -171,11 +192,16 @@ export default function FavoritesSpotlight() {
               →
             </span>
           </button>
-          <span className="ml-2 font-display text-ink" aria-live="polite">
+          <span
+            className="ml-2 inline-flex items-baseline gap-1.5 font-display text-ink"
+            aria-live="polite"
+          >
             <span key={idx} className="sp-count-in inline-block text-2xl">
               {String(idx + 1).padStart(2, "0")}
             </span>
-            <span className="text-sm text-ink/60"> / {String(COUNT).padStart(2, "0")}</span>
+            <span className="text-sm text-ink/60">
+              / {String(COUNT).padStart(2, "0")}
+            </span>
           </span>
         </div>
       </div>
@@ -198,24 +224,33 @@ export default function FavoritesSpotlight() {
         </div>
       </div>
 
-      {/* ---- featured plate (the full detail home) ---- */}
-      <div className="sp-featured-plate mt-4 lg:mt-0">
-        <div key={idx} className="sp-rise" aria-live="polite">
-          <div className="flex items-baseline gap-2">
-            <h3 className="font-display text-2xl text-ink">{featured.name}</h3>
-            {featured.spicy && <SpicyMark />}
-          </div>
-          {featured.chineseName && (
-            <p lang="zh-Hant" className="mt-0.5 font-chinese text-sm text-ink/55">
-              {featured.chineseName}
+      {/* ---- featured plate: paper panel under the frame, matching
+              the site's card plate language (panel is static; only the
+              text inside rises on dish change) ---- */}
+      <div className="sp-featured-plate mt-4 lg:-mt-3">
+        <div className="border-t-2 border-gold bg-cream px-5 py-4">
+          <div key={idx} className="sp-rise" aria-live="polite">
+            <div className="flex items-baseline gap-2">
+              <h3 className="font-display text-2xl text-ink">
+                {featured.name}
+              </h3>
+              {featured.spicy && <SpicyMark />}
+            </div>
+            {featured.chineseName && (
+              <p
+                lang="zh-Hant"
+                className="mt-0.5 font-chinese text-sm text-ink/55"
+              >
+                {featured.chineseName}
+              </p>
+            )}
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-ink/70">
+              {blurbs[featured.id]}
             </p>
-          )}
-          <p className="mt-2 max-w-md text-sm leading-relaxed text-ink/70">
-            {blurbs[featured.id]}
-          </p>
-          <p className="mt-2 font-semibold text-lacquer">
-            ${featured.price.toFixed(2)}
-          </p>
+            <p className="mt-2 font-semibold text-lacquer">
+              ${featured.price.toFixed(2)}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -240,8 +275,10 @@ export default function FavoritesSpotlight() {
               </div>
             </div>
           </div>
-          {/* caption bar UNDER the frame, with real padding */}
-          <div className="flex items-baseline justify-between gap-3 px-1 pb-1 pt-3">
+          {/* caption bar UNDER the frame. At lg the 5px translate drops
+              the TEXT BASELINE onto the featured photo's bottom edge
+              (measured descender) without changing the grid row math. */}
+          <div className="flex items-baseline justify-between gap-3 px-1 pb-1 pt-3 lg:translate-y-[5px] lg:pb-0">
             <span className="sp-name truncate font-display text-sm text-ink">
               {dish.name}
             </span>

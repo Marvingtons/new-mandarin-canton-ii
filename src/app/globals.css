@@ -279,6 +279,19 @@ body {
     grid-row: 2;
   }
 }
+/* rail ghost 招牌菜 — bleeds off the rail's LEFT edge, cropped flush
+   at the section's content boundary (clip-path cuts exactly the
+   overhang: left offset and inset share the ghost's em basis) */
+.sp-ghost {
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  position: absolute;
+  left: -0.45em;
+  top: 50%;
+  transform: translateY(-56%);
+  clip-path: inset(0 0 0 0.45em);
+}
 /* direction-aware curtain wipe for the featured photo */
 @keyframes sp-wipe-ltr {
   from {
@@ -348,6 +361,8 @@ body {
   transition: transform var(--t-med) var(--ease-out-soft);
 }
 .sp-name {
+  /* pinned to the ink token — the button context must never tint it */
+  color: var(--ink);
   transition: color var(--t-fast) var(--ease-out-soft);
 }
 @media (hover: hover) {
