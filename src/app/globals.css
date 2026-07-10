@@ -245,122 +245,88 @@ body {
 }
 
 /* ---- Motion depth: reactive tier (hover) ---- */
-/* FavoritesWheel: looping photo carousel (see FavoritesWheel.tsx).
-   translateX + scale only — photos are never perspective-warped. */
-.fw-stage {
-  /* tight row like the reference: small gutters between cards */
-  --fw-gap: min(262px, 20vw);
-  position: relative;
-  height: 400px;
-  overflow: hidden;
-  /* break out of the content column so the peeks show nearly whole */
-  width: min(1280px, 100vw);
-  margin-left: calc((100% - min(1280px, 100vw)) / 2);
-  touch-action: pan-y; /* vertical page scroll is never captured */
-  /* soft edge fade at the outermost 3% only */
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 3%,
-    #000 97%,
-    transparent
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 3%,
-    #000 97%,
-    transparent
-  );
-}
-.fw-card {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 260px;
-  margin-left: -130px;
-  opacity: var(--o, 1);
-  transform: translate(calc(var(--fw-gap) * var(--d)), -50%)
-    scale(var(--s));
-  transition:
-    transform 480ms var(--ease-out-soft),
-    opacity 480ms var(--ease-out-soft);
-}
-.fw-center {
-  cursor: default; /* the center card isn't a navigation target */
-}
-.fw-side {
-  cursor: pointer; /* side cards center themselves on click */
-}
-/* Hover/focus effects live on inner elements only — they compose with
-   the card's positioning transform, never override it. */
-.fw-inner {
-  transition: transform var(--t-med) var(--ease-out-soft);
-}
-.fw-frame {
-  transition: border-color var(--t-fast) var(--ease-out-soft);
-}
-.fw-glyph {
-  display: inline-block;
-  transition: transform var(--t-fast) var(--ease-out-soft);
-}
-@media (hover: hover) {
-  /* suppressed while cards are in flight (data-settling) */
-  [data-settling="false"] .fw-center:hover .fw-inner {
-    transform: scale(1.04); /* photo breathes in its mount */
+/* FavoritesSpotlight (see FavoritesSpotlight.tsx): asymmetric
+   editorial grid — rail / featured / up-next. The featured photo
+   spans two equal rows, so the stacked up-next cells (frame +
+   caption) combined + gap match its height exactly; the plate row
+   overhangs below on the center column only. */
+@media (min-width: 1024px) {
+  .sp-grid {
+    display: grid;
+    grid-template-columns: 30fr 44fr 26fr;
+    grid-template-rows: 1fr 1fr auto;
+    column-gap: 36px;
+    row-gap: 36px;
   }
-  [data-settling="false"] .fw-center:hover .fw-frame {
-    border-color: var(--gold-light);
+  .sp-rail {
+    grid-column: 1;
+    grid-row: 1 / 4;
   }
-  [data-settling="false"] .fw-side:hover .fw-inner {
-    transform: translateX(var(--lean, 0px));
-    transition-duration: var(--t-fast);
+  .sp-featured-photo {
+    grid-column: 2;
+    grid-row: 1 / 3;
   }
-  [data-settling="false"] .fw-side:hover {
-    opacity: var(--oh, var(--o));
+  .sp-featured-plate {
+    grid-column: 2;
+    grid-row: 3;
   }
-  .fw-btn-prev:hover .fw-glyph {
-    transform: translateX(-2px);
+  .sp-next-1 {
+    grid-column: 3;
+    grid-row: 1;
   }
-  .fw-btn-next:hover .fw-glyph {
-    transform: translateX(2px);
+  .sp-next-2 {
+    grid-column: 3;
+    grid-row: 2;
   }
 }
-/* keyboard focus parity — same responses plus the site focus ring */
-.fw-center:focus-visible .fw-inner {
-  transform: scale(1.04);
+/* direction-aware curtain wipe for the featured photo */
+@keyframes sp-wipe-ltr {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
 }
-.fw-center:focus-visible .fw-frame {
-  border-color: var(--gold-light);
+@keyframes sp-wipe-rtl {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
 }
-.fw-side:focus-visible .fw-inner {
-  transform: translateX(var(--lean, 0px));
+.sp-wipe-ltr {
+  animation: sp-wipe-ltr var(--t-slow) var(--ease-out-soft) both;
 }
-.fw-side:focus-visible {
-  opacity: var(--oh, var(--o));
+.sp-wipe-rtl {
+  animation: sp-wipe-rtl var(--t-slow) var(--ease-out-soft) both;
 }
-.fw-btn:focus-visible {
-  transform: scale(1.08);
+/* plate / small-frame / counter entrances */
+@keyframes sp-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
-.fw-btn-prev:focus-visible .fw-glyph {
-  transform: translateX(-2px);
+.sp-rise {
+  animation: sp-rise-in var(--t-med) var(--ease-out-soft) both;
 }
-.fw-btn-next:focus-visible .fw-glyph {
-  transform: translateX(2px);
+.sp-small-in {
+  animation: sp-rise-in var(--t-med) var(--ease-out-soft) both;
 }
-.fw-dot-btn:focus-visible .fw-dot {
-  transform: scale(1.2);
-  border-color: var(--gold);
+.sp-small-in-2 {
+  animation-delay: 60ms;
 }
-/* hidden cards fade out via the opacity transition (no visibility
-   snap) — they're already past the stage edge and non-interactive */
-.fw-card[data-hidden="true"] {
-  pointer-events: none;
+.sp-count-in {
+  animation: sp-rise-in var(--t-fast) var(--ease-out-soft) both;
 }
-.fw-photo {
-  height: 230px;
-}
-.fw-btn {
+/* arrows — same language as the old wheel controls */
+.sp-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -373,56 +339,50 @@ body {
     transform var(--t-fast) var(--ease-stamp),
     background-color var(--t-fast) var(--ease-out-soft);
 }
-.fw-btn:hover {
-  transform: scale(1.08);
-  background-color: rgba(var(--ink-rgb), 0.05);
+.sp-glyph {
+  display: inline-block;
+  transition: transform var(--t-fast) var(--ease-out-soft);
 }
-.fw-dot-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 44px;
+/* up-next hover: photo breathes, name warms to lacquer */
+.sp-inner {
+  transition: transform var(--t-med) var(--ease-out-soft);
 }
-.fw-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 9999px;
-  transition:
-    background-color var(--t-fast) var(--ease-out-soft),
-    border-color var(--t-fast) var(--ease-out-soft),
-    transform var(--t-fast) var(--ease-stamp);
+.sp-name {
+  transition: color var(--t-fast) var(--ease-out-soft);
 }
 @media (hover: hover) {
-  /* inactive dots only: stamp-scale + darken */
-  .fw-dot-btn[aria-current="false"]:hover .fw-dot {
-    transform: scale(1.2);
-    border-color: var(--gold);
+  .sp-btn:hover {
+    transform: scale(1.08);
+    background-color: rgba(var(--ink-rgb), 0.05);
+  }
+  .sp-btn-prev:hover .sp-glyph {
+    transform: translateX(-2px);
+  }
+  .sp-btn-next:hover .sp-glyph {
+    transform: translateX(2px);
+  }
+  .sp-next:hover .sp-inner {
+    transform: scale(1.04);
+  }
+  .sp-next:hover .sp-name {
+    color: var(--lacquer);
   }
 }
-@keyframes fw-detail-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+/* keyboard focus parity */
+.sp-btn:focus-visible {
+  transform: scale(1.08);
 }
-.fw-detail-in {
-  animation: fw-detail-in 200ms var(--ease-out-soft);
+.sp-btn-prev:focus-visible .sp-glyph {
+  transform: translateX(-2px);
 }
-@media (max-width: 767px) {
-  .fw-stage {
-    --fw-gap: 62vw;
-    height: 370px;
-  }
-  .fw-card {
-    width: 210px;
-    margin-left: -105px;
-  }
-  .fw-photo {
-    height: 200px;
-  }
+.sp-btn-next:focus-visible .sp-glyph {
+  transform: translateX(2px);
+}
+.sp-next:focus-visible .sp-inner {
+  transform: scale(1.04);
+}
+.sp-next:focus-visible .sp-name {
+  color: var(--lacquer);
 }
 /* Review card: quieter — the gold rule under the quote extends */
 .kw-rule {
@@ -575,37 +535,30 @@ body {
   .cat-link::after,
   .brand-seal,
   .arrow-link .arrow,
-  .fw-card,
-  .fw-btn,
-  .fw-dot {
+  .sp-btn,
+  .sp-glyph,
+  .sp-inner {
     transition: none;
   }
   .kw-card:hover .kw-rule,
   .brand-link:hover .brand-seal,
   .arrow-link:hover .arrow,
-  .fw-btn:hover,
-  .fw-btn:focus-visible,
-  .fw-dot-btn[aria-current="false"]:hover .fw-dot,
-  .fw-dot-btn:focus-visible .fw-dot {
+  .sp-btn:hover,
+  .sp-btn:focus-visible,
+  .sp-btn-prev:hover .sp-glyph,
+  .sp-btn-next:hover .sp-glyph,
+  .sp-btn-prev:focus-visible .sp-glyph,
+  .sp-btn-next:focus-visible .sp-glyph,
+  .sp-next:hover .sp-inner,
+  .sp-next:focus-visible .sp-inner {
     transform: none;
   }
-  /* motion effects off; border-brighten and opacity-rise stay
-     (non-motion) */
-  .fw-inner,
-  .fw-glyph {
-    transition: none;
-  }
-  [data-settling="false"] .fw-center:hover .fw-inner,
-  .fw-center:focus-visible .fw-inner,
-  [data-settling="false"] .fw-side:hover .fw-inner,
-  .fw-side:focus-visible .fw-inner,
-  .fw-btn-prev:hover .fw-glyph,
-  .fw-btn-next:hover .fw-glyph,
-  .fw-btn-prev:focus-visible .fw-glyph,
-  .fw-btn-next:focus-visible .fw-glyph {
-    transform: none;
-  }
-  .fw-detail-in {
+  /* spotlight swaps become instant; the name-color change stays */
+  .sp-wipe-ltr,
+  .sp-wipe-rtl,
+  .sp-rise,
+  .sp-small-in,
+  .sp-count-in {
     animation: none;
   }
   /* ambient motion off */

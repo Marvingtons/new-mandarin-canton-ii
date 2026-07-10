@@ -233,26 +233,8 @@ export default function HomeChoreography() {
           );
       });
 
-      /* ---- SCENE 5: House Favorites wheel — ambient drift garnish.
-         Scrubbed ±12px on the wheel's inner wrapper only (cards keep
-         their own transforms); never advances the active card. ---- */
-      const drift = document.querySelector<HTMLElement>("[data-fw-drift]");
-      if (drift) {
-        gsap.fromTo(
-          drift,
-          { x: -12 },
-          {
-            x: 12,
-            ease: "none",
-            scrollTrigger: {
-              trigger: "[data-fav-wheel]",
-              start: "top bottom",
-              end: "bottom top",
-              scrub: 1,
-            },
-          },
-        );
-      }
+      /* (Scene 5 retired with the wheel — the spotlight grid's
+         featured/plate/up-next transitions carry this section now.) */
 
       /* ---- SCENE 6: seal signature — the closing echo ---- */
       const sig = document.querySelector<HTMLElement>("[data-seal-sig]");

@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import BilingualHeading from "@/components/BilingualHeading";
-import FavoritesWheel from "@/components/FavoritesWheel";
+import FavoritesSpotlight from "@/components/FavoritesSpotlight";
 import HeroVideo from "@/components/HeroVideo";
 import HomeChoreography from "@/components/HomeChoreography";
 import OpenNowChip from "@/components/OpenNowChip";
@@ -20,21 +20,11 @@ export default function HomePage() {
       <HomeChoreography />
       <HeroVideo />
 
-      {/* House Favorites */}
+      {/* House Favorites — spotlight grid (heading, link, and controls
+          live in the component's left rail) */}
       <section className="bg-paper">
         <div className="mx-auto max-w-5xl px-4 py-16">
-          <BilingualHeading en="House Favorites" zh="招牌菜" />
-          <div className="mt-8">
-            <FavoritesWheel />
-          </div>
-          <p className="mt-9">
-            <Link
-              href="/menu"
-              className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
-            >
-              See the full menu <span className="arrow">→</span>
-            </Link>
-          </p>
+          <FavoritesSpotlight />
         </div>
       </section>
 
