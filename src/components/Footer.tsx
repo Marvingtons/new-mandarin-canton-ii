@@ -1,0 +1,94 @@
+import Seal from "@/components/Seal";
+import { restaurant } from "@/data/restaurant";
+import type { DayOfWeek } from "@/data/restaurant";
+
+const week: ReadonlyArray<readonly [DayOfWeek, string]> = [
+  ["monday", "Mon"],
+  ["tuesday", "Tue"],
+  ["wednesday", "Wed"],
+  ["thursday", "Thu"],
+  ["friday", "Fri"],
+  ["saturday", "Sat"],
+  ["sunday", "Sun"],
+];
+
+export default function Footer() {
+  const telHref = `tel:+1${restaurant.phone.replace(/\D/g, "")}`;
+
+  return (
+    <footer className="mt-auto border-t-4 border-double border-gold/60 bg-ink text-ivory">
+      <div className="mx-auto grid max-w-5xl gap-10 px-4 py-12 sm:grid-cols-3">
+        <div>
+          <Seal size={44} />
+          <p className="mt-3 font-display text-xl">{restaurant.name}</p>
+          {restaurant.chineseName && (
+            <p
+              lang="zh-Hant"
+              className="mt-1 font-chinese text-sm tracking-[0.35em] text-gold-light"
+            >
+              {restaurant.chineseName}
+            </p>
+          )}
+          <p className="mt-4 text-sm leading-relaxed text-ivory/70">
+            Traditional Cantonese &amp; Mandarin cuisine in Chula Vista,
+            California.
+          </p>
+        </div>
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+            Find Us{" "}
+            <span lang="zh-Hant" className="font-chinese tracking-normal">
+              地址
+            </span>
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-ivory/85">
+            {restaurant.address.street}
+            <br />
+            {restaurant.address.city}, {restaurant.address.state}{" "}
+            {restaurant.address.zip}
+          </p>
+          <a
+            href={telHref}
+            className="mt-3 inline-block text-sm text-gold-light transition-colors hover:text-gold"
+          >
+            {restaurant.phone}
+          </a>
+        </div>
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+            Hours{" "}
+            <span lang="zh-Hant" className="font-chinese tracking-normal">
+              營業時間
+            </span>
+          </h2>
+          <ul className="mt-3 space-y-1 text-sm text-ivory/85">
+            {week.map(([day, abbr]) => {
+              const h = restaurant.hours[day];
+              return (
+                <li key={day} className="flex justify-between gap-4">
+                  <span>{abbr}</span>
+                  <span>{h.closed ? "Closed" : `${h.open} – ${h.close}`}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+      <div className="border-t border-ivory/10 py-4 text-center text-xs text-ivory/50">
+        <p>
+          © {new Date().getFullYear()} {restaurant.name}
+        </p>
+        <p className="mt-1">
+          <a
+            href="https://norvix.ai"
+            target="_blank"
+            rel="noopener"
+            className="text-ivory/40 transition-colors hover:text-ivory/60"
+          >
+            Website by Norvix
+          </a>
+        </p>
+      </div>
+    </footer>
+  );
+}
