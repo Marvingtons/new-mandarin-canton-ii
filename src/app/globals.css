@@ -294,8 +294,13 @@ body {
 @media (min-width: 900px) {
   .spt-grid {
     display: grid;
-    grid-template-columns: 27% 1fr 29%;
-    gap: 44px;
+    /* minmax(0, …) so no column can inflate from content; the middle
+       must dominate. The old 27%/1fr/29% + 44px gutters left the
+       featured column barely wider than a small frame (1.17x) inside
+       the max-w-5xl container — 26% rails + tighter gutters put the
+       featured photo at ~1.6x a small frame at 1440px. */
+    grid-template-columns: minmax(0, 26%) minmax(0, 1fr) minmax(0, 26%);
+    gap: 24px;
     align-items: stretch;
   }
   .spt-rail {
@@ -312,9 +317,12 @@ body {
     margin-top: 24px;
   }
   .spt-ghost {
-    font-size: 150px;
-    left: -0.35em;
-    top: -0.2em;
+    /* bleeds off the rail's LEFT edge (section overflow-hidden crops);
+       sized so its right edge stays behind the heading — it must never
+       extend right of "Favorites" */
+    font-size: 104px;
+    left: -70px;
+    top: -28px;
   }
 }
 /* ---- featured card: ONE object — double gold frame, photo on top,
