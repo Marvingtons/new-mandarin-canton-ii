@@ -136,7 +136,7 @@ function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean })
 /**
  * "Spotlight" House Favorites — one structural CSS grid (rail /
  * featured card / up-next column), align-items:stretch. The featured
- * card's intrinsic height (photo 4/5 + in-card plate) sets the row;
+ * card's intrinsic height (landscape photo + in-card plate) sets the row;
  * the right column stretches to equal it and its two cards flex to
  * fill — the alignment holds at every width by construction.
  *
@@ -325,21 +325,23 @@ export default function FavoritesSpotlight() {
               aria-label={`${dish.name} — bring to spotlight`}
               onClick={() => advance(faceIdx + n, 1)}
             >
+              {/* one framed object, same anatomy as the featured card:
+                  photo + plate strip inside the frame, split by the
+                  gold rule */}
               <div className="spt-small-frame">
                 <div className="relative flex-1 overflow-hidden">
                   <div className="spt-sm-inner absolute inset-0">
                     <DishPanel item={dish} small />
                   </div>
                 </div>
-              </div>
-              {/* caption BELOW the frame, never inside it */}
-              <div className="spt-small-cap">
-                <span className="spt-sm-name truncate font-display">
-                  {dish.name}
-                </span>
-                <span className="spt-sm-price shrink-0">
-                  ${dish.price.toFixed(2)}
-                </span>
+                <div className="spt-sm-plate">
+                  <span className="spt-sm-name truncate font-display">
+                    {dish.name}
+                  </span>
+                  <span className="spt-sm-price shrink-0">
+                    ${dish.price.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </button>
           );

@@ -273,6 +273,8 @@ body {
 .spt-head h2 {
   line-height: 1;
   margin-top: -0.195em;
+  /* "House Favorites" sits on ONE line at every rail width */
+  white-space: nowrap;
 }
 .spt-ghost {
   position: absolute;
@@ -295,34 +297,37 @@ body {
   .spt-grid {
     display: grid;
     /* minmax(0, …) so no column can inflate from content; the middle
-       must dominate. The old 27%/1fr/29% + 44px gutters left the
-       featured column barely wider than a small frame (1.17x) inside
-       the max-w-5xl container — 26% rails + tighter gutters put the
-       featured photo at ~1.6x a small frame at 1440px. */
-    grid-template-columns: minmax(0, 26%) minmax(0, 1fr) minmax(0, 26%);
+       must dominate. Rail at 30% keeps "House Favorites" on one line;
+       the up-next column is trimmed to 24% (not 26%) because inside
+       the max-w-5xl container a 26% right column cannot coexist with
+       the required featured-photo >= 1.6x small-card dominance. */
+    grid-template-columns: minmax(0, 30%) minmax(0, 1fr) minmax(0, 24%);
     gap: 24px;
     align-items: stretch;
   }
   .spt-rail {
+    /* the card columns stretch; the rail floats centered beside them */
     display: block;
+    align-self: center;
   }
   .spt-controls {
     order: 0;
-    margin-top: 42px;
-  }
-  .spt-intro {
     margin-top: 26px;
   }
+  .spt-intro {
+    margin-top: 16px;
+  }
   .spt-link-row {
-    margin-top: 24px;
+    margin-top: 14px;
   }
   .spt-ghost {
-    /* bleeds off the rail's LEFT edge (section overflow-hidden crops);
-       sized so its right edge stays behind the heading — it must never
-       extend right of "Favorites" */
-    font-size: 104px;
-    left: -70px;
-    top: -28px;
+    /* anchored to the heading (spt-head is its containing block), so
+       it rides with the vertically centered rail. Bleeds off the
+       section's left boundary (overflow-hidden crops); its right edge
+       must stay left of the heading's midpoint. */
+    font-size: 130px;
+    left: -300px;
+    top: -30px;
   }
 }
 /* ---- featured card: ONE object — double gold frame, photo on top,
@@ -345,7 +350,10 @@ body {
 }
 @media (min-width: 900px) {
   .spt-photo {
-    aspect-ratio: 4 / 5;
+    /* landscape-leaning: reads as a large plate, not a tall tower.
+       At the 1440px column width this puts the whole featured card
+       (photo + plate) near the ~520px cap with no fixed heights. */
+    aspect-ratio: 4 / 3.4;
     min-height: 0;
   }
 }
@@ -414,6 +422,9 @@ body {
 .spt-small {
   flex: 1;
   min-height: 0;
+  /* flex min-width:auto would let the plate's nowrap name dictate the
+     card width (overflowing the row on mobile); 0 lets truncate work */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   text-align: left;
@@ -423,8 +434,12 @@ body {
   opacity: 0.35;
   transition-duration: 140ms;
 }
+/* same anatomy as the featured card: double gold frame holding the
+   photo plus a paper plate strip INSIDE the frame, split by the gold
+   rule — no captions outside the frame */
 .spt-small-frame {
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 150px;
   padding: 3px;
@@ -441,15 +456,20 @@ body {
 .spt-sm-inner {
   transition: transform var(--t-med) var(--ease-out-soft);
 }
-.spt-small-cap {
+.spt-sm-plate {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 12px;
+  min-width: 0;
+  border-top: 2px solid var(--gold);
+  padding: 10px 14px;
+}
+.spt-sm-plate .spt-sm-name {
+  min-width: 0;
 }
 .spt-sm-name {
-  font-size: 15.5px;
+  font-size: 15px;
   line-height: 1;
   color: var(--ink);
   transition: color var(--t-fast) var(--ease-out-soft);
