@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import BilingualHeading from "@/components/BilingualHeading";
+import SectionHeading from "@/components/SectionHeading";
 import FavoritesSpotlight from "@/components/FavoritesSpotlight";
 import HeroVideo from "@/components/HeroVideo";
 import HomeChoreography from "@/components/HomeChoreography";
@@ -8,17 +8,21 @@ import OpenNowChip from "@/components/OpenNowChip";
 import Parallax from "@/components/Parallax";
 import PhotoFrame from "@/components/PhotoFrame";
 import Seal from "@/components/Seal";
+import TrustStrip from "@/components/TrustStrip";
 import { photos } from "@/data/images";
-import { restaurant } from "@/data/restaurant";
+import { restaurant, telHref } from "@/data/restaurant";
 import { reviews } from "@/data/reviews";
 
 export default function HomePage() {
-  const telHref = `tel:+1${restaurant.phone.replace(/\D/g, "")}`;
 
   return (
     <>
       <HomeChoreography />
       <HeroVideo />
+
+      {/* Trust strip — a quiet band of at-a-glance signals. Only renders
+          facts confirmed in restaurant.ts (see TrustStrip). */}
+      <TrustStrip />
 
       {/* House Favorites — spotlight grid (heading, link, and controls
           live in the component's left rail). overflow-hidden crops the
@@ -31,7 +35,7 @@ export default function HomePage() {
 
       {/* The Room — gallery band */}
       <section data-room className="mx-auto max-w-5xl px-4 py-16">
-        <BilingualHeading en="The Room" zh="店裡" />
+        <SectionHeading en="The Room" />
         <p className="mt-6 max-w-xl leading-relaxed text-ink/70">
           Come in — the room is part of the meal.
         </p>
@@ -51,7 +55,7 @@ export default function HomePage() {
 
       {/* Kind Words — the page's rest note, deliberately plain */}
       <section className="mx-auto max-w-5xl px-4 py-16">
-        <BilingualHeading en="Kind Words" />
+        <SectionHeading en="Kind Words" />
         <div className="mt-10 grid gap-6 sm:grid-cols-3">
           {reviews.map((review) => (
             <figure
@@ -97,11 +101,12 @@ export default function HomePage() {
           {/* No scroll-reveal wrapper here — the pin sequence (desktop)
               / two-beat timeline (mobile) IS this band's entrance. */}
           <div data-st-lockup>
-            <span
-              lang="zh-Hant"
-              className="st-eyebrow font-chinese text-base font-bold tracking-[0.5em] text-gold"
-            >
-              老味道
+            {/* The stamp target for SCENE 4's pin. It used to be 老味道;
+                the seal says the same thing without asking an English
+                reader to decode it — and the existing scale+rotation
+                stamp now reads as what it always looked like. */}
+            <span className="st-eyebrow">
+              <Seal size={54} />
             </span>
             <div aria-hidden="true" className="st-rule" />
             <p className="st-line mt-5 font-display text-3xl leading-tight sm:text-5xl">
@@ -121,7 +126,7 @@ export default function HomePage() {
             />
           </Parallax>
           <div>
-            <BilingualHeading en="Our Story" zh="我們的故事" />
+            <SectionHeading en="Our Story" />
             <p className="mt-7 max-w-xl leading-relaxed text-ink/80">
               New Mandarin Canton II is a small, family-run room on Telegraph
               Canyon Road — calligraphy on the walls, an altar by the door
@@ -201,10 +206,7 @@ export default function HomePage() {
             <div className="grid gap-8 text-center sm:grid-cols-3">
               <div>
                 <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-                  Hours{" "}
-                  <span lang="zh-Hant" className="font-chinese tracking-normal">
-                    營業時間
-                  </span>
+                  Hours
                 </h2>
                 <p className="mt-3 text-sm leading-relaxed text-ivory/85">
                   Open 7 days · 11 AM to close
@@ -221,10 +223,7 @@ export default function HomePage() {
               </div>
               <div>
                 <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-                  Find Us{" "}
-                  <span lang="zh-Hant" className="font-chinese tracking-normal">
-                    地址
-                  </span>
+                  Find Us
                 </h2>
                 <p className="mt-3 text-sm leading-relaxed text-ivory/85">
                   {restaurant.address.street}
@@ -235,10 +234,7 @@ export default function HomePage() {
               </div>
               <div>
                 <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-                  Call{" "}
-                  <span lang="zh-Hant" className="font-chinese tracking-normal">
-                    電話
-                  </span>
+                  Call
                 </h2>
                 <a
                   href={telHref}

@@ -1,5 +1,8 @@
+import Established from "@/components/Established";
+import LocationMap from "@/components/LocationMap";
+import OpenNowChip from "@/components/OpenNowChip";
 import Seal from "@/components/Seal";
-import { restaurant } from "@/data/restaurant";
+import { restaurant, telHref } from "@/data/restaurant";
 import type { DayOfWeek } from "@/data/restaurant";
 
 const week: ReadonlyArray<readonly [DayOfWeek, string]> = [
@@ -13,8 +16,6 @@ const week: ReadonlyArray<readonly [DayOfWeek, string]> = [
 ];
 
 export default function Footer() {
-  const telHref = `tel:+1${restaurant.phone.replace(/\D/g, "")}`;
-
   return (
     <footer className="mt-auto border-t-4 border-double border-gold/60 bg-ink text-ivory">
       <div className="mx-auto grid max-w-5xl gap-10 px-4 py-12 sm:grid-cols-3">
@@ -29,17 +30,16 @@ export default function Footer() {
               {restaurant.chineseName}
             </p>
           )}
+          {/* The one heritage beat in the footer — sits with the seal,
+              not with the copy, so the two read as one lockup. */}
+          <Established withTenure className="mt-4" />
           <p className="mt-4 text-sm leading-relaxed text-ivory/70">
-            Traditional Cantonese &amp; Mandarin cuisine in Chula Vista,
-            California.
+            {restaurant.tagline}
           </p>
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            Find Us{" "}
-            <span lang="zh-Hant" className="font-chinese tracking-normal">
-              地址
-            </span>
+            Find Us
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-ivory/85">
             {restaurant.address.street}
@@ -47,19 +47,17 @@ export default function Footer() {
             {restaurant.address.city}, {restaurant.address.state}{" "}
             {restaurant.address.zip}
           </p>
+          <LocationMap className="mt-4" />
           <a
             href={telHref}
-            className="mt-3 inline-block text-sm text-gold-light transition-colors hover:text-gold"
+            className="mt-4 inline-block text-sm text-gold-light transition-colors hover:text-gold"
           >
             {restaurant.phone}
           </a>
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            Hours{" "}
-            <span lang="zh-Hant" className="font-chinese tracking-normal">
-              營業時間
-            </span>
+            Hours
           </h2>
           <ul className="mt-3 space-y-1 text-sm text-ivory/85">
             {week.map(([day, abbr]) => {
@@ -72,6 +70,7 @@ export default function Footer() {
               );
             })}
           </ul>
+          <OpenNowChip className="mt-4" />
         </div>
       </div>
       <div className="border-t border-ivory/10 py-4 text-center text-xs text-ivory/50">

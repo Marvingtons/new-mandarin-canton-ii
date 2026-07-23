@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { SplitText } from "gsap/SplitText";
 import { setHeaderSolid } from "@/lib/headerState";
+import { useIsomorphicLayoutEffect } from "@/lib/useIsomorphicLayoutEffect";
 
 /**
  * Homepage scroll choreography (GSAP + ScrollTrigger, riding Lenis).
@@ -16,7 +16,12 @@ import { setHeaderSolid } from "@/lib/headerState";
  * --ease-stamp ≈ back.out(1.7).
  */
 export default function HomeChoreography() {
-  useEffect(() => {
+  // MUST be a layout effect, not useEffect. SCENE 4 pins [data-statement],
+  // which makes ScrollTrigger wrap that <section> in a .pin-spacer — the
+  // section's DOM parent stops being <main>, while React still thinks it is.
+  // Only a layout-phase cleanup reverts that before React's mutation phase
+  // calls main.removeChild(section). See useIsomorphicLayoutEffect.
+  useIsomorphicLayoutEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     gsap.registerPlugin(ScrollTrigger, SplitText);

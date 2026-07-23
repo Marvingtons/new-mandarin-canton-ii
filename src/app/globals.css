@@ -276,16 +276,6 @@ body {
   /* "House Favorites" sits on ONE line at every rail width */
   white-space: nowrap;
 }
-.spt-ghost {
-  position: absolute;
-  left: -28px;
-  top: -18px;
-  pointer-events: none;
-  user-select: none;
-  white-space: nowrap;
-  font-size: 96px;
-  line-height: 1;
-}
 .spt-rule {
   display: block;
   margin-top: 14px;

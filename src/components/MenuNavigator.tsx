@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { SplitText } from "gsap/SplitText";
 import { getLenis } from "@/lib/lenisRef";
+import { useIsomorphicLayoutEffect } from "@/lib/useIsomorphicLayoutEffect";
 
 /** Strong in-out (quart): quick through the middle, gentle landing. */
 const easeFlight = (t: number): number =>
@@ -23,7 +23,11 @@ const easeFlight = (t: number): number =>
  *   fires when arrived at by flight (standard enter detection)
  */
 export default function MenuNavigator() {
-  useEffect(() => {
+  // Layout effect, not useEffect: SplitText replaces each heading's text node
+  // with per-character spans, so split.revert() has to restore the original
+  // nodes during React's mutation phase — before React removes those headings
+  // on unmount. See useIsomorphicLayoutEffect.
+  useIsomorphicLayoutEffect(() => {
     const nav = document.querySelector<HTMLElement>(
       'nav[aria-label="Menu categories"]',
     );

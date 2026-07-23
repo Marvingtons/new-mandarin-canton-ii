@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import OpenNowChip from "@/components/OpenNowChip";
+import OrderTakeout from "@/components/OrderTakeout";
 import { onIntroLifted } from "@/lib/introSignal";
-import { restaurant } from "@/data/restaurant";
+import { restaurant, telHref } from "@/data/restaurant";
+import { ORDER_DIRECT_NOTE } from "@/data/order";
 
 /**
  * Hero footage: /public/hero.mp4 (10s muted loop, 1080p from the 4K
@@ -36,7 +38,6 @@ export default function HeroVideo() {
   const [video, setVideo] = useState<"pending" | "on" | "failed">("pending");
   const videoARef = useRef<HTMLVideoElement>(null);
   const videoBRef = useRef<HTMLVideoElement>(null);
-  const telHref = `tel:+1${restaurant.phone.replace(/\D/g, "")}`;
   // The ghost watermark's scroll drift now lives in HomeChoreography's
   // hero-exit scrub ([data-hero-ghost]).
 
@@ -235,19 +236,28 @@ export default function HeroVideo() {
             className="hero-item mt-3 flex flex-wrap justify-center gap-4 sm:justify-start"
             style={{ transitionDelay: "360ms" }}
           >
+            <OrderTakeout className="inline-flex min-h-12 items-center justify-center bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light">
+              Order Takeout
+            </OrderTakeout>
             <Link
               href="/menu"
-              className="inline-flex min-h-12 items-center justify-center bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light"
+              className="hero-cta-ghost inline-flex min-h-12 items-center justify-center border border-ivory/60 px-7 py-3 font-semibold text-ivory"
             >
               View Menu
             </Link>
+          </div>
+          <p
+            className="hero-item text-[0.7rem] uppercase tracking-[0.12em] text-ivory/75"
+            style={{ transitionDelay: "420ms" }}
+          >
+            {ORDER_DIRECT_NOTE} ·{" "}
             <a
               href={telHref}
-              className="hero-cta-ghost inline-flex min-h-12 items-center justify-center border border-ivory/60 px-7 py-3 font-semibold text-ivory"
+              className="whitespace-nowrap font-semibold text-gold-light underline decoration-gold/60 underline-offset-2 hover:text-gold"
             >
               Call {restaurant.phone}
             </a>
-          </div>
+          </p>
           <div className="hero-item" style={{ transitionDelay: "480ms" }}>
             <OpenNowChip />
           </div>

@@ -1,22 +1,21 @@
 import type { Metadata } from "next";
-import BilingualHeading from "@/components/BilingualHeading";
+import SectionHeading from "@/components/SectionHeading";
 import MenuNavigator from "@/components/MenuNavigator";
 import MenuSection from "@/components/MenuSection";
 import { menu } from "@/data/menu";
-import { restaurant } from "@/data/restaurant";
+import { restaurant, telHref } from "@/data/restaurant";
 
 export const metadata: Metadata = {
   title: "Menu",
 };
 
 export default function MenuPage() {
-  const telHref = `tel:+1${restaurant.phone.replace(/\D/g, "")}`;
 
   return (
     <>
       <MenuNavigator />
       <div className="mx-auto max-w-5xl px-4 pb-5 pt-8">
-        <BilingualHeading as="h1" en="Menu" zh="菜單" />
+        <SectionHeading as="h1" en="Menu" />
         {/* TODO: current items are examples — swap in the real menu (later pass) */}
         <p className="mt-4 text-sm italic text-ink/60">
           Prices and availability subject to change — please call{" "}

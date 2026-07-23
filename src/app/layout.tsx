@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import SmoothScroll from "@/components/SmoothScroll";
+import StickyOrderBar from "@/components/StickyOrderBar";
 import "./globals.css";
 
 // Serif display face with character — headings only.
@@ -51,6 +52,9 @@ export default function RootLayout({
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />
+        {/* Clearance so the fixed mobile bar never covers page footers. */}
+        <div aria-hidden="true" className="h-14 sm:hidden" />
+        <StickyOrderBar />
       </body>
     </html>
   );

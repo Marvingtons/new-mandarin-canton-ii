@@ -47,15 +47,6 @@ const items: MenuItem[] = (
 
 const railHead = (
   <div className="spt-head">
-    {/* ghost 招牌菜 bleeds off the rail's left edge; the SECTION's
-        overflow:hidden crops it (page.tsx) — no clip tricks here */}
-    <span
-      aria-hidden="true"
-      lang="zh-Hant"
-      className="spt-ghost font-chinese font-bold text-gold/[0.13]"
-    >
-      招牌菜
-    </span>
     <h2
       data-bh-text
       className="relative font-display text-3xl text-lacquer sm:text-4xl"

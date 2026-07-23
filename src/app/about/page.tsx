@@ -1,22 +1,25 @@
 import type { Metadata } from "next";
-import BilingualHeading from "@/components/BilingualHeading";
+import Established from "@/components/Established";
+import SectionHeading from "@/components/SectionHeading";
+import Seal from "@/components/Seal";
 
 export const metadata: Metadata = {
   title: "About",
 };
 
-// Photo slots — TODO: drop real photos in later. The ghost glyph gives
-// each frame a hint of its subject (堂 hall, 香 incense, 廚 kitchen).
-const photoSlots: ReadonlyArray<{ caption: string; glyph: string }> = [
-  { caption: "The dining room", glyph: "堂" },
-  { caption: "The family altar", glyph: "香" },
-  { caption: "From the kitchen", glyph: "廚" },
+// Photo slots — TODO: drop real photos in later. Each empty frame holds
+// a ghosted seal, matching PhotoFrame's placeholder treatment.
+const photoSlots: ReadonlyArray<string> = [
+  "The dining room",
+  "The family altar",
+  "From the kitchen",
 ];
 
 export default function AboutPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 pb-20 pt-8">
-      <BilingualHeading as="h1" en="About Us" zh="關於我們" />
+      <SectionHeading as="h1" en="About Us" />
+      <Established withTenure className="mt-5" />
 
       {/* Pull-quote opening line */}
       <blockquote className="mt-10 border-l-2 border-gold pl-6 font-display text-2xl italic leading-snug text-lacquer sm:text-3xl">
@@ -40,16 +43,10 @@ export default function AboutPage() {
       </div>
 
       <div className="mt-14 grid gap-6 sm:grid-cols-3">
-        {photoSlots.map(({ caption, glyph }) => (
+        {photoSlots.map((caption) => (
           <figure key={caption}>
             <div className="flex aspect-[4/3] items-center justify-center border border-gold/50 bg-paper">
-              <span
-                aria-hidden="true"
-                lang="zh-Hant"
-                className="select-none font-chinese text-5xl text-gold/40"
-              >
-                {glyph}
-              </span>
+              <Seal size={52} className="opacity-35" />
               <span className="sr-only">Photo coming soon</span>
             </div>
             <figcaption className="mt-2 text-sm italic text-ink/60">
