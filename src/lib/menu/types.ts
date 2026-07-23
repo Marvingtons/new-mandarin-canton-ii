@@ -26,18 +26,39 @@ export interface MenuModifierGroup {
   modifiers: MenuModifier[];
 }
 
+/**
+ * A selectable size / price tier for an item, e.g. individual vs. party tray.
+ * Money is INTEGER CENTS. Every orderable item has at least one size; a
+ * single-size item simply has one entry (no size choice shown).
+ */
+export interface MenuSize {
+  id: string;
+  label: string;
+  priceCents: number;
+  /** e.g. "feeds 8–10". Optional, display-only. */
+  servesNote?: string;
+}
+
 export interface MenuItem {
   id: string;
   nameEn: string;
   nameZh: string | null;
   description: string | null;
-  /** Integer cents. Only FIXED-price items reach this type. */
+  /**
+   * Base individual price, integer cents. Retained for callers that predate
+   * sizes and for the seed adapter. `itemSizes()` is the authoritative reader:
+   * it returns `sizes` when present, otherwise a single tier from this value.
+   */
   priceCents: number;
+  /** Price tiers (individual / party tray / …). Optional; see itemSizes(). */
+  sizes?: MenuSize[];
   categoryId: string;
   modifierGroups: MenuModifierGroup[];
   spicy: boolean;
   vegetarian: boolean;
   chefSpecial: boolean;
+  /** False = 86'd / hidden; the cart and checkout refuse it. Defaults true. */
+  available?: boolean;
 }
 
 export interface MenuCategory {
@@ -70,4 +91,20 @@ export function indexItems(menu: Menu): Map<string, MenuItem> {
     for (const item of category.items) map.set(item.id, item);
   }
   return map;
+}
+
+/**
+ * Authoritative size reader. Returns the item's explicit `sizes` when set,
+ * otherwise a single implicit tier derived from `priceCents`. Both the cart
+ * (display) and the server price recompute (authority) resolve sizes through
+ * this, so a single-price item and a multi-size item are handled identically.
+ */
+export function itemSizes(item: MenuItem): MenuSize[] {
+  if (item.sizes && item.sizes.length > 0) return item.sizes;
+  return [{ id: "regular", label: "Regular", priceCents: item.priceCents }];
+}
+
+/** True unless the item is explicitly marked unavailable. */
+export function isAvailable(item: MenuItem): boolean {
+  return item.available !== false;
 }

@@ -1,7 +1,7 @@
 import { revalidateTag } from "next/cache";
 import { timingSafeEqual } from "node:crypto";
 import { requireRevalidateSecret } from "@/config/tenant.server";
-import { MENU_CACHE_TAG } from "@/lib/menu/getMenu";
+import { MENU_CACHE_TAG } from "@/lib/menu/source";
 
 /**
  * POST /api/revalidate-menu

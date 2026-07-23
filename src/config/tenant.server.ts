@@ -123,6 +123,25 @@ function resolveOrderingHours(): Record<DayKey, OrderingWindow> {
   return out;
 }
 
+/**
+ * Resolve the tax rate to integer basis points from either
+ * TENANT_TAX_RATE_BPS (preferred, e.g. "775") or TAX_RATE (a decimal like
+ * "0.0775"). Returns null when neither is set, which makes checkout refuse
+ * to charge rather than guess a rate.
+ */
+function resolveTaxRateBps(bpsRaw: string | null): number | null {
+  if (bpsRaw !== null) {
+    const bps = Number.parseInt(bpsRaw, 10);
+    return Number.isFinite(bps) ? bps : null;
+  }
+  const rateRaw = env("TAX_RATE");
+  if (rateRaw === null) return null;
+  const rate = Number.parseFloat(rateRaw);
+  if (!Number.isFinite(rate) || rate < 0) return null;
+  // 0.0775 -> 775 bps. Round to avoid float dust (0.0775 * 10000 = 774.999…).
+  return Math.round(rate * 10000);
+}
+
 /* ------------------------------------------------------------- public ---- */
 
 /**
@@ -139,7 +158,10 @@ export function publicTenant(): PublicTenantConfig {
     timezone: env("TENANT_TIMEZONE") ?? "America/Los_Angeles",
     // ⚠️ CONFIRM: null until the real Chula Vista rate is supplied. Checkout
     // refuses to charge while this is null rather than guessing a tax rate.
-    taxRateBps: taxRaw === null ? null : Number.parseInt(taxRaw, 10),
+    // Preferred form is TENANT_TAX_RATE_BPS (exact integer basis points);
+    // TAX_RATE (a decimal like 0.0775) is accepted as a fallback and
+    // converted to bps.
+    taxRateBps: resolveTaxRateBps(taxRaw),
     // Empty array = tips not offered. ⚠️ CONFIRM whether pickup takes tips.
     tipPresets: tipsRaw
       ? tipsRaw
