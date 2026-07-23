@@ -55,7 +55,7 @@ export default function Header() {
         isHome ? "fixed inset-x-0 top-0 z-50" : ""
       } ${overHero ? "border-transparent bg-transparent" : "border-gold/60 bg-lacquer"}`}
     >
-      <div className="mx-auto flex max-w-5xl flex-col items-center gap-3 px-4 py-4 sm:flex-row sm:justify-between">
+      <div className="container-wide flex flex-col items-center gap-3 py-4 sm:flex-row sm:justify-between">
         <Link href="/" className="brand-link flex items-center gap-3">
           <Seal size={40} className="brand-seal shrink-0" />
           <span className="text-left">

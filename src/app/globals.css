@@ -34,6 +34,12 @@
   --t-ambient: 2.4s;
   --ease-out-soft: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Wide container — nav + hero only. Deliberately separate from the
+     site-wide max-w-5xl reading width so the logo anchors top-left and
+     the hero text finds a sensible left margin on wide screens. */
+  --container-wide-max: 1520px;
+  --container-wide-pad: clamp(1.25rem, 4vw, 4rem);
 }
 
 @theme inline {
@@ -591,6 +597,13 @@ body {
 .arrow-link:hover .arrow {
   transform: translateX(4px);
 }
+/* Wide container for nav + hero (see --container-wide-* tokens). */
+.container-wide {
+  margin-inline: auto;
+  max-width: var(--container-wide-max);
+  padding-inline: var(--container-wide-pad);
+}
+
 /* Token-driven color transitions for CTAs/links */
 .token-colors {
   transition:

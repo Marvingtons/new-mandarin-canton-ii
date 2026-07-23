@@ -211,7 +211,7 @@ export default function HeroVideo() {
         data-hero-text
         className={`absolute inset-x-0 bottom-0 z-20 ${ready ? "hero-ready" : ""}`}
       >
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-4 pb-16 text-center sm:items-start sm:text-left">
+        <div className="container-wide flex flex-col items-center gap-4 pb-16 text-center sm:items-start sm:text-left">
           {restaurant.chineseName && (
             <span
               lang="zh-Hant"
