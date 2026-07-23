@@ -48,6 +48,13 @@ async function cloverMenuSource(): Promise<Menu> {
     const { menu, report } = normalizeInventory(raw, fetchedAt);
     logNormalizeReport(report);
 
+    // TODO(confirm): map Clover size/price VARIANTS onto MenuItem.sizes[] so
+    // party-tray pricing survives the Clover swap. normalizeInventory currently
+    // emits a single priceCents per item (itemSizes() then yields one "Regular"
+    // tier). Modeling variants correctly needs a live populated merchant to
+    // inspect how sizes are represented (item variants vs. a size modifier
+    // group). Until then, MENU_SOURCE=clover serves single-size items.
+
     if (menu.categories.every((cat) => cat.items.length === 0)) {
       console.warn(
         "[menu] Clover inventory came back EMPTY — falling back to the seed menu. " +

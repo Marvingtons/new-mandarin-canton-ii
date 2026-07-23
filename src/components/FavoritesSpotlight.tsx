@@ -15,31 +15,35 @@ const WIPE_MS = 620;
 /** Plate/counter/smalls swap their content at this point of the wipe. */
 const SWAP_MS = 220;
 
-/** Homepage-only blurbs — the menu page stays description-free. */
+/** Homepage-only blurbs — the menu page stays description-free. Keyed by the
+ *  Specials item ids in src/data/menu.ts. */
 const blurbs: Record<string, string> = {
-  "honey-walnut-shrimp": "Crisp shrimp in a honey glaze with candied walnuts.",
-  "honey-walnut-chicken": "The house glaze and candied walnuts, with chicken.",
-  "kung-pao-san-shein":
+  "mandarin-special":
+    "Duck, shrimp, chicken & roast pork with vegetables in the chef's sauce.",
+  oceania:
+    "Shrimp, scallops, squid & fish fillet with snow peas and vegetables.",
+  "orange-flavored-chicken-special":
+    "Crisp chicken in the chef's special tangerine sauce.",
+  "salted-pepper-chicken-wings-special":
+    "Crispy fried wings sautéed with salt, pepper & hot chili.",
+  "kung-po-san-shein":
     "Shrimp, chicken & beef in classic kung pao style — peanuts, chilies, heat.",
+  "mongolian-beef-special":
+    "Sliced tenderloin with jade-green scallions in a natural sauce.",
+  "honey-walnut-shrimp": "Crisp shrimp in a honey glaze with candied walnuts.",
   "upside-down-pan-fried-noodles":
     "A crisp noodle pillow under stir-fried meats and vegetables.",
-  "crispy-game-hen": "Whole game hen, fried crisp, salt-pepper seasoning.",
-  // TODO: replace with real description from owners
-  "mandarin-house-special":
-    "Ask about the house special — every regular has a theory.",
 };
 
 const dishPhotoByItemId: Record<string, SitePhoto> = {
-  "mandarin-house-special": photos.dishMandarinSpecial,
+  "mandarin-special": photos.dishMandarinSpecial,
+  "kung-po-san-shein": photos.dishKungPaoSanShein,
   "honey-walnut-shrimp": photos.dishHoneyWalnutShrimp,
-  "honey-walnut-chicken": photos.dishHoneyWalnutChicken,
-  "kung-pao-san-shein": photos.dishKungPaoSanShein,
-  "crispy-game-hen": photos.dishCrispyGameHen,
   "upside-down-pan-fried-noodles": photos.dishPanFriedNoodles,
 };
 
 const items: MenuItem[] = (
-  menu.find((c) => c.id === "mandarin-specialties")?.items ?? []
+  menu.find((c) => c.id === "specials")?.items ?? []
 ).slice(0, COUNT);
 
 /* ---- static rail pieces, hoisted so re-renders bail out of their
@@ -69,7 +73,7 @@ const railIntro = (
 const railLink = (
   <p data-spt-rail-item className="spt-link-row">
     <Link
-      href="/menu#mandarin-specialties"
+      href="/menu#specials"
       className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
     >
       See the full menu <span className="arrow">→</span>
@@ -80,7 +84,7 @@ const railLink = (
 /** Photo or tone-panel placeholder, filling its positioned parent. */
 function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean }) {
   const photo = dishPhotoByItemId[item.id];
-  if (photo.src) {
+  if (photo?.src) {
     return (
       <Image
         src={photo.src}
@@ -95,7 +99,7 @@ function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean })
     <>
       <div
         className="absolute inset-0"
-        style={{ backgroundColor: photo.tone ?? "var(--paper)" }}
+        style={{ backgroundColor: photo?.tone ?? "var(--paper)" }}
       />
       <div
         aria-hidden="true"
