@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import SectionHeading from "@/components/SectionHeading";
 import MenuNavigator from "@/components/MenuNavigator";
 import MenuSection from "@/components/MenuSection";
-import { menu } from "@/data/menu";
+import MenuCombos from "@/components/MenuCombos";
+import { menu, combos } from "@/data/menu";
 import { restaurant, telHref } from "@/data/restaurant";
 import { ORDER_DIRECT_NOTE } from "@/data/order";
 
@@ -57,13 +58,13 @@ export default function OrderPage() {
           data-lenis-prevent
           className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 py-3 text-sm"
         >
-          {menu.map((category) => (
-            <li key={category.id}>
+          {[...menu, ...combos].map((section) => (
+            <li key={section.id}>
               <a
-                href={`#${category.id}`}
+                href={`#${section.id}`}
                 className="cat-link token-colors whitespace-nowrap border border-transparent px-3 py-1 font-semibold text-lacquer hover:border-gold/60"
               >
-                {category.name}
+                {section.name}
               </a>
             </li>
           ))}
@@ -73,6 +74,9 @@ export default function OrderPage() {
       <div className="mx-auto max-w-5xl px-4 pb-24">
         {menu.map((category) => (
           <MenuSection key={category.id} category={category} />
+        ))}
+        {combos.map((section) => (
+          <MenuCombos key={section.id} section={section} />
         ))}
       </div>
     </>
