@@ -6,7 +6,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
-  useRef,
+  useState,
   type ReactNode,
 } from "react";
 import type { Menu, MenuItem, MenuModifier, MenuSize } from "@/lib/menu/types";
@@ -127,7 +127,7 @@ export function CartProvider({
   children: ReactNode;
 }) {
   const [state, dispatch] = useReducer(reducer, { lines: [] });
-  const hydratedRef = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
 
   // Rehydrate from sessionStorage once, after mount. Initial client render
   // matches the server (empty cart), so there is no hydration mismatch.
@@ -141,18 +141,23 @@ export function CartProvider({
     } catch {
       /* corrupt storage — start empty */
     }
-    hydratedRef.current = true;
+    // Loading persisted cart state after mount is the hydration-safe pattern:
+    // the server and first client render are both empty, and we flip to the
+    // stored cart only post-hydration. Reading storage in a useState
+    // initializer would instead cause an SSR/client mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHydrated(true);
   }, []);
 
-  // Persist on every change (after the first hydrate pass).
+  // Persist on every change, once the initial hydrate pass has completed.
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (!hydrated) return;
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state.lines));
     } catch {
       /* storage full / unavailable — non-fatal */
     }
-  }, [state.lines]);
+  }, [state.lines, hydrated]);
 
   const itemIndex = useMemo(() => indexItems(menu), [menu]);
 
@@ -192,7 +197,7 @@ export function CartProvider({
       detailedLines,
       itemCount,
       subtotalCents,
-      hydrated: hydratedRef.current,
+      hydrated,
       addItem: (input) =>
         dispatch({ type: "add", line: { ...input, lineId: nextLineId() } }),
       updateQuantity: (lineId, quantity) =>
@@ -200,7 +205,7 @@ export function CartProvider({
       remove: (lineId) => dispatch({ type: "remove", lineId }),
       clear: () => dispatch({ type: "clear" }),
     };
-  }, [state.lines, detailedLines]);
+  }, [state.lines, detailedLines, hydrated]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

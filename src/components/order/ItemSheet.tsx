@@ -13,6 +13,9 @@ const MAX_INSTRUCTIONS = 200;
  * Item detail sheet — modal on desktop, bottom sheet on mobile. Size toggle,
  * modifier groups (min/max enforced), quantity stepper, special instructions,
  * and an Add button whose price updates live. Everything is PICKUP.
+ *
+ * The wrapper handles the null case and keys the inner sheet by item id, so a
+ * fresh item remounts with clean state (no reset-in-effect needed).
  */
 export default function ItemSheet({
   item,
@@ -21,32 +24,33 @@ export default function ItemSheet({
   item: MenuItem | null;
   onClose: () => void;
 }) {
-  const { addItem } = useCart();
-  const sizes = item ? itemSizes(item) : [];
+  if (!item) return null;
+  return <ItemSheetInner key={item.id} item={item} onClose={onClose} />;
+}
 
-  const [sizeId, setSizeId] = useState<string>("");
+function ItemSheetInner({
+  item,
+  onClose,
+}: {
+  item: MenuItem;
+  onClose: () => void;
+}) {
+  const { addItem } = useCart();
+  const sizes = itemSizes(item);
+
+  const [sizeId, setSizeId] = useState<string>(sizes[0]?.id ?? "");
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [quantity, setQuantity] = useState(1);
   const [instructions, setInstructions] = useState("");
 
-  // Reset local state whenever a new item opens.
+  // Escape closes (event subscription — no state reset here).
   useEffect(() => {
-    if (!item) return;
-    setSizeId(itemSizes(item)[0]?.id ?? "");
-    setSelected({});
-    setQuantity(1);
-    setInstructions("");
-  }, [item]);
-
-  // Escape closes.
-  useEffect(() => {
-    if (!item) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [item, onClose]);
+  }, [onClose]);
 
   const modifierIds = useMemo(
     () => Object.values(selected).flat(),
@@ -54,7 +58,7 @@ export default function ItemSheet({
   );
 
   const priceCents = useMemo(() => {
-    if (!item || !sizeId) return 0;
+    if (!sizeId) return 0;
     try {
       return resolveLinePrice(item, sizeId, modifierIds, quantity).lineCents;
     } catch {
@@ -64,15 +68,12 @@ export default function ItemSheet({
 
   // Every group's min/max must be satisfied to enable Add.
   const groupsValid = useMemo(() => {
-    if (!item) return false;
     return item.modifierGroups.every((g) => {
       const count = (selected[g.id] ?? []).length;
       const maxOk = g.maxAllowed == null || count <= g.maxAllowed;
       return count >= g.minRequired && maxOk;
     });
   }, [item, selected]);
-
-  if (!item) return null;
 
   function toggleModifier(groupId: string, modId: string, maxAllowed: number | null) {
     setSelected((prev) => {
@@ -89,7 +90,7 @@ export default function ItemSheet({
   function handleAdd() {
     if (!groupsValid) return;
     addItem({
-      itemId: item!.id,
+      itemId: item.id,
       sizeId,
       modifierIds,
       quantity,

@@ -191,6 +191,31 @@ export function requireMerchantId(): string {
 }
 
 /**
+ * Merchant id without throwing — for the checkout page, which must render a
+ * graceful "payment unavailable" state (not crash) when creds aren't set yet.
+ * The MID is not secret; the iframe needs it on the client.
+ */
+export function cloverMerchantId(): string | null {
+  return env("CLOVER_MERCHANT_ID");
+}
+
+/**
+ * Public ecommerce token (PAKMS / apiAccessKey) for the browser iframe. Read
+ * leniently: an empty value makes the payment form show a clear "unavailable"
+ * message plus a tel: fallback rather than crashing.
+ */
+export function cloverPublicToken(): string | null {
+  return env("NEXT_PUBLIC_CLOVER_PUBLIC_TOKEN");
+}
+
+/** Clover hosted-iframe SDK URL for the active environment. */
+export function cloverSdkUrl(): string {
+  return cloverEnv() === "production"
+    ? "https://checkout.clover.com/sdk.js"
+    : "https://checkout.sandbox.dev.clover.com/sdk.js";
+}
+
+/**
  * Dashboard API token with INVENTORY_R, used ONLY to read the menu.
  * This is NOT the ecommerce sk_ key — Clover's ecommerce tokens cannot read
  * v3 inventory. See README-OPERATIONS.md.
