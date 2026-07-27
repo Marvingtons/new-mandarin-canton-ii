@@ -1,8 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import SectionHeading from "@/components/SectionHeading";
+import CandleGlow from "@/components/CandleGlow";
+import Established from "@/components/Established";
 import FavoritesSpotlight from "@/components/FavoritesSpotlight";
+import GoldCorners from "@/components/GoldCorners";
+import GoldDivider from "@/components/GoldDivider";
 import HeroVideo from "@/components/HeroVideo";
+import IncenseSmoke from "@/components/IncenseSmoke";
+import MandarinCluster from "@/components/MandarinCluster";
 import HomeChoreography from "@/components/HomeChoreography";
 import OpenNowChip from "@/components/OpenNowChip";
 import Parallax from "@/components/Parallax";
@@ -33,33 +39,75 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* The Room — gallery band */}
-      <section data-room className="mx-auto max-w-5xl px-4 py-16">
-        <SectionHeading en="The Room" />
-        <p className="mt-6 max-w-xl leading-relaxed text-ink/70">
-          Come in — the room is part of the meal.
-        </p>
-        <div className="mt-10 grid gap-6 sm:grid-cols-3">
-          <PhotoFrame photo={photos.altar} />
-          {/* offset + reversed curtain so the row feels composed */}
-          <PhotoFrame
-            photo={photos.diningRoom}
-            revealDelay={120}
-            direction="rtl"
-            parallaxAmp={10}
-            className="sm:translate-y-6"
-          />
-          <PhotoFrame photo={photos.buddha} revealDelay={240} />
+      {/* A drawn hairline hands off from the dishes to the room, with
+          the mandarin as its quiet ornament */}
+      <GoldDivider withMandarin />
+
+      {/* The Room — the altar, and the page's emotional heart. Three
+          layers by depth: candle light and incense BEHIND the grid, the
+          grid itself, then the offering of mandarins in FRONT of it. */}
+      <section data-room className="relative overflow-hidden py-16">
+        {/* ambient, behind everything */}
+        <CandleGlow intensity={0.3} x="24%" y="54%" spread="64%" />
+        <IncenseSmoke count={3} intensity={0.5} on="light" />
+
+        <div className="relative mx-auto max-w-5xl px-4">
+          <SectionHeading en="The Room" />
+          <p
+            data-rise
+            className="mt-6 max-w-xl leading-relaxed text-ink/70"
+          >
+            Come in — the room is part of the meal.
+          </p>
+          <div className="mt-10 grid gap-6 sm:grid-cols-3">
+            <PhotoFrame photo={photos.altar} />
+            {/* offset + reversed curtain so the row feels composed */}
+            <PhotoFrame
+              photo={photos.diningRoom}
+              revealDelay={120}
+              direction="rtl"
+              parallaxAmp={10}
+              className="sm:translate-y-6"
+            />
+            <PhotoFrame photo={photos.buddha} revealDelay={240} />
+          </div>
+
+          {/* The heritage beat: the altar line and the founding date,
+              inside a lattice-cornered plaque. Copy confirmed by the
+              owner — do not reword without asking. */}
+          <div
+            data-rise
+            className="relative mx-auto mt-20 max-w-2xl px-8 text-center sm:mt-24"
+          >
+            <GoldCorners size={16} inset={-2} />
+            <p
+              data-rise-item
+              className="font-display text-xl italic leading-relaxed text-ink/80 sm:text-2xl"
+            >
+              The altar by the door has watched over this kitchen since
+              1995 — oranges for fortune, incense for family.
+            </p>
+            <Established withTenure className="mt-6 items-center" />
+          </div>
         </div>
+
+        {/* The offering, in front of the grid — cropped by the section's
+            overflow so it reads as sitting at the edge of the frame.
+            Hidden on small screens, where it would only be clutter. */}
+        <MandarinCluster
+          width={210}
+          className="pointer-events-none absolute bottom-8 left-[-2%] hidden text-gold/40 lg:block"
+        />
       </section>
 
       {/* Kind Words — the page's rest note, deliberately plain */}
       <section className="mx-auto max-w-5xl px-4 py-16">
         <SectionHeading en="Kind Words" />
-        <div className="mt-10 grid gap-6 sm:grid-cols-3">
+        <div data-rise className="mt-10 grid gap-6 sm:grid-cols-3">
           {reviews.map((review) => (
             <figure
               key={review.id}
+              data-rise-item
               className="kw-card border border-gold/30 bg-cream p-6"
             >
               <span
@@ -125,16 +173,19 @@ export default function HomePage() {
               sizes="(min-width: 768px) 40vw, 100vw"
             />
           </Parallax>
-          <div>
+          <div data-rise>
             <SectionHeading en="Our Story" />
-            <p className="mt-7 max-w-xl leading-relaxed text-ink/80">
+            <p
+              data-rise-item
+              className="mt-7 max-w-xl leading-relaxed text-ink/80"
+            >
               New Mandarin Canton II is a small, family-run room on Telegraph
               Canyon Road — calligraphy on the walls, an altar by the door
               with incense and fresh tangerines, and Mandarin, Szechuan &amp;
               Cantonese dishes cooked the way they have always been. No
               reinvention. Just the food.
             </p>
-            <p className="mt-6">
+            <p data-rise-item className="mt-6">
               <Link
                 href="/about"
                 className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
@@ -156,6 +207,11 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* The page's one chop: the rule draws out and the seal presses in
+          where the halves meet. The ONLY red outside lacquer surfaces —
+          budget is two per page and this spends the second. */}
+      <GoldDivider withSeal className="py-4" />
 
       {/* Takeout strip */}
       {/* TODO: add DoorDash/Grubhub buttons if owners confirm */}

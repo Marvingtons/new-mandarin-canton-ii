@@ -5,17 +5,22 @@ import { signalIntroLifted } from "@/lib/introSignal";
 
 const SESSION_KEY = "nmc2-goldleaf-seen";
 /**
- * Gold-leaf choreography (CSS-driven, see globals.css):
+ * Gold-leaf seal press (CSS-driven, see globals.css):
  *   0.00s  lacquer field settles in from black
- *   0.25s  debossed impression of the logo fades in
- *   0.65s  gold fill sweeps across (1.4s, soft feathered mask edge)
- *   1.90s  one glint pass rides the sweep's tail (0.6s)
- *   ~3.0s  hold ends → overlay lifts
+ *   0.15s  debossed impression of the logo fades in
+ *   0.40s  gold fill sweeps across (0.75s, soft feathered mask edge)
+ *   1.00s  the lockup presses down; ink bleeds outward in shadow
+ *   1.05s  one glint pass rides the sweep's tail (0.45s)
+ *   ~1.35s hold ends → overlay lifts
+ *
+ * The whole moment is deliberately under ~1.5s. A preloader is a gift
+ * the first time and a toll gate every time after, which is why it also
+ * plays only once per session.
  */
-const MIN_SHOW_MS = 3000;
+const MIN_SHOW_MS = 1350;
 /** Hard cap — dismiss even if the page never finishes loading. */
 const MAX_WAIT_MS = 8000;
-const FADE_MS = 500;
+const FADE_MS = 400;
 
 const emptySubscribe = (): (() => void) => () => {};
 
@@ -110,6 +115,8 @@ export default function LoadingOverlay() {
       {/* Textured lacquer field, settling in from black */}
       <div aria-hidden="true" className="lo-field" />
       <div className="lo-logo">
+        {/* Ink bleeding out from under the impression, behind the mark */}
+        <div aria-hidden="true" className="lo-bleed" />
         {/* Debossed impression: same SVG, recolored via CSS filter only */}
         {/* eslint-disable-next-line @next/next/no-img-element -- decorative layer of the animation stack */}
         <img className="lo-emboss" src="/fu-yuan-logo.svg" alt="" width={145} height={196} />

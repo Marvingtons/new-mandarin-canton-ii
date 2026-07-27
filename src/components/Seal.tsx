@@ -40,12 +40,28 @@ const VIEWBOX_SMALL = "46.3 17.9 52.4 59.5";
 interface SealProps {
   /** Rendered height in px; width follows the mark's aspect. */
   size?: number;
+  /**
+   * "gold" is the mark as drawn — the default everywhere.
+   *
+   * "chop" recolors it to the lacquer red of a carved stone seal. This
+   * is the ONLY red on the site outside the lacquer surfaces themselves,
+   * which is exactly why it carries weight: reserve it for the one or
+   * two moments where the chop stamps onto the page.
+   */
+  tone?: "gold" | "chop";
   className?: string;
 }
 
-export default function Seal({ size = 44, className = "" }: SealProps) {
+export default function Seal({
+  size = 44,
+  tone = "gold",
+  className = "",
+}: SealProps) {
   if (!restaurant.chineseName) return null;
   const small = size < 32;
+  const chop = tone === "chop";
+  const stroke = chop ? "var(--lacquer)" : "#DEAE64";
+  const fill = chop ? "var(--lacquer)" : "#EABD62";
 
   return (
     <svg
@@ -58,13 +74,13 @@ export default function Seal({ size = 44, className = "" }: SealProps) {
       {!small && (
         <path
           fill="none"
-          stroke="#DEAE64"
+          stroke={stroke}
           strokeWidth="1.3632"
           strokeMiterlimit="10"
           d={FRAME_D}
         />
       )}
-      <g fill="#EABD62">
+      <g fill={fill}>
         {FU_DS.map((d, i) => (
           <path key={`fu-${i}`} d={d} />
         ))}

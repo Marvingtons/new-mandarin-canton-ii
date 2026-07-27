@@ -267,18 +267,37 @@ export default function FavoritesSpotlight() {
         }}
       >
         <div className="spt-photo">
-          <div className="absolute inset-0">
-            <DishPanel item={items[baseIdx]} />
-          </div>
-          {overlay && (
-            <div
-              className={`absolute inset-0 ${
-                overlay.dir === 1 ? "spt-wipe-ltr" : "spt-wipe-rtl"
-              }`}
-            >
-              <DishPanel item={items[overlay.idx]} />
+          {/* Both dish layers ride one wrapper so the scroll-scrubbed
+              swell (HomeChoreography SCENE 5) scales the image inside
+              the frame rather than the frame itself. */}
+          <div data-spt-photo className="absolute inset-0">
+            <div className="absolute inset-0">
+              <DishPanel item={items[baseIdx]} />
             </div>
-          )}
+            {overlay && (
+              <div
+                className={`absolute inset-0 ${
+                  overlay.dir === 1 ? "spt-wipe-ltr" : "spt-wipe-rtl"
+                }`}
+              >
+                <DishPanel item={items[overlay.idx]} />
+              </div>
+            )}
+          </div>
+          {/* Steam off the plate — rests invisible, clipped by the
+              frame's overflow so it never escapes the card. */}
+          <span
+            aria-hidden="true"
+            data-steam-wisp
+            className="steam-wisp"
+            style={{ left: "38%" }}
+          />
+          <span
+            aria-hidden="true"
+            data-steam-wisp
+            className="steam-wisp"
+            style={{ left: "56%" }}
+          />
         </div>
         <div className="spt-plate">
           <div
