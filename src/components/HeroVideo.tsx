@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import IncenseSmoke from "@/components/IncenseSmoke";
 import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
 import { onIntroLifted } from "@/lib/introSignal";
@@ -195,6 +196,17 @@ export default function HeroVideo() {
         </>
       )}
       </div>
+
+      {/* Incense, barely there — the altar's blessing reaching the front
+          of house. Sits above the scrim so it isn't washed out, but at
+          a fraction of the altar section's intensity: here it should
+          register as atmosphere, never as an effect. z-[11] keeps it
+          under the darkening layer and well under the copy. */}
+      <IncenseSmoke
+        count={2}
+        intensity={0.22}
+        className="z-[11] hidden sm:block"
+      />
 
       {/* Scrim — legibility over video or placeholder alike. z-10 keeps
           it above the crossfading videos (which juggle z-index 1/2). */}

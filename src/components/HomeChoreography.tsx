@@ -4,16 +4,32 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { SplitText } from "gsap/SplitText";
 import { setHeaderSolid } from "@/lib/headerState";
+import {
+  createMotionContext,
+  EASE,
+  maskWipe,
+  parallax,
+  revealRise,
+  sealStamp,
+  smokeDrift,
+  START,
+  steamRise,
+} from "@/lib/motion";
 import { useIsomorphicLayoutEffect } from "@/lib/useIsomorphicLayoutEffect";
 
 /**
  * Homepage scroll choreography (GSAP + ScrollTrigger, riding Lenis).
  * Concept: ink, paper, seal — scroll pressure is stamp pressure.
- * Renders nothing; queries the server-rendered DOM by data attributes
- * inside a gsap.context and reverts everything on unmount.
  *
- * Eases map to the motion tokens: --ease-out-soft ≈ power1.out,
- * --ease-stamp ≈ back.out(1.7).
+ * Renders nothing; queries the server-rendered DOM by data attributes
+ * inside a motion context and reverts everything on unmount. Scenes are
+ * built from the shared primitives in lib/motion so the whole page eases
+ * with one voice — reach for a raw gsap call only where a scene genuinely
+ * has no reusable shape (the hero scrub and the statement pin).
+ *
+ * The reduced-motion gate lives in createMotionContext: it returns null
+ * and never runs the builder, so the server-rendered DOM IS the
+ * reduced-motion experience.
  */
 export default function HomeChoreography() {
   // MUST be a layout effect, not useEffect. SCENE 4 pins [data-statement],
@@ -22,20 +38,20 @@ export default function HomeChoreography() {
   // Only a layout-phase cleanup reverts that before React's mutation phase
   // calls main.removeChild(section). See useIsomorphicLayoutEffect.
   useIsomorphicLayoutEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    gsap.registerPlugin(ScrollTrigger, SplitText);
-    // debug handles for headless verification
-    (window as unknown as { __nmcST?: typeof ScrollTrigger }).__nmcST =
-      ScrollTrigger;
-    (window as unknown as { __nmcGSAP?: typeof gsap }).__nmcGSAP = gsap;
-
     const splits: SplitText[] = [];
+    const loops: gsap.core.Timeline[] = [];
 
-    const ctx = gsap.context(() => {
+    const ctx = createMotionContext(() => {
+      // debug handles for headless verification
+      (window as unknown as { __nmcST?: typeof ScrollTrigger }).__nmcST =
+        ScrollTrigger;
+      (window as unknown as { __nmcGSAP?: typeof gsap }).__nmcGSAP = gsap;
+
       const hero = document.querySelector<HTMLElement>("[data-hero]");
 
-      /* ---- SCENE 1: hero exit (scrubbed, tied to the thumb) ---- */
+      /* ---- SCENE 1: hero exit (scrubbed, tied to the thumb) ----
+         Bespoke by necessity: five layers on one scrub at different
+         rates is not a reusable shape. */
       if (hero) {
         const exit = gsap.timeline({
           scrollTrigger: {
@@ -44,7 +60,7 @@ export default function HomeChoreography() {
             end: "bottom top",
             scrub: true,
           },
-          defaults: { ease: "none" },
+          defaults: { ease: EASE.none },
         });
         exit
           .to("[data-hero-media]", { scale: 1.12, duration: 1 }, 0)
@@ -70,9 +86,15 @@ export default function HomeChoreography() {
           onEnter: () => setHeaderSolid(true),
           onLeaveBack: () => setHeaderSolid(false),
         });
+
+        // Incense drifting behind the hero — barely there, the first
+        // whisper of the motif the altar section states outright.
+        loops.push(...smokeDrift(hero.querySelectorAll("[data-smoke-wisp]")));
       }
 
-      /* ---- SCENE 2: heading reveals (SplitText, once) ---- */
+      /* ---- SCENE 2: heading reveals (SplitText, once) ----
+         Char-level, so it stays hand-rolled; every other section uses
+         the shared primitives. */
       document
         .querySelectorAll<HTMLElement>("main [data-bh-text]")
         .forEach((el) => {
@@ -81,47 +103,71 @@ export default function HomeChoreography() {
           splits.push(split);
           const rule = el.parentElement?.querySelector(".bh-rule") ?? null;
           const tl = gsap.timeline({
-            scrollTrigger: { trigger: el, start: "top 85%", once: true },
+            scrollTrigger: { trigger: el, start: START.enter, once: true },
           });
           tl.from(split.chars, {
             y: 24,
             autoAlpha: 0,
             stagger: 0.018,
             duration: 0.6,
-            ease: "power1.out",
+            ease: EASE.soft,
           });
           if (rule) {
             tl.fromTo(
               rule,
               { scaleX: 0, transformOrigin: "left center" },
-              { scaleX: 1, duration: 0.45, ease: "power1.out" },
+              { scaleX: 1, duration: 0.45, ease: EASE.soft },
               0.1,
             );
           }
         });
 
-      /* ---- SCENE 3: The Room — frames breathe (scrub: 1) ---- */
+      /* ---- SCENE 3: The Room — the altar ----
+         Frames breathe on parallax, incense rises behind them, and the
+         offering settles into place in front. The candle glow is pure
+         CSS (see .candle-glow) — it needs no scroll position, so it has
+         no business holding a ScrollTrigger. */
       const room = document.querySelector<HTMLElement>("[data-room]");
       if (room) {
         room
           .querySelectorAll<HTMLElement>("[data-pf-inner]")
           .forEach((inner) => {
-            const amp = Number(inner.dataset.pfParallax ?? 8);
-            gsap.fromTo(
-              inner,
-              { yPercent: -amp },
-              {
-                yPercent: amp,
-                ease: "none",
-                scrollTrigger: {
-                  trigger: room,
-                  start: "top bottom",
-                  end: "bottom top",
-                  scrub: 1,
-                },
-              },
-            );
+            parallax(inner, {
+              trigger: room,
+              amount: Number(inner.dataset.pfParallax ?? 8),
+            });
           });
+
+        // Taller and slower than the hero's: this is the altar itself,
+        // so the incense is allowed to actually be visible here.
+        loops.push(
+          ...smokeDrift(room.querySelectorAll("[data-smoke-wisp]"), {
+            rise: -190,
+            duration: 17,
+            peak: 0.45,
+          }),
+        );
+
+        // One fruit finds its resting angle as the section arrives —
+        // a few degrees, once, and never again.
+        const settle = room.querySelector<HTMLElement>(
+          "[data-mandarin-settle]",
+        );
+        if (settle) {
+          gsap.from(settle, {
+            rotation: -13,
+            x: -9,
+            // SVG user-space origin — the centre of THIS fruit (cx 95,
+            // cy 50 in the cluster's viewBox). A percentage origin does
+            // not resolve against a <g>, so GSAP would bake 0,0 and
+            // swing the fruit about the artwork's top-left corner.
+            svgOrigin: "95 49",
+            duration: 1.1,
+            ease: EASE.glide,
+            clearProps: "all",
+            scrollTrigger: { trigger: room, start: START.late, once: true },
+          });
+        }
       }
 
       /* ---- SCENE 4: statement band — the one pin (desktop only) ----
@@ -141,18 +187,18 @@ export default function HomeChoreography() {
       mm.add("(min-width: 768px)", () => {
         if (!band || !line || !eyebrow || !stRule || !lockup) return;
 
-        gsap.set(eyebrow, { scale: 1.4, rotation: -6, autoAlpha: 0 });
-
         // The stamp is a toggle at 40%, not a scrub — overshoot needs
-        // real time, not thumb time.
-        const stamp = gsap.timeline({ paused: true }).to(eyebrow, {
-          scale: 1,
+        // real time, not thumb time. Built paused; the scrub plays it.
+        // sealStamp's fromTo renders immediately, so the seal is hidden
+        // from the first frame without a separate gsap.set.
+        const stamp = sealStamp(eyebrow, {
+          paused: true,
+          from: 1.4,
           rotation: -2,
-          autoAlpha: 1,
-          duration: 0.45,
-          ease: "back.out(1.7)",
-          onComplete: () => lockup.classList.add("st-shimmer-go"),
         });
+        stamp?.eventCallback("onComplete", () =>
+          lockup.classList.add("st-shimmer-go"),
+        );
         let stamped = false;
 
         const tl = gsap.timeline({
@@ -167,14 +213,14 @@ export default function HomeChoreography() {
             onUpdate: (self) => {
               if (self.progress >= 0.4 && !stamped) {
                 stamped = true;
-                stamp.play();
+                stamp?.play();
               } else if (self.progress < 0.35 && stamped) {
                 stamped = false;
-                stamp.reverse();
+                stamp?.reverse();
               }
             },
           },
-          defaults: { ease: "none" },
+          defaults: { ease: EASE.none },
         });
         tl.fromTo(
           line,
@@ -195,7 +241,7 @@ export default function HomeChoreography() {
           .to(lockup, { y: -20, duration: 0.2 }, 0.8);
 
         return () => {
-          stamp.kill();
+          stamp?.kill();
         };
       });
       // <768px: NO pin (mobile URL-bar resizes make pins jank) — the
@@ -203,7 +249,7 @@ export default function HomeChoreography() {
       mm.add("(max-width: 767px)", () => {
         if (!band || !line || !eyebrow || !stRule || !lockup) return;
         const entrance = gsap.timeline({
-          scrollTrigger: { trigger: band, start: "top 75%", once: true },
+          scrollTrigger: { trigger: band, start: START.late, once: true },
         });
         entrance
           .fromTo(
@@ -213,7 +259,7 @@ export default function HomeChoreography() {
               clipPath: "inset(0% 0% 0% 0%)",
               letterSpacing: "0em",
               duration: 0.7,
-              ease: "power1.out",
+              ease: EASE.soft,
             },
             0,
           )
@@ -225,7 +271,7 @@ export default function HomeChoreography() {
               rotation: -2,
               autoAlpha: 1,
               duration: 0.45,
-              ease: "back.out(1.7)",
+              ease: EASE.stamp,
               onComplete: () => lockup.classList.add("st-shimmer-go"),
             },
             0.7,
@@ -233,96 +279,124 @@ export default function HomeChoreography() {
           .fromTo(
             stRule,
             { scaleX: 0, transformOrigin: "center" },
-            { scaleX: 1, duration: 0.4, ease: "power1.out" },
+            { scaleX: 1, duration: 0.4, ease: EASE.soft },
             0.9,
           );
       });
 
       /* ---- SCENE 5: Spotlight entrance (once) — rail items stagger,
-         the featured card curtain-reveals, small cards follow.
-         clearProps so the component's own transitions (dim/swap)
-         and hover scales are never fighting stale inline styles. */
+         the featured card curtain-reveals, small cards follow. ---- */
       const spt = document.querySelector<HTMLElement>("[data-spt]");
       if (spt) {
-        const tl = gsap.timeline({
-          scrollTrigger: { trigger: spt, start: "top 80%", once: true },
+        revealRise(spt.querySelectorAll("[data-spt-rail-item]"), {
+          trigger: spt,
+          start: "top 80%",
+          y: 16,
+          duration: 0.5,
         });
-        tl.from(
-          spt.querySelectorAll("[data-spt-rail-item]"),
-          {
-            autoAlpha: 0,
-            y: 16,
-            duration: 0.5,
-            stagger: 0.08,
-            ease: "power1.out",
-            clearProps: "all",
-          },
-          0,
-        );
+        maskWipe(spt.querySelector("[data-spt-card]"), {
+          trigger: spt,
+          start: "top 80%",
+          duration: 0.7,
+          delay: 0.1,
+        });
+        revealRise(spt.querySelectorAll("[data-spt-small]"), {
+          trigger: spt,
+          start: "top 80%",
+          y: 16,
+          duration: 0.5,
+          stagger: 0.12,
+          delay: 0.22,
+        });
+
+        /* The signature-dish moment: the featured plate swells a few
+           percent across its own scroll range while steam lifts off it.
+           Scrubbed, NOT pinned — this page already spends its one pin on
+           the statement band, and a second pin is where mobile jank
+           starts. */
         const card = spt.querySelector<HTMLElement>("[data-spt-card]");
-        if (card) {
-          tl.fromTo(
-            card,
-            { clipPath: "inset(0 100% 0 0)" },
+        const dish = spt.querySelector<HTMLElement>("[data-spt-photo]");
+        if (card && dish) {
+          gsap.fromTo(
+            dish,
+            { scale: 1 },
             {
-              clipPath: "inset(0 0 0 0)",
-              duration: 0.7,
-              ease: "power1.out",
-              clearProps: "clipPath",
+              scale: 1.06,
+              ease: EASE.none,
+              scrollTrigger: {
+                trigger: card,
+                start: "top 85%",
+                end: "bottom 40%",
+                scrub: 1.2,
+              },
             },
-            0.1,
           );
         }
-        tl.from(
-          spt.querySelectorAll("[data-spt-small]"),
-          {
-            autoAlpha: 0,
-            y: 16,
-            duration: 0.5,
-            stagger: 0.12,
-            ease: "power1.out",
-            clearProps: "all",
-          },
-          0.22,
-        );
+        loops.push(...steamRise(spt.querySelectorAll("[data-steam-wisp]")));
       }
 
       /* ---- SCENE 6: seal signature — the closing echo ---- */
       const sig = document.querySelector<HTMLElement>("[data-seal-sig]");
       if (sig) {
-        const seal = sig.querySelector("svg");
-        const ring = sig.querySelector<HTMLElement>("[data-seal-ring]");
-        const tl = gsap.timeline({
-          scrollTrigger: { trigger: sig, start: "top 85%", once: true },
+        sealStamp(sig.querySelector("svg"), {
+          trigger: sig,
+          start: START.enter,
+          ring: sig.querySelector("[data-seal-ring]"),
+          from: 1.3,
+          rotation: -6,
+          duration: 0.4,
         });
-        if (seal)
-          tl.from(seal, {
-            scale: 1.3,
-            autoAlpha: 0,
-            rotation: -6,
-            duration: 0.4,
-            ease: "back.out(1.7)",
-          });
-        if (ring)
-          tl.fromTo(
-            ring,
-            { scale: 1, autoAlpha: 0.7 },
-            { scale: 1.35, autoAlpha: 0, duration: 0.5, ease: "power1.out" },
-            0.35,
-          );
       }
 
-      /* ---- utility fades: takeout strip + info band (once) ---- */
+      /* ---- SCENE 7: gold dividers draw outward from centre, and the
+         red chop presses in where the halves meet ---- */
+      document
+        .querySelectorAll<HTMLElement>("[data-divider]")
+        .forEach((divider) => {
+          const tl = gsap.timeline({
+            scrollTrigger: {
+              trigger: divider,
+              start: "top 90%",
+              once: true,
+            },
+          });
+          tl.fromTo(
+            divider.querySelectorAll("[data-divider-rule]"),
+            { scaleX: 0 },
+            { scaleX: 1, duration: 0.8, ease: EASE.soft },
+            0,
+          );
+          const chop = divider.querySelector<HTMLElement>("[data-divider-seal]");
+          if (chop) {
+            // Built paused so it carries no ScrollTrigger of its own,
+            // then un-paused as it is nested — a paused child ignores
+            // its parent's playhead.
+            const stamp = sealStamp(chop, {
+              paused: true,
+              ring: divider.querySelector("[data-divider-ring]"),
+              from: 1.5,
+              rotation: -4,
+            });
+            if (stamp) tl.add(stamp.paused(false), 0.45);
+          }
+        });
+
+      /* ---- SCENE 8: everything else enters on the shared rise ---- */
+      document
+        .querySelectorAll<HTMLElement>("[data-rise]")
+        .forEach((group) => {
+          // A group animates its children if it has any marked; otherwise
+          // it animates itself.
+          const marked = group.querySelectorAll<HTMLElement>("[data-rise-item]");
+          revealRise(marked.length ? marked : group, { trigger: group });
+        });
+
+      /* ---- utility fades: takeout strip + info band (once) ----
+         One trigger EACH — a shared trigger would fire the info band
+         when the takeout strip scrolled in, half a page earlier. */
       document
         .querySelectorAll<HTMLElement>("[data-plain-fade]")
-        .forEach((el) => {
-          gsap.from(el, {
-            autoAlpha: 0,
-            duration: 0.7,
-            ease: "power1.out",
-            scrollTrigger: { trigger: el, start: "top 88%", once: true },
-          });
-        });
+        .forEach((el) => revealRise(el, { y: 0, start: START.edge }));
     });
 
     // Re-measure once fonts have swapped in — trigger/pin positions
@@ -330,14 +404,17 @@ export default function HomeChoreography() {
     // created in this effect, i.e. post-hydration; the hero video is
     // absolutely positioned so its late mount shifts no layout.)
     let cancelled = false;
-    void document.fonts.ready.then(() => {
-      if (!cancelled) ScrollTrigger.refresh();
-    });
+    if (ctx) {
+      void document.fonts.ready.then(() => {
+        if (!cancelled) ScrollTrigger.refresh();
+      });
+    }
 
     return () => {
       cancelled = true;
+      loops.forEach((tl) => tl.kill());
       splits.forEach((s) => s.revert());
-      ctx.revert();
+      ctx?.revert();
       setHeaderSolid(false);
     };
   }, []);

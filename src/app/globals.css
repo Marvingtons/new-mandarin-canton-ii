@@ -115,10 +115,11 @@ body {
 }
 
 /*
- * LoadingOverlay — gold-leaf reveal (see LoadingOverlay.tsx).
- * Timeline: field settles 0–0.35s, deboss 0.25–0.65s, gold sweep
- * 0.65–2.05s, glint 1.9–2.5s (rides the sweep's tail), hold, lift.
- * Plays once, no loop.
+ * LoadingOverlay — gold-leaf seal press (see LoadingOverlay.tsx).
+ * Timeline: field settles 0–0.25s, deboss 0.15–0.45s, gold sweep
+ * 0.40–1.15s, press + ink bleed 1.0–1.45s, glint 1.05–1.5s, lift.
+ * Everything is done by ~1.35s — a branded moment, not a toll gate.
+ * Plays once per session, no loop.
  */
 .loading-overlay {
   position: fixed;
@@ -154,11 +155,51 @@ body {
   background-size: cover;
   background-position: center;
   opacity: 0;
-  animation: lo-fade-in 0.35s ease-out forwards;
+  animation: lo-fade-in 0.25s ease-out forwards;
 }
 .lo-logo {
   position: relative;
   width: clamp(180px, 30vmin, 280px);
+  /* The press: as the gold finishes filling, the whole lockup settles
+     the last 3% down onto the field — the chop making contact. */
+  animation: lo-press 0.45s cubic-bezier(0.22, 1, 0.36, 1) 1s both;
+}
+@keyframes lo-press {
+  from {
+    transform: scale(1.035) rotate(-1.2deg);
+  }
+  to {
+    transform: scale(1) rotate(0deg);
+  }
+}
+/* The ink bleed. On a red lacquer field a red halo only reads if it is
+   DEEPER than the field, so the bleed spreads in shadow, the way wet
+   ink pools darker at the edge of the impression. */
+.lo-bleed {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(66, 8, 4, 0.5) 30%,
+    rgba(66, 8, 4, 0) 70%
+  );
+  opacity: 0;
+  animation: lo-bleed 0.45s ease-out 1s both;
+}
+@keyframes lo-bleed {
+  0% {
+    opacity: 0.75;
+    scale: 0.55;
+  }
+  100% {
+    opacity: 0;
+    scale: 1;
+  }
 }
 .lo-logo img {
   display: block;
@@ -172,7 +213,7 @@ body {
   filter: brightness(0) opacity(0.32)
     drop-shadow(0 1px 0 rgba(255, 226, 178, 0.28));
   opacity: 0;
-  animation: lo-fade-in 0.4s ease-out 0.25s forwards;
+  animation: lo-fade-in 0.3s ease-out 0.15s forwards;
 }
 /* Gold layer, revealed left-to-right by a feathered mask sweep
    (~32% of the logo width between transparent and opaque). */
@@ -187,7 +228,7 @@ body {
   mask-repeat: no-repeat;
   -webkit-mask-position: 100% 0;
   mask-position: 100% 0;
-  animation: lo-gild 1.4s cubic-bezier(0.4, 0, 0.2, 1) 0.65s forwards;
+  animation: lo-gild 0.75s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
 }
 @keyframes lo-gild {
   to {
@@ -217,7 +258,7 @@ body {
   /* Starts while the sweep's feather is still finishing on the far
      right — the blade begins over already-gilded ground, so there's no
      dead beat between fill and glint. */
-  animation: lo-glint 0.6s ease-in-out 1.9s forwards;
+  animation: lo-glint 0.45s ease-in-out 1.05s forwards;
 }
 @keyframes lo-glint {
   to {
@@ -831,71 +872,124 @@ body {
   }
 }
 
+
 /*
- * StampIntro — the one-time seal press (see StampIntro.tsx).
- * Timeline: press 0.15s → impact ring 0.45s → name 0.7s → lift 1.1s,
- * everything finished by 1.4s.
+ * 香 — incense smoke (see IncenseSmoke.tsx, animated by lib/motion/smoke).
+ * Each wisp RESTS at opacity 0, so with no JS — or under reduced motion,
+ * where the motion context never builds — the field renders as nothing.
+ * The blur is static; only transform and opacity are ever animated.
  */
-@keyframes intro-stamp-press {
-  0% {
-    opacity: 0;
-    transform: scale(1.6) rotate(-4deg);
-    /* stamps accelerate INTO the paper */
-    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
-  }
-  35% {
-    opacity: 1;
-  }
-  70% {
-    transform: scale(0.97) rotate(-2deg);
-    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  100% {
-    opacity: 1;
-    /* lands a touch crooked, like a real hand-stamped chop */
-    transform: scale(1) rotate(-2deg);
-  }
-}
-.intro-stamp-press {
-  animation: intro-stamp-press 0.35s 0.15s both;
-}
-
-@keyframes intro-ink-ring {
-  0% {
-    opacity: 0.7;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.4);
-  }
-}
-.intro-ink-ring {
-  /* default opacity 0 keeps it hidden before the delay and after the pulse */
+.smoke-wisp {
+  position: absolute;
+  bottom: -8%;
+  width: 46px;
+  height: 42%;
+  min-height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgba(248, 239, 217, 0.5),
+    rgba(248, 239, 217, 0) 70%
+  );
+  filter: blur(19px);
   opacity: 0;
-  animation: intro-ink-ring 0.5s ease-out 0.45s;
+  /* One of the few places will-change earns its keep: these tween
+     continuously for the life of the page. */
+  will-change: transform, opacity;
 }
 
-@keyframes intro-name-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/*
+ * Gold hairline divider (see GoldDivider.tsx). The rules draw OUTWARD
+ * from the centre, so each half scales from the edge the seal sits on.
+ * Resting state is fully drawn — the animation only ever removes and
+ * restores what is already there.
+ */
+.gd-rule {
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
 }
-.intro-name-in {
-  animation: intro-name-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.7s both;
+.gd-rule-left {
+  transform-origin: right center;
+}
+.gd-rule-right {
+  transform-origin: left center;
 }
 
-@keyframes intro-out {
-  to {
-    opacity: 0;
-    transform: translateY(-20px);
+/*
+ * Steam off the featured dish (see FavoritesSpotlight). Same contract as
+ * the incense wisps: rests invisible, animates transform/opacity only.
+ */
+.steam-wisp {
+  position: absolute;
+  bottom: 6%;
+  pointer-events: none;
+  width: 30px;
+  height: 46%;
+  min-height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgba(255, 250, 235, 0.55),
+    rgba(255, 250, 235, 0) 72%
+  );
+  filter: blur(13px);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Under reduced motion the wisps never animate, so they would sit at
+   opacity 0 forever while still holding a compositor layer each. Drop
+   them from the page entirely — they are pure decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .smoke-wisp,
+  .steam-wisp {
+    display: none;
   }
 }
-.intro-overlay {
-  animation: intro-out 0.3s ease-in 1.1s forwards;
+
+/* Warm-ground variant: on paper and ivory the pale wisp vanishes, so
+   the smoke reads as a faint warm haze instead. */
+.smoke-wisp-warm {
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgba(94, 66, 40, 0.34),
+    rgba(94, 66, 40, 0) 70%
+  );
 }
+
+/*
+ * 神台 — candle light on the altar (see CandleGlow.tsx). A long,
+ * irregular swell rather than a flicker: 9s is slow enough to read as a
+ * room breathing, not as an animated flame.
+ */
+.candle-glow {
+  background: radial-gradient(
+    var(--glow-spread, 70%) var(--glow-spread, 70%) at var(--glow-x, 50%)
+      var(--glow-y, 60%),
+    rgba(232, 198, 96, 0.55),
+    rgba(232, 198, 96, 0) 68%
+  );
+  opacity: calc(var(--glow-peak, 0.5) * 0.72);
+  animation: candle-breathe 9s ease-in-out infinite;
+}
+@keyframes candle-breathe {
+  0%,
+  100% {
+    opacity: calc(var(--glow-peak, 0.5) * 0.72);
+  }
+  38% {
+    opacity: var(--glow-peak, 0.5);
+  }
+  64% {
+    opacity: calc(var(--glow-peak, 0.5) * 0.82);
+  }
+}
+/* The wash stays; only the breathing stops. */
+@media (prefers-reduced-motion: reduce) {
+  .candle-glow {
+    animation: none;
+  }
+}
+
