@@ -92,8 +92,17 @@ export interface OrderTotals {
   subtotalCents: number;
   taxCents: number;
   /**
-   * Always 0 today: payment happens at the counter, so tipping is the
-   * register's business. Kept in the shape so enabling it is not a migration.
+   * DORMANT BY DESIGN — not a payment remnant, do not delete.
+   *
+   * This is the origin of the tip surface: `tipCents` here, the TIP line in
+   * the ticket renderer, and TIP_PRESETS -> `tipPresets` in the tenant config.
+   * Every writer hardcodes 0 today and TIP_PRESETS ships empty, so the whole
+   * surface is inert.
+   *
+   * It is retained for counter-tip support, which is a real thing a register
+   * may want, and NOT because the cancelled prepaid checkout left it behind.
+   * An audit that greps for payment words will land here — this comment is the
+   * answer. Enabling tipping later is a config change, not a migration.
    */
   tipCents: number;
   totalCents: number;
