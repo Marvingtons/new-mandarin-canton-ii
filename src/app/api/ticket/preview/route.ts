@@ -1,0 +1,110 @@
+import { publicTenant } from "@/config/tenant.server";
+import { businessDateFor } from "@/lib/orders/businessDate";
+import { isOrdersDbConfigured } from "@/lib/db/postgres";
+import { getOrderByNumber } from "@/lib/orders/repository";
+import { renderTicket } from "@/lib/ticket/render";
+import type { Order } from "@/lib/orders/types";
+
+/**
+ * GET /api/ticket/preview?orderNumber=A-017[&date=YYYY-MM-DD][&reprint=1]
+ *
+ * DEVELOPMENT ONLY — 404s in production. It exists so ticket layout can be
+ * iterated in a browser without a printer, and with no auth to fight; that is
+ * exactly why it must not exist in production, where it would expose customer
+ * names and phone numbers to anyone who can guess an order number.
+ *
+ * With no order number (or no database), it renders a built-in fixture, so the
+ * layout is previewable on a laptop with nothing configured at all.
+ */
+export const runtime = "nodejs";
+
+/** Mirrors scripts/ticket-sample.ts — a 中文 item, an English-only item. */
+function fixtureOrder(): Order {
+  const items = [
+    {
+      itemId: "kung-pao-chicken",
+      nameEn: "Kung Pao Chicken",
+      nameZh: "宮保雞丁",
+      sizeId: "party-tray",
+      sizeLabel: "Party Tray",
+      sizeLabelZh: "大盤",
+      modifiers: [
+        { id: "m1", nameEn: "Extra Spicy", nameZh: "加辣", priceCents: 0 },
+        { id: "m2", nameEn: "No Peanuts", nameZh: "走花生", priceCents: 0 },
+      ],
+      quantity: 2,
+      unitCents: 9000,
+      lineCents: 18000,
+      specialInstructions:
+        "Severe peanut allergy — clean wok and fresh oil, please.",
+    },
+    {
+      itemId: "orange-chicken",
+      // No override exists for this name, so the ticket must print the English
+      // with the ⚠ EN marker. Keeping it in the fixture keeps that visible.
+      nameEn: "Orange Flavored Chicken",
+      nameZh: null,
+      sizeId: "regular",
+      sizeLabel: "Regular",
+      sizeLabelZh: null,
+      modifiers: [],
+      quantity: 1,
+      unitCents: 1995,
+      lineCents: 1995,
+    },
+  ];
+  const subtotalCents = items.reduce((n, l) => n + l.lineCents, 0);
+  const taxCents = Math.round((subtotalCents * 775) / 10000);
+  const now = new Date();
+
+  return {
+    id: 0,
+    tenantId: "preview",
+    orderNumber: "A-017",
+    businessDate: businessDateFor("America/Los_Angeles", now),
+    status: "PAID",
+    idempotencyKey: "preview",
+    chargeId: null,
+    items,
+    totals: { subtotalCents, taxCents, tipCents: 0, totalCents: subtotalCents + taxCents },
+    customer: { name: "Preview Customer", phone: "(619) 555-0148" },
+    pickupAt: new Date(now.getTime() + 25 * 60_000).toISOString(),
+    printAttempts: 0,
+    lastPrintError: null,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+}
+
+export async function GET(request: Request): Promise<Response> {
+  if (process.env.NODE_ENV === "production") {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const tenant = publicTenant();
+  const url = new URL(request.url);
+  const orderNumber = url.searchParams.get("orderNumber");
+  const reprint = url.searchParams.get("reprint") === "1";
+
+  let order: Order | null = null;
+  if (orderNumber && isOrdersDbConfigured()) {
+    const businessDate =
+      url.searchParams.get("date") ?? businessDateFor(tenant.timezone);
+    order = await getOrderByNumber(tenant.tenantId, businessDate, orderNumber);
+    if (!order) {
+      return new Response(
+        `No order ${orderNumber} on ${businessDate}. Omit orderNumber to render the fixture.`,
+        { status: 404 },
+      );
+    }
+  }
+
+  const png = await renderTicket(order ?? fixtureOrder(), {
+    timezone: tenant.timezone,
+    reprint,
+  });
+
+  return new Response(new Uint8Array(png), {
+    headers: { "content-type": "image/png", "cache-control": "no-store" },
+  });
+}
