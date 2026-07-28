@@ -56,6 +56,17 @@ export const JOB_MEDIA_TYPE = "image/png";
  */
 export const MAX_PRINT_ATTEMPTS = 10;
 
+/**
+ * Attempts at which a RENDER failure stops being treated as transient.
+ *
+ * A render failure is usually our bug, which is why this ceiling is low — the
+ * point is only to survive a cold-start OOM or a resource blip, not to grind
+ * against a template that cannot render. Shares the `print_attempts` counter
+ * with the offer ceiling above (see recordRenderFailure), so in practice this
+ * is about two render attempts before the order is condemned.
+ */
+export const MAX_RENDER_ATTEMPTS = 3;
+
 /** Constant-time compare that does not leak length via early return. */
 export function secretMatches(provided: string): boolean {
   let expected: string;

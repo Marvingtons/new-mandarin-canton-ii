@@ -492,3 +492,55 @@ export async function recordPrintAttempt(
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
 }
+
+/**
+ * A ticket failed to RENDER. Unlike `recordPrintAttempt`, this does not
+ * condemn the order on the first failure.
+ *
+ * A render failure used to be treated as permanent, on the reasoning that it is
+ * our bug and will not fix itself. That holds for a genuine bug and not at all
+ * for a cold-start OOM or a transient resource blip, which a retry would have
+ * printed. So: count the attempt, keep the order QUEUED, and only condemn it at
+ * `maxAttempts`.
+ *
+ * Staying QUEUED with `print_attempts > 0` is exactly what `currentPrintJob`
+ * looks for, so the next poll re-offers this same ticket — the printer's own
+ * few-second poll IS the retry scheduler, and nothing needs to be scheduled.
+ *
+ * One UPDATE, so two printers racing cannot interleave a read and a write. The
+ * `status not in (...)` arm is the same guard `recordPrintAttempt` uses: a late
+ * failure must never drag an order staff already ACCEPTED back onto the board.
+ *
+ * NOTE on the counter: `print_attempts` also ticks once per OFFER
+ * (`claimNextPrintJob`, `bumpPrintAttempt`), so it counts offers and render
+ * failures together. With maxAttempts = 3 that works out to roughly two render
+ * attempts before the order is condemned, which is the intent. It is one
+ * counter on purpose — a second column would have to be kept in lockstep with
+ * this one for no behavioural gain.
+ */
+export async function recordRenderFailure(
+  tenantId: string,
+  orderId: number,
+  error: string,
+  maxAttempts: number,
+): Promise<{ status: OrderStatus; attempts: number } | null> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set print_attempts   = print_attempts + 1,
+            last_print_error = $3,
+            status = case
+                       when status not in ('QUEUED', 'PRINT_FAILED') then status
+                       when print_attempts + 1 >= $4 then 'PRINT_FAILED'
+                       else 'QUEUED'
+                     end,
+            updated_at = now()
+      where tenant_id = $1 and id = $2
+      returning status, print_attempts`,
+    [tenantId, orderId, error, maxAttempts],
+  );
+  if (rows.length === 0) return null;
+  return {
+    status: rows[0].status as OrderStatus,
+    attempts: Number(rows[0].print_attempts),
+  };
+}

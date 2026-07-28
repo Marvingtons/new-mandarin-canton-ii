@@ -2,6 +2,7 @@ import { publicTenant } from "@/config/tenant.server";
 import {
   JOB_MEDIA_TYPE,
   MAX_PRINT_ATTEMPTS,
+  MAX_RENDER_ATTEMPTS,
   NO_JOB,
   peripheralHeaders,
   printerMacAllowed,
@@ -16,6 +17,7 @@ import {
   currentPrintJob,
   markPrinted,
   recordPrintAttempt,
+  recordRenderFailure,
 } from "@/lib/orders/repository";
 import { renderTicket } from "@/lib/ticket/render";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
@@ -192,11 +194,25 @@ export async function GET(
       },
     });
   } catch (err) {
-    // A render failure is OUR bug and will not fix itself on a retry, so fail
-    // the job immediately rather than looping the printer.
+    // A render failure is USUALLY our bug — but "usually" is not "always", and
+    // condemning the order on the first one threw away the cold-start OOMs and
+    // resource blips that a second attempt would have printed. Count it, keep
+    // the order QUEUED, and only fail it at MAX_RENDER_ATTEMPTS. The order
+    // stays visible to the board and the unprinted-order alert either way.
     const message = err instanceof Error ? err.message : "ticket render failed";
-    console.error(`[cloudprnt] render failed for ${job.orderNumber}: ${message}`);
-    await recordPrintAttempt(tenant.tenantId, job.id, { ok: false, error: message });
+    const outcome = await recordRenderFailure(
+      tenant.tenantId,
+      job.id,
+      message,
+      MAX_RENDER_ATTEMPTS,
+    );
+    console.error(
+      `[cloudprnt] render failed for ${job.orderNumber} ` +
+        `(attempt ${outcome?.attempts ?? "?"}, now ${outcome?.status ?? "?"}): ${message}`,
+    );
+    // 500 either way: the printer has no ticket. When the order is still
+    // QUEUED its next poll re-offers this same job, so the poll loop is the
+    // retry — nothing is scheduled.
     return new Response("", { status: 500 });
   }
 }
