@@ -108,7 +108,7 @@ async function seed(
   const orders = [
     {
       key: `dev-seed-1-${businessDate}`,
-      customer: { name: "Alice Chen", phone: "(619) 555-0111" },
+      customer: { name: "Alice Chen", phone: "+16195550111" },
       pickupOffsetMin: 25,
       items: [
         {
@@ -129,12 +129,13 @@ async function seed(
             "Severe peanut allergy — clean wok and fresh oil please.",
         },
       ],
-      // Left PAID: this is the "new order" the board should announce.
-      finalStatus: "PAID" as const,
+      // Left QUEUED: this is the "new order" the board should announce, and
+      // the one a CloudPRNT poll would claim first.
+      finalStatus: "QUEUED" as const,
     },
     {
       key: `dev-seed-2-${businessDate}`,
-      customer: { name: "Bao Nguyen", phone: "(619) 555-0122" },
+      customer: { name: "Bao Nguyen", phone: "+16195550122" },
       pickupOffsetMin: 40,
       items: [
         {
@@ -168,7 +169,7 @@ async function seed(
     },
     {
       key: `dev-seed-3-${businessDate}`,
-      customer: { name: "Carmen Ruiz", phone: "(619) 555-0133" },
+      customer: { name: "Carmen Ruiz", phone: "+16195550133" },
       pickupOffsetMin: 15,
       items: [
         {
@@ -200,16 +201,16 @@ async function seed(
       items: spec.items,
       totals: { subtotalCents, taxCents, tipCents: 0, totalCents: subtotalCents + taxCents },
       customer: spec.customer,
+      phoneVerifiedAt: new Date(now - 60_000),
       pickupAt: new Date(now + spec.pickupOffsetMin * 60_000),
     });
 
-    await repo.markPaid(TENANT, order.id, `chg_dev_${order.orderNumber}`);
     if (spec.finalStatus === "PRINT_FAILED") {
       await repo.recordPrintAttempt(TENANT, order.id, {
         ok: false,
         error: "printer offline (seeded)",
       });
-    } else if (spec.finalStatus !== "PAID") {
+    } else if (spec.finalStatus !== "QUEUED") {
       await repo.updateStatus(TENANT, order.id, spec.finalStatus);
     }
   }

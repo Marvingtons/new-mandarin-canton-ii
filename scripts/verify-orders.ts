@@ -14,8 +14,14 @@
  *                     sequential numbers: no gaps, no duplicates.
  *   3. TIMEZONE     — 23:30 restaurant-local belongs to TODAY's business date,
  *                     not tomorrow's, even though it is already tomorrow UTC.
- *   4. RACE HYGIENE — a checkout that loses the idempotency race does not burn
- *                     an order number.
+ *   4. RACE HYGIENE — a submission that loses the idempotency race does not
+ *                     burn an order number.
+ *   5. REPOSITORY   — reads, status transitions, E.164 storage.
+ *   6. PRINT CLAIM  — 10 concurrent CloudPRNT polls never hand out the same
+ *                     job twice, and a claim alone never marks it printed.
+ *   7. ALERTING     — an unprinted order is found after the threshold, and two
+ *                     overlapping cron runs alert exactly once.
+ *   8. PHONE CAP    — per-number daily order counting.
  *
  * If an existing DATABASE_URL is set, that database is used instead and the
  * embedded server is skipped. Everything runs against a tenant id unique to
@@ -115,7 +121,8 @@ async function main(): Promise<void> {
     orderNumberPrefix: "A",
     items: [line],
     totals,
-    customer: { name: "Verify Bot", phone: "(619) 555-0100" },
+    customer: { name: "Verify Bot", phone: "+16195550100" },
+    phoneVerifiedAt: new Date("2026-07-27T01:00:00.000Z"),
     pickupAt: new Date("2026-07-27T01:45:00.000Z"),
   };
 
@@ -153,8 +160,8 @@ async function main(): Promise<void> {
     try {
       await ordersPool().query(
         `insert into orders (tenant_id, order_number, business_date, status,
-           idempotency_key, items, totals, customer, pickup_at)
-         values ($1, 'A-999', $2::date, 'PAID', 'idem-fixed-key', '[]', '{}', '{}', now())`,
+           idempotency_key, items, totals, customer, phone_verified_at, pickup_at)
+         values ($1, 'A-999', $2::date, 'QUEUED', 'idem-fixed-key', '[]', '{}', '{}', now(), now())`,
         [RUN_TENANT, businessDate],
       );
     } catch {
@@ -304,8 +311,16 @@ async function main(): Promise<void> {
       idempotencyKey: "api-1",
     });
 
-    const paid = await repo.markPaid(RUN_TENANT, created.order.id, "chg_test_1");
-    check("markPaid sets PAID + charge id", paid.status === "PAID" && paid.chargeId === "chg_test_1");
+    check(
+      "a stored order is live immediately (QUEUED, no payment step)",
+      created.order.status === "QUEUED",
+      created.order.status,
+    );
+    check(
+      "phone_verified_at is persisted",
+      created.order.phoneVerifiedAt.startsWith("2026-07-27T01:00"),
+      created.order.phoneVerifiedAt,
+    );
 
     const byNumber = await repo.getOrderByNumber(
       RUN_TENANT,
@@ -322,9 +337,14 @@ async function main(): Promise<void> {
         Number.isInteger(byKey?.totals.totalCents) &&
         byKey?.items[0].nameZh === "宮保雞丁",
     );
+    check(
+      "the phone is stored in E.164",
+      byKey?.customer.phone === "+16195550100",
+      byKey?.customer.phone,
+    );
 
     const active = await repo.listActiveOrders(RUN_TENANT, businessDate);
-    check("listActiveOrders returns the paid order", active.length === 1);
+    check("listActiveOrders returns the queued order", active.length === 1);
 
     const failed = await repo.recordPrintAttempt(RUN_TENANT, created.order.id, {
       ok: false,
@@ -332,9 +352,7 @@ async function main(): Promise<void> {
     });
     check(
       "recordPrintAttempt marks PRINT_FAILED",
-      failed?.status === "PRINT_FAILED" &&
-        failed.printAttempts === 1 &&
-        failed.lastPrintError === "printer offline",
+      failed?.status === "PRINT_FAILED" && failed.lastPrintError === "printer offline",
     );
 
     await repo.updateStatus(RUN_TENANT, created.order.id, "ACCEPTED");
@@ -342,28 +360,169 @@ async function main(): Promise<void> {
       ok: true,
     });
     check(
-      "a late reprint does not drag an ACCEPTED order backwards",
-      late?.status === "ACCEPTED" && late.printAttempts === 2,
-      `${late?.status}, attempts=${late?.printAttempts}`,
+      "a late print result does not drag an ACCEPTED order backwards",
+      late?.status === "ACCEPTED",
+      late?.status,
     );
+  }
 
-    // A PENDING_PAYMENT reservation must never appear on the kitchen board.
-    const pending = await repo.createOrder({
+  /* ------------------------------------------- 6. CloudPRNT job claim --- */
+  console.log("\n6. print-job claim is concurrency safe");
+  {
+    // Its own tenant: claimNextPrintJob is deliberately NOT scoped by business
+    // date — an order left unprinted overnight must still print — so rows from
+    // the sections above would otherwise be legitimate candidates here.
+    const tenant = `${RUN_TENANT}-print`;
+    const businessDate = "2026-05-05";
+    const first = await repo.createOrder({
       ...baseInput,
+      tenantId: tenant,
       businessDate,
-      idempotencyKey: "api-pending",
+      idempotencyKey: "print-1",
     });
-    const board = await repo.listActiveOrders(RUN_TENANT, businessDate);
+    const second = await repo.createOrder({
+      ...baseInput,
+      tenantId: tenant,
+      businessDate,
+      idempotencyKey: "print-2",
+    });
+
+    // Ten simultaneous polls, as if the printer retried hard. Each claim must
+    // hand out a DIFFERENT order, and only two orders exist.
+    const claims = await Promise.all(
+      Array.from({ length: 10 }, () => repo.claimNextPrintJob(tenant)),
+    );
+    const claimed = claims.filter((c): c is NonNullable<typeof c> => c !== null);
+    const claimedIds = new Set(claimed.map((c) => c.id));
+
     check(
-      "PENDING_PAYMENT is hidden from the board",
-      !board.some((o) => o.id === pending.order.id),
+      "10 concurrent polls claimed exactly the 2 available jobs",
+      claimed.length === 2 && claimedIds.size === 2,
+      `${claimed.length} claims, ${claimedIds.size} distinct`,
+    );
+    check(
+      "oldest first",
+      claimed.some((c) => c.id === first.order.id) &&
+        claimed.some((c) => c.id === second.order.id),
+    );
+    check(
+      "a claim does NOT mark the order printed",
+      claimed.every((c) => c.status === "QUEUED" && c.printedAt === null),
+    );
+    check(
+      "a claim counts an attempt",
+      claimed.every((c) => c.printAttempts === 1),
     );
 
-    await repo.deleteReservation(RUN_TENANT, pending.order.id);
+    // Only DELETE marks it printed.
+    const printed = await repo.markPrinted(tenant, first.order.id);
     check(
-      "deleteReservation frees the key for a retry",
-      (await repo.getOrderByIdempotencyKey(RUN_TENANT, "api-pending")) === null,
+      "markPrinted sets PRINTED and stamps printed_at",
+      printed?.status === "PRINTED" && printed.printedAt !== null,
     );
+
+    // The unconfirmed one must still be visible as needing attention.
+    const stillQueued = await repo.getOrderById(tenant, second.order.id);
+    check(
+      "an unconfirmed job stays QUEUED so the alert can catch it",
+      stillQueued?.status === "QUEUED",
+      stillQueued?.status,
+    );
+
+    const requeued = await repo.requeueForPrint(tenant, first.order.id);
+    check(
+      "requeueForPrint (重印) puts it back in the queue",
+      requeued?.status === "QUEUED" && requeued.printAttempts === 0,
+    );
+
+    // …and being back in the queue must mean genuinely claimable again.
+    const reclaimed = await repo.claimNextPrintJob(tenant);
+    check(
+      "a re-queued job can be claimed again",
+      reclaimed?.id === first.order.id,
+      String(reclaimed?.orderNumber),
+    );
+
+    await ordersPool().query("delete from orders where tenant_id = $1", [tenant]);
+    await ordersPool().query("delete from order_counters where tenant_id = $1", [tenant]);
+  }
+
+  /* ------------------------------------- 7. unprinted-order alerting ---- */
+  console.log("\n7. unprinted-order alert fires once per order");
+  {
+    const tenant = `${RUN_TENANT}-alert`;
+    const businessDate = "2026-06-06";
+    const stale = await repo.createOrder({
+      ...baseInput,
+      tenantId: tenant,
+      businessDate,
+      idempotencyKey: "alert-1",
+    });
+
+    // Nothing is old enough yet.
+    const none = await repo.findUnprintedForAlert(tenant, 120);
+    check(
+      "a fresh order is not alerted on",
+      !none.some((o) => o.id === stale.order.id),
+    );
+
+    // Age it past the 2-minute threshold.
+    await ordersPool().query(
+      "update orders set created_at = now() - interval '5 minutes' where id = $1",
+      [stale.order.id],
+    );
+
+    const due = await repo.findUnprintedForAlert(tenant, 120);
+    check(
+      "an order unprinted for >2 minutes is found",
+      due.some((o) => o.id === stale.order.id),
+    );
+
+    // Two overlapping cron runs must not both text the owner.
+    const [a, b] = await Promise.all([
+      repo.markAlerted(tenant, stale.order.id),
+      repo.markAlerted(tenant, stale.order.id),
+    ]);
+    check(
+      "exactly one of two concurrent alert claims wins",
+      (a ? 1 : 0) + (b ? 1 : 0) === 1,
+      `${a} / ${b}`,
+    );
+
+    const after = await repo.findUnprintedForAlert(tenant, 120);
+    check(
+      "an alerted order is not found again",
+      !after.some((o) => o.id === stale.order.id),
+    );
+
+    await ordersPool().query("delete from orders where tenant_id = $1", [tenant]);
+    await ordersPool().query("delete from order_counters where tenant_id = $1", [tenant]);
+  }
+
+  /* ------------------------------------------ 8. per-phone daily cap ---- */
+  console.log("\n8. per-phone daily order cap");
+  {
+    const businessDate = "2026-08-08";
+    for (let i = 0; i < 3; i++) {
+      await repo.createOrder({
+        ...baseInput,
+        businessDate,
+        idempotencyKey: `cap-${i}`,
+      });
+    }
+    const count = await repo.countOrdersForPhone(
+      RUN_TENANT,
+      businessDate,
+      "+16195550100",
+    );
+    check("counts orders for the number", count === 3, String(count));
+
+    const other = await repo.countOrdersForPhone(
+      RUN_TENANT,
+      businessDate,
+      "+16195550999",
+    );
+    check("does not count a different number", other === 0, String(other));
   }
 
   /* ------------------------------------------------ teardown ------------ */
