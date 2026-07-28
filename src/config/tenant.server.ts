@@ -222,6 +222,27 @@ export function requireAdminPassword(): string {
   );
 }
 
+/**
+ * HMAC key for the phone-verification cookie.
+ *
+ * Its OWN secret, not the kitchen password. The two have nothing in common
+ * beyond both being secrets: one is read aloud across a kitchen and rotated
+ * whenever staff change, the other signs the token that proves a customer
+ * holds their phone. Sharing them meant a routine password rotation silently
+ * invalidated every in-flight verification.
+ *
+ * Deliberately no fallback to ADMIN_DASH_PASSWORD. A fallback would quietly
+ * rebuild the coupling on any deploy that forgot this variable, and a signing
+ * key that is sometimes one thing and sometimes another is worse than one that
+ * is missing loudly.
+ */
+export function requireOtpSigningSecret(): string {
+  return required(
+    "OTP_SIGNING_SECRET",
+    "It signs the phone-verification cookie. Generate with: openssl rand -hex 32",
+  );
+}
+
 export interface TwilioConfig {
   accountSid: string;
   authToken: string;

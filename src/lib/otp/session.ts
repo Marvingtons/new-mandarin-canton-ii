@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { requireAdminPassword } from "@/config/tenant.server";
+import { requireOtpSigningSecret } from "@/config/tenant.server";
 
 /**
  * Proof that THIS browser session verified THAT phone number.
@@ -16,8 +16,8 @@ import { requireAdminPassword } from "@/config/tenant.server";
  *  - It BINDS the phone number. The order route re-derives the number from the
  *    token and compares it to the one on the order; a client-supplied
  *    `phoneVerified: true` is meaningless and a mismatched phone is rejected.
- *  - It is HMAC-signed and carries its own expiry, so it cannot be edited to
- *    say a different number or to last longer.
+ *  - It is HMAC-signed with OTP_SIGNING_SECRET and carries its own expiry, so
+ *    it cannot be edited to say a different number or to last longer.
  *  - 15 minutes. Long enough to finish a cart, short enough that a shared
  *    device does not leave a usable token behind.
  */
@@ -26,17 +26,20 @@ const COOKIE_NAME = "nmc_phone";
 const TTL_SECONDS = 15 * 60;
 
 /**
- * Signing key.
+ * Signing key — OTP_SIGNING_SECRET, and nothing else.
  *
- * ⚠️ TODO(confirm): this reuses ADMIN_DASH_PASSWORD rather than introducing
- * yet another secret to configure. That is a deliberate trade — one fewer env
- * var to forget — but it does mean rotating the kitchen password invalidates
- * every in-flight verification. Customers mid-order would have to re-verify.
- * If that becomes annoying, give this its own OTP_SIGNING_SECRET; nothing else
- * changes.
+ * This used to reuse ADMIN_DASH_PASSWORD to save an env var. The trade was not
+ * worth it: the kitchen password is shared aloud among staff and rotated
+ * whenever someone leaves, and every one of those rotations silently
+ * invalidated every in-flight customer verification.
+ *
+ * There is no fallback on purpose. If OTP_SIGNING_SECRET is missing this
+ * throws a named error at the point of use, which is a deploy that fails
+ * loudly — far better than one that silently signs with the kitchen password
+ * and rebuilds the coupling this removed.
  */
 function signingKey(): string {
-  return requireAdminPassword();
+  return requireOtpSigningSecret();
 }
 
 function sign(payload: string): string {
