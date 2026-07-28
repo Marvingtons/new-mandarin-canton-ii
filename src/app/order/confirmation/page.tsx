@@ -59,7 +59,7 @@ export default function ConfirmationPage() {
       </span>
       <h1 className="mt-6 font-display text-4xl text-lacquer">Order confirmed</h1>
       <p className="mt-2 text-ink/75">
-        Thank you — your pickup order is paid and sent to the kitchen.
+        Thank you — your order is with the kitchen. Pay when you pick it up.
       </p>
 
       <dl className="mt-8 w-full max-w-md divide-y divide-gold/20 border border-gold/40 bg-cream text-left">
@@ -74,12 +74,8 @@ export default function ConfirmationPage() {
           <dd className="font-semibold text-ink">{order.pickupTime}</dd>
         </div>
         <div className="flex justify-between px-5 py-3">
-          <dt className="text-ink/70">Total paid</dt>
+          <dt className="text-ink/70">Due at pickup</dt>
           <dd className="font-semibold text-ink">{formatCents(order.total)}</dd>
-        </div>
-        <div className="flex justify-between px-5 py-3">
-          <dt className="text-ink/70">Confirmation</dt>
-          <dd className="font-mono text-xs text-ink/60">{order.chargeId}</dd>
         </div>
       </dl>
 

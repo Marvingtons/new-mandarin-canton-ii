@@ -1,21 +1,30 @@
 import "server-only";
 
 /**
- * Per-IP rate limiting for the money-adjacent endpoints.
+ * Rate limiting for the endpoints that cost money or cook food.
  *
- * WHY IN-MEMORY AND NOT POSTGRES: this is an abuse speed bump in front of a
- * card-testing target, not an accounting ledger. A database round trip on
- * every checkout to protect against a database-backed endpoint adds latency
- * and a failure mode to the happy path, and the real ceiling downstream is
- * Clover's own fraud controls plus the idempotency index. A fixed-size LRU
- * costs nothing and cannot fail. The trade-off is honest and worth stating:
- * on serverless each instance keeps its own counters, so the effective global
- * limit is (limit × warm instances). That still turns a scripted card-testing
- * run from thousands of attempts into a handful.
+ * TWO THINGS ARE BEING PROTECTED, and they are not the same:
  *
- * ⚠️ TODO(confirm): if abuse is ever observed in production, move this to a
- * shared store (Postgres table or Upstash). The interface below does not
- * change — only the body of `hit()`.
+ *   1. TWILIO SPEND. Every /api/otp/start is a billable SMS. An open endpoint
+ *      that sends texts on demand WILL be found and drained.
+ *   2. THE KITCHEN. Nothing is prepaid, so a submitted order costs the
+ *      restaurant real food. The per-phone daily order cap is the ceiling
+ *      that a stolen session cannot exceed.
+ *
+ * WHY IN-MEMORY AND NOT POSTGRES: these are abuse speed bumps, not ledgers. A
+ * database round trip on every request adds latency and a failure mode to the
+ * happy path. A fixed-size LRU costs nothing and cannot fail.
+ *
+ * The honest limitation: on serverless each instance keeps its own counters,
+ * so the effective global limit is (limit × warm instances). That is fine for
+ * blunting a script, and NOT fine as the only guard on Twilio spend — which is
+ * why the per-phone daily cap is deliberately also enforced by Twilio Verify's
+ * own per-number limits (error 60203), and the per-day ORDER cap is enforced
+ * in Postgres by `countOrdersForPhone`, where it cannot be evaded by hitting a
+ * different lambda.
+ *
+ * ⚠️ TODO(confirm): if abuse is observed, move `hit()` to a shared store
+ * (Postgres table or Upstash). No caller changes.
  */
 
 interface Bucket {
@@ -31,16 +40,26 @@ export interface RateLimitRule {
 }
 
 /**
- * Limits per endpoint.
+ * Limits per endpoint. Keys ending `_ip` are keyed by client IP, `_phone` by
+ * the normalized E.164 number.
  *
- * Checkout is deliberately tight: a real customer submits once, maybe twice
- * after fixing a card error. Ten in five minutes is already generous.
- * Tokenize is looser because Clover's iframe can legitimately re-tokenize as
- * the customer corrects a field.
+ * The phone limits matter more than the IP ones: an abuser changes IP for
+ * free, but each phone number they burn is a number they must actually
+ * possess. The daily cap is the real ceiling; the burst limit just stops a
+ * loop from spending twenty texts in ten seconds.
  */
 export const RATE_LIMITS = {
-  checkout: { windowMs: 5 * 60_000, max: 10 },
-  tokenize: { windowMs: 60_000, max: 20 },
+  /** Billable SMS. Burst, then a hard daily ceiling per number. */
+  otp_start_phone: { windowMs: 15 * 60_000, max: 3 },
+  otp_start_phone_daily: { windowMs: 24 * 60 * 60_000, max: 8 },
+  otp_start_ip: { windowMs: 15 * 60_000, max: 10 },
+  /** Code checks are cheap, but unlimited guesses are a brute force. */
+  otp_check_phone: { windowMs: 15 * 60_000, max: 10 },
+  otp_check_ip: { windowMs: 15 * 60_000, max: 30 },
+  /** Order submission. A real customer submits once, maybe twice. */
+  order_ip: { windowMs: 5 * 60_000, max: 10 },
+  /** The printer polls often and legitimately; this only catches a flood. */
+  cloudprnt_ip: { windowMs: 60_000, max: 120 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

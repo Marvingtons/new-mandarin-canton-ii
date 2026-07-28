@@ -2,27 +2,21 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/lib/cart/CartContext";
 import { restaurant } from "@/data/restaurant";
 import { formatCents, taxCents } from "@/lib/money";
+import { normalizePhone, phoneErrorMessage } from "@/lib/phone";
 import { pickupSlots, type PickupOptions, type PickupSlot } from "@/lib/order/pickup";
-import CloverPayment, {
-  type CloverPaymentHandle,
-} from "@/components/order/CloverPayment";
 
 /** Payload handed to the confirmation screen via sessionStorage. */
 export interface LastOrder {
   orderNumber: string;
-  chargeId: string;
   total: number;
   pickupTime: string;
 }
 
 interface CheckoutProps {
-  sdkUrl: string;
-  publicToken: string | null;
-  merchantId: string | null;
   timezone: string;
   leadMinutes: number;
   intervalMinutes: number;
@@ -31,10 +25,19 @@ interface CheckoutProps {
 
 const LAST_ORDER_KEY = "nmc-last-order";
 
+type VerifyState = "idle" | "sending" | "sent" | "checking";
+
+/**
+ * Pickup checkout. No payment — the customer pays at the counter.
+ *
+ * What replaces the card is the phone verification below. It is not a
+ * formality: the server will not accept an order without the httpOnly cookie
+ * that /api/otp/check sets, and it files the order under the number inside
+ * that cookie rather than the one in this form. So the UI here cannot lie
+ * about verification even if someone edits it — the worst it can do is
+ * confuse the person using it.
+ */
 export default function Checkout({
-  sdkUrl,
-  publicToken,
-  merchantId,
   timezone,
   leadMinutes,
   intervalMinutes,
@@ -42,15 +45,18 @@ export default function Checkout({
 }: CheckoutProps) {
   const router = useRouter();
   const { detailedLines, lines, subtotalCents, hydrated, clear } = useCart();
-  const payRef = useRef<CloverPaymentHandle>(null);
   const idempotencyKeyRef = useRef<string>("");
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
   const [time, setTime] = useState("");
   const [slots, setSlots] = useState<PickupSlot[]>([]);
+  const [verify, setVerify] = useState<VerifyState>("idle");
+  const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const pickupOpts = useMemo<PickupOptions>(
     () => ({ timezone, leadMinutes, intervalMinutes }),
@@ -73,12 +79,84 @@ export default function Checkout({
   const tax = taxRateBps != null ? taxCents(subtotalCents, taxRateBps) : 0;
   const total = subtotalCents + tax;
 
-  const phoneValid = phone.replace(/\D/g, "").length >= 10;
+  const phoneCheck = normalizePhone(phone);
+
+  /**
+   * Verification is DERIVED, not stored — editing the phone after verifying
+   * silently un-verifies it.
+   *
+   * Deliberately not an effect that resets state: this comparison is the truth
+   * at every render, so there is no window in which the form shows "verified"
+   * for a number the server would reject. The server rejects the mismatch
+   * regardless; this just stops the UI from lying about it first.
+   */
+  const isVerified =
+    verifiedPhone !== null && phoneCheck.e164 === verifiedPhone;
+
+  const sendCode = useCallback(async () => {
+    setError(null);
+    setNotice(null);
+
+    if (!phoneCheck.ok) {
+      setError(phoneErrorMessage(phoneCheck.error ?? "invalid_exchange"));
+      return;
+    }
+
+    setVerify("sending");
+    try {
+      const res = await fetch("/api/otp/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const data = (await res.json()) as
+        | { ok: true; last4: string }
+        | { ok: false; error: string };
+
+      if (!res.ok || !data.ok) {
+        setError("error" in data ? data.error : "We couldn't send a code.");
+        setVerify("idle");
+        return;
+      }
+      setNotice(`Code sent to ••••${data.last4}. It expires in 10 minutes.`);
+      setVerify("sent");
+    } catch {
+      setError("We couldn't reach the server. Please try again. · 無法連線，請重試。");
+      setVerify("idle");
+    }
+  }, [phone, phoneCheck]);
+
+  const submitCode = useCallback(async () => {
+    setError(null);
+    setVerify("checking");
+    try {
+      const res = await fetch("/api/otp/check", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone, code }),
+      });
+      const data = (await res.json()) as
+        | { ok: true; last4: string }
+        | { ok: false; error: string };
+
+      if (!res.ok || !data.ok) {
+        setError("error" in data ? data.error : "That code isn't right.");
+        setVerify("sent");
+        return;
+      }
+      setVerifiedPhone(phoneCheck.e164 ?? null);
+      setNotice(null);
+    } catch {
+      setError("We couldn't reach the server. Please try again. · 無法連線，請重試。");
+      setVerify("sent");
+    }
+  }, [phone, code, phoneCheck]);
+
   const canSubmit =
     hydrated &&
     detailedLines.length > 0 &&
     name.trim().length > 0 &&
-    phoneValid &&
+    isVerified &&
     time.length > 0 &&
     slots.length > 0 &&
     !submitting;
@@ -89,14 +167,17 @@ export default function Checkout({
     setError(null);
 
     if (!name.trim()) return setError("Please enter your name.");
-    if (!phoneValid) return setError("Please enter a valid phone number.");
-    if (!time || slots.length === 0)
+    if (!isVerified) {
+      return setError("Please verify your phone number first. · 請先驗證電話號碼。");
+    }
+    if (!time || slots.length === 0) {
       return setError("Please choose a pickup time.");
+    }
 
     setSubmitting(true);
     try {
-      const token = await payRef.current!.tokenize();
-
+      // One key for the life of this attempt, reused across retries, so a
+      // double-tap or a flaky connection yields one order rather than two.
       if (!idempotencyKeyRef.current) {
         idempotencyKeyRef.current =
           typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -104,7 +185,7 @@ export default function Checkout({
             : `idem_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       }
 
-      const res = await fetch("/api/checkout", {
+      const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -117,7 +198,6 @@ export default function Checkout({
             specialInstructions: l.specialInstructions,
           })),
           pickup: { name: name.trim(), phone: phone.trim(), time },
-          cardToken: token,
           idempotencyKey: idempotencyKeyRef.current,
         }),
       });
@@ -129,7 +209,7 @@ export default function Checkout({
       if (!res.ok || !data.ok) {
         setError(
           ("error" in data && data.error) ||
-            "We couldn't process your order. Please try again.",
+            "We couldn't place your order. Please try again.",
         );
         setSubmitting(false);
         return;
@@ -137,7 +217,6 @@ export default function Checkout({
 
       const last: LastOrder = {
         orderNumber: data.orderNumber,
-        chargeId: data.chargeId,
         total: data.total,
         pickupTime: data.pickupTime,
       };
@@ -148,12 +227,8 @@ export default function Checkout({
       }
       clear();
       router.push("/order/confirmation");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "We couldn't process your payment. Please try again.",
-      );
+    } catch {
+      setError("We couldn't place your order. Please try again. · 無法送出訂單，請重試。");
       setSubmitting(false);
     }
   }
@@ -181,6 +256,10 @@ export default function Checkout({
         <p className="mt-2 text-sm uppercase tracking-[0.15em] text-ink/55">
           Pickup only · {restaurant.address.street}
         </p>
+        <p className="mt-3 border border-gold/40 bg-gold/5 px-4 py-3 text-sm text-ink/80">
+          <span className="font-semibold text-ink">Pay when you pick up.</span>{" "}
+          We don&apos;t take payment online — cash or card at the counter.
+        </p>
 
         {/* Pickup details */}
         <fieldset className="mt-8">
@@ -202,7 +281,7 @@ export default function Checkout({
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
-                Phone
+                Mobile number
               </span>
               <input
                 value={phone}
@@ -210,7 +289,9 @@ export default function Checkout({
                 required
                 inputMode="tel"
                 autoComplete="tel"
-                className="w-full border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer"
+                placeholder="(619) 555-0148"
+                disabled={isVerified}
+                className="w-full border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer disabled:opacity-70"
               />
             </label>
           </div>
@@ -238,20 +319,74 @@ export default function Checkout({
           </label>
         </fieldset>
 
-        {/* Payment */}
+        {/* Phone verification */}
         <fieldset className="mt-8">
-          <legend className="font-display text-2xl text-ink">Payment</legend>
+          <legend className="font-display text-2xl text-ink">
+            Verify your number
+          </legend>
           <p className="mb-3 mt-1 text-sm text-ink/60">
-            Your card is entered securely in Clover&apos;s payment fields — it
-            never touches our servers.
+            We text you a code so the kitchen knows the order is real — and so
+            we can reach you when it&apos;s ready.
           </p>
-          <CloverPayment
-            ref={payRef}
-            sdkUrl={sdkUrl}
-            publicToken={publicToken}
-            merchantId={merchantId}
-          />
+
+          {isVerified ? (
+            <p className="flex items-center gap-2 border border-gold bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">
+              <span aria-hidden="true">✓</span>
+              Number verified. · 號碼已驗證。
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={sendCode}
+                disabled={verify === "sending" || verify === "checking"}
+                className="min-h-12 self-start border-2 border-lacquer px-5 font-semibold text-lacquer transition-colors hover:bg-lacquer hover:text-ivory disabled:opacity-50"
+              >
+                {verify === "sending"
+                  ? "Sending…"
+                  : verify === "sent"
+                    ? "Resend code"
+                    : "Text me a code"}
+              </button>
+
+              {verify !== "idle" && (
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
+                      6-digit code
+                    </span>
+                    <input
+                      value={code}
+                      onChange={(e) =>
+                        setCode(e.target.value.replace(/\D/g, "").slice(0, 10))
+                      }
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="w-40 border border-gold/50 bg-ivory px-3 py-3 font-mono text-lg tracking-[0.3em] text-ink outline-none focus:border-lacquer"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={submitCode}
+                    disabled={code.length < 4 || verify === "checking"}
+                    className="min-h-12 bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:opacity-50"
+                  >
+                    {verify === "checking" ? "Checking…" : "Verify"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </fieldset>
+
+        {notice && (
+          <p
+            role="status"
+            className="mt-6 border border-gold/50 bg-gold/10 px-4 py-3 text-sm text-ink"
+          >
+            {notice}
+          </p>
+        )}
 
         {error && (
           <p
@@ -267,10 +402,12 @@ export default function Checkout({
           disabled={!canSubmit}
           className="mt-6 flex min-h-12 w-full items-center justify-center bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {submitting ? "Placing order…" : `Pay ${formatCents(total)} · Pickup`}
+          {submitting
+            ? "Placing order…"
+            : `Place order · ${formatCents(total)} at pickup`}
         </button>
         <p className="mt-2 text-center text-xs uppercase tracking-[0.15em] text-ink/50">
-          Pickup only · no delivery
+          Pickup only · pay at the counter
         </p>
       </form>
 
@@ -311,7 +448,7 @@ export default function Checkout({
             </dd>
           </div>
           <div className="flex justify-between border-t border-gold/20 pt-1 text-base font-semibold">
-            <dt className="text-ink">Total</dt>
+            <dt className="text-ink">Due at pickup</dt>
             <dd className="text-lacquer">{formatCents(total)}</dd>
           </div>
         </dl>
