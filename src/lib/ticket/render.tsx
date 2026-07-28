@@ -220,29 +220,18 @@ export interface RenderTicketOptions {
   reprint?: boolean;
 }
 
-/** A rendered ticket, in both the forms the delivery path needs. */
-export interface TicketImage {
-  /** PNG — what the dev preview route and the kitchen board serve. */
-  png: Buffer;
-  /** Raw RGBA — what the ESC/POS raster encoder consumes, no decode step. */
-  pixels: Buffer;
-  width: number;
-  height: number;
-}
-
-/** Render an order to an 80mm-wide PNG buffer. */
+/**
+ * Render an order to an 80mm-wide PNG.
+ *
+ * PNG is the printer's own media type — CloudPRNT streams these bytes to the
+ * printer untouched and the firmware rasterizes them. There is no ESC/POS
+ * conversion step anywhere in this system, which is why the CJK code-page
+ * problem simply does not arise.
+ */
 export async function renderTicket(
   order: Order,
   options: RenderTicketOptions,
 ): Promise<Buffer> {
-  return (await renderTicketImage(order, options)).png;
-}
-
-/** Render an order, returning both the PNG and the raw pixels. */
-export async function renderTicketImage(
-  order: Order,
-  options: RenderTicketOptions,
-): Promise<TicketImage> {
   const fonts = await loadTicketFonts();
   const { coverage } = fonts;
 
@@ -409,8 +398,10 @@ export async function renderTicketImage(
         </div>
       </div>
 
-      {/* PAID is worth stating plainly: staff must never ask this customer for
-          money at the counter. */}
+      {/* The single most consequential string on the ticket. Nothing is paid
+          online any more, so this must read as "COLLECT PAYMENT" — an earlier
+          revision inherited "PAID ONLINE" from the cancelled prepaid flow,
+          which would have had staff hand over food without taking money. */}
       <div
         style={{
           display: "flex",
@@ -424,7 +415,7 @@ export async function renderTicketImage(
           paddingBottom: 6,
         }}
       >
-        {L.paid} PAID ONLINE
+        {L.payAtCounter} · COLLECT PAYMENT
       </div>
     </div>
   );
@@ -444,10 +435,5 @@ export async function renderTicketImage(
     font: { loadSystemFonts: false },
   }).render();
 
-  return {
-    png: Buffer.from(rendered.asPng()),
-    pixels: Buffer.from(rendered.pixels),
-    width: rendered.width,
-    height: rendered.height,
-  };
+  return Buffer.from(rendered.asPng());
 }

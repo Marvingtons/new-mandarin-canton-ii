@@ -23,7 +23,7 @@ import {
   categoryZhByName,
   modifierZhByName,
   sizeZhByLabel,
-  itemOverridesByCloverId,
+  itemOverridesById,
   itemOverridesByName,
 } from "@/data/menu-overrides";
 import { restaurant } from "@/data/restaurant";
@@ -45,7 +45,7 @@ export const TICKET_LABELS = {
   tax: "稅金",
   tip: "小費",
   total: "合計",
-  paid: "已付款",
+  payAtCounter: "到店付款",
 } as const;
 
 /**
@@ -76,7 +76,7 @@ export function collectTicketGlyphs(): string {
   parts.push(restaurant.name);
 
   for (const override of [
-    ...Object.values(itemOverridesByCloverId),
+    ...Object.values(itemOverridesById),
     ...Object.values(itemOverridesByName),
   ]) {
     if (override.nameZh) parts.push(override.nameZh);
