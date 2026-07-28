@@ -5,7 +5,7 @@ import {
 } from "@/lib/auth/kitchenSession";
 import { businessDateFor } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
-import { isPrintingConfigured } from "@/lib/print/printnode";
+import { cloudPrntConfigured } from "@/lib/print/status";
 import KitchenLogin from "@/components/kitchen/KitchenLogin";
 import KitchenBoard from "@/components/kitchen/KitchenBoard";
 
@@ -38,7 +38,7 @@ export default async function KitchenPage() {
       timezone={tenant.timezone}
       businessDate={businessDateFor(tenant.timezone)}
       ordersConfigured={isOrdersDbConfigured()}
-      printingConfigured={isPrintingConfigured()}
+      printingConfigured={cloudPrntConfigured()}
     />
   );
 }

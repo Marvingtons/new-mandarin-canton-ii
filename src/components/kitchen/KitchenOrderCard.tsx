@@ -15,8 +15,7 @@ import type { Order, OrderStatus } from "@/lib/orders/types";
  */
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  PENDING_PAYMENT: "未付款 UNPAID",
-  PAID: "新訂單 NEW",
+  QUEUED: "待列印 WAITING TO PRINT",
   PRINTED: "已印 PRINTED",
   PRINT_FAILED: "未印出 NOT PRINTED",
   ACCEPTED: "製作中 COOKING",
@@ -39,6 +38,9 @@ export default function KitchenOrderCard({
   const [showTicket, setShowTicket] = useState(false);
 
   const failed = order.status === "PRINT_FAILED";
+  // A QUEUED order the printer has already been handed (attempts > 0) and not
+  // confirmed is the quiet failure mode: paper may never have come out.
+  const stale = order.status === "QUEUED" && order.printAttempts > 0;
   const done = order.status === "COMPLETED" || order.status === "CANCELLED";
 
   async function run(action: string) {
@@ -86,6 +88,13 @@ export default function KitchenOrderCard({
         <div className="bg-lacquer px-4 py-2 text-base font-bold text-ivory">
           ⚠ 未印出 — this ticket never printed
           {order.lastPrintError ? ` (${order.lastPrintError})` : ""}
+        </div>
+      )}
+
+      {stale && (
+        <div className="bg-lacquer px-4 py-2 text-base font-bold text-ivory">
+          ⚠ 未確認 — sent to the printer {order.printAttempts}× with no
+          confirmation. Check the paper.
         </div>
       )}
 
@@ -157,7 +166,7 @@ export default function KitchenOrderCard({
           電話 {order.customer.phone}
         </a>
         <div className="mt-1 text-ivory/70">
-          合計 {formatCents(order.totals.totalCents)} · 已付款 PAID
+          合計 {formatCents(order.totals.totalCents)} · 到店付款 PAY AT COUNTER
         </div>
       </div>
 

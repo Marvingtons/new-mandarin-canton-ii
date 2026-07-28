@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { publicTenant } from "@/config/tenant.server";
 import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
-import { getOrderById, updateStatus } from "@/lib/orders/repository";
-import { printOrder } from "@/lib/print/dispatch";
+import {
+  getOrderById,
+  requeueForPrint,
+  updateStatus,
+} from "@/lib/orders/repository";
+import { notifyOrderReady } from "@/lib/notify/orderReady";
 
 /**
  * POST /api/kitchen/orders/[id] — the board's actions: 接單 / 完成 / 重印.
@@ -14,7 +18,7 @@ export const runtime = "nodejs";
 
 const BodySchema = z
   .object({
-    action: z.enum(["accept", "complete", "cancel", "reprint"]),
+    action: z.enum(["accept", "complete", "cancel", "reprint", "notify"]),
   })
   .strict();
 
@@ -48,22 +52,26 @@ export async function POST(
     return Response.json({ ok: false, error: "not found" }, { status: 404 });
   }
 
+  // 重印 — put the job back in the queue. We do NOT push to the printer:
+  // CloudPRNT is pull-based, so "reprint" means making the job claimable again
+  // and letting the next poll (seconds away) collect it.
   if (body.action === "reprint") {
-    const result = await printOrder(order, { reprint: true });
-    if (result.skipped) {
-      return Response.json({
-        ok: false,
-        error: "No printer is configured — this order is on the board only.",
-      });
-    }
-    if (!result.printed) {
-      return Response.json({
-        ok: false,
-        error: `Print failed: ${result.error ?? "unknown error"}`,
-      });
-    }
-    const refreshed = await getOrderById(tenant.tenantId, orderId);
-    return Response.json({ ok: true, order: refreshed });
+    const requeued = await requeueForPrint(tenant.tenantId, orderId);
+    return Response.json({
+      ok: true,
+      order: requeued,
+      notice: "Re-queued — the printer will pick it up on its next poll.",
+    });
+  }
+
+  // Manual "text the customer it's ready" without advancing the order.
+  if (body.action === "notify") {
+    const result = await notifyOrderReady(order);
+    return Response.json(
+      result.sent
+        ? { ok: true, order, notice: "Customer notified." }
+        : { ok: false, error: result.error ?? "Could not send the text." },
+    );
   }
 
   const nextStatus =
@@ -74,5 +82,14 @@ export async function POST(
         : "CANCELLED";
 
   const updated = await updateStatus(tenant.tenantId, orderId, nextStatus);
+
+  // Courtesy text when the food is ready. Fire and forget: an SMS that does
+  // not send must never make the kitchen think 完成 failed.
+  if (updated && body.action === "complete") {
+    void notifyOrderReady(updated).catch(() => {
+      /* already logged inside */
+    });
+  }
+
   return Response.json({ ok: true, order: updated });
 }
