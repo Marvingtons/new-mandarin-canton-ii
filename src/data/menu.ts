@@ -3,10 +3,13 @@
  * menu (rev. 9/25, September 2025).
  *
  * SCOPE / CONVENTIONS
- * - Prices are the INDIVIDUAL price only. The printed menu also lists a
- *   "party tray" price for most entrées; those are modeled in Clover as
- *   size variants, not here (Clover is the single source of truth for
- *   ordering — this file is the browse-and-call + seed fallback).
+ * - Prices are display DOLLARS and the INDIVIDUAL price only. The printed
+ *   menu also lists a "party tray" price for most entrées; those were never
+ *   transcribed here and live in src/data/party-trays.ts — read the
+ *   provenance warning in that file before trusting them.
+ * - THIS FILE IS THE ORDERABLE MENU. src/lib/menu/catalog.ts adapts it into
+ *   the normalized shape the cart, the ticket and the totals use, converting
+ *   dollars to integer cents at that single boundary.
  * - English-only: dish Chinese names are intentionally omitted. 富源 (the
  *   seal) is the site's only Chinese text by design.
  * - `spicy` mirrors the printed menu's 🌶 markers.
@@ -22,9 +25,12 @@ export interface MenuItem {
   id: string;
   name: string;
   /**
-   * Standard Chinese culinary name. Retained in the type for the Clover
-   * seed path, but deliberately unused on the site (English-only menu;
-   * 富源 is the only Chinese text).
+   * Standard Chinese culinary name.
+   *
+   * Populated on ZERO items today, and unused on the marketing site by design
+   * (English-only menu; 富源 is the only Chinese text there). The kitchen
+   * ticket IS Chinese-primary, so its 中文 comes from src/data/menu-overrides.ts
+   * instead. Setting it here would take precedence — see menu/catalog.ts.
    */
   chineseName?: string;
   description?: string;
@@ -573,7 +579,8 @@ export const menu: MenuCategory[] = [
  * Prix-fixe / combination sections. These are per-person or fixed-price
  * sets, not single orderable line items, so they render through
  * MenuCombos rather than MenuSection. Party trays and à la carte pricing
- * still live in Clover; these mirror the printed menu's combo panels.
+ * are not individually orderable online; these mirror the printed menu's
+ * combo panels, including the lunch "no soup on pickup orders" rule.
  * ------------------------------------------------------------------ */
 
 export interface ComboAddOn {

@@ -6,10 +6,11 @@
  * and the checkout route already share — the money is untouched, and all this
  * layer adds is the 中文 the ticket cannot be printed without.
  *
- * Why the name resolution lives here rather than in the menu: the seed menu
- * carries no 中文 at all, and normalize.ts applies item overrides only on the
- * Clover path. Resolving at order time means the ticket is bilingual today,
- * against the seed menu, with no Clover credential in sight.
+ * Why the name resolution is repeated here rather than trusted from the menu:
+ * an order is stored as a SNAPSHOT. Renaming a dish or fixing a translation
+ * next week must not silently rewrite what a kitchen was told to cook last
+ * week, so the bilingual names are resolved once, at order time, and frozen
+ * into the row.
  */
 
 import { resolveLinePrice } from "@/lib/cart/pricing";
