@@ -19,7 +19,6 @@ const nextConfig: NextConfig = {
    * production and nowhere else, which is the worst possible place to find out.
    */
   outputFileTracingIncludes: {
-    "/api/checkout": ["./public/fonts/**"],
     "/api/ticket/preview": ["./public/fonts/**"],
     "/api/kitchen/orders/[id]": ["./public/fonts/**"],
     "/api/kitchen/orders/[id]/ticket": ["./public/fonts/**"],
