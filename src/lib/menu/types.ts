@@ -1,10 +1,10 @@
 /**
  * Normalized menu types — the shape the rest of the app consumes.
  *
- * Deliberately decoupled from Clover's wire format so a Clover schema change
- * is a compile error in normalize.ts only. Money stays in INTEGER CENTS all
- * the way to the charge call; it is formatted for display at the very edge.
- * Floating-point dollars never enter a price calculation.
+ * Deliberately decoupled from the raw catalogue in src/data/menu.ts, which
+ * stores display dollars for the marketing pages. The conversion happens once,
+ * in menu/catalog.ts. From here on money is INTEGER CENTS all the way to the
+ * printed ticket; floating-point dollars never enter a price calculation.
  */
 
 export interface MenuModifier {
@@ -66,21 +66,25 @@ export interface MenuCategory {
   nameEn: string;
   nameZh: string | null;
   sortOrder: number;
+  /** Section footnote from the printed menu, e.g. the lunch "no soup" rule. */
+  note: string | null;
   items: MenuItem[];
 }
 
 /**
- * Where the menu currently being served came from.
- *  clover — live read (the only source allowed to take a payment)
- *  cache  — last-good snapshot from Supabase; Clover was unreachable
- *  seed   — the static file in src/data/menu.ts; last resort
+ * Where the menu being served came from.
+ *
+ * Only one value today: the restaurant's own catalogue, compiled into the app.
+ * The union is retained (rather than dropped) so that adding a remote source
+ * later is a compile error at every site that needs to care, instead of a
+ * silent behaviour change.
  */
-export type MenuSource = "clover" | "cache" | "seed";
+export type MenuSource = "catalog";
 
 export interface Menu {
   categories: MenuCategory[];
   source: MenuSource;
-  /** Epoch ms the underlying data was read from Clover. */
+  /** Epoch ms the data was read from a remote source; 0 for the catalogue. */
   fetchedAt: number;
 }
 

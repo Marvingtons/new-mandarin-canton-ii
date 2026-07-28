@@ -1,36 +1,34 @@
 /**
- * Bilingual + presentation overrides layered on top of the live Clover menu.
+ * Bilingual + presentation overrides layered onto the menu catalogue.
  *
- * Clover items carry ONE name field, so every piece of 中文 (and every spicy /
- * vegetarian / chef's-special marker) comes from this file and is merged over
- * the Clover data at fetch time.
+ * `src/data/menu.ts` is English-only — its `chineseName` field is declared but
+ * populated on zero items — so every piece of 中文 the kitchen ticket prints,
+ * and every spicy / vegetarian / chef's-special marker, comes from this file.
  *
  * TWO KEYING STRATEGIES, on purpose:
  *
- *  1. `itemOverridesByCloverId` — the durable one. Clover item IDs are stable
- *     and unambiguous, so this wins whenever it has an entry. It is empty
- *     until the first real sync tells us the IDs. ⚠️ FILL THIS IN after the
- *     first successful menu sync (the dev-only report prints the IDs).
+ *  1. `itemOverridesById` — the precise one, keyed by the item's id in
+ *     menu.ts. Wins whenever it has an entry. Use it when two dishes share a
+ *     name, or when a name is too generic to match safely.
  *
- *  2. `itemOverridesByName` — the transitional one, seeded from the 中文 names
- *     already verified in src/data/menu.ts. It matches on a normalized English
- *     name so the site is bilingual on day one, before anyone has typed a
- *     single Clover ID. If the owner renames an item in Clover the match drops
- *     and the item falls back to its Clover name (never a wrong translation).
+ *  2. `itemOverridesByName` — the broad one, matching a normalized English
+ *     name. One entry covers the same dish listed under both Specials and its
+ *     own section. If an item is renamed the match simply drops and the dish
+ *     falls back to English — never to a wrong translation.
  *
- * Nothing here invents a translation: every 中文 string below already shipped
- * in this repo's static menu.
+ * Nothing here invents a dish translation: every 中文 dish name below already
+ * shipped in this repo.
  */
 
 export interface MenuItemOverride {
   nameZh?: string;
-  /** Overrides the Clover name when the POS name is abbreviated or internal. */
+  /** Overrides the catalogue name when it is abbreviated or internal. */
   nameEn?: string;
   description?: string;
   spicy?: boolean;
   vegetarian?: boolean;
   chefSpecial?: boolean;
-  /** Force-hide from online ordering even if Clover has it visible. */
+  /** Force-hide from online ordering while keeping it on the printed menu. */
   hidden?: boolean;
 }
 
@@ -47,12 +45,28 @@ export function overrideKey(nameEn: string): string {
 }
 
 /**
- * ⚠️ CONFIRM — authoritative, ID-keyed overrides. Empty until the first sync.
- * Example of the shape once a real Clover ID is known:
+ * Precise, id-keyed overrides — for dishes whose catalogue spelling differs
+ * from the name map's key.
  *
- *   "9J1F7WW503CZW": { nameZh: "宮保雞丁", spicy: true },
+ * Every entry below was found by diffing the two maps: the 中文 already existed
+ * in this repo but was never reaching the ticket because the printed menu
+ * spells the dish slightly differently ("Kung-Po San Shein" vs "Kung Pao San
+ * Shein", singular "Vegetable" vs plural). Keying by id makes the match exact
+ * and immune to further spelling drift.
  */
-export const itemOverridesByCloverId: Record<string, MenuItemOverride> = {};
+export const itemOverridesById: Record<string, MenuItemOverride> = {
+  // "Kung-Po San Shein" — the printed menu's own hyphenation.
+  "kung-po-san-shein": { nameZh: "宮保三鮮", spicy: true },
+  // The catalogue says "Chicken or Beef Chow Fun (Dry)".
+  "chow-fun-chicken-or-beef": { nameZh: "炒粉" },
+  "seafood-chow-fun": { nameZh: "炒粉" },
+  // The catalogue's rice line is "Fried/Steamed Rice", one item for both.
+  "fried-steamed-rice": { nameZh: "白飯" },
+  // Singular "Vegetable" in the printed menu.
+  "mixed-vegetable": { vegetarian: true },
+  "tofu-vegetable": { vegetarian: true },
+  "vegetarian-fried-rice": { vegetarian: true },
+};
 
 /** Transitional name-keyed overrides, seeded from verified repo data. */
 const RAW_NAME_OVERRIDES: Record<string, MenuItemOverride> = {
@@ -130,14 +144,12 @@ export const categoryZhByName: Record<string, string> = Object.fromEntries(
   Object.entries(RAW_CATEGORY_ZH).map(([name, zh]) => [overrideKey(name), zh]),
 );
 
-/** Resolve the override for an item, ID first then name fallback. */
+/** Resolve the override for an item: id first, then name fallback. */
 export function resolveItemOverride(
-  cloverId: string,
+  itemId: string,
   nameEn: string,
 ): MenuItemOverride | undefined {
-  return (
-    itemOverridesByCloverId[cloverId] ?? itemOverridesByName[overrideKey(nameEn)]
-  );
+  return itemOverridesById[itemId] ?? itemOverridesByName[overrideKey(nameEn)];
 }
 
 /* ------------------------------------------------------- ticket 中文 ----- *

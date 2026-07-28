@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Menu, MenuItem, MenuSource } from "@/lib/menu/types";
+import type { Menu, MenuItem } from "@/lib/menu/types";
 import { isAvailable, itemSizes } from "@/lib/menu/types";
 import { useCart } from "@/lib/cart/CartContext";
 import { restaurant } from "@/data/restaurant";
@@ -19,11 +19,9 @@ import StickyCartBar from "@/components/order/StickyCartBar";
 export default function OrderMenu({
   menu,
   taxRateBps,
-  menuSource,
 }: {
   menu: Menu;
   taxRateBps: number | null;
-  menuSource: MenuSource;
 }) {
   const { itemCount, hydrated } = useCart();
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
@@ -40,8 +38,7 @@ export default function OrderMenu({
               Order Pickup
             </h1>
             <p className="mt-3 max-w-2xl leading-relaxed text-ink/75">
-              Add items to your cart and pay online — your order goes straight to
-              the family, not a delivery app.{" "}
+              Order straight from the family, not a delivery app.{" "}
               <span className="font-semibold text-ink">
                 Pickup only at {restaurant.address.street}.
               </span>
@@ -56,12 +53,11 @@ export default function OrderMenu({
           </button>
         </div>
 
-        {menuSource === "seed" && (
-          <p className="mt-4 border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
-            Showing a sample of our most-ordered dishes. The full menu comes
-            online shortly.
-          </p>
-        )}
+        <p className="mt-4 border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
+          <span className="font-semibold text-ink">Pay when you pick up.</span>{" "}
+          We don&apos;t take payment online — we&apos;ll text you a code to
+          confirm your number, then you pay at the counter.
+        </p>
 
         {/* Category jump nav */}
         <nav

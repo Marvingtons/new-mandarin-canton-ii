@@ -45,6 +45,3 @@ export interface PublicTenantConfig {
   /** Per-day online-ordering window (may be narrower than dine-in hours). */
   orderingHours: Record<DayKey, OrderingWindow>;
 }
-
-/** Which Clover environment the server talks to. */
-export type CloverEnv = "sandbox" | "production";
