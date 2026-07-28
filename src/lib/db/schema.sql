@@ -1,46 +1,18 @@
 -- ---------------------------------------------------------------------------
--- New Mandarin Canton ordering platform — schema
+-- New Mandarin Canton ordering platform — full schema
 --
--- Run this once in the Supabase SQL editor (sandbox project first). The file
--- is idempotent, so re-running it after an edit is safe.
+-- This file is the CURRENT desired state, and is idempotent: running it against
+-- a fresh Supabase project creates everything. Incremental changes to an
+-- already-deployed database live in src/lib/db/migrations/ and are numbered.
 --
 -- Multi-tenant by design: every row is scoped by tenant_id so a second
 -- restaurant is a new row set, not a new database.
 --
--- Money is INTEGER CENTS everywhere. No column in this file is a float, and
--- nothing in the orders path may introduce one.
--- ---------------------------------------------------------------------------
-
--- Last-good menu snapshot. Written on every successful Clover read and served
--- when Clover is unreachable, so an API outage degrades to a slightly stale
--- menu instead of an empty page.
-create table if not exists menu_snapshots (
-  tenant_id    text        not null,
-  -- The normalized Menu object (categories -> items -> modifier groups).
-  payload      jsonb       not null,
-  -- Epoch ms the data was read from Clover.
-  fetched_at   bigint      not null,
-  updated_at   timestamptz not null default now(),
-  primary key (tenant_id)
-);
-
-comment on table menu_snapshots is
-  'Last-good normalized menu per tenant. Read-only fallback when Clover is down. Never used as a basis for taking payment.';
-
--- RLS is enabled purely as a safety net: the app reaches this table only via
--- the service-role key from server code, and no anon/authenticated policy is
--- defined, so a leaked anon key grants nothing here.
-alter table menu_snapshots enable row level security;
-
--- ---------------------------------------------------------------------------
--- Orders
+-- Money is INTEGER CENTS everywhere. No column here is a float, and nothing in
+-- the orders path may introduce one.
 --
--- Replaces the .data/orders.json dev store, which was per-instance and
--- ephemeral on serverless: it silently defeated BOTH the idempotency replay
--- and the daily order number, so a double-tap could double-charge and two
--- customers could be handed the same number at the counter.
---
--- The guarantee lives in the unique indexes below, not in application code.
+-- NOTHING in this file is payment-related. Customers pay at the counter; a
+-- verified phone number, not a card, is what makes an order real.
 -- ---------------------------------------------------------------------------
 
 create table if not exists orders (
@@ -54,26 +26,30 @@ create table if not exists orders (
   business_date     date        not null,
   status            text        not null,
   idempotency_key   text        not null,
-  -- Clover charge id. Null while the row is only a PENDING_PAYMENT
-  -- reservation; set once the charge succeeds.
-  charge_id         text,
   -- Resolved line items: nameEn, nameZh, size, modifiers (both languages),
   -- special instructions, and integer-cent unit/line totals.
   items             jsonb       not null,
   -- { subtotalCents, taxCents, tipCents, totalCents } — integers, always.
   totals            jsonb       not null,
-  -- { name, phone }
+  -- { name, phone } with phone in E.164.
   customer          jsonb       not null,
+  -- NOT NULL on purpose: an unverified order cannot exist. This column is the
+  -- schema-level statement of the anti-abuse rule.
+  phone_verified_at timestamptz not null,
   pickup_at         timestamptz not null,
   print_attempts    int         not null default 0,
+  -- Set ONLY by a CloudPRNT DELETE, i.e. the printer's own confirmation that
+  -- paper came out. Never set optimistically when a job is handed over.
+  printed_at        timestamptz,
   last_print_error  text,
+  -- Stamped when the unprinted-order alert fires, so it fires exactly once.
+  alerted_at        timestamptz,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
   constraint orders_status_check check (
     status in (
-      'PENDING_PAYMENT',
-      'PAID',
+      'QUEUED',
       'PRINTED',
       'PRINT_FAILED',
       'ACCEPTED',
@@ -84,11 +60,10 @@ create table if not exists orders (
 );
 
 comment on table orders is
-  'Paid pickup orders, one row per customer order. The unique index on (tenant_id, idempotency_key) is what actually prevents a double charge.';
+  'Pickup orders. Unpaid by design — payment happens at the counter. The unique index on (tenant_id, idempotency_key) is what prevents a double submit becoming two tickets.';
 
--- THE constraint that enforces single-charge. Not optional: the checkout route
--- reserves the row BEFORE calling Clover, so a concurrent duplicate submit
--- loses this race and never reaches the charge call at all.
+-- Idempotency is enforced HERE, not in application code. A duplicate submit
+-- loses this insert and is handed the original confirmation.
 create unique index if not exists orders_idempotency_uniq
   on orders (tenant_id, idempotency_key);
 
@@ -100,6 +75,12 @@ create unique index if not exists orders_number_uniq
 create index if not exists orders_kitchen_idx
   on orders (tenant_id, business_date, status, created_at desc);
 
+-- Drives the CloudPRNT claim and the unprinted-order alert sweep. Partial, so
+-- it stays small: only orders that still need something to happen to them.
+create index if not exists orders_print_queue_idx
+  on orders (tenant_id, created_at)
+  where status in ('QUEUED', 'PRINT_FAILED');
+
 -- Atomic daily counter. A plain sequence will not do — it does not reset per
 -- day, and a read-then-write in application code races under concurrency.
 create table if not exists order_counters (
@@ -110,7 +91,15 @@ create table if not exists order_counters (
 );
 
 comment on table order_counters is
-  'One row per tenant per business day. Incremented by a single atomic UPSERT so 50 concurrent checkouts get 50 distinct numbers.';
+  'One row per tenant per business day. Incremented by a single atomic UPSERT so 50 concurrent submissions get 50 distinct numbers.';
 
-alter table orders          enable row level security;
-alter table order_counters  enable row level security;
+-- ---------------------------------------------------------------------------
+-- Row Level Security
+--
+-- Defense in depth ONLY. The real boundary is that the browser never talks to
+-- this database at all: every write goes through a server route handler using
+-- the service-role key, which bypasses RLS anyway. No policy is defined, so a
+-- leaked anon key grants nothing here.
+-- ---------------------------------------------------------------------------
+alter table orders         enable row level security;
+alter table order_counters enable row level security;

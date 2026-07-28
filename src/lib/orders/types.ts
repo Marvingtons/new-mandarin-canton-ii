@@ -6,27 +6,30 @@
  * import, so the client /kitchen board can share them with the server.
  *
  * Money is INTEGER CENTS everywhere. There is no float anywhere in this file
- * and none may be added: the ticket, the board, and the charge all read these
- * same numbers.
+ * and none may be added: the ticket, the board, and the customer's quoted
+ * total all read these same numbers.
  */
 
 /**
  * Order lifecycle.
  *
- *   PENDING_PAYMENT — row reserved, Clover not yet called. Holds the
- *                     idempotency key so a concurrent duplicate submit loses
- *                     the race before it can charge. Never shown to staff.
- *   PAID            — charge succeeded. The order is real money.
- *   PRINTED         — a kitchen ticket came out of the printer.
- *   PRINT_FAILED    — printing exhausted its retries. Staff must read it on
- *                     the tablet; this sorts to the top of the board.
- *   ACCEPTED        — kitchen tapped 接單.
- *   COMPLETED       — kitchen tapped 完成; handed to the customer.
- *   CANCELLED       — voided by staff.
+ * There are no payment states. Nothing is charged online — the customer pays
+ * cash or card at the counter — so an order is REAL the moment it is stored
+ * with a verified phone number. That is the whole point of the OTP: it is the
+ * cost an abuser has to pay, standing in for the card that used to be one.
+ *
+ *   QUEUED       — stored, verified, waiting for the printer to claim it.
+ *                  An order sitting here too long is the dangerous case, and
+ *                  is exactly what the unprinted-order alert watches for.
+ *   PRINTED      — the printer sent a CloudPRNT DELETE confirming it printed.
+ *   PRINT_FAILED — handed out too many times without confirmation, or the
+ *                  render failed. Sorts to the top of the kitchen board.
+ *   ACCEPTED     — kitchen tapped 接單.
+ *   COMPLETED    — kitchen tapped 完成; handed over.
+ *   CANCELLED    — voided by staff.
  */
 export const ORDER_STATUSES = [
-  "PENDING_PAYMENT",
-  "PAID",
+  "QUEUED",
   "PRINTED",
   "PRINT_FAILED",
   "ACCEPTED",
@@ -42,11 +45,18 @@ export function isOrderStatus(value: string): value is OrderStatus {
 
 /** Statuses the kitchen still has work to do on. */
 export const ACTIVE_STATUSES: OrderStatus[] = [
-  "PAID",
+  "QUEUED",
   "PRINTED",
   "PRINT_FAILED",
   "ACCEPTED",
 ];
+
+/**
+ * Statuses a print job may be claimed from. Only QUEUED — a PRINT_FAILED order
+ * is re-queued explicitly by staff pressing 重印 rather than retried forever
+ * against a printer that is plainly not working.
+ */
+export const PRINTABLE_STATUSES: OrderStatus[] = ["QUEUED"];
 
 /** A modifier as it appears on the ticket — bilingual where we have it. */
 export interface OrderLineModifier {
@@ -81,13 +91,17 @@ export interface OrderLine {
 export interface OrderTotals {
   subtotalCents: number;
   taxCents: number;
-  /** Tips are not offered yet (TIP_PRESETS unset); kept at 0 for the schema. */
+  /**
+   * Always 0 today: payment happens at the counter, so tipping is the
+   * register's business. Kept in the shape so enabling it is not a migration.
+   */
   tipCents: number;
   totalCents: number;
 }
 
 export interface OrderCustomer {
   name: string;
+  /** E.164, e.g. "+16195550148". Normalized before storage, never as typed. */
   phone: string;
 }
 
@@ -100,14 +114,19 @@ export interface Order {
   businessDate: string;
   status: OrderStatus;
   idempotencyKey: string;
-  chargeId: string | null;
   items: OrderLine[];
   totals: OrderTotals;
   customer: OrderCustomer;
+  /** When the customer's phone was proved by OTP. Never null: no verification, no order. */
+  phoneVerifiedAt: string;
   /** Absolute instant, serialized ISO-8601. Render it in the tenant timezone. */
   pickupAt: string;
   printAttempts: number;
+  /** Set only by a CloudPRNT DELETE — the printer's own confirmation. */
+  printedAt: string | null;
   lastPrintError: string | null;
+  /** Set once an unprinted-order alert has been sent, so it fires exactly once. */
+  alertedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -121,14 +140,16 @@ export interface NewOrderInput {
   items: OrderLine[];
   totals: OrderTotals;
   customer: OrderCustomer;
+  /** Proof the phone was verified. The route supplies it; the client cannot. */
+  phoneVerifiedAt: Date;
   pickupAt: Date;
 }
 
 /**
- * Result of a reservation attempt.
+ * Result of an insert attempt.
  *
  * `created: false` means this idempotency key already had a row — the caller
- * MUST return the existing order rather than charging again.
+ * MUST return that original order's confirmation rather than making a second.
  */
 export interface CreateOrderResult {
   order: Order;

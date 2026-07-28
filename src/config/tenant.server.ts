@@ -2,7 +2,6 @@ import "server-only";
 
 import { restaurant } from "@/data/restaurant";
 import type {
-  CloverEnv,
   DayKey,
   OrderingWindow,
   PublicTenantConfig,
@@ -15,8 +14,8 @@ import type {
  * imports this module (directly or transitively), the BUILD FAILS instead of
  * silently shipping `undefined` — or, worse, a secret — to the browser.
  *
- * Reading env is deliberately LENIENT: a missing Clover token must not crash
- * the marketing site. Values that are required for a specific integration are
+ * Reading env is deliberately LENIENT: a missing Twilio or printer credential
+ * must not crash the marketing site. Values required for a specific integration are
  * validated at the point of use via the require* helpers below, which throw a
  * loud, actionable error naming the missing variable.
  *
@@ -155,14 +154,19 @@ export function publicTenant(): PublicTenantConfig {
 
   return {
     tenantId: env("TENANT_ID") ?? "new-mandarin-canton",
-    timezone: env("TENANT_TIMEZONE") ?? "America/Los_Angeles",
-    // ⚠️ CONFIRM: null until the real Chula Vista rate is supplied. Checkout
-    // refuses to charge while this is null rather than guessing a tax rate.
+    // RESTAURANT_TIMEZONE is the documented name; TENANT_TIMEZONE is accepted
+    // as the pre-existing alias so an already-configured deploy keeps working.
+    timezone:
+      env("RESTAURANT_TIMEZONE") ?? env("TENANT_TIMEZONE") ?? "America/Los_Angeles",
+    // ⚠️ TODO(confirm): the real Chula Vista rate. Nothing is charged online
+    // any more, but this figure prints on the kitchen ticket and is what the
+    // customer is quoted, so a wrong value is still a wrong promise. Null
+    // makes the order flow refuse rather than guess.
     // Preferred form is TENANT_TAX_RATE_BPS (exact integer basis points);
-    // TAX_RATE (a decimal like 0.0775) is accepted as a fallback and
-    // converted to bps.
+    // TAX_RATE (a decimal like 0.0775) is accepted as a fallback.
     taxRateBps: resolveTaxRateBps(taxRaw),
-    // Empty array = tips not offered. ⚠️ CONFIRM whether pickup takes tips.
+    // Empty array = tips not offered. Payment happens at the counter now, so
+    // tipping is the register's business, not ours. Retained for tenant #2.
     tipPresets: tipsRaw
       ? tipsRaw
           .split(",")
@@ -176,78 +180,121 @@ export function publicTenant(): PublicTenantConfig {
   };
 }
 
+/* --------------------------------------------------------------- caps ---- */
+
+/**
+ * Abuse ceilings. With no card on file, a verified phone number is the only
+ * cost an abuser pays, so these are what stop one number ordering fifty
+ * party trays for a kitchen that has already started cooking.
+ */
+export interface OrderCaps {
+  /** Distinct orders one phone number may place per business day. */
+  ordersPerPhonePerDay: number;
+  /** How far ahead a pickup may be scheduled. */
+  maxPickupHours: number;
+}
+
+export function orderCaps(): OrderCaps {
+  return {
+    // ⚠️ TODO(confirm): 5/day is a guess that should be generous enough for a
+    // family ordering twice and tight enough to blunt a prank run.
+    ordersPerPhonePerDay: intEnv("MAX_ORDERS_PER_PHONE_PER_DAY", 5),
+    maxPickupHours: intEnv("MAX_PICKUP_HOURS", 48),
+  };
+}
+
 /* ------------------------------------------------------------- secrets --- */
 
-export function cloverEnv(): CloverEnv {
-  return env("CLOVER_ENV") === "production" ? "production" : "sandbox";
+/**
+ * Server-only credentials. Every one of these is read through `required()` at
+ * the point of use, so a missing value is a loud, named error rather than a
+ * silent `undefined` — and never a partially working integration.
+ *
+ * NOTHING here may be added to PublicTenantConfig. That object is serialized
+ * into the page.
+ */
+
+/** Shared password for the /kitchen board. */
+export function requireAdminPassword(): string {
+  return required(
+    "ADMIN_DASH_PASSWORD",
+    "It gates the /kitchen staff board.",
+  );
 }
 
-/** Merchant id (MID). Not secret, but server-resolved for consistency. */
-export function requireMerchantId(): string {
-  return required(
-    "CLOVER_MERCHANT_ID",
-    "It identifies which Clover merchant to read the menu for.",
-  );
+export interface TwilioConfig {
+  accountSid: string;
+  authToken: string;
+  verifyServiceSid: string;
+  /** Sending number or Messaging Service SID for outbound SMS. */
+  messagingFrom: string | null;
 }
 
 /**
- * Merchant id without throwing — for the checkout page, which must render a
- * graceful "payment unavailable" state (not crash) when creds aren't set yet.
- * The MID is not secret; the iframe needs it on the client.
+ * Twilio credentials, or null when SMS is not configured.
+ *
+ * Read leniently on purpose: OTP is required to place an order, but the
+ * marketing site, the menu, and the kitchen board must all boot without it.
+ * Callers that genuinely cannot proceed surface a clean "unavailable" state.
  */
-export function cloverMerchantId(): string | null {
-  return env("CLOVER_MERCHANT_ID");
-}
-
-/**
- * Public ecommerce token (PAKMS / apiAccessKey) for the browser iframe. Read
- * leniently: an empty value makes the payment form show a clear "unavailable"
- * message plus a tel: fallback rather than crashing.
- */
-export function cloverPublicToken(): string | null {
-  return env("NEXT_PUBLIC_CLOVER_PUBLIC_TOKEN");
-}
-
-/** Clover hosted-iframe SDK URL for the active environment. */
-export function cloverSdkUrl(): string {
-  return cloverEnv() === "production"
-    ? "https://checkout.clover.com/sdk.js"
-    : "https://checkout.sandbox.dev.clover.com/sdk.js";
-}
-
-/**
- * Dashboard API token with INVENTORY_R, used ONLY to read the menu.
- * This is NOT the ecommerce sk_ key — Clover's ecommerce tokens cannot read
- * v3 inventory. See README-OPERATIONS.md.
- */
-export function requireInventoryToken(): string {
-  return required(
-    "CLOVER_INVENTORY_TOKEN",
-    "Create it in the Clover Dashboard under API Tokens with the Inventory:Read permission.",
-  );
-}
-
-/** Ecommerce private token used ONLY server-side to create charges. */
-export function requirePrivateToken(): string {
-  return required(
-    "CLOVER_PRIVATE_TOKEN",
-    "This is the ecommerce secret key used to POST /v1/charges. It must never reach the client.",
-  );
-}
-
-export function requireRevalidateSecret(): string {
-  return required(
-    "REVALIDATE_SECRET",
-    "It guards POST /api/revalidate-menu against unauthenticated cache busting.",
-  );
-}
-
-export function supabaseConfig(): { url: string; serviceRoleKey: string } {
+export function twilioConfig(): TwilioConfig | null {
+  const accountSid = env("TWILIO_ACCOUNT_SID");
+  const authToken = env("TWILIO_AUTH_TOKEN");
+  const verifyServiceSid = env("TWILIO_VERIFY_SERVICE_SID");
+  if (!accountSid || !authToken || !verifyServiceSid) return null;
   return {
-    url: required("SUPABASE_URL", "Supabase project URL for the order store."),
-    serviceRoleKey: required(
-      "SUPABASE_SERVICE_ROLE_KEY",
-      "Server-only Supabase key. It bypasses RLS and must never reach the client.",
-    ),
+    accountSid,
+    authToken,
+    verifyServiceSid,
+    messagingFrom: env("TWILIO_MESSAGING_FROM"),
   };
+}
+
+/** True when outbound SMS (order-ready, owner alerts) can actually be sent. */
+export function isSmsConfigured(): boolean {
+  const config = twilioConfig();
+  return config !== null && config.messagingFrom !== null;
+}
+
+/** Owner's number for unprinted-order alerts. Null disables the alert. */
+export function ownerAlertPhone(): string | null {
+  return env("OWNER_ALERT_PHONE");
+}
+
+/** Secret path segment the CloudPRNT printer polls. */
+export function requireCloudPrntSecret(): string {
+  return required(
+    "CLOUDPRNT_SECRET",
+    "It is the unguessable path segment the printer polls; generate a long random value.",
+  );
+}
+
+/** Expected printer MAC/serial, when pinned. Null = accept any printer. */
+export function cloudPrntPrinterMac(): string | null {
+  return env("CLOUDPRNT_PRINTER_MAC");
+}
+
+/**
+ * How to drive the audible alert on the printer. See lib/print/cloudprnt.ts
+ * for why this is a mode rather than a boolean — the correct header depends on
+ * whether the buzzer is wired to the cash-drawer port or is a dedicated one.
+ *
+ *   off (default) | drawer | buzzer | both
+ *
+ * "1"/"true" are accepted as aliases for "drawer", because a buzzer on the DK
+ * port is the setup this was built for.
+ */
+export type BuzzerMode = "off" | "drawer" | "buzzer" | "both";
+
+export function cloudPrntBuzzerMode(): BuzzerMode {
+  const value = env("CLOUDPRNT_BUZZER")?.toLowerCase();
+  if (value === "1" || value === "true" || value === "drawer") return "drawer";
+  if (value === "buzzer") return "buzzer";
+  if (value === "both") return "both";
+  return "off";
+}
+
+/** Secret guarding the Vercel cron endpoint. */
+export function cronSecret(): string | null {
+  return env("CRON_SECRET");
 }

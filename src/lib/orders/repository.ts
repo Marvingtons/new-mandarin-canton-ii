@@ -6,6 +6,7 @@ import {
   formatOrderNumber,
   isOrderStatus,
   ACTIVE_STATUSES,
+  PRINTABLE_STATUSES,
   type CreateOrderResult,
   type NewOrderInput,
   type Order,
@@ -42,13 +43,15 @@ const ORDER_COLUMNS = `
   to_char(business_date, 'YYYY-MM-DD') as business_date,
   status,
   idempotency_key,
-  charge_id,
   items,
   totals,
   customer,
+  phone_verified_at,
   pickup_at,
   print_attempts,
+  printed_at,
   last_print_error,
+  alerted_at,
   created_at,
   updated_at
 `;
@@ -61,16 +64,20 @@ function mapOrder(row: QueryResultRow): Order {
     orderNumber: String(row.order_number),
     businessDate: String(row.business_date),
     // A status outside the union means someone wrote to the table by hand.
-    // Surface it rather than silently coercing it to something plausible.
-    status: isOrderStatus(status) ? status : "PAID",
+    // Coerce to QUEUED rather than something plausible-but-finished: an order
+    // wrongly shown as needing work is recoverable, one wrongly shown as done
+    // is a customer standing at a counter nobody is cooking for.
+    status: isOrderStatus(status) ? status : "QUEUED",
     idempotencyKey: String(row.idempotency_key),
-    chargeId: row.charge_id === null ? null : String(row.charge_id),
     items: row.items as OrderLine[],
     totals: row.totals as OrderTotals,
     customer: row.customer as OrderCustomer,
+    phoneVerifiedAt: (row.phone_verified_at as Date).toISOString(),
     pickupAt: (row.pickup_at as Date).toISOString(),
     printAttempts: Number(row.print_attempts),
+    printedAt: row.printed_at === null ? null : (row.printed_at as Date).toISOString(),
     lastPrintError: row.last_print_error === null ? null : String(row.last_print_error),
+    alertedAt: row.alerted_at === null ? null : (row.alerted_at as Date).toISOString(),
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
   };
@@ -116,16 +123,16 @@ async function allocateSequence(
 }
 
 /**
- * Reserve an order row BEFORE the card is charged.
+ * Store a verified order. It is live the moment this returns.
  *
- * Reserving first is what makes the unique index protective: a duplicate
- * submit loses the insert race and is turned away here, so it never reaches
- * the charge call at all. The row starts PENDING_PAYMENT and is promoted by
- * markPaid() once Clover confirms, or removed by deleteReservation() if the
- * card declines.
+ * There is no payment step to sequence around any more: the row is inserted
+ * QUEUED, and the printer picks it up from there. `phone_verified_at` is NOT
+ * NULL in the schema, so an unverified order is not merely rejected by the
+ * route — it cannot be represented.
  *
- * Returns `created: false` when the key already had a row — the caller must
- * replay that order's confirmation instead of charging again.
+ * Returns `created: false` when the key already had a row. The caller must
+ * hand back THAT order's confirmation, so a double-tap yields one ticket and
+ * one order number rather than two of each.
  */
 export async function createOrder(
   input: NewOrderInput,
@@ -152,8 +159,8 @@ export async function createOrder(
         const { rows } = await client.query(
           `insert into orders (
              tenant_id, order_number, business_date, status, idempotency_key,
-             items, totals, customer, pickup_at
-           ) values ($1, $2, $3::date, 'PENDING_PAYMENT', $4, $5, $6, $7, $8)
+             items, totals, customer, phone_verified_at, pickup_at
+           ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9)
            on conflict (tenant_id, idempotency_key) do nothing
            returning ${ORDER_COLUMNS}`,
           [
@@ -166,6 +173,7 @@ export async function createOrder(
             JSON.stringify(input.items),
             JSON.stringify(input.totals),
             JSON.stringify(input.customer),
+            input.phoneVerifiedAt,
             input.pickupAt,
           ],
         );
@@ -185,46 +193,190 @@ export async function createOrder(
 
   // Three lost races in a row is not concurrency, it is a bug.
   throw new Error(
-    "Could not reserve an order row after 3 attempts (idempotency contention).",
+    "Could not store the order after 3 attempts (idempotency contention).",
   );
-}
-
-/** Promote a reservation to PAID once Clover has confirmed the charge. */
-export async function markPaid(
-  tenantId: string,
-  orderId: number,
-  chargeId: string,
-): Promise<Order> {
-  const { rows } = await ordersPool().query(
-    `update orders
-        set status = 'PAID', charge_id = $3, updated_at = now()
-      where tenant_id = $1 and id = $2
-      returning ${ORDER_COLUMNS}`,
-    [tenantId, orderId, chargeId],
-  );
-  if (rows.length === 0) {
-    throw new Error(`Order ${orderId} vanished before it could be marked paid.`);
-  }
-  return mapOrder(rows[0]);
 }
 
 /**
- * Drop a reservation whose charge failed.
+ * Claim the oldest UNCLAIMED order for the printer, atomically.
  *
- * Deliberately a DELETE and not a CANCELLED row: the client reuses one
- * idempotency key across retries, so leaving the row behind would make every
- * retry-after-decline replay the failure instead of charging the new card.
- * The freed number is not reused — gaps from declines are normal on a POS.
+ * "Unclaimed" is `print_attempts = 0`, and that is the whole trick. Status
+ * alone cannot express it: a claimed job stays QUEUED on purpose (only the
+ * printer's DELETE may set PRINTED), so without the attempts guard a second
+ * poll would happily claim the same ticket again and the kitchen would get
+ * two of it.
+ *
+ * The guard is re-evaluated by the outer UPDATE, under the row lock the UPDATE
+ * itself takes. Two concurrent claims therefore serialize: the winner sets
+ * attempts to 1, and the loser re-checks after that commit, matches nothing,
+ * and returns null. `FOR UPDATE SKIP LOCKED` in the subselect makes them pick
+ * different candidate rows in the first place, so the common case does not
+ * even reach that contention.
+ *
+ * NOTE the claim does NOT mark the order printed — it only counts an attempt.
+ * A job handed over and never confirmed stays QUEUED so the unprinted-order
+ * alert still catches it.
  */
-export async function deleteReservation(
+export async function claimNextPrintJob(
+  tenantId: string,
+): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set print_attempts = print_attempts + 1,
+            updated_at     = now()
+      where id = (
+        select id from orders
+         where tenant_id = $1
+           and status = any($2::text[])
+           and print_attempts = 0
+         order by created_at asc
+         for update skip locked
+         limit 1
+      )
+        -- Re-checked here, under this statement's own row lock: this is what
+        -- makes two simultaneous claims impossible, not the subselect.
+        and status = any($2::text[])
+        and print_attempts = 0
+      returning ${ORDER_COLUMNS}`,
+    [tenantId, PRINTABLE_STATUSES],
+  );
+  return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/**
+ * The job a printer is mid-transaction on: already claimed (attempts > 0) but
+ * not yet confirmed by a DELETE. Returned so a repeated poll or GET before the
+ * confirmation gets the SAME ticket rather than a second one.
+ */
+export async function currentPrintJob(tenantId: string): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `select ${ORDER_COLUMNS} from orders
+      where tenant_id = $1
+        and status = any($2::text[])
+        and print_attempts > 0
+      order by created_at asc
+      limit 1`,
+    [tenantId, PRINTABLE_STATUSES],
+  );
+  return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/**
+ * Count one more unconfirmed offer of a job already in flight.
+ *
+ * Separate from `claimNextPrintJob` because that one also selects; this only
+ * ticks the counter that eventually trips PRINT_FAILED.
+ */
+export async function bumpPrintAttempt(
   tenantId: string,
   orderId: number,
-): Promise<void> {
-  await ordersPool().query(
-    `delete from orders
-      where tenant_id = $1 and id = $2 and status = 'PENDING_PAYMENT'`,
+): Promise<number> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set print_attempts = print_attempts + 1, updated_at = now()
+      where tenant_id = $1 and id = $2
+      returning print_attempts`,
     [tenantId, orderId],
   );
+  return rows.length > 0 ? Number(rows[0].print_attempts) : 0;
+}
+
+/** The printer confirmed it printed. The ONLY path to PRINTED. */
+export async function markPrinted(
+  tenantId: string,
+  orderId: number,
+): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set status = 'PRINTED',
+            printed_at = now(),
+            last_print_error = null,
+            updated_at = now()
+      where tenant_id = $1
+        and id = $2
+        -- Never drag an order staff have already advanced back to PRINTED.
+        and status in ('QUEUED', 'PRINT_FAILED')
+      returning ${ORDER_COLUMNS}`,
+    [tenantId, orderId],
+  );
+  return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/** Put a printed or failed order back in the queue (staff pressed 重印). */
+export async function requeueForPrint(
+  tenantId: string,
+  orderId: number,
+): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set status = 'QUEUED',
+            print_attempts = 0,
+            last_print_error = null,
+            updated_at = now()
+      where tenant_id = $1 and id = $2
+      returning ${ORDER_COLUMNS}`,
+    [tenantId, orderId],
+  );
+  return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/**
+ * Orders that should have printed by now and have not been alerted about.
+ *
+ * This is the query behind the highest-value safety net in the system: with
+ * nothing prepaid, an order nobody printed is a customer who believes they
+ * ordered and a kitchen that never saw it.
+ */
+export async function findUnprintedForAlert(
+  tenantId: string,
+  olderThanSeconds: number,
+): Promise<Order[]> {
+  const { rows } = await ordersPool().query(
+    `select ${ORDER_COLUMNS} from orders
+      where tenant_id = $1
+        and status in ('QUEUED', 'PRINT_FAILED')
+        and alerted_at is null
+        and created_at < now() - make_interval(secs => $2)
+      order by created_at asc`,
+    [tenantId, olderThanSeconds],
+  );
+  return rows.map(mapOrder);
+}
+
+/**
+ * Stamp the alert as sent.
+ *
+ * Conditional on `alerted_at IS NULL` so two overlapping cron runs cannot both
+ * text the owner about the same order — the second UPDATE matches nothing.
+ * Returns true only for the run that actually claimed the alert.
+ */
+export async function markAlerted(
+  tenantId: string,
+  orderId: number,
+): Promise<boolean> {
+  const { rowCount } = await ordersPool().query(
+    `update orders set alerted_at = now(), updated_at = now()
+      where tenant_id = $1 and id = $2 and alerted_at is null`,
+    [tenantId, orderId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** How many orders this phone number has placed on a given business date. */
+export async function countOrdersForPhone(
+  tenantId: string,
+  businessDate: string,
+  phoneE164: string,
+): Promise<number> {
+  const { rows } = await ordersPool().query(
+    `select count(*)::int as n from orders
+      where tenant_id = $1
+        and business_date = $2::date
+        and customer->>'phone' = $3
+        and status <> 'CANCELLED'`,
+    [tenantId, businessDate, phoneE164],
+  );
+  return Number(rows[0].n);
 }
 
 export async function getOrderByIdempotencyKey(
@@ -266,9 +418,9 @@ export async function getOrderById(
 /**
  * The kitchen board query.
  *
- * PRINT_FAILED first — those are the orders nobody has a paper copy of, so
- * they must be impossible to miss. Then oldest-first, because the queue is a
- * queue. PENDING_PAYMENT is never included: it is not money yet.
+ * PRINT_FAILED first, then QUEUED — between them those are every order nobody
+ * has a paper copy of, so they must be impossible to miss. Then oldest-first,
+ * because a queue is a queue.
  */
 export async function listActiveOrders(
   tenantId: string,
@@ -284,7 +436,9 @@ export async function listActiveOrders(
       where tenant_id = $1
         and business_date = $2::date
         and status = any($3::text[])
-      order by (status = 'PRINT_FAILED') desc, created_at asc`,
+      order by (status = 'PRINT_FAILED') desc,
+               (status = 'QUEUED') desc,
+               created_at asc`,
     [tenantId, businessDate, statuses],
   );
   return rows.map(mapOrder);
@@ -306,10 +460,11 @@ export async function updateStatus(
 }
 
 /**
- * Record the outcome of a print attempt.
+ * Record a print failure — a render error, or too many hand-offs with no
+ * confirming DELETE.
  *
- * Never moves an order that staff has already advanced (ACCEPTED, COMPLETED):
- * a late reprint must not drag a finished order back onto the active board.
+ * Never moves an order staff have already advanced (ACCEPTED, COMPLETED): a
+ * late failure must not drag a finished order back onto the active board.
  */
 export async function recordPrintAttempt(
   tenantId: string,
@@ -318,10 +473,10 @@ export async function recordPrintAttempt(
 ): Promise<Order | null> {
   const { rows } = await ordersPool().query(
     `update orders
-        set print_attempts   = print_attempts + 1,
-            last_print_error = $4,
+        set last_print_error = $4,
+            printed_at = case when $3 = 'PRINTED' then now() else printed_at end,
             status = case
-              when status in ('PAID', 'PRINTED', 'PRINT_FAILED')
+              when status in ('QUEUED', 'PRINTED', 'PRINT_FAILED')
                 then $3
               else status
             end,
