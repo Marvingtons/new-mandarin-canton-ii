@@ -139,3 +139,71 @@ export function resolveItemOverride(
     itemOverridesByCloverId[cloverId] ?? itemOverridesByName[overrideKey(nameEn)]
   );
 }
+
+/* ------------------------------------------------------- ticket 中文 ----- *
+ * The kitchen ticket is Chinese-primary, so it needs 中文 for two things the
+ * dish-name map above does not carry: size tiers and modifiers. Both are
+ * generic culinary/POS vocabulary rather than dish names.
+ *
+ * ⚠️ TODO(confirm): unlike the dish names above — which all shipped in this
+ * repo already — these two maps are standard trade terms that the family has
+ * NOT yet reviewed. Anything unmatched falls back to English and the ticket
+ * marks it visibly, so an unreviewed entry is the only way a wrong character
+ * can reach the kitchen. Confirm both maps before the first real service.
+ * ------------------------------------------------------------------------ */
+
+/** Size-tier 中文, keyed by normalized English size label. */
+const RAW_SIZE_ZH: Record<string, string> = {
+  Regular: "例",
+  Individual: "單點",
+  "Party Tray": "大盤",
+  Small: "小",
+  Large: "大",
+  Cup: "杯",
+  Bowl: "碗",
+  Pint: "小盒",
+  Quart: "大盒",
+};
+
+export const sizeZhByLabel: Record<string, string> = Object.fromEntries(
+  Object.entries(RAW_SIZE_ZH).map(([label, zh]) => [overrideKey(label), zh]),
+);
+
+/** Modifier 中文, keyed by normalized English modifier name. */
+const RAW_MODIFIER_ZH: Record<string, string> = {
+  "Extra Spicy": "加辣",
+  Spicy: "辣",
+  "Mild Spicy": "小辣",
+  "Not Spicy": "不辣",
+  "No Spice": "不辣",
+  "No MSG": "不要味精",
+  "No Onion": "走蔥",
+  "No Garlic": "走蒜",
+  "No Peanuts": "走花生",
+  "Extra Sauce": "多汁",
+  "Sauce on the Side": "汁另上",
+  "Steamed Rice": "白飯",
+  "Fried Rice": "炒飯",
+  "Brown Rice": "糙米飯",
+  "No Rice": "不要飯",
+  "Extra Rice": "加飯",
+  "Add Chicken": "加雞",
+  "Add Beef": "加牛",
+  "Add Shrimp": "加蝦",
+  "Add Tofu": "加豆腐",
+  "Add Vegetables": "加菜",
+};
+
+export const modifierZhByName: Record<string, string> = Object.fromEntries(
+  Object.entries(RAW_MODIFIER_ZH).map(([name, zh]) => [overrideKey(name), zh]),
+);
+
+/** 中文 for a size label, or null when we have none (ticket marks it). */
+export function resolveSizeZh(label: string): string | null {
+  return sizeZhByLabel[overrideKey(label)] ?? null;
+}
+
+/** 中文 for a modifier name, or null when we have none (ticket marks it). */
+export function resolveModifierZh(nameEn: string): string | null {
+  return modifierZhByName[overrideKey(nameEn)] ?? null;
+}
