@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/lib/cart/CartContext";
+import { restaurant } from "@/data/restaurant";
 import { formatCents, taxCents } from "@/lib/money";
 import { pickupSlots, type PickupOptions, type PickupSlot } from "@/lib/order/pickup";
 import CloverPayment, {
@@ -178,7 +179,7 @@ export default function Checkout({
       <form onSubmit={handleSubmit} className="order-2 lg:order-1">
         <h1 className="font-display text-4xl text-lacquer">Checkout</h1>
         <p className="mt-2 text-sm uppercase tracking-[0.15em] text-ink/55">
-          Pickup only · 543 Telegraph Canyon Rd
+          Pickup only · {restaurant.address.street}
         </p>
 
         {/* Pickup details */}

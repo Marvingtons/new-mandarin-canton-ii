@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Menu, MenuItem, MenuSource } from "@/lib/menu/types";
 import { isAvailable, itemSizes } from "@/lib/menu/types";
 import { useCart } from "@/lib/cart/CartContext";
+import { restaurant } from "@/data/restaurant";
 import { formatCents } from "@/lib/money";
 import { SpicyMark } from "@/components/MenuSection";
 import ItemSheet from "@/components/order/ItemSheet";
@@ -42,7 +43,7 @@ export default function OrderMenu({
               Add items to your cart and pay online — your order goes straight to
               the family, not a delivery app.{" "}
               <span className="font-semibold text-ink">
-                Pickup only on Telegraph Canyon Rd.
+                Pickup only at {restaurant.address.street}.
               </span>
             </p>
           </div>
