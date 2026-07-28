@@ -42,8 +42,15 @@ create table if not exists orders (
   -- paper came out. Never set optimistically when a job is handed over.
   printed_at        timestamptz,
   last_print_error  text,
-  -- Stamped when the unprinted-order alert fires, so it fires exactly once.
+  -- Stamped when the unprinted-order alert CLAIMS this order, before the SMS
+  -- is sent, so two overlapping sweeps cannot both text about it.
   alerted_at        timestamptz,
+  -- Owner-alert send attempts. A failed send releases the claim (alerted_at
+  -- back to NULL) so the next sweep retries; this counter is what stops that
+  -- becoming an infinite retry against a permanently bad number. At the
+  -- ceiling the claim is left in place and the order stays visible on the
+  -- kitchen board instead.
+  alert_attempts    int         not null default 0,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 

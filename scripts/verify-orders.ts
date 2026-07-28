@@ -22,6 +22,10 @@
  *   7. ALERTING     — an unprinted order is found after the threshold, and two
  *                     overlapping cron runs alert exactly once.
  *   8. PHONE CAP    — per-number daily order counting.
+ *   9. ALERT RETRY  — a failed SMS releases its claim and is retried, capped at
+ *                     5 attempts, and the claim token makes releasing race-safe.
+ *  10. RENDER RETRY — a failed ticket render keeps the order QUEUED for another
+ *                     poll, and only condemns it at the ceiling.
  *
  * If an existing DATABASE_URL is set, that database is used instead and the
  * embedded server is skipped. Everything runs against a tenant id unique to
@@ -523,6 +527,213 @@ async function main(): Promise<void> {
       "+16195550999",
     );
     check("does not count a different number", other === 0, String(other));
+  }
+
+  /* ------------------------------- 9. alert retry after a failed send ---- */
+  console.log("\n9. a failed alert SMS retries, up to a cap");
+  {
+    const tenant = `${RUN_TENANT}-alert-retry`;
+    const businessDate = "2026-08-09";
+    const MAX = 5;
+
+    /** Age an order past the alert threshold. */
+    const age = (id: number) =>
+      ordersPool().query(
+        "update orders set created_at = now() - interval '5 minutes' where id = $1",
+        [id],
+      );
+
+    /** One sweep: claim, then hand the send result back in. */
+    async function sweep(orderId: number, sendSucceeds: boolean) {
+      const due = await repo.findUnprintedForAlert(tenant, 120);
+      const found = due.some((o) => o.id === orderId);
+      if (!found) return { attempted: false, released: false, attempts: -1 };
+      const claimedAt = await repo.markAlerted(tenant, orderId);
+      if (!claimedAt) return { attempted: false, released: false, attempts: -1 };
+      if (sendSucceeds) return { attempted: true, released: false, attempts: -1 };
+      const r = await repo.releaseAlertClaim(tenant, orderId, claimedAt, MAX);
+      return { attempted: true, released: r?.released ?? false, attempts: r?.attempts ?? -1 };
+    }
+
+    // (a) transient failure -> retried on the next sweep
+    {
+      const o = await repo.createOrder({
+        ...baseInput,
+        tenantId: tenant,
+        businessDate,
+        idempotencyKey: "alert-retry-a",
+      });
+      await age(o.order.id);
+
+      const first = await sweep(o.order.id, false);
+      check(
+        "(a) a failed send releases the claim",
+        first.attempted && first.released && first.attempts === 1,
+        `attempted=${first.attempted} released=${first.released} attempts=${first.attempts}`,
+      );
+      const redue = await repo.findUnprintedForAlert(tenant, 120);
+      check(
+        "(a) the order is found again by the next sweep",
+        redue.some((x) => x.id === o.order.id),
+      );
+    }
+
+    // (b) five failures -> permanently claimed, no sixth attempt
+    {
+      const o = await repo.createOrder({
+        ...baseInput,
+        tenantId: tenant,
+        businessDate,
+        idempotencyKey: "alert-retry-b",
+      });
+      await age(o.order.id);
+
+      const seen: number[] = [];
+      for (let i = 0; i < MAX; i++) {
+        const s = await sweep(o.order.id, false);
+        if (s.attempted) seen.push(s.attempts);
+      }
+      check(
+        `(b) exactly ${MAX} sends attempted`,
+        seen.length === MAX && seen.join(",") === "1,2,3,4,5",
+        `attempts seen: ${seen.join(",")}`,
+      );
+
+      const sixth = await sweep(o.order.id, false);
+      check(
+        "(b) no sixth attempt — the claim is left in place",
+        sixth.attempted === false,
+        `attempted=${sixth.attempted}`,
+      );
+      const gone = await repo.findUnprintedForAlert(tenant, 120);
+      check(
+        "(b) the exhausted order is no longer swept",
+        !gone.some((x) => x.id === o.order.id),
+      );
+    }
+
+    // (c) success on attempt 2 -> exactly one SMS in total
+    {
+      const o = await repo.createOrder({
+        ...baseInput,
+        tenantId: tenant,
+        businessDate,
+        idempotencyKey: "alert-retry-c",
+      });
+      await age(o.order.id);
+
+      let sends = 0;
+      const s1 = await sweep(o.order.id, false); // fails, releases
+      if (s1.attempted) sends++;
+      const s2 = await sweep(o.order.id, true); // succeeds, keeps the claim
+      if (s2.attempted) sends++;
+      const s3 = await sweep(o.order.id, false); // must not run at all
+      if (s3.attempted) sends++;
+
+      check(
+        "(c) success on attempt 2 sends exactly twice and then stops",
+        sends === 2 && s3.attempted === false,
+        `sends=${sends} thirdAttempted=${s3.attempted}`,
+      );
+    }
+
+    // The claim token closes the race: a stale claim value releases nothing.
+    {
+      const o = await repo.createOrder({
+        ...baseInput,
+        tenantId: tenant,
+        businessDate,
+        idempotencyKey: "alert-retry-race",
+      });
+      await age(o.order.id);
+      const claimedAt = await repo.markAlerted(tenant, o.order.id);
+      const stale = new Date(
+        new Date(claimedAt as string).getTime() - 60_000,
+      ).toISOString();
+      const bogus = await repo.releaseAlertClaim(tenant, o.order.id, stale, MAX);
+      check(
+        "(race) releasing with a claim token we do not hold is a no-op",
+        bogus === null,
+        `got ${JSON.stringify(bogus)}`,
+      );
+      const still = await repo.findUnprintedForAlert(tenant, 120);
+      check(
+        "(race) the real claim survives the bogus release",
+        !still.some((x) => x.id === o.order.id),
+      );
+    }
+
+    await ordersPool().query("delete from orders where tenant_id = $1", [tenant]);
+    await ordersPool().query("delete from order_counters where tenant_id = $1", [tenant]);
+  }
+
+  /* --------------------------- 10. render failure retries, then fails ---- */
+  console.log("\n10. a failed ticket render retries before condemning");
+  {
+    const tenant = `${RUN_TENANT}-render`;
+    const businessDate = "2026-08-10";
+    const MAX_RENDER = 3;
+
+    const o = await repo.createOrder({
+      ...baseInput,
+      tenantId: tenant,
+      businessDate,
+      idempotencyKey: "render-1",
+    });
+
+    // The printer claims it: print_attempts 0 -> 1.
+    const claimed = await repo.claimNextPrintJob(tenant);
+    check("a job is claimed", claimed?.id === o.order.id);
+
+    const first = await repo.recordRenderFailure(
+      tenant,
+      o.order.id,
+      "boom",
+      MAX_RENDER,
+    );
+    check(
+      "first render failure keeps the order QUEUED",
+      first?.status === "QUEUED" && first?.attempts === 2,
+      `status=${first?.status} attempts=${first?.attempts}`,
+    );
+
+    // Still offered to the next poll — this is what makes it a retry.
+    const inflight = await repo.currentPrintJob(tenant);
+    check(
+      "the same job is re-offered on the next poll",
+      inflight?.id === o.order.id,
+    );
+
+    const second = await repo.recordRenderFailure(
+      tenant,
+      o.order.id,
+      "boom again",
+      MAX_RENDER,
+    );
+    check(
+      "at the ceiling the order becomes PRINT_FAILED",
+      second?.status === "PRINT_FAILED" && second?.attempts === 3,
+      `status=${second?.status} attempts=${second?.attempts}`,
+    );
+
+    const failed = await repo.getOrderById(tenant, o.order.id);
+    check(
+      "last_print_error is recorded",
+      failed?.lastPrintError === "boom again",
+      String(failed?.lastPrintError),
+    );
+
+    // A late failure must never drag a finished order backwards.
+    await repo.updateStatus(tenant, o.order.id, "ACCEPTED");
+    const late = await repo.recordRenderFailure(tenant, o.order.id, "late", MAX_RENDER);
+    check(
+      "a late failure does not move an ACCEPTED order",
+      late?.status === "ACCEPTED",
+      `status=${late?.status}`,
+    );
+
+    await ordersPool().query("delete from orders where tenant_id = $1", [tenant]);
+    await ordersPool().query("delete from order_counters where tenant_id = $1", [tenant]);
   }
 
   /* ------------------------------------------------ teardown ------------ */

@@ -344,22 +344,79 @@ export async function findUnprintedForAlert(
 }
 
 /**
- * Stamp the alert as sent.
+ * CLAIM the right to alert about this order, before the SMS is attempted.
  *
  * Conditional on `alerted_at IS NULL` so two overlapping cron runs cannot both
  * text the owner about the same order — the second UPDATE matches nothing.
- * Returns true only for the run that actually claimed the alert.
+ *
+ * Returns the claim timestamp it wrote, or null if another run got there
+ * first. The timestamp is the claim TOKEN: `releaseAlertClaim` will only undo
+ * a claim it can name, which is what makes releasing safe to do concurrently.
+ *
+ * Returned as TEXT, not a Date, and deliberately so. `timestamptz` keeps
+ * microseconds; a JS Date only keeps milliseconds, so handing the token
+ * through a Date silently truncates it and the equality in releaseAlertClaim
+ * never matches again. Round-tripping the exact string is what makes the token
+ * comparable at all.
  */
 export async function markAlerted(
   tenantId: string,
   orderId: number,
-): Promise<boolean> {
-  const { rowCount } = await ordersPool().query(
+): Promise<string | null> {
+  const { rows } = await ordersPool().query(
     `update orders set alerted_at = now(), updated_at = now()
-      where tenant_id = $1 and id = $2 and alerted_at is null`,
+      where tenant_id = $1 and id = $2 and alerted_at is null
+      returning alerted_at::text`,
     [tenantId, orderId],
   );
-  return (rowCount ?? 0) > 0;
+  return rows.length > 0 ? (rows[0].alerted_at as string) : null;
+}
+
+/**
+ * The alert SMS failed. Give the claim back so the next sweep retries — but
+ * only up to a ceiling.
+ *
+ * Why a ceiling: a genuinely bad OWNER_ALERT_PHONE fails every time, and an
+ * uncapped release would retry every sixty seconds forever, burning Twilio
+ * spend and drowning the logs in a way that MASKS the misconfiguration rather
+ * than surfacing it. At the ceiling the claim stays put; the order is still
+ * QUEUED or PRINT_FAILED, so the /kitchen board remains the net.
+ *
+ * Why conditional on the claim timestamp: between our failed send and this
+ * call, nothing else should have touched `alerted_at` — but if something did
+ * (a concurrent sweep that somehow claimed it, an operator), releasing blindly
+ * would clear an alert that is legitimately in flight and invite a duplicate
+ * text. `where alerted_at = $3` means we can only ever undo OUR OWN claim.
+ * That is the whole race fix, and it needs no lock.
+ *
+ * The counter is incremented either way, so the ceiling is reached even when
+ * the release is skipped.
+ *
+ * Returns whether the claim was released (true = the next sweep will retry).
+ */
+export async function releaseAlertClaim(
+  tenantId: string,
+  orderId: number,
+  claimedAt: string,
+  maxAttempts: number,
+): Promise<{ released: boolean; attempts: number } | null> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set alert_attempts = alert_attempts + 1,
+            alerted_at = case
+                           when alert_attempts + 1 >= $4 then alerted_at
+                           else null
+                         end,
+            updated_at = now()
+      where tenant_id = $1 and id = $2 and alerted_at = $3::timestamptz
+      returning alert_attempts, (alerted_at is null) as released`,
+    [tenantId, orderId, claimedAt, maxAttempts],
+  );
+  if (rows.length === 0) return null;
+  return {
+    released: rows[0].released === true,
+    attempts: Number(rows[0].alert_attempts),
+  };
 }
 
 /** How many orders this phone number has placed on a given business date. */
