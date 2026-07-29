@@ -1,5 +1,7 @@
 import "server-only";
 
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+
 /**
  * THE ONE PLACE that knows where the Postgres connection string comes from.
  *
@@ -50,29 +52,43 @@ function onWorkers(): boolean {
 function hyperdriveConnectionString(): string | null {
   if (!onWorkers()) return null;
   try {
-    // Required lazily so plain Node never loads the adapter.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("@opennextjs/cloudflare") as {
-      getCloudflareContext: () => {
-        env: Record<string, unknown>;
-      };
-    };
-    const env = mod.getCloudflareContext().env;
-    const binding = env.HYPERDRIVE as HyperdriveBinding | undefined;
+    const binding = getCloudflareContext().env[
+      "HYPERDRIVE" as keyof CloudflareEnv
+    ] as HyperdriveBinding | undefined;
     return binding?.connectionString ?? null;
   } catch {
+    // Called outside a request context, or the adapter is not installed.
     return null;
   }
 }
 
+/**
+ * MUST be an indexed read, never `process.env.DATABASE_URL`.
+ *
+ * Next's bundler statically replaces dotted `process.env.FOO` references in
+ * server code with their build-time values. DATABASE_URL is unset at build
+ * time on Workers — it arrives as a binding at runtime — so the dotted form
+ * compiles to `undefined` and the app reports "no database" forever, with the
+ * variable plainly bound in `wrangler dev`'s own binding list.
+ *
+ * Measured: CLOUDPRNT_SECRET reached the same worker fine because
+ * tenant.server.ts reads it as `process.env[name]`, which cannot be inlined.
+ * This is the same trick, for the same reason.
+ */
+const DATABASE_URL_KEY = "DATABASE_URL";
+
+function databaseUrl(): string | null {
+  return process.env[DATABASE_URL_KEY] ?? null;
+}
+
 /** The Postgres connection string for this host, or null if unconfigured. */
 export function ordersConnectionString(): string | null {
-  return hyperdriveConnectionString() ?? process.env.DATABASE_URL ?? null;
+  return hyperdriveConnectionString() ?? databaseUrl();
 }
 
 /** Which path supplied it — for logs and the readiness endpoint only. */
 export function connectionSource(): "hyperdrive" | "database-url" | "none" {
   if (hyperdriveConnectionString()) return "hyperdrive";
-  if (process.env.DATABASE_URL) return "database-url";
+  if (databaseUrl()) return "database-url";
   return "none";
 }

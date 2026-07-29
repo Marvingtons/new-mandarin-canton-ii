@@ -50,5 +50,3 @@ next-env.d.ts
 .wrangler/
 .dev.vars
 
-# resvg wasm is copied from node_modules by scripts/sync-wasm.mjs
-public/wasm/

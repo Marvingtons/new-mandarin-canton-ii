@@ -11,14 +11,13 @@
     "ticket:sample": "tsx --conditions=react-server scripts/ticket-sample.ts",
     "verify:orders": "tsx --conditions=react-server scripts/verify-orders.ts",
     "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts",
-    "build:cf": "npm run sync:wasm && opennextjs-cloudflare build",
+    "build:cf": "opennextjs-cloudflare build",
     "preview:cf": "opennextjs-cloudflare preview",
     "deploy:cf": "opennextjs-cloudflare deploy",
     "typecheck": "tsc --noEmit",
     "typecheck:worker": "tsc -p tsconfig.worker.json",
     "cf-typegen": "wrangler types",
-    "build:font-module": "tsx scripts/emit-font-module.ts",
-    "sync:wasm": "node scripts/sync-wasm.mjs"
+    "build:font-module": "tsx scripts/emit-font-module.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

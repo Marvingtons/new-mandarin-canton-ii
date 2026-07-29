@@ -46,6 +46,17 @@
     "crons": ["* * * * *"]
   },
 
+  // resvg's .wasm must reach the runtime ALREADY COMPILED — workerd refuses
+  // runtime WebAssembly compilation ("Wasm code generation disallowed by
+  // embedder"). CompiledWasm is what makes wrangler compile it at build time.
+  "rules": [
+    {
+      "type": "CompiledWasm",
+      "globs": ["**/*.wasm"],
+      "fallthrough": true
+    }
+  ],
+
   // Ticket rasterization is wasm and CPU-bound. The tall ticket is 576x2350.
   // Paid plan default is 30s; this raises the ceiling without changing the
   // common case (billing is on actual CPU used, not this limit).

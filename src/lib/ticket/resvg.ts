@@ -22,58 +22,52 @@ import { Resvg, initWasm } from "@resvg/resvg-wasm";
 
 let initPromise: Promise<void> | null = null;
 
-/** Where sync-wasm.mjs puts the module inside the assets directory. */
-const WASM_ASSET_PATH = "/wasm/resvg.wasm";
-
 /**
  * The wasm module. This is the ONE platform seam in the renderer.
  *
- *   Workers — fetched from the ASSETS binding, once per isolate.
- *   Node    — read from node_modules (scripts: ticket:sample).
+ *   Workers — a PRE-COMPILED WebAssembly.Module handed over by
+ *             custom-worker.ts on globalThis.
+ *   Node    — bytes read from node_modules (scripts: ticket:sample).
  *
- * WHY NOT `import wasm from "@resvg/resvg-wasm/index_bg.wasm"`, which is the
- * form Cloudflare's own docs show: Turbopack claims `.wasm` first and does
- * ASYNC INSTANTIATION, meaning it tries to satisfy the module's imports at
- * build time. resvg is wasm-bindgen output with 18 imports from the "wbg"
- * namespace that only its own JS glue provides, so `next build` dies with
- * "Module not found: Can't resolve 'wbg'". Measured, not assumed — that is
- * the exact error this replaced.
+ * WHY THE HAND-OFF, rather than importing or fetching the wasm here. Two
+ * constraints, both measured on this project:
  *
- * Going through the assets binding means the bundler never sees a `.wasm`
- * import at all. `env.ASSETS.fetch()` is a binding call, not a global fetch,
- * so `global_fetch_strictly_public` does not apply and it costs no external
- * subrequest.
+ *   workerd forbids RUNTIME wasm compilation. Fetching the module from the
+ *   ASSETS binding and passing the Response to initWasm fails with
+ *   "CompileError: WebAssembly.instantiate(): Wasm code generation disallowed
+ *   by embedder". It must arrive already compiled, which only a build-time
+ *   `import` of a .wasm file produces.
  *
- * `initWasm` accepts `RequestInfo | URL | Response | BufferSource |
- * WebAssembly.Module` — a Response is valid input, so the fetch result is
- * handed over directly and streamed into WebAssembly.instantiate.
+ *   Turbopack cannot process THIS .wasm. It claims the extension and tries to
+ *   instantiate the module itself, then fails on wasm-bindgen's 18 "wbg"
+ *   imports: "Module not found: Can't resolve 'wbg'". So the import cannot
+ *   live anywhere Turbopack bundles — i.e. anywhere in src/.
+ *
+ * custom-worker.ts is bundled by wrangler instead, so the import works there
+ * and the compiled module reaches us on globalThis.
  */
-async function loadWasm(): Promise<Response | BufferSource> {
+declare global {
+  // eslint-disable-next-line no-var
+  var __RESVG_WASM__: WebAssembly.Module | undefined;
+}
+
+async function loadWasm(): Promise<WebAssembly.Module | BufferSource> {
   // The documented workerd marker.
   const onWorkers =
     typeof navigator !== "undefined" &&
     navigator.userAgent === "Cloudflare-Workers";
 
   if (onWorkers) {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    const { env } = await getCloudflareContext({ async: true });
-    if (!env.ASSETS) {
+    const compiled = globalThis.__RESVG_WASM__;
+    if (!compiled) {
       throw new Error(
-        "ASSETS binding is missing — the ticket renderer cannot load resvg.wasm. " +
-          "Check the `assets` block in wrangler.jsonc.",
+        "__RESVG_WASM__ is missing. custom-worker.ts must import " +
+          "@resvg/resvg-wasm/index_bg.wasm and assign it to globalThis before " +
+          "any ticket renders. Check that wrangler `main` points at " +
+          "custom-worker.ts and not at .open-next/worker.js.",
       );
     }
-    // The origin is ignored by the binding; only the path is used.
-    const response = await env.ASSETS.fetch(
-      new URL(WASM_ASSET_PATH, "https://assets.local"),
-    );
-    if (!response.ok) {
-      throw new Error(
-        `resvg.wasm not found at ${WASM_ASSET_PATH} (${response.status}). ` +
-          "Did `npm run sync:wasm` run before the build?",
-      );
-    }
-    return response;
+    return compiled;
   }
 
   // Node path — scripts and local tooling.
