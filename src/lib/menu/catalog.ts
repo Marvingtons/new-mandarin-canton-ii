@@ -2,7 +2,7 @@ import "server-only";
 
 import { menu as catalog } from "@/data/menu";
 import { comboCategories } from "@/data/combo-items";
-import { partyTrayFor } from "@/data/party-trays";
+import { PARTY_TRAY_SERVES, partyTrayFor } from "@/data/party-trays";
 import {
   categoryZhByName,
   overrideKey,
@@ -54,7 +54,10 @@ function sizesFor(itemId: string, individualCents: number): MenuSize[] | undefin
       id: "party-tray",
       label: "Party Tray",
       priceCents: tray.priceCents,
-      servesNote: tray.servesNote,
+      // One constant, never an inline string — the capacity is an
+      // owner-provided claim the printed menu does not make, so it has to be
+      // correctable in a single edit. See PARTY_TRAY_SERVES.
+      servesNote: PARTY_TRAY_SERVES.short,
     },
   ];
 }

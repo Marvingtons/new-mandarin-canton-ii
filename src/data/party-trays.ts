@@ -22,6 +22,26 @@
  * Money is INTEGER CENTS. Nothing in the orders path may introduce a float.
  */
 
+/**
+ * How many people a party tray feeds.
+ *
+ * ⚠️ TODO(confirm): capacity claim is owner-provided, NOT on the printed menu
+ * (rev. 9/25), whose tray column carries a price and nothing else. It is one
+ * constant precisely so the owner can correct it in one edit — never inline
+ * this into copy.
+ */
+export const PARTY_TRAY_SERVES = {
+  en: "feeds 15–20 people",
+  /** Bilingual surfaces only. Never reaches the ticket — see build:ticket-font. */
+  zh: "餐盤 · 15–20人份",
+  /** Short form for tight spots, e.g. a size dropdown. */
+  short: "feeds 15–20",
+} as const;
+
+/** Prep-time warning shown before submit when a tray is in the cart. */
+export const PARTY_TRAY_PREP_NOTE =
+  "Party trays: ready in 20–30 minutes";
+
 export interface PartyTray {
   /** Integer cents. */
   priceCents: number;
@@ -36,21 +56,21 @@ export interface PartyTray {
  */
 export const partyTraysByItemId: Record<string, PartyTray> = {
   // Chicken
-  "orange-flavored-chicken": { priceCents: 7500, servesNote: "feeds 8–10" },
-  "orange-flavored-chicken-special": { priceCents: 7500, servesNote: "feeds 8–10" },
-  "kung-pao-chicken": { priceCents: 9000, servesNote: "feeds 8–10" },
-  "chicken-broccoli": { priceCents: 7000, servesNote: "feeds 8–10" },
-  "sesame-chicken": { priceCents: 7500, servesNote: "feeds 8–10" },
+  "orange-flavored-chicken": { priceCents: 7500 },
+  "orange-flavored-chicken-special": { priceCents: 7500 },
+  "kung-pao-chicken": { priceCents: 9000 },
+  "chicken-broccoli": { priceCents: 7000 },
+  "sesame-chicken": { priceCents: 7500 },
   // Beef
-  "mongolian-beef": { priceCents: 7500, servesNote: "feeds 8–10" },
-  "mongolian-beef-special": { priceCents: 7500, servesNote: "feeds 8–10" },
-  "beef-broccoli": { priceCents: 7200, servesNote: "feeds 8–10" },
+  "mongolian-beef": { priceCents: 7500 },
+  "mongolian-beef-special": { priceCents: 7500 },
+  "beef-broccoli": { priceCents: 7200 },
   // Seafood
-  "honey-walnut-shrimp": { priceCents: 9500, servesNote: "feeds 8–10" },
-  "kung-pao-shrimp": { priceCents: 10000, servesNote: "feeds 8–10" },
+  "honey-walnut-shrimp": { priceCents: 9500 },
+  "kung-pao-shrimp": { priceCents: 10000 },
   // Rice & noodles
-  "house-special-fried-rice": { priceCents: 6500, servesNote: "feeds 8–10" },
-  "house-soft-noodle": { priceCents: 6800, servesNote: "feeds 8–10" },
+  "house-special-fried-rice": { priceCents: 6500 },
+  "house-soft-noodle": { priceCents: 6800 },
 };
 
 export function partyTrayFor(itemId: string): PartyTray | undefined {

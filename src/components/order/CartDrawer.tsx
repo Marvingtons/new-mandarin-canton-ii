@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PARTY_TRAY_PREP_NOTE } from "@/data/party-trays";
 import { useEffect } from "react";
 import { useCart } from "@/lib/cart/CartContext";
 import { formatCents, taxCents } from "@/lib/money";
@@ -31,6 +32,12 @@ export default function CartDrawer({
   }, [open, onClose]);
 
   const tax = taxRateBps != null ? taxCents(subtotalCents, taxRateBps) : null;
+
+  // Matches the server's rule in api/orders: a tray or a family dinner
+  // anywhere in the cart moves the whole order to 20–30 minutes.
+  const hasLongPrep = detailedLines.some(
+    (line) => line.item.longPrep === true || line.size.id === "party-tray",
+  );
   const total = tax != null ? subtotalCents + tax : subtotalCents;
 
   return (
@@ -129,6 +136,20 @@ export default function CartDrawer({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* Longer prep, stated BEFORE the customer commits rather than on the
+            confirmation. Someone ordering a tray for a specific time needs to
+            know the window moved while they can still act on it. */}
+        {hasLongPrep && (
+          <div className="border-t border-gold/30 bg-gold/5 px-5 py-3 text-sm text-ink/75">
+            <span className="font-semibold text-ink">
+              {PARTY_TRAY_PREP_NOTE}
+            </span>
+            <span className="mt-0.5 block text-xs text-ink/60">
+              Everything else is 15–20 minutes.
+            </span>
           </div>
         )}
 
