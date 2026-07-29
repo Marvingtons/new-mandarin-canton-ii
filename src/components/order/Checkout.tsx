@@ -407,8 +407,8 @@ export default function Checkout({
           className="mt-6 flex min-h-12 w-full items-center justify-center bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting
-            ? "Placing order…"
-            : `Place order · ${formatCents(total)} at pickup`}
+            ? "Placing pickup order…"
+            : `Place pickup order · ${formatCents(total)} at pickup`}
         </button>
         <p className="mt-2 text-center text-xs uppercase tracking-[0.15em] text-ink/50">
           Pickup only · pay at the counter

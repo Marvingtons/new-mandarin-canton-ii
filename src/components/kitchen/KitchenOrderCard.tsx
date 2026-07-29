@@ -3,7 +3,6 @@
 import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { useState } from "react";
 import { formatCents } from "@/lib/money";
-import { formatPickupTime } from "@/lib/orders/businessDate";
 import type { Order, OrderStatus } from "@/lib/orders/types";
 
 /**

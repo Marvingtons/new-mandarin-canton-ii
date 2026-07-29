@@ -75,7 +75,14 @@ export default function Footer() {
         </div>
       </div>
       <div className="border-t border-ivory/10 py-4 text-center text-xs text-ivory/50">
-        <p>
+        {/* Stated sitewide: we never deliver, and a customer should never have
+            to reach the cart to find that out.
+            English only, deliberately. The customer-facing site carries no
+            functional 中文 — 富源 is its one Chinese moment — so a 自取 here
+            would be the first half-translated label on the page. The kitchen
+            ticket, which IS Chinese-primary, already prints 取餐. */}
+        <p className="text-ivory/60">Takeout pickup only · no delivery</p>
+        <p className="mt-2">
           © {new Date().getFullYear()} {restaurant.name}
         </p>
         <p className="mt-1">

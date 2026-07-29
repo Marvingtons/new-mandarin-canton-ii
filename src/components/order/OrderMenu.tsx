@@ -72,10 +72,14 @@ export default function OrderMenu({
           </button>
         </div>
 
+        {/* The persistent line: pickup and the wait, stated at the entry point
+            so nobody discovers either at the cart. */}
         <p className="mt-4 border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
-          <span className="font-semibold text-ink">Pay when you pick up.</span>{" "}
-          We don&apos;t take payment online — we&apos;ll text you a code to
-          confirm your number, then you pay at the counter.
+          <span className="font-semibold text-ink">
+            Pickup only · ready in 15–20 minutes.
+          </span>{" "}
+          Party trays and family dinners take 20–30. Pay at the counter when
+          you collect — we don&apos;t take payment online.
         </p>
 
         {/* Category jump nav */}
