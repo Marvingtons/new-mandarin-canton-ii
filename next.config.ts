@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
    * but bundling it breaks its optional native/driver resolution and its
    * connection pooling, both of which we rely on.
    */
-  serverExternalPackages: ["@resvg/resvg-js", "pg"],
+  serverExternalPackages: ["pg"],
 
   /*
    * `outputFileTracingIncludes` USED TO LIVE HERE. Do not restore it.

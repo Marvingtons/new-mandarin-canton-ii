@@ -1,7 +1,7 @@
 import "server-only";
 
 import satori from "satori";
-import { Resvg } from "@resvg/resvg-js";
+import { Resvg, ensureResvg } from "@/lib/ticket/resvg";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 import { formatPickupTime } from "@/lib/orders/businessDate";
@@ -431,12 +431,28 @@ export async function renderTicket(
     ],
   });
 
+  // resvg is wasm here, not the native addon — it must be initialized once per
+  // isolate before the first construction. ensureResvg() is idempotent and
+  // cheap after the first call.
+  await ensureResvg();
+
   // Satori emits glyphs as vector paths, so resvg needs no font of its own.
+  // loadSystemFonts stays false — there are no system fonts on workerd, and
+  // asking for them costs a scan that finds nothing.
   const rendered = new Resvg(svg, {
     fitTo: { mode: "width", value: TICKET_WIDTH_PX },
     background: WHITE,
     font: { loadSystemFonts: false },
   }).render();
 
-  return Buffer.from(rendered.asPng());
+  // The wasm build returns Uint8Array (the native one returned Buffer). Copy
+  // into a Buffer so every caller's `Promise<Buffer>` contract is unchanged —
+  // Buffer is available under nodejs_compat, which the adapter requires
+  // anyway.
+  const png = Buffer.from(rendered.asPng());
+  // Free the wasm-side bitmap promptly rather than waiting for GC. The tall
+  // ticket is 576x2350; holding several of those in a 128 MB isolate is how
+  // OOM at cold start starts.
+  rendered.free();
+  return png;
 }
