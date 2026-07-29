@@ -42,3 +42,15 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+/**
+ * Makes Cloudflare bindings (ASSETS, HYPERDRIVE, vars, secrets from
+ * .dev.vars) available under plain `next dev`, so local development sees the
+ * same env shape the Worker does.
+ *
+ * Deliberately AFTER the default export and deliberately not awaited — that
+ * is the placement the adapter documents. It is a side-effecting top-level
+ * call, and moving it up with the other imports is a known way to break it.
+ */
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+void initOpenNextCloudflareForDev();

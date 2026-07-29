@@ -1,0 +1,87 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nmc-web",
+
+  // `main` points at OUR wrapper, not the adapter's generated
+  // `.open-next/worker.js`. The wrapper re-exports the generated fetch handler
+  // unchanged and adds scheduled() for the unprinted-order cron — see
+  // custom-worker.ts and https://opennext.js.org/cloudflare/howtos/custom-worker
+  "main": "./custom-worker.ts",
+
+  // Today. The adapter warns at build time when this drifts more than ~6
+  // months into the past; nodejs_compat additionally requires >= 2024-09-23.
+  "compatibility_date": "2026-07-28",
+
+  // BOTH flags are required by the adapter's own template:
+  //   nodejs_compat               — the Node.js API surface Next needs
+  //   global_fetch_strictly_public — makes fetch() to our own hostname go out
+  //                                  to the internet instead of looping back
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  // Do not change these two — they are the adapter's build output contract.
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "services": [
+    {
+      // Self-reference. `service` MUST equal `name` above. Required for
+      // revalidatePath(), which src/app/kitchen/actions.ts calls.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "nmc-web"
+    }
+  ],
+
+  // next/image is used on the homepage, FavoritesSpotlight, and PhotoFrame.
+  // The generated worker routes /_next/image to this binding; without it those
+  // requests fail.
+  "images": {
+    "binding": "IMAGES"
+  },
+
+  // The unprinted-order sweep, every minute — same cadence vercel.json had.
+  // No plan gating on Workers.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  // Ticket rasterization is wasm and CPU-bound. The tall ticket is 576x2350.
+  // Paid plan default is 30s; this raises the ceiling without changing the
+  // common case (billing is on actual CPU used, not this limit).
+  "limits": {
+    "cpu_ms": 60000
+  },
+
+  // Public, non-secret config. Everything sensitive is a secret set with
+  // `wrangler secret put` and MUST NOT appear here — see docs/DEPLOY_RUNBOOK.md.
+  "vars": {
+    "TENANT_ID": "nmc",
+    "RESTAURANT_TIMEZONE": "America/Los_Angeles",
+    "TENANT_TAX_RATE_BPS": "775",
+    "ORDER_NUMBER_PREFIX": "A",
+    "PICKUP_LEAD_MINUTES": "20",
+    "PICKUP_SLOT_INTERVAL_MINUTES": "15",
+    "ONLINE_ORDERING_CUTOFF_MINUTES": "30",
+    "MAX_ORDERS_PER_PHONE_PER_DAY": "5",
+    "MAX_PICKUP_HOURS": "48",
+    "TIP_PRESETS": "",
+    "CLOUDPRNT_BUZZER": "off"
+  }
+
+  // ---------------------------------------------------------------------
+  // Hyperdrive — added in Phase 3. Create it first, then paste the id:
+  //   wrangler hyperdrive create nmc-db --connection-string="<supabase DIRECT/session string>"
+  // NOTE: give Hyperdrive Supabase's DIRECT (port 5432) string, NOT the
+  // :6543 transaction pooler. Hyperdrive IS the pool; pooler-behind-pooler
+  // breaks prepared statements.
+  //
+  // "hyperdrive": [
+  //   {
+  //     "binding": "HYPERDRIVE",
+  //     "id": "<hyperdrive-id>",
+  //     "localConnectionString": "postgresql://..."  // local `wrangler dev` only
+  //   }
+  // ]
+  // ---------------------------------------------------------------------
+}

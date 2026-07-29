@@ -1,0 +1,21 @@
+{
+  // The Worker entrypoint runs on workerd, not in Next's DOM+Node world, so it
+  // gets its own config. Sharing tsconfig.json would mean loading
+  // @cloudflare/workers-types alongside "dom" and letting the two fight over
+  // Request/Response/fetch.
+  //
+  // `next build` never sees this file (custom-worker.ts is excluded there) and
+  // wrangler bundles with esbuild, which does not typecheck — so
+  // `npm run typecheck:worker` is the only thing that checks it. It runs in CI
+  // alongside the app typecheck.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext"],
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["custom-worker.ts"],
+  "exclude": []
+}

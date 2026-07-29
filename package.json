@@ -10,7 +10,13 @@
     "build:ticket-font": "tsx scripts/build-ticket-font.ts",
     "ticket:sample": "tsx --conditions=react-server scripts/ticket-sample.ts",
     "verify:orders": "tsx --conditions=react-server scripts/verify-orders.ts",
-    "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts"
+    "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts",
+    "build:cf": "opennextjs-cloudflare build",
+    "preview:cf": "opennextjs-cloudflare preview",
+    "deploy:cf": "opennextjs-cloudflare deploy",
+    "typecheck": "tsc --noEmit",
+    "typecheck:worker": "tsc -p tsconfig.worker.json",
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
@@ -25,6 +31,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260729.1",
+    "@opennextjs/cloudflare": "^1.20.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
@@ -36,6 +44,7 @@
     "subset-font": "^2.5.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.115.0"
   }
 }
