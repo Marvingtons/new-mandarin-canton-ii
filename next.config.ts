@@ -11,34 +11,18 @@ const nextConfig: NextConfig = {
    */
   serverExternalPackages: ["@resvg/resvg-js", "pg"],
 
-  /**
-   * The ticket renderer reads its subset font off the filesystem at request
-   * time. Being under `public/` makes a file publicly SERVED — it does not
-   * make it READABLE from a serverless function. If the font is missing from
-   * a route's bundle, that route throws ENOENT in production and nowhere
-   * else, which is the worst possible place to find out.
+  /*
+   * `outputFileTracingIncludes` USED TO LIVE HERE. Do not restore it.
    *
-   * MEASURED, not assumed (rebuild with this map emptied to re-check): the
-   * trace analyzer ALREADY resolves the fonts on its own for every route that
-   * imports lib/ticket/font.ts, because `readFile(join(FONT_DIR, "...ttf"))`
-   * is statically analyzable. So these entries are belt-and-braces, not the
-   * thing keeping tickets alive.
+   * It was a Vercel/serverless mechanism for copying `public/fonts/*.ttf`
+   * into a route's lambda bundle so the ticket renderer could read them off
+   * disk. On Cloudflare Workers there is no filesystem and no file tracing —
+   * the whole concept is gone, and the setting is silently ignored.
    *
-   * They are kept anyway. Automatic resolution depends on that path staying
-   * literal; a refactor to a computed filename, or a change in the analyzer,
-   * would silently drop the font from the bundle — and the route below that
-   * matters is the one the PRINTER fetches, where the failure is invisible
-   * until a customer is waiting for food.
+   * The fonts now reach satori by being imported directly into the bundle as
+   * binary modules. See src/lib/ticket/font.ts and the `rules` block in
+   * wrangler.jsonc.
    */
-  outputFileTracingIncludes: {
-    // The printer's own route. Not currently load-bearing (nft finds the
-    // fonts unaided) but this is the route whose silent failure costs an
-    // order, so it does not get to depend on inference.
-    "/api/print/[secret]": ["./public/fonts/**"],
-    "/api/ticket/preview": ["./public/fonts/**"],
-    "/api/kitchen/orders/[id]": ["./public/fonts/**"],
-    "/api/kitchen/orders/[id]/ticket": ["./public/fonts/**"],
-  },
 };
 
 export default nextConfig;
