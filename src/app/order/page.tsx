@@ -18,6 +18,10 @@ export default async function OrderPage() {
   const menu = await getMenu();
   const tenant = publicTenant();
   return (
-    <OrderMenu menu={menu} taxRateBps={tenant.taxRateBps} />
+    <OrderMenu
+      menu={menu}
+      taxRateBps={tenant.taxRateBps}
+      timezone={tenant.timezone}
+    />
   );
 }

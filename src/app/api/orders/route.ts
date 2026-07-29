@@ -5,7 +5,12 @@ import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
 import { taxCents } from "@/lib/money";
 import { orderCaps, publicTenant } from "@/config/tenant.server";
 import { isValidPickup, pickupLabel, type PickupOptions } from "@/lib/order/pickup";
-import { closedMessage, isAcceptingOrders } from "@/lib/order/gates";
+import {
+  closedMessage,
+  isAcceptingOrders,
+  isLunchService,
+  lunchClosedMessage,
+} from "@/lib/order/gates";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
@@ -177,6 +182,11 @@ export async function POST(request: Request): Promise<Response> {
     const item = index.get(line.itemId);
     if (!item) return bad("An item is no longer on the menu. Please rebuild your cart. · 有項目已下架，請重新下單。");
     if (!isAvailable(item)) return bad(`"${item.nameEn}" is currently unavailable. · 該項目暫時售罄。`);
+    // Lunch specials are an 11–3 product. The client hides them outside that
+    // window, but the client's clock is display-only — this is the gate.
+    if (item.lunchSpecial && !isLunchService(now, pickupOpts)) {
+      return bad(lunchClosedMessage());
+    }
     const size = itemSizes(item).find((s) => s.id === line.sizeId);
     if (!size) return bad(`A size is no longer available for "${item.nameEn}".`);
 

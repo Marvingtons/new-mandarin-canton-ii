@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Menu, MenuItem } from "@/lib/menu/types";
 import { isAvailable, itemSizes } from "@/lib/menu/types";
 import { useCart } from "@/lib/cart/CartContext";
+import { isLunchService } from "@/lib/order/gates";
 import { restaurant } from "@/data/restaurant";
 import { formatCents } from "@/lib/money";
 import { SpicyMark } from "@/components/MenuSection";
@@ -19,13 +20,31 @@ import StickyCartBar from "@/components/order/StickyCartBar";
 export default function OrderMenu({
   menu,
   taxRateBps,
+  timezone,
 }: {
   menu: Menu;
   taxRateBps: number | null;
+  timezone: string;
 }) {
   const { itemCount, hydrated } = useCart();
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
+
+  // Lunch specials are an 11–3 product. This is a UX hint only — it decides
+  // what the grid offers, never whether an order is accepted. The submit path
+  // re-checks against the server clock (lib/order/gates.ts), so a browser with
+  // a wrong clock gets a clear refusal rather than a bad order.
+  //
+  // Null until mounted, so the server render and the first client render agree
+  // and there is no hydration flash.
+  const [lunchOpen, setLunchOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    const opts = { timezone, leadMinutes: 0, intervalMinutes: 15 };
+    const tick = () => setLunchOpen(isLunchService(new Date(), opts));
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, [timezone]);
 
   const categories = menu.categories.filter((c) => c.items.length > 0);
 
@@ -89,7 +108,11 @@ export default function OrderMenu({
                 const sizes = itemSizes(item);
                 const from = Math.min(...sizes.map((s) => s.priceCents));
                 const hasChoice = sizes.length > 1;
-                const disabled = !isAvailable(item);
+                // lunchOpen === null means "not mounted yet" — don't disable
+                // on the server render, or the grid flickers on hydration.
+                const outsideLunch =
+                  item.lunchSpecial === true && lunchOpen === false;
+                const disabled = !isAvailable(item) || outsideLunch;
                 return (
                   <button
                     key={item.id}
@@ -109,10 +132,16 @@ export default function OrderMenu({
                           {item.description}
                         </span>
                       )}
-                      {disabled && (
+                      {outsideLunch ? (
                         <span className="mt-1 block text-sm text-ink/50">
-                          Currently unavailable
+                          Lunch specials are served 11:00 AM – 3:00 PM
                         </span>
+                      ) : (
+                        disabled && (
+                          <span className="mt-1 block text-sm text-ink/50">
+                            Currently unavailable
+                          </span>
+                        )
                       )}
                     </span>
                     <span className="shrink-0 text-right">

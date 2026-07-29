@@ -57,3 +57,37 @@ export function closedMessage(now: Date, opts: PickupOptions): string {
 
 /** True when the submit path should be allowed at all. */
 export { isAcceptingOrders };
+
+/* ------------------------------------------------------ lunch specials -- */
+
+/** Lunch service, restaurant-local minutes past midnight: 11:00 AM – 3:00 PM. */
+export const LUNCH_START_MINUTES = 11 * 60;
+export const LUNCH_END_MINUTES = 15 * 60;
+
+/**
+ * Is it lunch right now, in restaurant time?
+ *
+ * The gate is on PLACEMENT time, not pickup time: an order placed at 2:55 PM
+ * is a valid lunch order even though it will be collected after 3:00. That
+ * matches how the counter treats it.
+ *
+ * ⚠️ TODO(confirm): holiday lunch closures — the printed menu says "Except
+ * Holiday No Lunch", but there is no holiday calendar in this system and one
+ * must not be invented. Owner to specify the dates. No holiday gate is
+ * implemented, so lunch specials remain orderable on holidays.
+ */
+export function isLunchService(now: Date, opts: PickupOptions): boolean {
+  const mins = minutesNow(now, opts);
+  return mins >= LUNCH_START_MINUTES && mins < LUNCH_END_MINUTES;
+}
+
+/** Refusal for a lunch item outside 11–3, in both languages. */
+export function lunchClosedMessage(): string {
+  const from = clockLabel(LUNCH_START_MINUTES);
+  const to = clockLabel(LUNCH_END_MINUTES);
+  return (
+    `Lunch specials are served ${from} – ${to} only. ` +
+    `Please remove them or order them tomorrow at lunch. · ` +
+    `午市套餐只供應 ${from} 至 ${to}，請移除或於明日午市訂購。`
+  );
+}
