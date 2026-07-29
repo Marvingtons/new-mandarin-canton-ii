@@ -58,14 +58,29 @@ function secretMatches(provided: string, expected: string): boolean {
 }
 
 /**
- * Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. When no secret is
- * configured the endpoint stays open — it leaks nothing (it returns counts,
- * not order data) and the alternative is an alert that silently never fires
- * because someone forgot an env var.
+ * The sweep is reachable two ways, and both present the same bearer token:
+ *
+ *   - Cloudflare's cron trigger, via the scheduled() handler in
+ *     custom-worker.ts, which synthesizes a request carrying CRON_SECRET.
+ *   - An operator, by hand, to force a sweep.
+ *
+ * CRON_SECRET IS NOW REQUIRED. It used to be optional — unset meant "open" —
+ * because on Vercel the cron path was implicitly privileged and the failure
+ * mode of a forgotten variable was an alert that never fired. Neither holds
+ * here: this endpoint has a public URL like any other, and a stranger who
+ * fires it repeatedly can burn the owner's alert budget and race the real
+ * sweep for claims. Refusing loudly when it is unset is the safer default,
+ * and the deploy runbook lists it as required.
  */
 function authorized(request: Request): boolean {
   const expected = cronSecret();
-  if (!expected) return true;
+  if (!expected) {
+    console.error(
+      "[alert] CRON_SECRET is not set — refusing the sweep. Set it with " +
+        "`wrangler secret put CRON_SECRET` (see docs/DEPLOY_RUNBOOK.md).",
+    );
+    return false;
+  }
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   return token.length > 0 && secretMatches(token, expected);
