@@ -1,0 +1,42 @@
+▲ Next.js 16.2.10 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.8s
+  Running TypeScript ...
+  Finished TypeScript in 2.6s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/16) ...
+  Generating static pages using 15 workers (4/16) 
+⚠ metadataBase property in metadata export is not set for resolving social open graph or twitter images, using "http://localhost:3000". See https://nextjs.org/docs/app/api-reference/functions/generate-metadata#metadatabase
+  Generating static pages using 15 workers (8/16) 
+  Generating static pages using 15 workers (12/16) 
+✓ Generating static pages using 15 workers (16/16) in 601ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /about
+├ ƒ /api/cron/unprinted-alert
+├ ƒ /api/kitchen/orders
+├ ƒ /api/kitchen/orders/[id]
+├ ƒ /api/kitchen/orders/[id]/ticket
+├ ƒ /api/orders
+├ ƒ /api/otp/check
+├ ƒ /api/otp/start
+├ ƒ /api/print/[secret]
+├ ƒ /api/ticket/preview
+├ ○ /apple-icon
+├ ○ /contact
+├ ○ /icon
+├ ƒ /kitchen
+├ ○ /menu
+├ ○ /opengraph-image
+├ ○ /order
+├ ○ /order/checkout
+└ ○ /order/confirmation
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
