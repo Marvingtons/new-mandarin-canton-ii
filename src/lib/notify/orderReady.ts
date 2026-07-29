@@ -28,6 +28,10 @@ export async function notifyOrderReady(
   const body =
     `${restaurant.name}: order ${order.orderNumber} is ready for pickup. ` +
     `${restaurant.address.street}. Please pay at the counter.`;
+  // NOTE: this text is sent when the food IS ready, so it deliberately does
+  // not repeat the estimated window — the estimate is what the confirmation,
+  // the board, and the ticket quote (all from order.readyFrom/readyTo).
+  // Restating a now-obsolete estimate here would only contradict the message.
 
   const result = await sendSms(order.customer.phone, body);
   if (!result.sent) {

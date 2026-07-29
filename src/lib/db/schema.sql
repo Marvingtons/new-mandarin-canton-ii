@@ -37,6 +37,14 @@ create table if not exists orders (
   -- schema-level statement of the anti-abuse rule.
   phone_verified_at timestamptz not null,
   pickup_at         timestamptz not null,
+  -- The "ready around 6:45–6:50 PM" window, computed ONCE at order creation
+  -- and read by the confirmation, the kitchen board, the ticket, and the
+  -- order-ready text. Stored rather than recomputed so all four agree and a
+  -- customer re-reading their confirmation does not watch the estimate move.
+  -- Nullable: orders predating migration 003 have none and fall back to
+  -- pickup_at.
+  ready_from        timestamptz,
+  ready_to          timestamptz,
   print_attempts    int         not null default 0,
   -- Set ONLY by a CloudPRNT DELETE, i.e. the printer's own confirmation that
   -- paper came out. Never set optimistically when a job is handed over.

@@ -5,6 +5,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 import { formatPickupTime } from "@/lib/orders/businessDate";
+import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { formatCents } from "@/lib/money";
 import type { Order, OrderLine } from "@/lib/orders/types";
 
@@ -235,7 +236,9 @@ export async function renderTicket(
   const fonts = await loadTicketFonts();
   const { coverage } = fonts;
 
-  const pickupLabel = formatPickupTime(order.pickupAt, options.timezone);
+  // The STORED window (lib/order/readyWindow) so the ticket, the board, the
+  // confirmation, and the SMS all quote the same promise.
+  const pickupLabel = orderReadyLabel(order, options.timezone);
   const placedLabel = formatPickupTime(order.createdAt, options.timezone);
 
   const element = (

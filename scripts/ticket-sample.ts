@@ -138,6 +138,8 @@ function fixtureOrder(): Order {
     customer: { name: "Marvin W.", phone: "+16195550148" },
     phoneVerifiedAt: new Date("2026-07-27T01:00:00.000Z").toISOString(),
     pickupAt: new Date("2026-07-27T01:45:00.000Z").toISOString(),
+    readyFrom: new Date("2026-07-27T01:45:00.000Z").toISOString(),
+    readyTo: new Date("2026-07-27T01:50:00.000Z").toISOString(),
     printAttempts: 0,
     printedAt: null,
     lastPrintError: null,

@@ -69,6 +69,8 @@ function fixtureOrder(): Order {
     customer: { name: "Preview Customer", phone: "+16195550148" },
     phoneVerifiedAt: now.toISOString(),
     pickupAt: new Date(now.getTime() + 25 * 60_000).toISOString(),
+    readyFrom: new Date(now.getTime() + 25 * 60_000).toISOString(),
+    readyTo: new Date(now.getTime() + 30 * 60_000).toISOString(),
     printAttempts: 0,
     printedAt: null,
     lastPrintError: null,

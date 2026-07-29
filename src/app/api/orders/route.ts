@@ -11,6 +11,7 @@ import {
   isLunchService,
   lunchClosedMessage,
 } from "@/lib/order/gates";
+import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
@@ -207,6 +208,27 @@ export async function POST(request: Request): Promise<Response> {
     resolvedLines.push(resolved);
   }
 
+  // Prep time: a party tray, family dinner, or big family dinner in the cart
+  // moves the whole order to the longer window. One slow item sets the pace
+  // for the bag, so quoting the standard range would be a promise the kitchen
+  // cannot keep.
+  const hasLongPrep = body.lines.some((line) => {
+    const item = index.get(line.itemId);
+    return (
+      item?.longPrep === true ||
+      (line.sizeId === "party-tray" &&
+        itemSizes(item!).some((s) => s.id === "party-tray"))
+    );
+  });
+
+  // Computed ONCE, here, and stored. Every surface reads the stored values.
+  const ready = readyWindow(
+    now,
+    pickupOpts,
+    hasLongPrep,
+    body.pickup.time === "asap" ? null : pickupAt,
+  );
+
   const tax = taxCents(subtotalCents, tenant.taxRateBps);
   const totalCents = subtotalCents + tax;
   if (totalCents <= 0) return bad("Your cart is empty. · 購物車是空的。");
@@ -232,7 +254,11 @@ export async function POST(request: Request): Promise<Response> {
       },
       customer: { name: body.pickup.name, phone: phoneE164 },
       phoneVerifiedAt: new Date(verified.verifiedAt),
-      pickupAt,
+      // pickup_at IS the start of the stored window, so the ticket and the
+      // board cannot disagree with the confirmation about when food is due.
+      pickupAt: ready.from,
+      readyFrom: ready.from,
+      readyTo: ready.to,
     });
   } catch (err) {
     console.error(
@@ -249,6 +275,18 @@ export async function POST(request: Request): Promise<Response> {
     orderNumber: result.order.orderNumber,
     total: result.order.totals.totalCents,
     pickupTime: timeLabel,
+    // From the STORED window on the returned row, not from `ready` — a
+    // replayed idempotency key must echo the original order's promise, not a
+    // fresh one computed from this request's clock.
+    readyWindow:
+      result.order.readyFrom && result.order.readyTo
+        ? formatReadyWindow(
+            new Date(result.order.readyFrom),
+            new Date(result.order.readyTo),
+            tenant.timezone,
+          )
+        : null,
+    longPrep: hasLongPrep,
     duplicate: !result.created,
   });
 }

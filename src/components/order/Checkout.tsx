@@ -14,6 +14,10 @@ export interface LastOrder {
   orderNumber: string;
   total: number;
   pickupTime: string;
+  /** "6:45–6:50 PM", from the window the server stored. Null on old orders. */
+  readyWindow?: string | null;
+  /** True when a tray or family dinner pushed the order to 20–30 minutes. */
+  longPrep?: boolean;
 }
 
 interface CheckoutProps {

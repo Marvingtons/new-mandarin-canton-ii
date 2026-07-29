@@ -1,5 +1,6 @@
 "use client";
 
+import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { useState } from "react";
 import { formatCents } from "@/lib/money";
 import { formatPickupTime } from "@/lib/orders/businessDate";
@@ -79,7 +80,7 @@ export default function KitchenOrderCard({
             取餐 PICKUP
           </div>
           <div className="text-3xl font-bold text-ivory">
-            {formatPickupTime(order.pickupAt, timezone)}
+            {orderReadyLabel(order, timezone)}
           </div>
         </div>
       </div>

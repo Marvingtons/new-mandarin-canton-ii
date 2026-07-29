@@ -48,6 +48,8 @@ const ORDER_COLUMNS = `
   customer,
   phone_verified_at,
   pickup_at,
+  ready_from,
+  ready_to,
   print_attempts,
   printed_at,
   last_print_error,
@@ -74,6 +76,8 @@ function mapOrder(row: QueryResultRow): Order {
     customer: row.customer as OrderCustomer,
     phoneVerifiedAt: (row.phone_verified_at as Date).toISOString(),
     pickupAt: (row.pickup_at as Date).toISOString(),
+    readyFrom: row.ready_from === null ? null : (row.ready_from as Date).toISOString(),
+    readyTo: row.ready_to === null ? null : (row.ready_to as Date).toISOString(),
     printAttempts: Number(row.print_attempts),
     printedAt: row.printed_at === null ? null : (row.printed_at as Date).toISOString(),
     lastPrintError: row.last_print_error === null ? null : String(row.last_print_error),
@@ -159,8 +163,9 @@ export async function createOrder(
         const { rows } = await client.query(
           `insert into orders (
              tenant_id, order_number, business_date, status, idempotency_key,
-             items, totals, customer, phone_verified_at, pickup_at
-           ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9)
+             items, totals, customer, phone_verified_at, pickup_at,
+             ready_from, ready_to
+           ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9, $10, $11)
            on conflict (tenant_id, idempotency_key) do nothing
            returning ${ORDER_COLUMNS}`,
           [
@@ -175,6 +180,8 @@ export async function createOrder(
             JSON.stringify(input.customer),
             input.phoneVerifiedAt,
             input.pickupAt,
+            input.readyFrom ?? null,
+            input.readyTo ?? null,
           ],
         );
 

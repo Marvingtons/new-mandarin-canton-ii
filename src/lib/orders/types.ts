@@ -130,6 +130,17 @@ export interface Order {
   phoneVerifiedAt: string;
   /** Absolute instant, serialized ISO-8601. Render it in the tenant timezone. */
   pickupAt: string;
+  /**
+   * The "ready around 6:45–6:50 PM" window, computed once at order creation
+   * (lib/order/readyWindow.ts) and stored. The confirmation, the kitchen
+   * board, the ticket, and the order-ready text all read THESE — none of them
+   * recomputes, so all four agree and none of them drifts as time passes.
+   *
+   * Null for orders placed before migration 003; readers fall back to
+   * pickupAt rather than inventing a window.
+   */
+  readyFrom: string | null;
+  readyTo: string | null;
   printAttempts: number;
   /** Set only by a CloudPRNT DELETE — the printer's own confirmation. */
   printedAt: string | null;
@@ -142,6 +153,9 @@ export interface Order {
 
 /** What createOrder needs to reserve a row. The number is allocated for you. */
 export interface NewOrderInput {
+  /** Stored pickup window; see Order.readyFrom. */
+  readyFrom?: Date | null;
+  readyTo?: Date | null;
   tenantId: string;
   businessDate: string;
   orderNumberPrefix: string;

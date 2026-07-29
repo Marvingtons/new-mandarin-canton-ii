@@ -71,8 +71,18 @@ export default function ConfirmationPage() {
           </dd>
         </div>
         <div className="flex justify-between px-5 py-3">
-          <dt className="text-ink/70">Pickup time</dt>
-          <dd className="font-semibold text-ink">{order.pickupTime}</dd>
+          <dt className="text-ink/70">Ready around</dt>
+          <dd className="text-right font-semibold text-ink">
+            {/* The window the server stored at order creation — the same one
+                on the ticket and the kitchen board. Clock time, not "in 17
+                minutes": this page gets re-read later. */}
+            {order.readyWindow ?? order.pickupTime}
+            {order.longPrep && (
+              <span className="mt-0.5 block text-xs font-normal text-ink/60">
+                Party trays &amp; family dinners need a little longer
+              </span>
+            )}
+          </dd>
         </div>
         <div className="flex justify-between px-5 py-3">
           <dt className="text-ink/70">Due at pickup</dt>
