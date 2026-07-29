@@ -4,12 +4,8 @@ import { getMenu } from "@/lib/menu/source";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
 import { taxCents } from "@/lib/money";
 import { orderCaps, publicTenant } from "@/config/tenant.server";
-import {
-  isValidPickup,
-  isOpenNow,
-  pickupLabel,
-  type PickupOptions,
-} from "@/lib/order/pickup";
+import { isValidPickup, pickupLabel, type PickupOptions } from "@/lib/order/pickup";
+import { closedMessage, isAcceptingOrders } from "@/lib/order/gates";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
@@ -117,9 +113,13 @@ export async function POST(request: Request): Promise<Response> {
   };
   const now = new Date();
 
-  // 4. Validate pickup time against real, current store hours.
-  if (body.pickup.time === "asap" && !isOpenNow(now, pickupOpts)) {
-    return bad("We're closed right now — please choose a time when we're open. · 現時休息，請選擇營業時間。");
+  // 4. Hours gate — the whole submit path, not just ASAP.
+  //
+  //    Enforced HERE, server-side, in restaurant time. The client hides the
+  //    submit button outside hours, but that is a convenience: the browser
+  //    clock is display-only and a crafted request must not reach the kitchen.
+  if (!isAcceptingOrders(now, pickupOpts)) {
+    return bad(closedMessage(now, pickupOpts));
   }
   if (!isValidPickup(body.pickup.time, now, pickupOpts)) {
     return bad("That pickup time is no longer available. Please pick another. · 該取餐時間已不可選，請另選時間。");

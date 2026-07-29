@@ -76,6 +76,16 @@ function hhmm(mins: number): string {
   return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 }
 
+/**
+ * How long before closing the kitchen stops accepting online orders.
+ *
+ * The dining room is open until close, but an order placed at 8:55 cannot be
+ * cooked, bagged, and collected by 9:00 — accepting it books a customer for a
+ * pickup that will not happen. This is the gate that makes the Task-3 window
+ * cap (never past closing) a rare edge rather than the normal case.
+ */
+export const ORDER_CUTOFF_MINUTES = 20;
+
 function todaysWindow(day: DayOfWeek): { open: number; close: number } | null {
   const h = restaurant.hours[day];
   if (h.closed) return null;
@@ -85,11 +95,51 @@ function todaysWindow(day: DayOfWeek): { open: number; close: number } | null {
   return { open, close };
 }
 
-/** Is the store open for pickup right now? */
+/** Today's open/close in restaurant-local minutes past midnight. */
+export function hoursForDay(
+  day: DayOfWeek,
+): { open: number; close: number } | null {
+  return todaysWindow(day);
+}
+
+/** Is the DINING ROOM open right now? (Ignores the ordering cutoff.) */
 export function isOpenNow(now: Date, opts: PickupOptions): boolean {
   const { day, minutes } = localNow(opts.timezone, now);
   const w = todaysWindow(day);
   return w != null && minutes >= w.open && minutes < w.close;
+}
+
+/**
+ * Is the store accepting ONLINE ORDERS right now?
+ *
+ * Open, and at least ORDER_CUTOFF_MINUTES before close. This is the gate the
+ * submit path enforces; `isOpenNow` remains the answer to "are the doors
+ * open", which is a different question and still the right one for the
+ * hours chip.
+ */
+export function isAcceptingOrders(now: Date, opts: PickupOptions): boolean {
+  const { day, minutes } = localNow(opts.timezone, now);
+  const w = todaysWindow(day);
+  if (!w) return false;
+  return minutes >= w.open && minutes < w.close - ORDER_CUTOFF_MINUTES;
+}
+
+/** Today's hours as a 12-hour label, e.g. "11:00 AM – 9:00 PM". Null if closed. */
+export function todaysHoursLabel(now: Date, opts: PickupOptions): string | null {
+  const { day } = localNow(opts.timezone, now);
+  const w = todaysWindow(day);
+  if (!w) return null;
+  return `${label12h(w.open)} – ${label12h(w.close)}`;
+}
+
+/** Restaurant-local minutes past midnight, exported for the order gates. */
+export function minutesNow(now: Date, opts: PickupOptions): number {
+  return localNow(opts.timezone, now).minutes;
+}
+
+/** Clock label for restaurant-local minutes past midnight. */
+export function clockLabel(minutes: number): string {
+  return label12h(minutes);
 }
 
 /**
@@ -100,6 +150,11 @@ export function pickupSlots(now: Date, opts: PickupOptions): PickupSlot[] {
   const { day, minutes } = localNow(opts.timezone, now);
   const w = todaysWindow(day);
   if (!w || minutes >= w.close) return [];
+
+  // Past the ordering cutoff nothing is offerable — the submit path would
+  // reject it anyway, and showing slots the server will refuse is worse than
+  // showing none.
+  if (!isAcceptingOrders(now, opts)) return [];
 
   const slots: PickupSlot[] = [];
   const open = isOpenNow(now, opts);
