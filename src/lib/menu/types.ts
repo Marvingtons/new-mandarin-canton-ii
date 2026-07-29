@@ -59,6 +59,17 @@ export interface MenuItem {
   chefSpecial: boolean;
   /** False = 86'd / hidden; the cart and checkout refuse it. Defaults true. */
   available?: boolean;
+  /**
+   * Lunch-special item: orderable ONLY between 11:00 AM and 3:00 PM
+   * restaurant time. The server enforces this at submission; the client may
+   * also hide it, but that is UX, not the gate. See lib/order/gates.ts.
+   */
+  lunchSpecial?: boolean;
+  /**
+   * Needs the longer prep window (party trays, family dinners). Drives the
+   * 20–30 minute pickup estimate instead of the standard 15–20.
+   */
+  longPrep?: boolean;
 }
 
 export interface MenuCategory {

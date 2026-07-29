@@ -175,6 +175,13 @@ const RAW_SIZE_ZH: Record<string, string> = {
   Bowl: "碗",
   Pint: "小盒",
   Quart: "大盒",
+  // Family-dinner head counts (see data/combo-items.ts). The printed menu
+  // prices these per person from two up.
+  "2 people": "二人",
+  "3 people": "三人",
+  "4 people": "四人",
+  "5 people": "五人",
+  "6 people": "六人",
 };
 
 export const sizeZhByLabel: Record<string, string> = Object.fromEntries(

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { menu as catalog } from "@/data/menu";
+import { comboCategories } from "@/data/combo-items";
 import { partyTrayFor } from "@/data/party-trays";
 import {
   categoryZhByName,
@@ -104,8 +105,22 @@ export function catalogMenu(): Menu {
     };
   });
 
+  // The printed menu's combo panels — lunch specials, family dinners, big
+  // family specials — are orderable too. They were display-only until now,
+  // which left a whole column of the physical menu un-orderable for takeout.
+  const comboSections: MenuCategory[] = comboCategories().map((section, i) => ({
+    id: section.id,
+    nameEn: section.nameEn,
+    nameZh: section.nameZh,
+    sortOrder: categories.length + i,
+    note: section.note,
+    items: section.items,
+  }));
+
   cached = {
-    categories: categories.filter((c) => c.items.length > 0),
+    categories: [...categories, ...comboSections].filter(
+      (c) => c.items.length > 0,
+    ),
     source: "catalog",
     fetchedAt: 0,
   };
