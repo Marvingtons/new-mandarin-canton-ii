@@ -3,7 +3,7 @@ import SectionHeading from "@/components/SectionHeading";
 import HoursTable from "@/components/HoursTable";
 import LocationMap from "@/components/LocationMap";
 import OpenNowChip from "@/components/OpenNowChip";
-import { restaurant, telHref } from "@/data/restaurant";
+import { phoneLinks, restaurant } from "@/data/restaurant";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -29,13 +29,18 @@ export default function ContactPage() {
           <h2 className="mt-9 text-xs font-semibold uppercase tracking-[0.25em] text-gold">
             Call
           </h2>
-          {/* Large tap target for phones */}
-          <a
-            href={telHref}
-            className="mt-4 block bg-lacquer px-8 py-4 text-center font-display text-xl text-ivory transition-colors hover:bg-lacquer-dark sm:inline-block"
-          >
-            Call {restaurant.phone}
-          </a>
+          {/* Large tap targets — both lines are staffed */}
+          <div className="mt-4 flex flex-col gap-2 sm:items-start">
+            {phoneLinks.map(({ phone, href }) => (
+              <a
+                key={phone}
+                href={href}
+                className="block bg-lacquer px-8 py-4 text-center font-display text-xl text-ivory transition-colors hover:bg-lacquer-dark sm:inline-block"
+              >
+                Call {phone}
+              </a>
+            ))}
+          </div>
           <p className="mt-3 text-sm italic text-ink/60">
             Takeout orders welcome by phone.
           </p>

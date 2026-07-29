@@ -4,7 +4,7 @@ import MenuNavigator from "@/components/MenuNavigator";
 import MenuSection from "@/components/MenuSection";
 import MenuCombos from "@/components/MenuCombos";
 import { menu, combos } from "@/data/menu";
-import { restaurant, telHref } from "@/data/restaurant";
+import PhoneLinks from "@/components/PhoneLinks";
 
 export const metadata: Metadata = {
   title: "Menu",
@@ -20,12 +20,10 @@ export default function MenuPage() {
         {/* TODO: current items are examples — swap in the real menu (later pass) */}
         <p className="mt-4 text-sm italic text-ink/60">
           Prices and availability subject to change — please call{" "}
-          <a
-            href={telHref}
+          <PhoneLinks
+            separator=" or "
             className="whitespace-nowrap text-lacquer underline decoration-gold underline-offset-2 transition-colors hover:text-lacquer-dark"
-          >
-            {restaurant.phone}
-          </a>
+          />
           .
         </p>
       </div>

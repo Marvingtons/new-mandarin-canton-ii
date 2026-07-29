@@ -1,3 +1,4 @@
+import { phonesSentence } from "@/data/restaurant";
 import { z } from "zod";
 import { normalizePhone, phoneErrorMessage, phoneLast4 } from "@/lib/phone";
 import { startVerification } from "@/lib/otp/twilio";
@@ -56,7 +57,7 @@ export async function POST(request: Request): Promise<Response> {
       {
         ok: false,
         error:
-          "Online ordering is temporarily unavailable. Please call us. · 網上訂餐暫時無法使用，請致電我們。",
+          `Online ordering is temporarily unavailable. Please call us at ${phonesSentence}. · 網上訂餐暫時無法使用，請致電我們。`,
       },
       { status: 503 },
     );
@@ -75,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
       {
         ok: false,
         error:
-          "Online ordering is temporarily unavailable. Please call us. · 網上訂餐暫時無法使用，請致電我們。",
+          `Online ordering is temporarily unavailable. Please call us at ${phonesSentence}. · 網上訂餐暫時無法使用，請致電我們。`,
       },
       { status: 503 },
     );

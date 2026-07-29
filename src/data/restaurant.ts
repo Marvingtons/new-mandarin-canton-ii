@@ -55,7 +55,13 @@ export interface RestaurantInfo {
     state: string;
     zip: string;
   };
-  phone: string;
+  /**
+   * Every number on the printed menu (rev. 9/25), in the menu's own order —
+   * the first is primary. Both are staffed lines; a customer who cannot get
+   * through on one should be given the other, so every "call us" surface
+   * shows the whole list rather than just `phones[0]`.
+   */
+  phones: string[];
   /**
    * IANA zone the hours below are written in. Every open/closed
    * computation resolves through this — never through the visitor's
@@ -79,7 +85,7 @@ export const restaurant: RestaurantInfo = {
     state: "CA",
     zip: "91910",
   },
-  phone: "(619) 656-6888",
+  phones: ["(619) 656-6888", "(619) 656-6787"],
   timezone: "America/Los_Angeles",
   hours: {
     monday: { open: "11:00 AM", close: "9:00 PM" },
@@ -111,8 +117,25 @@ export const restaurant: RestaurantInfo = {
 /** "543 Telegraph Canyon Rd, Chula Vista, CA 91910" — one line. */
 export const fullAddress = `${restaurant.address.street}, ${restaurant.address.city}, ${restaurant.address.state} ${restaurant.address.zip}`;
 
-/** `tel:` href, digits only, with the US country code. */
-export const telHref = `tel:+1${restaurant.phone.replace(/\D/g, "")}`;
+/** `tel:` href for one formatted number, digits only, with the country code. */
+export function telHrefFor(phone: string): string {
+  return `tel:+1${phone.replace(/\D/g, "")}`;
+}
+
+/** The primary number, for surfaces that genuinely only have room for one. */
+export const primaryPhone = restaurant.phones[0];
+
+/** `tel:` href for the primary number. */
+export const telHref = telHrefFor(primaryPhone);
+
+/** Both numbers with their hrefs, in menu order. */
+export const phoneLinks = restaurant.phones.map((phone) => ({
+  phone,
+  href: telHrefFor(phone),
+}));
+
+/** "(619) 656-6888 or (619) 656-6787" — for plain-text and error copy. */
+export const phonesSentence = restaurant.phones.join(" or ");
 
 const mapsQuery = encodeURIComponent(fullAddress);
 

@@ -1,3 +1,4 @@
+import { phonesSentence } from "@/data/restaurant";
 import { z } from "zod";
 import { getMenu } from "@/lib/menu/source";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
@@ -154,7 +155,7 @@ export async function POST(request: Request): Promise<Response> {
     );
     if (placed >= caps.ordersPerPhonePerDay) {
       return bad(
-        "You've reached today's order limit for this phone number. Please call us. · 此電話號碼已達今日訂單上限，請致電我們。",
+        `You've reached today's order limit for this phone number. Please call us at ${phonesSentence}. · 此電話號碼已達今日訂單上限，請致電我們。`,
         429,
       );
     }

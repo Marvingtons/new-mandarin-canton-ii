@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatCents } from "@/lib/money";
-import { restaurant, telHref, fullAddress } from "@/data/restaurant";
+import PhoneLinks from "@/components/PhoneLinks";
+import { fullAddress } from "@/data/restaurant";
 import type { LastOrder } from "@/components/order/Checkout";
 
 const LAST_ORDER_KEY = "nmc-last-order";
@@ -82,12 +83,13 @@ export default function ConfirmationPage() {
       <div className="mt-8 text-sm text-ink/70">
         <p className="font-semibold text-ink">Pickup location</p>
         <p className="mt-1">{fullAddress}</p>
-        <a
-          href={telHref}
-          className="mt-2 inline-block font-semibold text-lacquer underline underline-offset-2"
-        >
-          Call {restaurant.phone}
-        </a>
+        <p className="mt-2 font-semibold text-lacquer">
+          <PhoneLinks
+            prefix="Call "
+            separator=" or "
+            className="underline underline-offset-2"
+          />
+        </p>
       </div>
 
       <Link

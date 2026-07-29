@@ -16,7 +16,8 @@ import PhotoFrame from "@/components/PhotoFrame";
 import Seal from "@/components/Seal";
 import TrustStrip from "@/components/TrustStrip";
 import { photos } from "@/data/images";
-import { restaurant, telHref } from "@/data/restaurant";
+import PhoneLinks from "@/components/PhoneLinks";
+import { phoneLinks, restaurant } from "@/data/restaurant";
 import { reviews } from "@/data/reviews";
 
 export default function HomePage() {
@@ -224,12 +225,10 @@ export default function HomePage() {
           <span aria-hidden="true" className="text-gold">
             ·
           </span>
-          <a
-            href={telHref}
+          <PhoneLinks
+            separator=" · "
             className="font-semibold text-lacquer transition-colors hover:text-lacquer-dark"
-          >
-            {restaurant.phone}
-          </a>
+          />
           <span aria-hidden="true" className="text-gold">
             ·
           </span>
@@ -292,12 +291,17 @@ export default function HomePage() {
                 <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
                   Call
                 </h2>
-                <a
-                  href={telHref}
-                  className="mt-3 inline-block font-display text-lg text-gold-light transition-colors hover:text-gold"
-                >
-                  {restaurant.phone}
-                </a>
+                <p className="mt-3 flex flex-col gap-1 font-display text-lg text-gold-light">
+                  {phoneLinks.map(({ phone, href }) => (
+                    <a
+                      key={phone}
+                      href={href}
+                      className="transition-colors hover:text-gold"
+                    >
+                      {phone}
+                    </a>
+                  ))}
+                </p>
               </div>
             </div>
           </div>

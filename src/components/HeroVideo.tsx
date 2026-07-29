@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import IncenseSmoke from "@/components/IncenseSmoke";
 import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
+import PhoneLinks from "@/components/PhoneLinks";
 import { onIntroLifted } from "@/lib/introSignal";
-import { restaurant, telHref } from "@/data/restaurant";
+import { restaurant } from "@/data/restaurant";
 import { ORDER_DIRECT_NOTE } from "@/data/order";
 
 /**
@@ -263,12 +264,11 @@ export default function HeroVideo() {
             style={{ transitionDelay: "420ms" }}
           >
             {ORDER_DIRECT_NOTE} ·{" "}
-            <a
-              href={telHref}
+            <PhoneLinks
+              prefix="Call "
+              separator=" · "
               className="whitespace-nowrap font-semibold text-gold-light underline decoration-gold/60 underline-offset-2 hover:text-gold"
-            >
-              Call {restaurant.phone}
-            </a>
+            />
           </p>
           <div className="hero-item" style={{ transitionDelay: "480ms" }}>
             <OpenNowChip />

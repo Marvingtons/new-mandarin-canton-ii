@@ -1,8 +1,9 @@
 import Established from "@/components/Established";
 import LocationMap from "@/components/LocationMap";
 import OpenNowChip from "@/components/OpenNowChip";
+import PhoneLinks from "@/components/PhoneLinks";
 import Seal from "@/components/Seal";
-import { restaurant, telHref } from "@/data/restaurant";
+import { restaurant } from "@/data/restaurant";
 import type { DayOfWeek } from "@/data/restaurant";
 
 const week: ReadonlyArray<readonly [DayOfWeek, string]> = [
@@ -48,12 +49,12 @@ export default function Footer() {
             {restaurant.address.zip}
           </p>
           <LocationMap className="mt-4" />
-          <a
-            href={telHref}
-            className="mt-4 inline-block text-sm text-gold-light transition-colors hover:text-gold"
-          >
-            {restaurant.phone}
-          </a>
+          <p className="mt-4 text-sm text-gold-light">
+            <PhoneLinks
+              separator=" · "
+              className="transition-colors hover:text-gold"
+            />
+          </p>
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">

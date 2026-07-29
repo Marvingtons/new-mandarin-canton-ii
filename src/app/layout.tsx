@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     template: "%s | New Mandarin Canton II",
   },
   description:
-    "Traditional Cantonese & Mandarin Chinese restaurant in Chula Vista, CA. Open 7 days at 543 Telegraph Canyon Rd — call (619) 656-6888.",
+    "Mandarin & Cantonese restaurant in Chula Vista, CA. Takeout pickup only — no delivery. Open 7 days at 543 Telegraph Canyon Rd — call (619) 656-6888 or (619) 656-6787.",
 };
 
 export default function RootLayout({
