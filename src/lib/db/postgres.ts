@@ -1,6 +1,10 @@
 import "server-only";
 
 import { Pool, type PoolClient } from "pg";
+import {
+  connectionSource,
+  ordersConnectionString,
+} from "@/lib/db/connectionString";
 
 /**
  * Direct Postgres pool for the orders path.
@@ -16,35 +20,61 @@ import { Pool, type PoolClient } from "pg";
  * Both clients coexist deliberately — supabase.ts keeps the menu snapshot, and
  * nothing about it changes.
  *
- * SERVERLESS: point DATABASE_URL at a POOLER endpoint (Supabase's port 6543,
- * PgBouncer transaction mode), not the direct 5432 port. Each warm lambda
- * holds `max` connections, and Postgres runs out of slots long before Vercel
- * runs out of lambdas. The small max below is that budget.
+ * WHERE THE CONNECTION STRING COMES FROM is not this file's business — see
+ * src/lib/db/connectionString.ts, the single seam that answers Hyperdrive (on
+ * Workers) vs DATABASE_URL (plain Node). Nothing else in the app knows which
+ * host it is running on.
+ *
+ * POOLING, and why the endpoint differs per host:
+ *
+ *   Workers    Hyperdrive owns the pool. Give HYPERDRIVE Supabase's DIRECT
+ *              (session, 5432) string — stacking Hyperdrive in front of the
+ *              :6543 transaction pooler breaks prepared statements, which is
+ *              what `pg` uses. `max` drops to 1 here; see below.
+ *
+ *   Node       Point DATABASE_URL at the POOLER endpoint (6543). Scripts and
+ *              local dev keep the old budget.
  */
 
 let pool: Pool | null = null;
 
 /** True when the orders database is configured at all. */
 export function isOrdersDbConfigured(): boolean {
-  return Boolean(process.env.DATABASE_URL);
+  return ordersConnectionString() !== null;
 }
 
 export function ordersPool(): Pool {
   if (pool) return pool;
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = ordersConnectionString();
   if (!connectionString) {
     throw new Error(
-      "Missing required environment variable DATABASE_URL. It is the Postgres " +
-        "connection string for the orders store (use the pooler endpoint on " +
-        "serverless). See .env.example.",
+      "No Postgres connection available for the orders store. On Cloudflare " +
+        "Workers that means the HYPERDRIVE binding is missing from " +
+        "wrangler.jsonc; elsewhere it means DATABASE_URL is unset. " +
+        "See .env.example and docs/DEPLOY_RUNBOOK.md.",
     );
   }
 
+  const source = connectionSource();
+
   pool = new Pool({
     connectionString,
-    // Deliberately small — see the serverless note above.
-    max: Number.parseInt(process.env.DATABASE_POOL_MAX ?? "4", 10),
+    /**
+     * Connections held per isolate/process.
+     *
+     * Behind Hyperdrive this must be SMALL: Hyperdrive already keeps the real
+     * warm pool at the edge, and every Worker isolate holding four sockets
+     * multiplies against the isolate count for no benefit. One is what
+     * Cloudflare's own examples use (they open a Client per request).
+     *
+     * On plain Node the old budget stands — scripts and local dev genuinely
+     * benefit from a handful.
+     */
+    max:
+      source === "hyperdrive"
+        ? 1
+        : Number.parseInt(process.env.DATABASE_POOL_MAX ?? "4", 10),
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
     // Managed Postgres (Supabase, Neon, RDS) terminates TLS with its own CA.
