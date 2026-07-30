@@ -11,6 +11,7 @@
     "build:ticket-font": "tsx scripts/build-ticket-font.ts && npm run build:font-module",
     "ticket:sample": "tsx --conditions=react-server scripts/ticket-sample.ts",
     "verify:orders": "tsx --conditions=react-server scripts/verify-orders.ts",
+    "verify:print-codes": "tsx --conditions=react-server scripts/verify-print-codes.ts",
     "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts",
     "build:cf": "opennextjs-cloudflare build",
     "preview:cf": "opennextjs-cloudflare preview",

@@ -27,9 +27,22 @@ import {
  * PROTOCOL FACTS THAT SHAPED THIS FILE (Star Protocol Guide 2.5.2 + Star's own
  * reference servers), several of which are counter-intuitive:
  *
- *  - THE PRINTER NEVER SENDS A JOB ID. GET and DELETE identify the job only by
- *    the printer (`mac=`). The SERVER owns "which job is in flight" — that is
- *    the entire state machine, and it is why `currentPrintJob` exists.
+ *  - THE GET NEVER IDENTIFIES THE JOB. It says only which PRINTER is calling
+ *    (`mac=`), so the SERVER owns "which job is in flight" — that is why
+ *    `currentPrintJob` exists.
+ *  - THE DELETE IS DIFFERENT, and this file used to say otherwise. Star's
+ *    job-confirmation spec sends `token=<job token>` "present if one was
+ *    provided by the server in its POST response", and we always provide one
+ *    (the order number). So a confirmation CAN be attributed exactly, and
+ *    must be: without it, a DELETE arriving after the offer cap retired its
+ *    job lands on whatever job is in flight NOW and marks the wrong order
+ *    printed. Alongside `token` the DELETE carries `code`, and optionally
+ *    `retry`, `skip` and `error` counts.
+ *  - `code` IS "OK" ON SUCCESS. Star: on correct completion the client sends
+ *    DELETE "with the code parameter set to OK"; a failure reports a printer
+ *    status code, and a status not beginning with "2" means the print did not
+ *    succeed. Both spellings therefore have to be accepted — see
+ *    classifyResultCode, which an exact-match regex got wrong for "200 OK".
  *  - Only `statusCode` is guaranteed present in a poll body. Every other field
  *    may be absent OR null, and the two must behave identically.
  *  - `statusCode` is URL-ENCODED on the wire: the literal value is "200%20OK".
@@ -79,26 +92,13 @@ export function matchOfferedMediaType(requested: string | null | undefined): str
   return OFFERED_MEDIA_TYPES.find((t) => t === base) ?? null;
 }
 
-/**
- * Re-offers of an unconfirmed job before we give up and mark it PRINT_FAILED.
- *
- * This counts POLLS, not paper. The printer polls every few seconds while it
- * has work outstanding, so ~10 unconfirmed offers is roughly a minute of a
- * printer that is reachable but not printing — jammed, out of paper, or
- * cover-open. At that point the kitchen board is the answer, not more retries.
+/*
+ * The give-up thresholds moved to src/config/tenant.server.ts — printOfferCap()
+ * and printRenderCap() — where their defaults are justified and an operator can
+ * change them without a deploy. They were constants here when the only number
+ * that mattered was "some". Then an order died at the ceiling with its own
+ * confirmation already in flight, which made the ceiling a tuning decision.
  */
-export const MAX_PRINT_ATTEMPTS = 10;
-
-/**
- * Attempts at which a RENDER failure stops being treated as transient.
- *
- * A render failure is usually our bug, which is why this ceiling is low — the
- * point is only to survive a cold-start OOM or a resource blip, not to grind
- * against a template that cannot render. Shares the `print_attempts` counter
- * with the offer ceiling above (see recordRenderFailure), so in practice this
- * is about two render attempts before the order is condemned.
- */
-export const MAX_RENDER_ATTEMPTS = 3;
 
 /** Constant-time compare that does not leak length via early return. */
 export function secretMatches(provided: string): boolean {
@@ -280,6 +280,86 @@ export async function readPoll(request: Request): Promise<CloudPrntPoll> {
   } catch {
     return {};
   }
+}
+
+/* ------------------------------------------------- job confirmation ----- */
+
+/** What a DELETE's `code` says about whether paper came out. */
+export type ResultVerdict = "success" | "failure" | "absent";
+
+/** Everything a DELETE tells us, parsed once so nothing is read twice. */
+export interface PrintConfirmation {
+  /** Exactly as it arrived, already percent-decoded by URLSearchParams. */
+  code: string | null;
+  verdict: ResultVerdict;
+  /** Our own jobToken echoed back — the order number. */
+  token: string | null;
+  /** Diagnostics some models send; logged, never branched on. */
+  retry: string | null;
+  skip: string | null;
+  errorCount: string | null;
+}
+
+/**
+ * Read a result code the way Star actually writes it.
+ *
+ * The old test was `/^(200|0|ok)$/i` — an EXACT match, which is wrong for the
+ * spelling Star uses everywhere else in this protocol. `statusCode` in the
+ * poll body is the string "200 OK" (URL-encoded on the wire as "200%20OK"),
+ * and firmware that reuses that formatting for the DELETE's `code` would have
+ * been read as a FAILURE by the old test: a ticket that printed perfectly
+ * would have been recorded as a print failure and the order left unprinted.
+ *
+ * The rule here is Star's own: "OK" means completed, and otherwise a status
+ * beginning with "2" means the printer is fine. "0" is kept because the
+ * previous implementation accepted it and some reference servers emit it.
+ *
+ * ABSENT is its own verdict rather than a silent success. Star documents the
+ * code as set on completion, so its absence is unusual enough to say out loud,
+ * even though we still treat it as a print (see confirmPrinted).
+ */
+export function classifyResultCode(code: string | null | undefined): ResultVerdict {
+  if (code === null || code === undefined) return "absent";
+  const value = code.trim();
+  if (value === "") return "absent";
+  if (/^ok$/i.test(value)) return "success";
+  // "200", "200 OK", "201 Created" — the code, then a word boundary. "2000"
+  // is not a status and must not pass.
+  if (/^2\d{2}\b/.test(value)) return "success";
+  if (value === "0") return "success";
+  return "failure";
+}
+
+/** Parse a confirmation URL once. Every field is optional but `code`. */
+export function readConfirmation(url: URL): PrintConfirmation {
+  const code = url.searchParams.get("code");
+  return {
+    code,
+    verdict: classifyResultCode(code),
+    token: url.searchParams.get("token"),
+    retry: url.searchParams.get("retry"),
+    skip: url.searchParams.get("skip"),
+    errorCount: url.searchParams.get("error"),
+  };
+}
+
+/**
+ * The confirmation as one log-safe string.
+ *
+ * The raw code is JSON-quoted so whitespace and emptiness are visible — the
+ * whole reason this exists is that "200 OK" and "200" were indistinguishable
+ * in the access log, which is where the A-003 mystery started.
+ */
+export function describeConfirmation(c: PrintConfirmation): string {
+  const parts = [
+    `code=${c.code === null ? "(absent)" : JSON.stringify(c.code)}`,
+    `verdict=${c.verdict}`,
+    `token=${c.token === null ? "(absent)" : JSON.stringify(c.token)}`,
+  ];
+  if (c.retry !== null) parts.push(`retry=${c.retry}`);
+  if (c.skip !== null) parts.push(`skip=${c.skip}`);
+  if (c.errorCount !== null) parts.push(`error=${c.errorCount}`);
+  return parts.join(" ");
 }
 
 /* ------------------------------------------- printer-declared limits ---- */
