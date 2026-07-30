@@ -22,6 +22,7 @@
  */
 
 import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -622,6 +623,17 @@ async function assertFormats(name: string, order: Order, copies = 1): Promise<vo
   const over = [star, png].filter((j) => j.body.length > MAX_JOB_BYTES);
   if (over.length > 0) {
     throw new Error(`${name}: ${over[0].format} payload exceeds the 512KB GET cap`);
+  }
+
+  // TICKET_DUMP_STARPRNT=1 writes each payload out with its sha256, which is
+  // what an R2 upload needs: the object key ends in that hash, and the same
+  // hash is what a download is checked against. See scripts/verify-job-wire.sh.
+  if (process.env.TICKET_DUMP_STARPRNT) {
+    const sha = createHash("sha256").update(star.body).digest("hex");
+    const slug = name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    const out = join(tmpdir(), `starprnt-${slug}-${sha}.bin`);
+    await writeFile(out, star.body);
+    console.log(`    dumped ${out}`);
   }
 
   const kb = (n: number) => `${(n / 1024).toFixed(1)}KB`;
