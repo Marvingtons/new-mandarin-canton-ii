@@ -26,6 +26,7 @@
     "next": "^16.2.12",
     "opentype.js": "^2.0.0",
     "pg": "^8.22.0",
+    "pg-cloudflare": "^1.4.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",
