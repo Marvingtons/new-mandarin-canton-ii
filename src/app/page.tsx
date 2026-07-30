@@ -73,9 +73,11 @@ export default function HomePage() {
             <PhotoFrame photo={photos.buddha} revealDelay={240} />
           </div>
 
-          {/* The heritage beat: the altar line and the founding date,
-              inside a lattice-cornered plaque. Copy confirmed by the
-              owner — do not reword without asking. */}
+          {/* The heritage beat, inside a lattice-cornered plaque. The
+              line used to end "…since 1995"; the year came out with the
+              rest of the unsourced founding-date copy (see the
+              TODO(confirm) in restaurant.ts). What is left is only what
+              the room itself shows. */}
           <div
             data-rise
             className="relative mx-auto mt-20 max-w-2xl px-8 text-center sm:mt-24"
@@ -85,8 +87,8 @@ export default function HomePage() {
               data-rise-item
               className="font-display text-xl italic leading-relaxed text-ink/80 sm:text-2xl"
             >
-              The altar by the door has watched over this kitchen since
-              1995 — oranges for fortune, incense for family.
+              The altar by the door watches over the kitchen — oranges for
+              fortune, incense for family.
             </p>
             <Established withTenure className="mt-6 items-center" />
           </div>

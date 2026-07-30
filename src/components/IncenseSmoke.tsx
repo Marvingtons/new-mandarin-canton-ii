@@ -16,8 +16,8 @@ interface IncenseSmokeProps {
 }
 
 /**
- * 香 — the incense rising from the family altar, the blessing that has
- * hung over this kitchen since 1995.
+ * 香 — the incense rising from the family altar, the blessing that hangs
+ * over this kitchen.
  *
  * Purely decorative and purely additive: every wisp rests at opacity 0,
  * so with no JS — or under prefers-reduced-motion, where the motion

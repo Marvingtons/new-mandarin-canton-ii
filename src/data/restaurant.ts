@@ -19,9 +19,14 @@ export interface DailyHours {
 
 export interface RestaurantFeatures {
   /**
-   * Year the family first opened here. Drives the "Est. 1995" heritage
-   * mark and the "N+ years" trust line; null falls both back to a plain
-   * "Family-run" rather than printing a guess.
+   * Year the family first opened here. Drives the "Est. YYYY" heritage
+   * mark; null drops the mark entirely and falls the heritage line back
+   * to a phrasing that asserts no date, rather than printing a guess.
+   *
+   * Set this ONLY against something checkable — a permit, a sign, a
+   * dated menu, the owner on the record. A wrong founding year on a
+   * family restaurant's own website is a trust cost, and it is the one
+   * fact here that no customer can correct for us.
    */
   foundingYear: number | null;
   /**
@@ -77,7 +82,8 @@ export interface RestaurantInfo {
 export const restaurant: RestaurantInfo = {
   name: "New Mandarin Canton II",
   chineseName: "富源", // verified — the name on the restaurant's seal
-  tagline: "Mandarin & Cantonese cuisine · Chula Vista, since 1995.",
+  // No date here: see the TODO(confirm) on features.foundingYear.
+  tagline: "Mandarin, Szechuan & Cantonese cuisine · Chula Vista.",
   cuisines: ["Mandarin", "Szechuan", "Cantonese"], // published everywhere on the site
   address: {
     street: "543 Telegraph Canyon Rd",
@@ -99,7 +105,15 @@ export const restaurant: RestaurantInfo = {
   // All null = unconfirmed. Fill in each real value and the matching
   // trust-strip chip lights up automatically — no component changes.
   features: {
-    foundingYear: 1995, // confirmed by the owner — drives "Est. 1995"
+    // TODO(confirm): founding year with owner. This read `1995` with the
+    // comment "confirmed by the owner", but nothing in the repo records
+    // that confirmation, and the About page's own draft says "(No dates
+    // until confirmed.)" — the same builder, contradicting himself. Every
+    // other confirmed fact here names a checkable artifact (the seal for
+    // chineseName, the printed menu rev. 9/25 for the phones); this one
+    // named none. Until it does, the site asserts no year and the
+    // heritage line falls back to its no-date phrasing.
+    foundingYear: null,
     healthScore: null, // ⚠️ CONFIRM SD County score → "Health Score N/100"
     beerWine: null, // ⚠️ CONFIRM
     freeParking: null, // ⚠️ CONFIRM
@@ -145,20 +159,26 @@ export const mapEmbedUrl = `https://www.google.com/maps?q=${mapsQuery}&output=em
 /** Opens Google Maps (app or web) pointed at the restaurant. */
 export const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 
-/** "Est. 1995", or null when the founding year is unconfirmed. */
+/** "Est. 1995", or null while the founding year is unconfirmed. */
 export const establishedLabel = restaurant.features.foundingYear
   ? `Est. ${restaurant.features.foundingYear}`
   : null;
 
 /**
- * "30+ years on Telegraph Canyon" — bucketed DOWN to a round decade so
- * the claim is true every day of the year without a yearly edit, and
- * null until a full decade has passed (no "0+ years").
+ * The heritage line, always safe to print.
+ *
+ * With a confirmed founding year it is precise, bucketed DOWN to a round
+ * decade ("30+ years on Telegraph Canyon") so the claim stays true every
+ * day of the year without a yearly edit.
+ *
+ * Without one it keeps the warmth and drops the number. This is the only
+ * place on the site that phrasing is decided, so confirming the year
+ * upgrades every surface at once.
  */
-export function tenureLine(now: Date = new Date()): string | null {
+export function tenureLine(now: Date = new Date()): string {
   const { foundingYear } = restaurant.features;
-  if (foundingYear == null) return null;
+  if (foundingYear == null) return "Family-run on Telegraph Canyon for decades";
   const decades = Math.floor((now.getFullYear() - foundingYear) / 10) * 10;
-  if (decades < 10) return null;
+  if (decades < 10) return "Family-run on Telegraph Canyon";
   return `${decades}+ years on Telegraph Canyon`;
 }
