@@ -38,13 +38,46 @@ import {
  */
 
 /**
- * The single media type we advertise.
+ * The media types we advertise, in preference order.
  *
  * PNG is printer-native — Star's own reference server streams the bytes
  * straight through and the firmware rasterizes. No conversion, and the 576px
  * ticket this repo already renders is exactly the right artifact.
+ *
+ * WHY BOTH, AND WHY vnd.star.png FIRST. The two carry identical bytes: Star's
+ * extended type is a PNG, and its documentation describes the same 1-bit and
+ * 24-bit variants. What differs is what the PRINTER tells US. Star ties the
+ * `mono_len` / `24bpp_len` declarations to image/vnd.star.png, so a printer
+ * offered only image/png has no reason to send them — which is exactly the
+ * state this endpoint was in, and why the height gate below had never once
+ * seen a number. Advertising the extended type first is what makes the printer
+ * declare its limits; plain image/png stays as the fallback for firmware that
+ * does not support the extended type, so nothing is lost if it declines.
  */
 export const JOB_MEDIA_TYPE = "image/png";
+
+/** Star's extended PNG type — the one that carries the height declarations. */
+export const JOB_MEDIA_TYPE_STAR = "image/vnd.star.png";
+
+export const OFFERED_MEDIA_TYPES = [JOB_MEDIA_TYPE_STAR, JOB_MEDIA_TYPE];
+
+/**
+ * Which offered type is this GET asking for, if any?
+ *
+ * The printer echoes its choice in `type=`, and for the extended type that
+ * value carries parameters — `image/vnd.star.png;mono_len=800;24bpp_len=200`.
+ * Comparing the whole string against a bare media type would reject the very
+ * request we asked for, so only the part before the first `;` is matched.
+ *
+ * Returns the canonical type to answer with, or null if we do not offer it.
+ * An absent `type=` means the printer did not state a preference, which Star
+ * permits — it gets our first choice.
+ */
+export function matchOfferedMediaType(requested: string | null | undefined): string | null {
+  if (!requested) return JOB_MEDIA_TYPE_STAR;
+  const base = requested.split(";")[0].trim().toLowerCase();
+  return OFFERED_MEDIA_TYPES.find((t) => t === base) ?? null;
+}
 
 /**
  * Re-offers of an unconfirmed job before we give up and mark it PRINT_FAILED.
@@ -104,6 +137,75 @@ export interface CloudPrntPoll {
   jobToken?: string | null;
   printingInProgress?: boolean | null;
   clientAction?: unknown;
+  /** Peripheral input echoes. Present only on models that have them. */
+  barcodeReader?: unknown;
+  keyboard?: unknown;
+  display?: unknown;
+  /** Anything this firmware sends that Star does not document. */
+  [key: string]: unknown;
+}
+
+/** Everything Star's poll spec names. Used only to flag what it does NOT. */
+const DOCUMENTED_POLL_FIELDS = new Set([
+  "status",
+  "printerMAC",
+  "uniqueID",
+  "statusCode",
+  "jobToken",
+  "printingInProgress",
+  "clientAction",
+  "barcodeReader",
+  "keyboard",
+  "display",
+]);
+
+/**
+ * Print the whole poll body the first time a given SHAPE is seen.
+ *
+ * Keyed on the set of KEYS, not the values: `statusCode` and `jobToken` change
+ * on every poll, so keying on content would put a line in the tail every few
+ * seconds for the life of the deployment. Keying on shape means one line per
+ * isolate boot, plus one the moment the printer starts sending a field it was
+ * not sending before — which is the event actually worth seeing.
+ *
+ * WHY THIS EXISTS, given that the height limits are NOT here. Star's poll spec
+ * documents ten fields and not one of them is a decoding capability; the
+ * `mono_len` / `24bpp_len` declarations live on the job GET's query string
+ * (see readPrinterLimits). This log is the empirical check on that reading: if
+ * this firmware volunteers anything beyond the documented ten, the field name
+ * and its value land in the tail rather than being silently dropped by a
+ * parser that only looks for what it already expects.
+ *
+ * Nothing here is a secret. The credential is in the URL path, which is never
+ * logged; the body carries printer identity and state only.
+ */
+let lastPollShape: string | null = null;
+
+export function logPollBody(poll: CloudPrntPoll): void {
+  const keys = Object.keys(poll).sort();
+  const shape = keys.join(",");
+  if (shape === lastPollShape) return;
+  lastPollShape = shape;
+
+  // Bounded: display/keyboard arrays are unbounded in principle and this is a
+  // diagnostic, not an archive.
+  let body: string;
+  try {
+    body = JSON.stringify(poll) ?? "null";
+  } catch {
+    body = "<unserializable>";
+  }
+  if (body.length > 2000) body = `${body.slice(0, 2000)}…<truncated>`;
+
+  console.info(`[cloudprnt] poll body shape changed — ${body}`);
+
+  const undocumented = keys.filter((k) => !DOCUMENTED_POLL_FIELDS.has(k));
+  if (undocumented.length > 0) {
+    console.info(
+      `[cloudprnt] poll carries field(s) Star does not document: ${undocumented.join(", ")}. ` +
+        "If any of these is a decoding capability, honour it in readPrinterLimits.",
+    );
+  }
 }
 
 /**
@@ -195,15 +297,20 @@ export async function readPoll(request: Request): Promise<CloudPrntPoll> {
  *   ?type=image/vnd.star.png;mono_len=<length>;24bpp_len=<length>
  *
  * Nothing in the documented POST poll body carries a capability or limit
- * field, so there is nothing for readPoll to capture. Parsing them here, on
- * the GET, is the only place they exist.
+ * field — Star's poll spec names ten fields and none of them is one — so there
+ * is nothing there for readPoll to capture. Parsing them here, on the GET, is
+ * the only place they exist. logPollBody prints the real body anyway, so this
+ * reading is checked against the hardware rather than merely asserted.
  *
- * ⚠️ AND THEY WILL USUALLY BE ABSENT. Star ties these parameters to the
- * image/vnd.star.png media type; we advertise plain image/png
- * (JOB_MEDIA_TYPE), so a printer following the documentation has no reason to
- * send them. This parser is here so that the moment a real printer DOES
- * declare a limit we see it and can honour it — never so that a limit can be
- * assumed. No declared limit means no gate; we do not invent a constant.
+ * THE OTHER HALF OF THE HANDSHAKE. Star ties these parameters to the
+ * image/vnd.star.png media type, so a printer offered only plain image/png has
+ * no reason to send them — and until we started advertising the extended type
+ * (see OFFERED_MEDIA_TYPES) this parser could never have returned anything but
+ * nulls. Advertising it is what makes the declaration arrive.
+ *
+ * They may still be absent: firmware that does not support the extended type
+ * falls back to image/png and declares nothing. No declared limit means no
+ * gate. We do not invent a constant.
  */
 export interface PrinterLimits {
   /** Max height for 1-bit monochrome, in pixels. */
@@ -263,17 +370,15 @@ export function logPrinterLimits(limits: PrinterLimits): void {
   lastDeclared = summary;
   if (limits.monoLen === null && limits.colorLen === null) {
     console.info(
-      "[cloudprnt] printer declares no image height limit " +
-        `(expected: those parameters are documented for ${JOB_MEDIA_TYPE_STAR}, ` +
-        `and we advertise ${JOB_MEDIA_TYPE}). No height gate is applied.`,
+      "[cloudprnt] printer declared no image height limit on this job GET. " +
+        `We offer ${OFFERED_MEDIA_TYPES.join(" and ")}; the declaration only ` +
+        `accompanies ${JOB_MEDIA_TYPE_STAR}, so this means the printer chose ` +
+        `${JOB_MEDIA_TYPE} instead. No height gate is applied.`,
     );
   } else {
     console.info(`[cloudprnt] printer declares ${summary}`);
   }
 }
-
-/** Star's extended PNG media type — named only in the log above. */
-const JOB_MEDIA_TYPE_STAR = "image/vnd.star.png";
 
 /**
  * Peripheral-control headers for the job GET.

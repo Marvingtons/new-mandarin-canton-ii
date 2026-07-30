@@ -1,12 +1,14 @@
 import { publicTenant, ticketCopies } from "@/config/tenant.server";
 import {
-  JOB_MEDIA_TYPE,
   MAX_PRINT_ATTEMPTS,
   MAX_RENDER_ATTEMPTS,
   NO_JOB,
+  OFFERED_MEDIA_TYPES,
+  matchOfferedMediaType,
   peripheralHeaders,
   printerMacAllowed,
   printerReportsHealthy,
+  logPollBody,
   logPrinterLimits,
   readPoll,
   readPrinterLimits,
@@ -81,6 +83,12 @@ export async function POST(
 
   const poll = await readPoll(request);
 
+  // FIRST thing in the path, before any gate can drop the request: print what
+  // this printer actually sends. Once per shape, so once per boot. Star's poll
+  // spec carries no decoding capability, but this is where we would see one if
+  // this firmware volunteers it anyway.
+  logPollBody(poll);
+
   if (!printerMacAllowed(poll.printerMAC)) {
     console.warn("[cloudprnt] poll from an unexpected printer MAC — ignoring");
     return Response.json(NO_JOB);
@@ -126,8 +134,10 @@ export async function POST(
 
     const body: CloudPrntStatusResponse = {
       jobReady: true,
-      // Exactly one type, so the printer's choice is not a variable.
-      mediaTypes: [JOB_MEDIA_TYPE],
+      // Star's extended PNG type first, plain PNG as the fallback. Identical
+      // bytes either way; the difference is that the extended type is what
+      // makes the printer declare mono_len / 24bpp_len on the job GET.
+      mediaTypes: OFFERED_MEDIA_TYPES,
       // Advisory: the printer does not echo this on GET/DELETE, but it makes
       // the printer's own logs line up with ours.
       jobToken: job.orderNumber,
@@ -175,12 +185,17 @@ export async function GET(
   // Nothing in flight. 404 is the honest answer; the printer re-polls.
   if (!job) return new Response("", { status: 404 });
 
-  // The printer echoes its chosen media type. We advertise exactly one, so
-  // anything else means a confused client — serving a PNG it did not ask for
-  // would print garbage.
+  // The printer echoes its chosen media type, and for the extended type that
+  // value carries the height declarations as parameters — so this matches on
+  // the media type alone. Anything we did not offer means a confused client;
+  // serving a PNG it did not ask for would print garbage.
   const requested = url.searchParams.get("type");
-  if (requested && requested !== JOB_MEDIA_TYPE) {
-    console.warn(`[cloudprnt] printer asked for ${requested}; only ${JOB_MEDIA_TYPE} is offered`);
+  const mediaType = matchOfferedMediaType(requested);
+  if (mediaType === null) {
+    console.warn(
+      `[cloudprnt] printer asked for ${requested}; ` +
+        `only ${OFFERED_MEDIA_TYPES.join(" and ")} are offered`,
+    );
     return new Response("", { status: 404 });
   }
 
@@ -219,7 +234,8 @@ export async function GET(
     }
     return new Response(new Uint8Array(png), {
       headers: {
-        "content-type": JOB_MEDIA_TYPE,
+        // Answer in the type the printer chose, not the one we prefer.
+        "content-type": mediaType,
         "content-length": String(png.length),
         "cache-control": "no-store",
         // The audible alert rides on the response headers — see cloudprnt.ts.
