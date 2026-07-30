@@ -7,7 +7,9 @@ import {
   peripheralHeaders,
   printerMacAllowed,
   printerReportsHealthy,
+  logPrinterLimits,
   readPoll,
+  readPrinterLimits,
   secretMatches,
   type CloudPrntStatusResponse,
 } from "@/lib/print/cloudprnt";
@@ -182,8 +184,36 @@ export async function GET(
     return new Response("", { status: 404 });
   }
 
+  // What the printer says it can decode, read off this GET's query string —
+  // the only place Star documents these. Logged on change, not per poll.
+  const limits = readPrinterLimits(url);
+  logPrinterLimits(limits);
+
   try {
     const png = await renderTicket(job, { timezone: tenant.timezone });
+
+    // Height gate. ONLY applies when the printer actually declared a limit;
+    // with no declaration there is no number to test against and we do not
+    // invent one. We emit 24-bit colour (see lib/ticket/png.ts), so 24bpp_len
+    // is the applicable ceiling.
+    const ceiling = limits.colorLen;
+    if (ceiling !== null) {
+      const height = png.readUInt32BE(20); // PNG IHDR height
+      if (height > ceiling) {
+        console.error(
+          `[cloudprnt] ${job.orderNumber} is ${height}px tall but the printer ` +
+            `declares 24bpp_len=${ceiling}. Refusing to send a job it cannot ` +
+            `decode — split the ticket or reduce copies.`,
+        );
+        await recordRenderFailure(
+          tenant.tenantId,
+          job.id,
+          `ticket ${height}px exceeds the printer's declared limit ${ceiling}px`,
+          MAX_RENDER_ATTEMPTS,
+        );
+        return new Response("", { status: 500 });
+      }
+    }
     return new Response(new Uint8Array(png), {
       headers: {
         "content-type": JOB_MEDIA_TYPE,

@@ -180,6 +180,101 @@ export async function readPoll(request: Request): Promise<CloudPrntPoll> {
   }
 }
 
+/* ------------------------------------------- printer-declared limits ---- */
+
+/**
+ * The maximum image heights the printer says it can decode, in pixels.
+ *
+ * WHERE THESE ACTUALLY COME FROM — and it is not the poll body.
+ *
+ * Star's protocol guide puts them on the JOB GET's query string, not the POST
+ * the printer polls with: "When a client provides the response when it makes a
+ * GET request for a print job using the image/vnd.star.png media type, then it
+ * should also supply the following query parameters", e.g.
+ *
+ *   ?type=image/vnd.star.png;mono_len=<length>;24bpp_len=<length>
+ *
+ * Nothing in the documented POST poll body carries a capability or limit
+ * field, so there is nothing for readPoll to capture. Parsing them here, on
+ * the GET, is the only place they exist.
+ *
+ * ⚠️ AND THEY WILL USUALLY BE ABSENT. Star ties these parameters to the
+ * image/vnd.star.png media type; we advertise plain image/png
+ * (JOB_MEDIA_TYPE), so a printer following the documentation has no reason to
+ * send them. This parser is here so that the moment a real printer DOES
+ * declare a limit we see it and can honour it — never so that a limit can be
+ * assumed. No declared limit means no gate; we do not invent a constant.
+ */
+export interface PrinterLimits {
+  /** Max height for 1-bit monochrome, in pixels. */
+  monoLen: number | null;
+  /** Max height for 24-bit colour, in pixels. */
+  colorLen: number | null;
+}
+
+export const NO_LIMITS: PrinterLimits = { monoLen: null, colorLen: null };
+
+function positiveInt(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Read the declared limits off a job-GET URL.
+ *
+ * Accepts them either as their own query parameters (`?mono_len=800`) or
+ * embedded in the `type` parameter's media-type string
+ * (`?type=image/vnd.star.png;mono_len=800`), because Star's example shows the
+ * latter and firmware is not always literal about which form it uses.
+ */
+export function readPrinterLimits(url: URL): PrinterLimits {
+  const direct = {
+    monoLen: positiveInt(url.searchParams.get("mono_len")),
+    colorLen: positiveInt(url.searchParams.get("24bpp_len")),
+  };
+  if (direct.monoLen !== null || direct.colorLen !== null) return direct;
+
+  const type = url.searchParams.get("type");
+  if (!type) return NO_LIMITS;
+  const params = new Map<string, string>();
+  for (const part of type.split(";").slice(1)) {
+    const [k, v] = part.split("=");
+    if (k && v) params.set(k.trim(), v.trim());
+  }
+  return {
+    monoLen: positiveInt(params.get("mono_len")),
+    colorLen: positiveInt(params.get("24bpp_len")),
+  };
+}
+
+/**
+ * Log a change in what the printer declares, not every poll.
+ *
+ * Module scope, so this is once per isolate boot and then only when the value
+ * actually moves — a line every ten seconds for the life of the deployment
+ * would bury everything else in the tail.
+ */
+let lastDeclared: string | null = null;
+
+export function logPrinterLimits(limits: PrinterLimits): void {
+  const summary = `mono_len=${limits.monoLen ?? "-"} 24bpp_len=${limits.colorLen ?? "-"}`;
+  if (summary === lastDeclared) return;
+  lastDeclared = summary;
+  if (limits.monoLen === null && limits.colorLen === null) {
+    console.info(
+      "[cloudprnt] printer declares no image height limit " +
+        `(expected: those parameters are documented for ${JOB_MEDIA_TYPE_STAR}, ` +
+        `and we advertise ${JOB_MEDIA_TYPE}). No height gate is applied.`,
+    );
+  } else {
+    console.info(`[cloudprnt] printer declares ${summary}`);
+  }
+}
+
+/** Star's extended PNG media type — named only in the log above. */
+const JOB_MEDIA_TYPE_STAR = "image/vnd.star.png";
+
 /**
  * Peripheral-control headers for the job GET.
  *
