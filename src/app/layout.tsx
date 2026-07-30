@@ -41,12 +41,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // No `h-full` on <html>: pinning the root to the viewport height freezes its
+  // box, so the ResizeObserver Lenis keeps on <html> never fires when a route's
+  // content grows — Lenis then holds the previous page's scroll limit and the
+  // page stops scrolling partway down. Body carries the full-viewport minimum
+  // instead (min-h-dvh), which the sticky footer needs.
   return (
     <html
       lang="en"
-      className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} h-full antialiased`}
+      className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
     >
-      <body className="flex min-h-full flex-col font-body">
+      <body className="flex min-h-dvh flex-col font-body">
         <SmoothScroll />
         <LoadingOverlay />
         <Header />
