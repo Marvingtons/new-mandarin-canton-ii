@@ -335,7 +335,7 @@ export async function recordPrintSegments(
  *
  * print_attempts goes back to 1 because the offer ceiling counts polls against
  * a job that is NOT progressing, and this one just did. Left climbing, a
- * three-piece ticket would spend its way toward MAX_PRINT_ATTEMPTS for doing
+ * three-piece ticket would spend its way toward the offer cap for doing
  * exactly what was asked of it. The 1 rather than 0 keeps the order matching
  * `currentPrintJob`, which is what makes the next poll offer the next piece
  * instead of claiming a different order.
@@ -544,6 +544,31 @@ export async function getOrderByIdempotencyKey(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1 and idempotency_key = $2`,
     [tenantId, idempotencyKey],
+  );
+  return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/**
+ * Find an order by its number alone, newest first.
+ *
+ * Order numbers restart each business date, so a number is not unique across
+ * the table and `getOrderByNumber` rightly demands a date. A print
+ * confirmation does not carry one — it echoes the token we handed out, which
+ * is the bare number — and it is always about a job offered minutes ago. So
+ * "the most recent order wearing this number" is the correct reading, and the
+ * ambiguity it could suffer from needs two orders of the same number within
+ * one poll cycle across a business-date rollover.
+ */
+export async function findRecentOrderByNumber(
+  tenantId: string,
+  orderNumber: string,
+): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `select ${ORDER_COLUMNS} from orders
+      where tenant_id = $1 and order_number = $2
+      order by created_at desc
+      limit 1`,
+    [tenantId, orderNumber],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
 }

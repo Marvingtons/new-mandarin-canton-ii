@@ -1,15 +1,21 @@
-import { publicTenant, ticketCopies } from "@/config/tenant.server";
 import {
-  MAX_PRINT_ATTEMPTS,
-  MAX_RENDER_ATTEMPTS,
+  lateConfirmationGraceSeconds,
+  printOfferCap,
+  printRenderCap,
+  publicTenant,
+  ticketCopies,
+} from "@/config/tenant.server";
+import {
   NO_JOB,
   OFFERED_MEDIA_TYPES,
+  describeConfirmation,
   matchOfferedMediaType,
   peripheralHeaders,
   printerMacAllowed,
   printerReportsHealthy,
   logPollBody,
   logPrinterLimits,
+  readConfirmation,
   readPoll,
   readPrinterLimits,
   secretMatches,
@@ -20,6 +26,7 @@ import {
   bumpPrintAttempt,
   claimNextPrintJob,
   currentPrintJob,
+  findRecentOrderByNumber,
   markPrinted,
   printSegmentState,
   recordPrintAttempt,
@@ -118,7 +125,7 @@ export async function POST(
 
     if (job) {
       const attempts = await bumpPrintAttempt(tenant.tenantId, job.id);
-      if (attempts > MAX_PRINT_ATTEMPTS) {
+      if (attempts > printOfferCap()) {
         // Reachable but not printing. Stop retrying and make it loud.
         await recordPrintAttempt(tenant.tenantId, job.id, {
           ok: false,
@@ -246,14 +253,14 @@ export async function GET(
     // A render failure is USUALLY our bug — but "usually" is not "always", and
     // condemning the order on the first one threw away the cold-start OOMs and
     // resource blips that a second attempt would have printed. Count it, keep
-    // the order QUEUED, and only fail it at MAX_RENDER_ATTEMPTS. The order
-    // stays visible to the board and the unprinted-order alert either way.
+    // the order QUEUED, and only fail it at printRenderCap(). The order stays
+    // visible to the board and the unprinted-order alert either way.
     const message = err instanceof Error ? err.message : "ticket render failed";
     const outcome = await recordRenderFailure(
       tenant.tenantId,
       job.id,
       message,
-      MAX_RENDER_ATTEMPTS,
+      printRenderCap(),
     );
     console.error(
       `[cloudprnt] render failed for ${job.orderNumber} ` +
@@ -277,55 +284,146 @@ export async function DELETE(
   return confirmPrinted(new URL(request.url));
 }
 
+/** Always 200 — see confirmPrinted. */
+function acknowledged(): Response {
+  return new Response("", { status: 200 });
+}
+
 /**
  * The confirmation, shared by DELETE and the `?delete` GET variant.
  *
  * Always answers 200. A printer that cannot get its confirmation acknowledged
  * may reprint, and a duplicate ticket is a far smaller problem than a jammed
  * confirmation loop.
+ *
+ * EVERY PATH THROUGH THIS FUNCTION LOGS, and that is the point of its current
+ * shape. It used to have four ways to return without saying anything: no
+ * database, a MAC mismatch, no job in flight, and a markPrinted that matched
+ * no row. Order A-003 took the third: the offer cap had already retired it to
+ * PRINT_FAILED, PRINTABLE_STATUSES contains only QUEUED, so `currentPrintJob`
+ * no longer saw it, and its confirmation was dropped in silence — no warning,
+ * no print recorded, and an order that had physically printed left looking as
+ * though it never had.
+ *
+ * Worse than the silence was what the same line would do on a busier evening:
+ * with the retired order invisible, `currentPrintJob` returns whatever job is
+ * in flight NOW, and A-003's confirmation would have marked a DIFFERENT order
+ * printed. Star sends `token` on the DELETE precisely so that cannot happen,
+ * and this now resolves by token first.
  */
 async function confirmPrinted(url: URL): Promise<Response> {
-  if (!isOrdersDbConfigured()) return new Response("", { status: 200 });
+  const confirmation = readConfirmation(url);
+  const described = describeConfirmation(confirmation);
+
+  if (!isOrdersDbConfigured()) {
+    console.warn(`[cloudprnt] DELETE ${described} — no database configured, nothing recorded`);
+    return acknowledged();
+  }
 
   if (!printerMacAllowed(url.searchParams.get("mac"))) {
-    return new Response("", { status: 200 });
+    console.warn(`[cloudprnt] DELETE ${described} — unexpected printer MAC, ignoring`);
+    return acknowledged();
   }
 
   const tenant = publicTenant();
-  const job = await currentPrintJob(tenant.tenantId);
-  if (!job) return new Response("", { status: 200 });
 
-  // Star reports a result code when the job did not complete. Treat anything
-  // other than an explicit success as a failure rather than a print — the
-  // whole point of this verb is that it is the only trustworthy signal.
-  const code = url.searchParams.get("code");
-  if (code && !/^(200|0|ok)$/i.test(code)) {
-    console.warn(`[cloudprnt] ${job.orderNumber} reported result code ${code}`);
-    await recordPrintAttempt(tenant.tenantId, job.id, {
+  // WHICH order is this about? The token is our own jobToken echoed back, so
+  // when it is present the answer is exact. currentPrintJob is the fallback
+  // for firmware that omits it, and it is only a guess — it answers "what is
+  // in flight now", which is not the same question once a job has been
+  // retired or replaced.
+  let order = confirmation.token
+    ? await findRecentOrderByNumber(tenant.tenantId, confirmation.token)
+    : null;
+  let matchedBy = order ? "token" : "";
+  if (!order) {
+    order = await currentPrintJob(tenant.tenantId);
+    matchedBy = confirmation.token ? "in-flight (token matched no order)" : "in-flight (no token)";
+  }
+
+  if (!order) {
+    console.warn(
+      `[cloudprnt] DELETE ${described} — NO ORDER MATCHED. Nothing was recorded. ` +
+        "If the printer sent no token, the job it confirmed had already left " +
+        "the printable set and this confirmation cannot be attributed.",
+    );
+    return acknowledged();
+  }
+
+  // One line per confirmation, before any branch, carrying the raw code and
+  // the state it arrived into. This is the line whose absence made A-003 a
+  // mystery rather than a five-second read.
+  console.info(
+    `[cloudprnt] DELETE ${order.orderNumber} ${described} matched-by=${matchedBy} ` +
+      `status=${order.status} attempts=${order.printAttempts}`,
+  );
+
+  if (confirmation.verdict === "failure") {
+    console.warn(
+      `[cloudprnt] ${order.orderNumber} reported result code ` +
+        `${JSON.stringify(confirmation.code)} — recording a print failure`,
+    );
+    await recordPrintAttempt(tenant.tenantId, order.id, {
       ok: false,
-      error: `printer reported code ${code}`,
+      error: `printer reported code ${confirmation.code}`,
     });
-    return new Response("", { status: 200 });
+    return acknowledged();
+  }
+
+  // A success for a job we already gave up on. The paper came out; we simply
+  // stopped waiting first, which is our misjudgement rather than the
+  // printer's failure — so inside the grace window this is honoured. Outside
+  // it, staff have had time to act on the board and a confirmation this old
+  // is likelier a replay than news, so it is logged and left failed.
+  if (order.status === "PRINT_FAILED") {
+    const agoMs = Date.now() - Date.parse(order.updatedAt);
+    const agoSeconds = Number.isFinite(agoMs) ? Math.round(agoMs / 1000) : null;
+    const grace = lateConfirmationGraceSeconds();
+    const withinGrace = agoSeconds !== null && agoSeconds <= grace;
+    if (withinGrace) {
+      console.warn(
+        `[cloudprnt] LATE CONFIRMATION: ${order.orderNumber} confirmed ${agoSeconds}s ` +
+          `after we gave up on it (grace ${grace}s) — honouring it as printed. ` +
+          "Raise PRINT_OFFER_CAP if this repeats; the printer is slower than our patience.",
+      );
+    } else {
+      console.error(
+        `[cloudprnt] LATE CONFIRMATION: ${order.orderNumber} confirmed ` +
+          `${agoSeconds ?? "?"}s after we gave up, outside the ${grace}s grace window — ` +
+          "NOT honouring. The order stays PRINT_FAILED and visible to the board.",
+      );
+      return acknowledged();
+    }
   }
 
   // A ticket too tall for this printer goes over as consecutive jobs, and the
-  // printer confirms each one separately without ever saying which it was. So
-  // a confirmation only completes the ORDER when it completes the SEQUENCE;
-  // otherwise it advances the cursor and the next poll hands over the next
-  // piece. Half a ticket must never read as PRINTED — that is the one outcome
-  // the board and the unprinted-order alert exist to prevent.
-  const { segment, segments } = await printSegmentState(tenant.tenantId, job.id);
+  // printer confirms each one separately. So a confirmation only completes the
+  // ORDER when it completes the SEQUENCE; otherwise it advances the cursor and
+  // the next poll hands over the next piece. Half a ticket must never read as
+  // PRINTED — that is the one outcome the board and the alert exist to prevent.
+  const { segment, segments } = await printSegmentState(tenant.tenantId, order.id);
   if (segments > 1 && segment + 1 < segments) {
-    const next = await advancePrintSegment(tenant.tenantId, job.id);
+    const next = await advancePrintSegment(tenant.tenantId, order.id);
     console.info(
-      `[cloudprnt] ${job.orderNumber} piece ${segment + 1}/${segments} printed; ` +
+      `[cloudprnt] ${order.orderNumber} piece ${segment + 1}/${segments} printed; ` +
         `${next + 1}/${segments} next`,
     );
-    return new Response("", { status: 200 });
+    return acknowledged();
   }
 
-  const printed = await markPrinted(tenant.tenantId, job.id);
-  if (printed) console.info(`[cloudprnt] ${printed.orderNumber} printed`);
+  const printed = await markPrinted(tenant.tenantId, order.id);
+  if (printed) {
+    console.info(`[cloudprnt] ${printed.orderNumber} printed`);
+  } else {
+    // markPrinted only matches QUEUED and PRINT_FAILED, so this is an order
+    // staff already advanced past printing, or a second confirmation for one
+    // already marked. Neither is an error; both were previously invisible.
+    console.warn(
+      `[cloudprnt] ${order.orderNumber} confirmed but not marked printed — its ` +
+        `status was ${order.status}, which markPrinted deliberately will not ` +
+        "drag backwards. Most likely already printed, or advanced by staff.",
+    );
+  }
 
-  return new Response("", { status: 200 });
+  return acknowledged();
 }
