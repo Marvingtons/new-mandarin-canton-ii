@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "typecheck:worker": "tsc -p tsconfig.worker.json",
     "cf-typegen": "wrangler types",
-    "build:font-module": "tsx scripts/emit-font-module.ts"
+    "build:font-module": "tsx scripts/emit-font-module.ts",
+    "torture:print": "tsx scripts/print-torture.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

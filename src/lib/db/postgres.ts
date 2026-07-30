@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { Pool, type PoolClient } from "pg";
 import {
   connectionSource,
@@ -36,16 +37,116 @@ import {
  *              local dev keep the old budget.
  */
 
-let pool: Pool | null = null;
+/**
+ * ---------------------------------------------------------------------------
+ * CONNECTION LIFETIME, and why it is not one shared pool on Workers.
+ *
+ * A Worker may not touch an I/O object created by a different request. A TCP
+ * socket opened while serving request A is dead to request B:
+ *
+ *   Cannot perform I/O on behalf of a different request. I/O objects (such as
+ *   streams, request/response bodies, and others) created in the context of one
+ *   request handler cannot be accessed from a different request's handler.
+ *
+ * A module-scoped `pg` Pool does exactly that. It parks idle clients between
+ * requests (idleTimeoutMillis) and hands them to whoever asks next. On the
+ * second request the socket is already void, and the query issued on it NEVER
+ * SETTLES — measured on workerd: the reusing request hangs until the runtime
+ * cancels it. A hung query is never released, so with `max: 1` the pool is
+ * permanently empty from then on and every later acquisition dies at
+ * connectionTimeoutMillis with "timeout exceeded when trying to connect".
+ *
+ * That is the printer bug. The printer polls every 10s against an
+ * idleTimeoutMillis of 10s, so it kept catching sockets that were still pooled
+ * and already dead. The minute cron never did — 60s is well past the idle
+ * timeout, so it always built a fresh connection inside its own request — which
+ * is why the cron scanned happily while every poll timed out on the same
+ * deployment. The cron was not doing anything right; it was just slow enough to
+ * never hit the trap.
+ *
+ * So on Workers the pool is scoped to the REQUEST, keyed by the execution
+ * context, and closed with waitUntil when that request finishes. One connection
+ * per request is Cloudflare's documented Hyperdrive pattern anyway: Hyperdrive
+ * keeps the real warm pool at the edge, so opening one is cheap and pooling it
+ * ourselves buys nothing.
+ *
+ * On plain Node (scripts, local dev) there is no such rule and a long-lived
+ * pool is correct, so that path is unchanged.
+ * ---------------------------------------------------------------------------
+ */
+
+/** The long-lived pool. Node only — never used on Workers. */
+let nodePool: Pool | null = null;
+
+/**
+ * Per-request pools on Workers, keyed by the request's execution context.
+ * Weak so a finished request's entry disappears with its context.
+ */
+const requestPools = new WeakMap<object, Pool>();
 
 /** True when the orders database is configured at all. */
 export function isOrdersDbConfigured(): boolean {
   return ordersConnectionString() !== null;
 }
 
-export function ordersPool(): Pool {
-  if (pool) return pool;
+/**
+ * The bit of the execution context this file needs: an identity to key the
+ * pool by, and a way to close it when the request ends. Declared locally
+ * because @cloudflare/workers-types is a worker-only global that this module
+ * is also type-checked against under plain Node.
+ */
+interface RequestContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
 
+/**
+ * The execution context of the request being served, or null off-request
+ * (scripts, module scope, plain Node).
+ */
+function currentRequestContext(): RequestContext | null {
+  try {
+    const ctx = getCloudflareContext().ctx as RequestContext | undefined;
+    return ctx && typeof ctx.waitUntil === "function" ? ctx : null;
+  } catch {
+    return null;
+  }
+}
+
+export function ordersPool(): Pool {
+  const requestCtx = currentRequestContext();
+
+  // Workers: one pool per request, torn down with it.
+  if (requestCtx) {
+    const existing = requestPools.get(requestCtx);
+    if (existing) return existing;
+
+    const created = newPool();
+    requestPools.set(requestCtx, created);
+    return created;
+
+    // DELIBERATELY NO waitUntil(pool.end()) HERE.
+    //
+    // `waitUntil` takes an already-running promise; it does not defer one. So
+    // `waitUntil(pool.end())` starts draining the pool the instant it is
+    // created, and every query on it then fails — measured on workerd as
+    // "This WritableStream belongs to an object that is closing." on the very
+    // first request. There is no end-of-request hook available at this layer to
+    // hang the close on instead.
+    //
+    // Not closing is safe here in a way that reusing never was. The pool is
+    // reachable only through this request's context, so the NEXT request cannot
+    // get its sockets — which is the entire bug. What is left behind is one
+    // idle socket that pg reaps at idleTimeoutMillis, and that Hyperdrive
+    // multiplexes on its side regardless.
+  }
+
+  // Node: one pool for the process, as before.
+  if (nodePool) return nodePool;
+  nodePool = newPool();
+  return nodePool;
+}
+
+function newPool(): Pool {
   const connectionString = ordersConnectionString();
   if (!connectionString) {
     throw new Error(
@@ -58,24 +159,28 @@ export function ordersPool(): Pool {
 
   const source = connectionSource();
 
-  pool = new Pool({
+  const pool = new Pool({
     connectionString,
     /**
-     * Connections held per isolate/process.
+     * Connections this pool may hold.
      *
-     * Behind Hyperdrive this must be SMALL: Hyperdrive already keeps the real
-     * warm pool at the edge, and every Worker isolate holding four sockets
-     * multiplies against the isolate count for no benefit. One is what
-     * Cloudflare's own examples use (they open a Client per request).
+     * Behind Hyperdrive the pool is per REQUEST (see the note at the top), so
+     * `1` here means exactly one connection per request — which is Cloudflare's
+     * documented Hyperdrive pattern. Hyperdrive keeps the real warm pool at the
+     * edge, so a second socket per request would buy nothing.
      *
-     * On plain Node the old budget stands — scripts and local dev genuinely
-     * benefit from a handful.
+     * On plain Node the pool is per process and the old budget stands — scripts
+     * and local dev genuinely benefit from a handful.
      */
     max:
       source === "hyperdrive"
         ? 1
         : Number.parseInt(process.env.DATABASE_POOL_MAX ?? "4", 10),
-    idleTimeoutMillis: 10_000,
+    // Short on Workers: the pool is unreachable once its request ends, so this
+    // is what actually reaps the socket it leaves behind. It is NOT a reuse
+    // window any more — a later request gets a different pool regardless of
+    // what is idle in this one.
+    idleTimeoutMillis: source === "hyperdrive" ? 2_000 : 10_000,
     connectionTimeoutMillis: 10_000,
     // Managed Postgres (Supabase, Neon, RDS) terminates TLS with its own CA.
     // Local development runs plaintext, so only ask for TLS when the URL does.
@@ -117,10 +222,15 @@ export async function withTransaction<T>(
   }
 }
 
-/** Close the pool. Used by scripts; serverless never calls this. */
+/**
+ * Close the process-wide pool. Used by scripts so they can exit.
+ *
+ * Workers never calls this and does not need to: each request's pool is closed
+ * by the waitUntil registered when it was created.
+ */
 export async function closeOrdersPool(): Promise<void> {
-  if (!pool) return;
-  const p = pool;
-  pool = null;
+  if (!nodePool) return;
+  const p = nodePool;
+  nodePool = null;
   await p.end();
 }
