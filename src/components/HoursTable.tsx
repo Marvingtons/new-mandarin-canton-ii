@@ -68,7 +68,7 @@ export default function HoursTable() {
               >
                 {label[day]}
                 {isToday && (
-                  <span className="ml-2 border border-gold px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-lacquer">
+                  <span className="ml-2 border border-gold px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-lacquer">
                     Today
                   </span>
                 )}

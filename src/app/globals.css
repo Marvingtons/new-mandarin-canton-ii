@@ -40,6 +40,12 @@
      the hero text finds a sensible left margin on wide screens. */
   --container-wide-max: 1520px;
   --container-wide-pad: clamp(1.25rem, 4vw, 4rem);
+
+  /* The frame — see the .frame block below. These three values are the
+     whole signature; nothing else on the site may draw a gold edge. */
+  --frame-mount: 2px;
+  --frame-edge: color-mix(in srgb, var(--gold) 60%, transparent);
+  --frame-hairline: color-mix(in srgb, var(--gold) 45%, transparent);
 }
 
 @theme inline {
@@ -74,6 +80,57 @@ body {
 ::selection {
   background: var(--gold);
   color: var(--ink);
+}
+
+/*
+ * ---- THE FRAME: the site's signature treatment ----------------------
+ *
+ * Thin gold border, a 2px mount gap, an inner gold hairline, a caption
+ * plate under a rule of the same weight. ONE anatomy for every framed
+ * thing on the site: The Room photos, the story image, both House
+ * Favorites card sizes, the About slots, the map.
+ *
+ * This exists because there used to be two: PhotoFrame drew a 1px
+ * gold/60 border with a nested gold/45 hairline and floated its caption
+ * over the image, while the Favorites cards drew a full-gold border with
+ * a 6px mount, an outline hairline, and a 2px-rule caption plate. Same
+ * idea, three different weights. Anything framed now says `.frame`.
+ */
+.frame {
+  padding: var(--frame-mount);
+  background: var(--cream);
+  border: 1px solid var(--frame-edge);
+  /* The inner hairline is an outline pulled back onto the mount's inside
+     edge, not a nested element — so one frame can hold a flex column
+     (photo + plate) without an extra wrapper to draw the line on. */
+  outline: 1px solid var(--frame-hairline);
+  outline-offset: calc(-1px - var(--frame-mount));
+  transition: border-color var(--t-med) var(--ease-out-soft);
+}
+/* The one hover, identical on every frame whether or not it is
+   interactive: the edge comes up to full gold. */
+@media (hover: hover) {
+  .frame:hover,
+  .frame:focus-within {
+    border-color: var(--gold);
+  }
+}
+/* Splits the photo from its caption plate, at the frame's own weight. */
+.frame-rule {
+  border-top: 1px solid var(--frame-edge);
+}
+/* The caption: letterspaced small caps at the label size. One type
+   treatment for every frame caption on the site. */
+.frame-caption {
+  font-size: 0.75rem; /* = text-xs, the scale's floor */
+  line-height: 1.35;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame {
+    transition: none;
+  }
 }
 
 /* Subtle depth on the hero's lacquer surface */
@@ -323,13 +380,10 @@ body {
   /* "House Favorites" sits on ONE line at every rail width */
   white-space: nowrap;
 }
-.spt-rule {
-  display: block;
-  margin-top: 14px;
-  width: 44px;
-  height: 1px;
-  background: linear-gradient(90deg, var(--gold), var(--gold-light));
-}
+/* No .spt-rule: "House Favorites" now renders through SectionHeading, so
+   its underline IS .bh-rule — same 48px, same flat gold, same 12px gap
+   as "The Room". It used to be a 44px gold→gold-light gradient, which
+   was both an off-scale width and a second gold. */
 @media (min-width: 900px) {
   .spt-grid {
     display: grid;
@@ -367,16 +421,12 @@ body {
     top: -30px;
   }
 }
-/* ---- featured card: ONE object — double gold frame, photo on top,
-   plate inside under a 2px gold rule. Zero gap between them. ---- */
+/* ---- featured card: ONE object — the site frame, photo on top, plate
+   inside under the frame rule. Zero gap between them. Frame anatomy
+   (mount, edge, hairline) comes from .frame; only the layout is here. */
 .spt-card {
   display: flex;
   flex-direction: column;
-  padding: 6px;
-  background: var(--cream);
-  border: 1px solid var(--gold);
-  outline: 1px solid rgba(207, 165, 46, 0.5);
-  outline-offset: -4px;
 }
 .spt-photo {
   position: relative;
@@ -395,7 +445,6 @@ body {
   }
 }
 .spt-plate {
-  border-top: 2px solid var(--gold);
   padding: 20px 22px;
 }
 .spt-plate-body {
@@ -471,19 +520,13 @@ body {
   opacity: 0.35;
   transition-duration: 140ms;
 }
-/* same anatomy as the featured card: double gold frame holding the
-   photo plus a paper plate strip INSIDE the frame, split by the gold
-   rule — no captions outside the frame */
+/* Same anatomy as the featured card, because it is literally the same
+   frame — .frame carries the mount, edge, and hairline. */
 .spt-small-frame {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 150px;
-  padding: 3px;
-  background: var(--cream);
-  border: 1px solid var(--gold);
-  outline: 1px solid rgba(207, 165, 46, 0.4);
-  outline-offset: -3px;
 }
 @media (min-width: 900px) {
   .spt-small-frame {
@@ -499,25 +542,25 @@ body {
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
-  border-top: 2px solid var(--gold);
   padding: 10px 14px;
 }
 .spt-sm-plate .spt-sm-name {
   min-width: 0;
 }
 .spt-sm-name {
-  font-size: 15px;
+  font-size: 0.875rem; /* = text-sm; was an off-scale 15px */
   line-height: 1;
   color: var(--ink);
   transition: color var(--t-fast) var(--ease-out-soft);
 }
 .spt-sm-price {
-  font-size: 14px;
+  font-size: 0.875rem; /* = text-sm */
   line-height: 1;
   font-weight: 600;
   color: var(--lacquer);
 }
-/* arrows — gold-bordered 44px circles */
+/* Pager arrows — 44px circles drawn at the FRAME's edge weight and
+   color, not a third gold of their own. */
 .spt-btn {
   display: inline-flex;
   align-items: center;
@@ -525,10 +568,11 @@ body {
   width: 44px;
   height: 44px;
   border-radius: 9999px;
-  border: 1px solid var(--gold);
+  border: 1px solid var(--frame-edge);
   color: var(--lacquer);
   transition:
     transform var(--t-fast) var(--ease-stamp),
+    border-color var(--t-fast) var(--ease-out-soft),
     background-color var(--t-fast) var(--ease-out-soft);
 }
 .spt-glyph {
@@ -537,8 +581,10 @@ body {
 }
 /* hovers touch inner elements only — never the card wrapper */
 @media (hover: hover) {
+  /* Same edge-brightening as .frame:hover — one gold, one behaviour. */
   .spt-btn:hover {
     transform: scale(1.08);
+    border-color: var(--gold);
     background-color: rgba(var(--ink-rgb), 0.05);
   }
   .spt-btn-prev:hover .spt-glyph {

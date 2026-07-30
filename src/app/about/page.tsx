@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Established from "@/components/Established";
+import PhotoPlaceholder from "@/components/PhotoPlaceholder";
 import SectionHeading from "@/components/SectionHeading";
-import Seal from "@/components/Seal";
 
 export const metadata: Metadata = {
   title: "About",
@@ -42,15 +42,19 @@ export default function AboutPage() {
         </p>
       </div>
 
+      {/* Same frame, same placeholder, same caption plate as the homepage
+          frames — see .frame in globals.css. These used to be a one-off:
+          a gold/50 border, no mount, a 35%-opacity seal, and an italic
+          caption hanging outside the frame. */}
       <div className="mt-14 grid gap-6 sm:grid-cols-3">
         {photoSlots.map((caption) => (
-          <figure key={caption}>
-            <div className="flex aspect-[4/3] items-center justify-center border border-gold/50 bg-paper">
-              <Seal size={52} className="opacity-35" />
+          <figure key={caption} className="frame flex flex-col">
+            <div className="relative aspect-[4/3] overflow-hidden">
+              <PhotoPlaceholder sealSize={64} />
               <span className="sr-only">Photo coming soon</span>
             </div>
-            <figcaption className="mt-2 text-sm italic text-ink/60">
-              {caption} — photo TODO
+            <figcaption className="frame-rule frame-caption px-3 py-2.5 text-ink/60">
+              {caption}
             </figcaption>
           </figure>
         ))}

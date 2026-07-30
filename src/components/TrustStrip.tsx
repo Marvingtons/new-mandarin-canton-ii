@@ -44,7 +44,7 @@ export default function TrustStrip() {
       aria-label="At a glance"
       className="border-b border-gold/30 bg-cream"
     >
-      <ul className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-2 px-4 py-4 text-[0.7rem] uppercase tracking-[0.18em] text-ink/70 sm:text-xs">
+      <ul className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-2 px-4 py-4 text-xs uppercase tracking-[0.18em] text-ink/70 sm:text-xs">
         {facts.map((fact, i) => (
           <li key={fact} className="flex items-center gap-3">
             {i > 0 && (

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import Seal from "@/components/Seal";
+import PhotoPlaceholder from "@/components/PhotoPlaceholder";
 import type { SitePhoto } from "@/data/images";
 
 interface PhotoFrameProps {
@@ -19,11 +19,17 @@ interface PhotoFrameProps {
 }
 
 /**
- * Double gold frame — 1px border, 2px mount gap, 1px inner hairline —
- * around a fixed-aspect box, like a mounted print.
+ * A photo in the site frame (.frame — see globals.css): gold edge, 2px
+ * mount, inner hairline, and a caption plate under the frame rule, like a
+ * mounted print with its label. Identical anatomy to the House Favorites
+ * cards, which carry a name/price plate in the same slot.
  *
- * src === null → the designed placeholder: warm paper + grain, ghost
- * 富源 seal, caption in letterspaced caps. Visible by design.
+ * The caption is now ALWAYS printed. It used to float over the image and
+ * only when there was no photo, so a slot changed shape the day a real
+ * photo landed — and the room frames and the dish cards read as two
+ * different objects.
+ *
+ * src === null → the shared placeholder (see PhotoPlaceholder).
  * src set    → next/image fill with a one-time curtain reveal when 25%
  * scrolled into view (clip sweep + settle from 1.06 scale; plain fade
  * under prefers-reduced-motion). See globals.css for the pf-* rules.
@@ -57,10 +63,10 @@ export default function PhotoFrame({
   }, [photo.src]);
 
   return (
-    <figure className={`border border-gold/60 p-[2px] ${className}`}>
+    <figure className={`frame flex flex-col ${className}`}>
       <div
         ref={boxRef}
-        className={`relative overflow-hidden border border-gold/45 ${revealed ? "pf-revealed" : ""}`}
+        className={`relative overflow-hidden ${revealed ? "pf-revealed" : ""}`}
         style={{ aspectRatio: photo.aspect }}
       >
         {/* Inner surfaces sit in an over-tall wrapper so the scrubbed
@@ -86,35 +92,13 @@ export default function PhotoFrame({
               />
             </div>
           ) : (
-            <>
-              <div className="absolute inset-0 bg-paper" />
-              {/* the red paper texture, desaturated, doubles as grain */}
-              <div
-                aria-hidden="true"
-                className="absolute inset-0 opacity-15 grayscale mix-blend-multiply"
-                style={{
-                  backgroundImage: "url('/bg-red.jpg')",
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}
-              />
-              <div
-                aria-hidden="true"
-                className="absolute inset-0 flex items-center justify-center"
-              >
-                <div className="pf-ghost">
-                  <Seal size={88} className="opacity-[0.06]" />
-                </div>
-              </div>
-            </>
+            <PhotoPlaceholder />
           )}
         </div>
-        {!photo.src && (
-          <span className="absolute bottom-2 left-3 text-[0.62rem] uppercase tracking-[0.22em] text-ink/60">
-            {photo.caption}
-          </span>
-        )}
       </div>
+      <figcaption className="frame-rule frame-caption px-3 py-2.5 text-ink/60">
+        {photo.caption}
+      </figcaption>
     </figure>
   );
 }

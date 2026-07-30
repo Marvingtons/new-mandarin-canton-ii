@@ -46,7 +46,7 @@ export default function OpenNowChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.15em] ${surface} ${className}`}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-[0.15em] ${surface} ${className}`}
     >
       <span aria-hidden="true" className={`chip-dot h-1.5 w-1.5 rounded-full ${dot}`} />
       {status.label}

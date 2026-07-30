@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { SpicyMark } from "@/components/MenuSection";
+import PhotoPlaceholder from "@/components/PhotoPlaceholder";
+import SectionHeading from "@/components/SectionHeading";
 import { photos } from "@/data/images";
 import type { SitePhoto } from "@/data/images";
 import { menu } from "@/data/menu";
@@ -49,17 +51,10 @@ const items: MenuItem[] = (
 /* ---- static rail pieces, hoisted so re-renders bail out of their
    subtrees (SplitText owns the heading's DOM after mount) ---- */
 
-const railHead = (
-  <div className="spt-head">
-    <h2
-      data-bh-text
-      className="relative font-display text-3xl text-lacquer sm:text-4xl"
-    >
-      House Favorites
-    </h2>
-    <span aria-hidden="true" className="bh-rule spt-rule" />
-  </div>
-);
+/* Rendered through SectionHeading so "House Favorites" and "The Room" are
+   the same object: same size, same gold rule, same gap. The .spt-head
+   class is only the cap-trim/nowrap hook the rail alignment needs. */
+const railHead = <SectionHeading en="House Favorites" className="spt-head" />;
 
 const railIntro = (
   <p
@@ -81,7 +76,15 @@ const railLink = (
   </p>
 );
 
-/** Photo or tone-panel placeholder, filling its positioned parent. */
+/**
+ * Photo or placeholder, filling its positioned parent.
+ *
+ * The placeholder is the site's shared one. It used to be a solid
+ * dish-tone panel (`photo.tone`) with a raw 富源 wordmark and a "PHOTO"
+ * label — a second, darker placeholder style that made an empty dish slot
+ * look nothing like an empty room slot. `tone` is now unused in
+ * images.ts; the paper placeholder is the standard.
+ */
 function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean }) {
   const photo = dishPhotoByItemId[item.id];
   if (photo?.src) {
@@ -95,37 +98,7 @@ function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean })
       />
     );
   }
-  return (
-    <>
-      <div
-        className="absolute inset-0"
-        style={{ backgroundColor: photo?.tone ?? "var(--paper)" }}
-      />
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 opacity-15 grayscale mix-blend-multiply"
-        style={{
-          backgroundImage: "url('/bg-red.jpg')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      />
-      <div
-        aria-hidden="true"
-        lang="zh-Hant"
-        className={`absolute inset-0 flex select-none items-center justify-center font-chinese font-bold text-ivory/10 ${
-          small ? "text-3xl tracking-[0.2em]" : "text-6xl tracking-[0.3em]"
-        }`}
-      >
-        富源
-      </div>
-      {!small && (
-        <span className="absolute bottom-2 left-3 text-[0.6rem] uppercase tracking-[0.22em] text-ivory/60">
-          Photo
-        </span>
-      )}
-    </>
-  );
+  return <PhotoPlaceholder sealSize={small ? 52 : 96} />;
 }
 
 /**
@@ -234,7 +207,7 @@ export default function FavoritesSpotlight() {
           >
             <span
               key={faceIdx}
-              className="spt-count-in text-[26px] leading-none"
+              className="spt-count-in text-2xl leading-none"
             >
               {String(faceIdx + 1).padStart(2, "0")}
             </span>
@@ -248,7 +221,7 @@ export default function FavoritesSpotlight() {
       {/* ---- featured card: ONE framed object — photo + plate ---- */}
       <div
         data-spt-card
-        className="spt-card"
+        className="frame spt-card"
         onTouchStart={(e) => {
           touchStart.current = {
             x: e.touches[0].clientX,
@@ -299,7 +272,7 @@ export default function FavoritesSpotlight() {
             style={{ left: "56%" }}
           />
         </div>
-        <div className="spt-plate">
+        <div className="frame-rule spt-plate">
           <div
             className={`spt-plate-body ${swapping ? "is-out" : ""}`}
             aria-live="polite"
@@ -342,13 +315,13 @@ export default function FavoritesSpotlight() {
               {/* one framed object, same anatomy as the featured card:
                   photo + plate strip inside the frame, split by the
                   gold rule */}
-              <div className="spt-small-frame">
+              <div className="frame spt-small-frame">
                 <div className="relative flex-1 overflow-hidden">
                   <div className="spt-sm-inner absolute inset-0">
                     <DishPanel item={dish} small />
                   </div>
                 </div>
-                <div className="spt-sm-plate">
+                <div className="frame-rule spt-sm-plate">
                   <span className="spt-sm-name truncate font-display">
                     {dish.name}
                   </span>

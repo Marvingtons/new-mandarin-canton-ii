@@ -13,8 +13,6 @@ export type SitePhoto = {
   alt: string;
   caption: string;
   aspect: "4/5" | "3/4" | "21/9";
-  /** Placeholder panel color (dish tone). Ignored once src is set. */
-  tone?: string;
 };
 
 export const photos = {
@@ -61,7 +59,6 @@ export const photos = {
     alt: "Mandarin House Special",
     caption: "Mandarin House Special",
     aspect: "4/5",
-    tone: "#7e301d",
   },
   dishHoneyWalnutShrimp: {
     id: "dish-honey-walnut-shrimp",
@@ -69,7 +66,6 @@ export const photos = {
     alt: "Honey Walnut Shrimp",
     caption: "Honey Walnut Shrimp",
     aspect: "4/5",
-    tone: "#9e5d28",
   },
   dishHoneyWalnutChicken: {
     id: "dish-honey-walnut-chicken",
@@ -77,7 +73,6 @@ export const photos = {
     alt: "Honey Walnut Chicken",
     caption: "Honey Walnut Chicken",
     aspect: "4/5",
-    tone: "#96261c",
   },
   dishKungPaoSanShein: {
     id: "dish-kung-pao-san-shein",
@@ -85,7 +80,6 @@ export const photos = {
     alt: "Kung Pao San Shein",
     caption: "Kung Pao San Shein",
     aspect: "4/5",
-    tone: "#753433",
   },
   dishCrispyGameHen: {
     id: "dish-crispy-game-hen",
@@ -93,7 +87,6 @@ export const photos = {
     alt: "Crispy Game Hen",
     caption: "Crispy Game Hen",
     aspect: "4/5",
-    tone: "#603c1e",
   },
   dishPanFriedNoodles: {
     id: "dish-pan-fried-noodles",
@@ -101,6 +94,5 @@ export const photos = {
     alt: "Upside Down Pan Fried Noodles",
     caption: "Upside Down Pan Fried Noodles",
     aspect: "4/5",
-    tone: "#2e241d",
   },
 } satisfies Record<string, SitePhoto>;

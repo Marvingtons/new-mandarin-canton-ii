@@ -34,17 +34,19 @@ export default function LocationMap({
 
   return (
     <div className={className}>
-      <div
-        className="overflow-hidden rounded-sm border border-gold/50 bg-paper outline outline-offset-2 outline-gold/20"
-        style={{ aspectRatio: aspect }}
-      >
-        <iframe
-          title={`Map to ${restaurant.name}, ${fullAddress}`}
-          src={mapEmbedUrl}
-          className="h-full w-full border-0"
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-        />
+      {/* The site frame, same as the photo frames — this used to draw its
+          own gold/50 border with an outward gold/20 halo and a rounded
+          corner, the only rounded frame on the site. */}
+      <div className="frame">
+        <div className="overflow-hidden" style={{ aspectRatio: aspect }}>
+          <iframe
+            title={`Map to ${restaurant.name}, ${fullAddress}`}
+            src={mapEmbedUrl}
+            className="h-full w-full border-0"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        </div>
       </div>
       <a
         href={directionsUrl}

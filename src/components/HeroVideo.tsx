@@ -257,7 +257,7 @@ export default function HeroVideo() {
             {restaurant.name}
           </h1>
           <p
-            className="hero-item -mt-1 max-w-xl text-[0.8rem] uppercase leading-relaxed tracking-[0.12em] text-ivory/85"
+            className="hero-item -mt-1 max-w-xl text-sm uppercase leading-relaxed tracking-[0.12em] text-ivory/85"
             style={{ transitionDelay: "240ms" }}
           >
             Mandarin, Szechuan &amp; Cantonese cuisine in Chula Vista
@@ -277,7 +277,7 @@ export default function HeroVideo() {
             </Link>
           </div>
           <p
-            className="hero-item text-[0.7rem] uppercase tracking-[0.12em] text-ivory/75"
+            className="hero-item text-xs uppercase tracking-[0.12em] text-ivory/75"
             style={{ transitionDelay: "420ms" }}
           >
             {ORDER_DIRECT_NOTE} ·{" "}

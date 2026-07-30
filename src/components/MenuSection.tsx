@@ -9,7 +9,7 @@ import type { MenuCategory, MenuItem } from "@/data/menu";
  */
 export function SpicyMark() {
   return (
-    <span className="inline-flex shrink-0 items-center self-center border border-lacquer/40 px-1 text-[0.55rem] uppercase leading-4 tracking-[0.12em] text-lacquer">
+    <span className="inline-flex shrink-0 items-center self-center border border-lacquer/40 px-1 text-xs uppercase leading-4 tracking-[0.12em] text-lacquer">
       Spicy
     </span>
   );
