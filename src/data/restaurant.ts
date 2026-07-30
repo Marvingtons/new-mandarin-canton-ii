@@ -105,15 +105,11 @@ export const restaurant: RestaurantInfo = {
   // All null = unconfirmed. Fill in each real value and the matching
   // trust-strip chip lights up automatically — no component changes.
   features: {
-    // TODO(confirm): founding year with owner. This read `1995` with the
-    // comment "confirmed by the owner", but nothing in the repo records
-    // that confirmation, and the About page's own draft says "(No dates
-    // until confirmed.)" — the same builder, contradicting himself. Every
-    // other confirmed fact here names a checkable artifact (the seal for
-    // chineseName, the printed menu rev. 9/25 for the phones); this one
-    // named none. Until it does, the site asserts no year and the
-    // heritage line falls back to its no-date phrasing.
-    foundingYear: null,
+    // 1995. Artifact: the restaurant's previous website displayed this
+    // year, and the family confirmed it when the About page was written.
+    // A prior pass cleared this to null because the repo recorded no
+    // source for it — that gap is what this comment closes.
+    foundingYear: 1995,
     healthScore: null, // ⚠️ CONFIRM SD County score → "Health Score N/100"
     beerWine: null, // ⚠️ CONFIRM
     freeParking: null, // ⚠️ CONFIRM
