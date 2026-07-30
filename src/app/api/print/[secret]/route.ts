@@ -10,7 +10,9 @@ import {
   NO_JOB,
   OFFERED_MEDIA_TYPES,
   describeConfirmation,
+  jobResponse,
   matchOfferedMediaType,
+  payloadHash,
   peripheralHeaders,
   printerMacAllowed,
   printerReportsHealthy,
@@ -255,25 +257,22 @@ export async function GET(
       );
     }
 
+    // The hash of exactly what we handed over. This is the anchor for proving
+    // a download byte-identical from outside: hash what the printer's URL
+    // actually returns and compare. Anything that rewrote the body in between
+    // — a compression layer, a re-encode, a truncated stream — moves it.
+    const sha256 = await payloadHash(ticket.body);
     console.info(
       `[cloudprnt] serving ${job.orderNumber} as ${mediaType} ` +
-        `(${ticket.body.length} bytes, ${ticket.height}px)`,
+        `(${ticket.body.length} bytes, ${ticket.height}px) sha256=${sha256}`,
     );
 
-    return new Response(new Uint8Array(ticket.body), {
-      headers: {
-        // Answer in the type the printer chose, not the one we prefer.
-        "content-type": mediaType,
-        "content-length": String(ticket.body.length),
-        "cache-control": "no-store",
-        // Peripheral control rides the response headers, which Star documents
-        // for the PNG and text types only — on a starprnt job it must be in
-        // the print data instead, and the TSP100IV accepts no command that
-        // does it (see lib/ticket/starprnt.ts). Sent regardless: an
-        // unsupported header is ignored, never a failed job.
-        ...peripheralHeaders(),
-      },
-    });
+    // Peripheral control rides the response headers, which Star documents for
+    // the PNG and text types only — on a starprnt job it must be in the print
+    // data instead, and the TSP100IV accepts no command that does it (see
+    // lib/ticket/starprnt.ts). Sent regardless: an unsupported header is
+    // ignored, never a failed job.
+    return jobResponse(ticket.body, mediaType, peripheralHeaders());
   } catch (err) {
     // A render failure is USUALLY our bug — but "usually" is not "always", and
     // condemning the order on the first one threw away the cold-start OOMs and

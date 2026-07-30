@@ -2,7 +2,13 @@ import { publicTenant } from "@/config/tenant.server";
 import { businessDateFor } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { getOrderByNumber } from "@/lib/orders/repository";
-import { renderTicket } from "@/lib/ticket/render";
+import { rasterizeTicket, renderTicket } from "@/lib/ticket/render";
+import { encodeStarPrntRaster } from "@/lib/ticket/starprnt";
+import {
+  JOB_MEDIA_TYPE_STARPRNT,
+  jobResponse,
+  payloadHash,
+} from "@/lib/print/cloudprnt";
 import type { Order } from "@/lib/orders/types";
 
 /**
@@ -103,12 +109,44 @@ export async function GET(request: Request): Promise<Response> {
     }
   }
 
+  // ?format=starprnt renders the SAME ticket as the printer's job body and
+  // returns it through the SAME response builder the job route uses. It is
+  // opt-in and the default is unchanged, because this route exists for humans
+  // looking at a layout in a browser.
+  //
+  // It is here because a 520 Download failed is a transfer problem, and the
+  // job route cannot be exercised without a database, a queued order and the
+  // CloudPRNT secret. This one renders a built-in fixture with nothing
+  // configured, so the wire behaviour — content-length present, no
+  // content-encoding, body byte-identical to its hash — can be checked under
+  // `wrangler dev` before anything is deployed. What it cannot show is
+  // Cloudflare's edge, which is not in front of a local worker; only the
+  // deployed route proves that half.
+  if (url.searchParams.get("format") === "starprnt") {
+    const { pixels, width, height, free } = await rasterizeTicket(
+      order ?? fixtureOrder(),
+      { timezone: tenant.timezone, reprint },
+    );
+    let body: Uint8Array;
+    try {
+      body = encodeStarPrntRaster(pixels, width, height);
+    } finally {
+      free();
+    }
+    const sha256 = await payloadHash(body);
+    console.info(
+      `[preview] starprnt fixture: ${body.byteLength} bytes, ${height}px, sha256=${sha256}`,
+    );
+    return jobResponse(body, JOB_MEDIA_TYPE_STARPRNT, { "x-payload-sha256": sha256 });
+  }
+
   const png = await renderTicket(order ?? fixtureOrder(), {
     timezone: tenant.timezone,
     reprint,
   });
 
-  return new Response(new Uint8Array(png), {
-    headers: { "content-type": "image/png", "cache-control": "no-store" },
-  });
+  // Same byte-exact treatment as a real job: a print body is never
+  // compressible territory, and the preview is only useful as a proxy for the
+  // job route if it is transported identically.
+  return jobResponse(new Uint8Array(png), "image/png");
 }

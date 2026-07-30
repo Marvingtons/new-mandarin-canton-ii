@@ -308,6 +308,96 @@ export async function readPoll(request: Request): Promise<CloudPrntPoll> {
   }
 }
 
+/* ---------------------------------------------------- the job response -- */
+
+/**
+ * SHA-256 of a payload, lowercase hex.
+ *
+ * Logged at render so a download can be proved byte-identical from outside:
+ * hash what curl pulled off the deployed route, compare it to this line. Any
+ * transformation in between — compression, a re-encode, a truncated stream —
+ * changes the hash, and nothing else in the system would have told us.
+ */
+export async function payloadHash(body: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", body as unknown as BufferSource);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Build a print-job response that reaches the printer byte for byte.
+ *
+ * The printer downloaded every PNG we ever sent and then failed on the
+ * CONTENT (511/510). It answered the first StarPRNT job with 520 Download
+ * failed — a different failure, before decoding, which points at the transfer
+ * rather than the bytes. The two differ in exactly one respect that the
+ * network can see: their media type. So this stops leaving anything about the
+ * transfer to a default.
+ *
+ *  - The body is a freshly allocated, exactly sized Uint8Array. Never a
+ *    string: a binary raster is not valid UTF-8, and any path that decodes
+ *    and re-encodes it replaces every invalid sequence with U+FFFD and
+ *    changes the length. The copy also guarantees the view is not a window
+ *    into a larger pooled ArrayBuffer, which is how a Node Buffer can carry
+ *    neighbouring bytes along with it.
+ *  - `content-length` is the byteLength of exactly those bytes.
+ *  - `cache-control: no-store, no-transform`. no-transform is the standard
+ *    instruction that an intermediary must not alter the payload, and it is
+ *    what Cloudflare documents for this: "If you do not want a particular
+ *    response from your origin to be encoded with Brotli/Gzip when delivered
+ *    to website visitors, you can disable this by including a
+ *    `cache-control: no-transform` HTTP header in the response from your
+ *    origin web server." A Compression Rule that matches will not modify a
+ *    response carrying it either. The Worker IS the origin here, so this is
+ *    the supported place to say it.
+ *  - No `content-encoding` is ever set. It is not enough to avoid setting it;
+ *    the assertion below fails loudly if a caller adds one through
+ *    extraHeaders, because a header we cannot decode is precisely what a 520
+ *    looks like from the printer's side.
+ *
+ * ⚠️ BUT COMPRESSION IS NOT WHAT BROKE THE STARPRNT DOWNLOAD. Measured against
+ * a minimal worker under `wrangler dev`, asking with `Accept-Encoding: gzip,
+ * br`, on a 60,000-byte body:
+ *
+ *   application/vnd.star.starprnt  -> no content-encoding, length intact
+ *   image/png                      -> no content-encoding, length intact
+ *   text/plain                     -> gzip, and content-length dropped
+ *   text/plain + no-transform      -> STILL gzip
+ *
+ * So the runtime compresses by media type, ours is not one it compresses, and
+ * no-transform does not govern that layer at all — it is Cloudflare's EDGE
+ * that honours it, and Cloudflare's published compressible list does not
+ * contain our type either. Two independent reasons the job body was never
+ * being compressed.
+ *
+ * The headers here are therefore hardening, not the fix: they remove a class
+ * of failure from consideration and cost nothing. The 520 has another cause,
+ * and the sha256 logged beside every job is what will identify it — a hash
+ * that matches end to end says the bytes were never the problem.
+ */
+export function jobResponse(
+  body: Uint8Array,
+  mediaType: string,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  for (const key of Object.keys(extraHeaders)) {
+    if (key.toLowerCase() === "content-encoding") {
+      throw new Error("a print job must never carry a content-encoding");
+    }
+  }
+  // Exactly these bytes, in their own buffer.
+  const exact = new Uint8Array(body);
+  return new Response(exact, {
+    headers: {
+      ...extraHeaders,
+      "content-type": mediaType,
+      "content-length": String(exact.byteLength),
+      "cache-control": "no-store, no-transform",
+    },
+  });
+}
+
 /* ------------------------------------------------- job confirmation ----- */
 
 /** What a DELETE's `code` says about whether paper came out. */
