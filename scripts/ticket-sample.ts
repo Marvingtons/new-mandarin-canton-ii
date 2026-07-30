@@ -11,6 +11,10 @@
  *   - a three-line special instruction
  *   - a TWELVE-LINE party-tray order, the long-ticket case
  *   - a reprint header
+ *   - a WRAPPING TORTURE order: a 40-char English name, a 20-char unbroken
+ *     token, and a mixed CJK/Latin modifier — the cases a hand-rolled wrapper
+ *     gets wrong. Every laid-out line is asserted against its column, so an
+ *     overflow fails the script instead of being noticed on paper.
  *
  * Lines are built through the real `resolveOrderLine` against the real
  * catalogue, so this exercises the same override lookup and integer-cent
@@ -21,7 +25,11 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveOrderLine } from "../src/lib/orders/lines";
-import { renderTicket } from "../src/lib/ticket/render";
+import {
+  composeTicketSvg,
+  renderTicket,
+  TICKET_WIDTH_PX,
+} from "../src/lib/ticket/render";
 import type { MenuItem } from "../src/lib/menu/types";
 import type { Order, OrderLine } from "../src/lib/orders/types";
 
@@ -187,6 +195,116 @@ async function longOrder(): Promise<Order> {
   };
 }
 
+/**
+ * The wrapping torture fixture. Every string here is chosen to break a
+ * hand-rolled wrapper in a different way:
+ *   - a 40-character English item name, far past one line at 40px
+ *   - a 20-character unbroken token, which cannot be split on a space and has
+ *     to be shattered per character
+ *   - a modifier that switches between CJK and Latin mid-string, where the
+ *     break rule changes from per-character to per-word and back
+ */
+const tortureItems = {
+  longName: fixtureItem({
+    id: "torture-long-name",
+    nameEn: "Twice Cooked Pork Belly With Preserved Mustard Greens",
+    priceCents: 2495,
+    modifierGroups: [
+      {
+        id: "torture-mods",
+        nameEn: "Preparation",
+        nameZh: null,
+        minRequired: 0,
+        maxAllowed: null,
+        modifiers: [
+          { id: "mod-unbroken", nameEn: "Supercalifragilistic", nameZh: null, priceCents: 0 },
+          { id: "mod-mixed", nameEn: "加辣 extra spicy 走花生 no peanuts 汁另上", nameZh: null, priceCents: 0 },
+        ],
+      },
+    ],
+  }),
+  unbroken: fixtureItem({
+    id: "torture-unbroken",
+    nameEn: "Pneumonoultramicroscopicsilicovolcanoconiosis",
+    priceCents: 995,
+  }),
+};
+
+function tortureOrder(): Order {
+  const lines = [
+    resolveOrderLine(
+      tortureItems.longName,
+      "regular",
+      ["mod-unbroken", "mod-mixed"],
+      1,
+      "Antidisestablishmentarianism — 請不要放味精 and absolutely no " +
+        "Worcestershiresauceonanything at all, thank you very much indeed.",
+    ),
+    resolveOrderLine(tortureItems.unbroken, "regular", [], 2),
+  ];
+  const subtotalCents = lines.reduce((n, l) => n + l.lineCents, 0);
+  const taxCents = Math.round((subtotalCents * 775) / 10000);
+  return {
+    ...fixtureOrder(),
+    orderNumber: "A-999",
+    items: lines,
+    totals: {
+      subtotalCents,
+      taxCents,
+      tipCents: 0,
+      totalCents: subtotalCents + taxCents,
+    },
+    customer: { name: "Bartholomew Featherstonehaugh", phone: "+16195550199" },
+  };
+}
+
+/** Ticket padding, so the assertion can work in page coordinates. */
+const PAD = 20;
+
+/**
+ * Assert no laid-out line overflows.
+ *
+ * Two checks, because they can fail independently: a line wider than the
+ * column it was wrapped into means the wrapper is broken, and a line whose
+ * right edge passes the paper width means a column was positioned wrong.
+ * Both would print as text running off the roll.
+ */
+async function assertNoOverflow(
+  name: string,
+  order: Order,
+  reprint = false,
+): Promise<number> {
+  const { lines, height } = await composeTicketSvg(order, {
+    timezone: TIMEZONE,
+    reprint,
+  });
+  // Sub-pixel slack: widths are float sums of per-glyph advances.
+  const EPS = 0.5;
+  const bad: string[] = [];
+  for (const line of lines) {
+    if (line.width > line.column + EPS) {
+      bad.push(
+        `  column overflow: "${line.text}" is ${line.width.toFixed(1)}px in a ${line.column}px column`,
+      );
+    }
+    const right = PAD + line.x + line.width;
+    if (right > TICKET_WIDTH_PX + EPS) {
+      bad.push(
+        `  paper overflow: "${line.text}" ends at x=${right.toFixed(1)} (> ${TICKET_WIDTH_PX})`,
+      );
+    }
+  }
+  if (bad.length > 0) {
+    throw new Error(`${name}: ${bad.length} overflowing line(s)\n${bad.join("\n")}`);
+  }
+  const widest = lines.reduce((m, l) => Math.max(m, PAD + l.x + l.width), 0);
+  console.log(
+    `  ${name.padEnd(34)} ${String(lines.length).padStart(3)} lines  ` +
+      `widest right edge ${widest.toFixed(1)}px / ${TICKET_WIDTH_PX}  height ${height}px`,
+  );
+  return widest;
+}
+
 async function render(name: string, order: Order, reprint = false): Promise<void> {
   const png = await renderTicket(order, { timezone: TIMEZONE, reprint });
   const out = join(tmpdir(), name);
@@ -204,10 +322,23 @@ async function render(name: string, order: Order, reprint = false): Promise<void
 
 async function main(): Promise<void> {
   const order = fixtureOrder();
+  const long = await longOrder();
+  const torture = tortureOrder();
 
   await render("ticket-sample.png", order);
   await render("ticket-sample-reprint.png", order, true);
-  await render("ticket-sample-long.png", await longOrder());
+  await render("ticket-sample-long.png", long);
+  await render("ticket-sample-torture.png", torture);
+
+  // Geometry is asserted, not eyeballed: nothing may exceed its column or run
+  // off the 576px roll. This is the check that a hand-rolled wrapper needs and
+  // a layout engine used to provide.
+  console.log("\nwrapping assertions:");
+  await assertNoOverflow("ticket-sample", order);
+  await assertNoOverflow("ticket-sample-reprint", order, true);
+  await assertNoOverflow("ticket-sample-long", long);
+  await assertNoOverflow("ticket-sample-torture", torture);
+  console.log("  all lines within their columns and inside 576px ✓");
 
   // Report what the override lookup actually resolved, so a missing 中文 is
   // visible in the build log too and not only on the paper.
