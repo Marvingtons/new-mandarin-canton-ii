@@ -76,25 +76,26 @@
 		"TIP_PRESETS": "",
 		"CLOUDPRNT_BUZZER": "off"
 	},
-	"hyperdrive": [
-		{
-			"binding": "HYPERDRIVE",
-			"id": "1011a8a541654fc09428eaa9708eb094"
-		}
-	]
-	// ---------------------------------------------------------------------
-	// Hyperdrive — added in Phase 3. Create it first, then paste the id:
+	// Hyperdrive — created with:
 	//   wrangler hyperdrive create nmc-db --connection-string="<supabase DIRECT/session string>"
 	// NOTE: give Hyperdrive Supabase's DIRECT (port 5432) string, NOT the
 	// :6543 transaction pooler. Hyperdrive IS the pool; pooler-behind-pooler
 	// breaks prepared statements.
 	//
-	// "hyperdrive": [
-	//   {
-	//     "binding": "HYPERDRIVE",
-	//     "id": "<hyperdrive-id>",
-	//     "localConnectionString": "postgresql://..."  // local `wrangler dev` only
-	//   }
-	// ]
-	// ---------------------------------------------------------------------
+	// `localConnectionString` is REQUIRED even for a build. next.config.ts calls
+	// initOpenNextCloudflareForDev(), which stands up Miniflare while `next
+	// build` runs; with a Hyperdrive binding and no local string it aborts with
+	// "you should use a local Postgres connection string to emulate Hyperdrive
+	// functionality" and takes `build:cf` down with it. The value below is a
+	// PLACEHOLDER that is never connected to during a build — set the real local
+	// database in .dev.vars as CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE,
+	// which overrides this. No real credential belongs in this file; it is
+	// committed and carries nothing secret.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "1011a8a541654fc09428eaa9708eb094",
+			"localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
+		}
+	]
 }
