@@ -3,7 +3,11 @@ import { z } from "zod";
 import { getMenu } from "@/lib/menu/source";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
 import { taxCents } from "@/lib/money";
-import { orderCaps, publicTenant } from "@/config/tenant.server";
+import {
+  orderCaps,
+  publicTenant,
+  verifiedPhoneTtlDays,
+} from "@/config/tenant.server";
 import { isValidPickup, pickupLabel, type PickupOptions } from "@/lib/order/pickup";
 import {
   closedMessage,
@@ -16,7 +20,10 @@ import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
-import { readVerifiedPhoneFromRequest } from "@/lib/otp/session";
+import {
+  readRememberedPhoneFromRequest,
+  readVerifiedPhoneFromRequest,
+} from "@/lib/otp/session";
 import { normalizePhone } from "@/lib/phone";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
@@ -89,7 +96,16 @@ export async function POST(request: Request): Promise<Response> {
   if (!limit.ok) return rateLimitResponse(limit);
 
   // 1. Proof of phone, before anything else. No token, no order.
-  const verified = readVerifiedPhoneFromRequest(request);
+  //
+  //    Two ways to hold that proof, both server-verified signatures over the
+  //    same E.164 number: the 15-minute token from this session's OTP, or the
+  //    long-lived cookie from a number this browser has proved before. The
+  //    remembered one caches VERIFICATION and nothing else — the per-phone
+  //    daily cap below counts against the number in the database and does not
+  //    care which cookie got us here.
+  const verified =
+    readVerifiedPhoneFromRequest(request) ??
+    readRememberedPhoneFromRequest(request, verifiedPhoneTtlDays());
   if (!verified) {
     return bad(
       "Please verify your phone number before ordering. · 下單前請先驗證電話號碼。",

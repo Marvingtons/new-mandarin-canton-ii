@@ -2,7 +2,8 @@ import { phonesSentence } from "@/data/restaurant";
 import { z } from "zod";
 import { normalizePhone, phoneErrorMessage, phoneLast4 } from "@/lib/phone";
 import { checkVerification } from "@/lib/otp/twilio";
-import { setVerifiedCookie } from "@/lib/otp/session";
+import { setRememberCookie, setVerifiedCookie } from "@/lib/otp/session";
+import { verifiedPhoneTtlDays } from "@/config/tenant.server";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
 
@@ -59,6 +60,9 @@ export async function POST(request: Request): Promise<Response> {
   switch (result.status) {
     case "approved":
       await setVerifiedCookie(phone.e164);
+      // Returning customers should not re-verify every visit. Separate cookie,
+      // separate signature domain, separate lifetime — see session.ts.
+      await setRememberCookie(phone.e164, verifiedPhoneTtlDays());
       return Response.json({ ok: true, last4: phoneLast4(phone.e164) });
 
     case "rejected":

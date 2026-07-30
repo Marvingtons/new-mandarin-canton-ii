@@ -57,6 +57,13 @@ TWILIO_MESSAGING_FROM=
 # Owner's mobile, E.164. Unset = the unprinted-order alert silently no-ops.
 OWNER_ALERT_PHONE=
 
+# How long a browser stays "already verified" for a number it has proved, so
+# returning customers skip the SMS. Default 90. Set 0 to switch the feature off
+# entirely — no cookie is issued, and any already out there is refused. Caches
+# VERIFICATION only: the per-phone daily cap and every other limit are counted
+# against the number in the database and are unaffected.
+VERIFIED_PHONE_TTL_DAYS=90
+
 # --- Public config --------------------------------------------------------
 # Mirrors the `vars` block in wrangler.jsonc, repeated here so local dev
 # behaves like production without editing that file.

@@ -134,6 +134,43 @@ export default function Checkout({
   const isVerified =
     verifiedPhone !== null && phoneCheck.e164 === verifiedPhone;
 
+  /**
+   * Returning customers skip the SMS.
+   *
+   * The remember cookie is httpOnly, so this cannot read it — it asks the
+   * server whether THIS number is already proved by THIS browser. Purely to
+   * decide what to show: /api/orders re-checks the same cookie itself, so a
+   * client that lied here would simply be rejected at submit.
+   *
+   * Fires once per complete number. Changing the number re-asks for the new
+   * one, and a number the browser has not proved just falls through to the
+   * normal Send code flow.
+   */
+  const askedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const e164 = phoneCheck.ok ? phoneCheck.e164 : null;
+    if (!e164 || verifiedPhone === e164 || askedRef.current === e164) return;
+    askedRef.current = e164;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/otp/status", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ phone: e164 }),
+        });
+        const data = (await res.json()) as { ok: boolean; verified?: boolean };
+        if (!cancelled && res.ok && data.verified) setVerifiedPhone(e164);
+      } catch {
+        /* offline or blocked — the customer just verifies by SMS as before */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phoneCheck.ok, phoneCheck.e164, verifiedPhone]);
+
   const sendCode = useCallback(async () => {
     setError(null);
     setNotice(null);

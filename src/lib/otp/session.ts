@@ -94,6 +94,115 @@ export function readToken(
   return { e164, verifiedAt };
 }
 
+/* --------------------------------------------------- remembered numbers -- */
+
+/**
+ * The long-lived "this browser already proved this number" cookie.
+ *
+ * Separate cookie, separate lifetime, separate SIGNATURE DOMAIN. It reuses
+ * OTP_SIGNING_SECRET rather than adding a variable — one more secret to set is
+ * one more to forget, and a forgotten one here fails open into "nobody is ever
+ * remembered", which is silent — but it is domain-separated by signing
+ * `remember-v1.<payload>` instead of the payload alone.
+ *
+ * That separation is load-bearing: without it the two token formats are close
+ * enough that a 15-minute order token could be pasted into this cookie and be
+ * honoured for 90 days. With it, a signature made for one is meaningless to the
+ * other.
+ *
+ * Payload: `<e164>.<issuedAt>.<hmac>`. Age is checked against the CURRENT TTL
+ * rather than baked in, so shortening VERIFIED_PHONE_TTL_DAYS retroactively
+ * expires cookies already out there instead of honouring their old promise.
+ */
+const REMEMBER_COOKIE = "nmc_verified";
+const REMEMBER_DOMAIN = "remember-v1";
+
+function rememberSign(payload: string): string {
+  return createHmac("sha256", signingKey())
+    .update(`${REMEMBER_DOMAIN}.${payload}`)
+    .digest("hex");
+}
+
+export function mintRememberToken(e164: string, now: number = Date.now()): string {
+  const payload = `${e164}.${now}`;
+  return `${payload}.${rememberSign(payload)}`;
+}
+
+/**
+ * Verify a remember token and return the number it binds, or null.
+ *
+ * `ttlDays` of 0 disables the feature outright — every token is refused, which
+ * is what makes VERIFIED_PHONE_TTL_DAYS=0 a real off switch rather than a
+ * shorter leash.
+ */
+export function readRememberToken(
+  token: string | undefined,
+  ttlDays: number,
+  now: number = Date.now(),
+): VerifiedPhone | null {
+  if (!token || ttlDays <= 0) return null;
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [e164, issuedAtRaw, mac] = parts;
+
+  if (!safeEqual(mac, rememberSign(`${e164}.${issuedAtRaw}`))) return null;
+
+  const issuedAt = Number.parseInt(issuedAtRaw, 10);
+  if (!Number.isFinite(issuedAt)) return null;
+  // A future-dated token is a clock problem or a forgery attempt; either way
+  // it is not evidence of anything.
+  if (issuedAt > now) return null;
+  if (now - issuedAt > ttlDays * 86_400_000) return null;
+
+  return { e164, verifiedAt: issuedAt };
+}
+
+/** Set the 90-day cookie. No-op when the feature is switched off. */
+export async function setRememberCookie(
+  e164: string,
+  ttlDays: number,
+): Promise<void> {
+  if (ttlDays <= 0) return;
+  const store = await cookies();
+  store.set(REMEMBER_COOKIE, mintRememberToken(e164), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: ttlDays * 86_400,
+  });
+}
+
+/**
+ * The remembered number for this request, or null.
+ *
+ * Decodes for the same reason readVerifiedPhoneFromRequest does: the payload
+ * starts with "+" and Next percent-encodes cookie values on the way out.
+ */
+export function readRememberedPhoneFromRequest(
+  request: Request,
+  ttlDays: number,
+): VerifiedPhone | null {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name !== REMEMBER_COOKIE) continue;
+    const raw = rest.join("=");
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      /* fall through to the raw form */
+    }
+    return (
+      readRememberToken(decoded, ttlDays) ?? readRememberToken(raw, ttlDays)
+    );
+  }
+  return null;
+}
+
 export async function setVerifiedCookie(e164: string): Promise<void> {
   const store = await cookies();
   store.set(COOKIE_NAME, mintToken(e164), {

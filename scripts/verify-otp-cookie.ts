@@ -19,7 +19,14 @@
 // header in production. Untyped, so the shape is asserted at the call site.
 // @ts-expect-error — no declaration file ships with the vendored copy.
 import cookieLib from "next/dist/compiled/cookie/index.js";
-import { mintToken, readVerifiedPhoneFromRequest } from "../src/lib/otp/session";
+import {
+  mintRememberToken,
+  mintToken,
+  readRememberedPhoneFromRequest,
+  readRememberToken,
+  readToken,
+  readVerifiedPhoneFromRequest,
+} from "../src/lib/otp/session";
 import { normalizePhone } from "../src/lib/phone";
 
 process.env.OTP_SIGNING_SECRET ??= "test-secret-for-cookie-round-trip";
@@ -114,6 +121,74 @@ function main(): void {
     null,
   );
   check("no cookie at all", readVerifiedPhoneFromRequest(new Request("https://example.test/")), null);
+
+  /* ------------------------------- remembered numbers (90-day cookie) -- */
+  const TTL = 90;
+  const DAY = 86_400_000;
+  console.log("\nremembered-number cookie:");
+
+  const remember = mintRememberToken(E164);
+  check("round-trips", readRememberToken(remember, TTL)?.e164, E164);
+  check(
+    "survives percent-encoding, like the order token",
+    readRememberedPhoneFromRequest(
+      new Request("https://example.test/", {
+        headers: {
+          cookie: (cookieLib as { serialize: (n: string, v: string) => string })
+            .serialize("nmc_verified", remember),
+        },
+      }),
+      TTL,
+    )?.e164,
+    E164,
+  );
+  check(
+    "tampered signature rejected",
+    readRememberToken(remember.slice(0, -1) + "0", TTL),
+    null,
+  );
+  check(
+    "tampered PHONE rejected (signature covers it)",
+    readRememberToken(remember.replace(E164, "+16195550148"), TTL),
+    null,
+  );
+  check(
+    "expired rejected (91 days old)",
+    readRememberToken(mintRememberToken(E164, Date.now() - 91 * DAY), TTL),
+    null,
+  );
+  check(
+    "89 days old still valid",
+    readRememberToken(mintRememberToken(E164, Date.now() - 89 * DAY), TTL)?.e164,
+    E164,
+  );
+  check(
+    "shortening the TTL retroactively expires it",
+    readRememberToken(mintRememberToken(E164, Date.now() - 30 * DAY), 7),
+    null,
+  );
+  check("TTL 0 disables the feature", readRememberToken(remember, 0), null);
+  check("future-dated rejected", readRememberToken(mintRememberToken(E164, Date.now() + DAY), TTL), null);
+
+  // Domain separation: the two token families must not be interchangeable.
+  check(
+    "a 15-min order token is NOT a valid remember token",
+    readRememberToken(mintToken(E164), TTL),
+    null,
+  );
+  check(
+    "a remember token is NOT a valid order token",
+    readToken(remember),
+    null,
+  );
+
+  console.log("\ndifferent number requires fresh OTP:");
+  const rememberedOther = readRememberToken(mintRememberToken("+16195550148"), TTL);
+  check(
+    "cookie for another number does not verify this one",
+    rememberedOther?.e164 === E164,
+    false,
+  );
 
   console.log(
     failures === 0

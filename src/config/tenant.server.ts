@@ -321,6 +321,21 @@ export function cronSecret(): string | null {
 }
 
 /**
+ * How long a browser stays "already verified" for a number it has proved.
+ *
+ * Caches VERIFICATION only. The per-phone daily cap, the rate limits and every
+ * other control are counted in the database against the E.164 number and are
+ * completely untouched by this — a remembered customer is capped exactly like
+ * a freshly verified one.
+ *
+ * 0 turns the feature off: no cookie is set, and any already issued is refused.
+ */
+export function verifiedPhoneTtlDays(): number {
+  const days = intEnv("VERIFIED_PHONE_TTL_DAYS", 90);
+  return Number.isFinite(days) && days > 0 ? days : 0;
+}
+
+/**
  * Key that lets a request skip the ORDER TIME gates. See lib/order/bypass.ts.
  *
  * Read leniently, and unset is the normal production state: no value means no
