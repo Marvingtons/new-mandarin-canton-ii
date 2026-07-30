@@ -208,9 +208,22 @@ export default function Checkout({
 
       const data = (await res.json()) as
         | ({ ok: true } & LastOrder)
-        | { ok: false; error: string };
+        | { ok: false; error: string; reason?: string };
 
       if (!res.ok || !data.ok) {
+        // The server is the only authority on whether this browser is
+        // verified. If it says no, our "✓ Number verified" badge is stale and
+        // must go — showing it beside "Please verify your phone number" is the
+        // contradiction that made this bug so hard to report. Keyed off the
+        // machine-readable `reason`, never the bilingual prose.
+        if (
+          "reason" in data &&
+          (data.reason === "phone_unverified" || data.reason === "phone_mismatch")
+        ) {
+          setVerifiedPhone(null);
+          setVerify("idle");
+          setCode("");
+        }
         setError(
           ("error" in data && data.error) ||
             "We couldn't place your order. Please try again.",

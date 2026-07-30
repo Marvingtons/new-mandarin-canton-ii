@@ -116,7 +116,22 @@ export async function readVerifiedPhone(): Promise<VerifiedPhone | null> {
   return readToken(store.get(COOKIE_NAME)?.value);
 }
 
-/** Same, for route handlers reading the raw Request. */
+/**
+ * Same, for route handlers reading the raw Request.
+ *
+ * THE VALUE IS PERCENT-ENCODED ON THE WIRE and must be decoded here.
+ *
+ * The token's first field is an E.164 number, so it starts with "+", and
+ * Next's cookie serializer encodes the value on the way out: the browser
+ * stores `%2B18582077770.<issued>.<expires>.<hmac>`. `cookies().get()` decodes
+ * on the way back in, which is why readVerifiedPhone() above never noticed —
+ * but this function parses the raw header, and without a decode the payload it
+ * verifies ("%2B1858…") is not the payload that was signed ("+1858…"). The
+ * HMAC then fails for every order, and the customer sees the checkout claim
+ * "✓ Number verified" while the server answers "Please verify your phone
+ * number before ordering". Both were true: the code WAS verified, and this
+ * function could not prove it.
+ */
 export function readVerifiedPhoneFromRequest(
   request: Request,
 ): VerifiedPhone | null {
@@ -124,7 +139,17 @@ export function readVerifiedPhoneFromRequest(
   if (!header) return null;
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === COOKIE_NAME) return readToken(rest.join("="));
+    if (name !== COOKIE_NAME) continue;
+    const raw = rest.join("=");
+    // Tolerate both forms. A malformed percent-escape must not throw here —
+    // an unparseable cookie is "not verified", not a 500.
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      /* leave it raw; readToken will reject it if it is genuinely broken */
+    }
+    return readToken(decoded) ?? readToken(raw);
   }
   return null;
 }

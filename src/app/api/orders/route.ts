@@ -68,8 +68,20 @@ const BodySchema = z
   })
   .strict(); // a top-level `amount`/`total`/`phoneVerified` is a hard reject
 
-function bad(message: string, status = 400) {
-  return Response.json({ ok: false, error: message }, { status });
+/**
+ * Machine-readable rejection reasons.
+ *
+ * The customer-facing string is bilingual prose and will be reworded; a client
+ * that has to decide whether its own "✓ verified" badge is still true cannot
+ * key off prose. Only the cases a client must REACT to get a code.
+ */
+export type OrderRejection = "phone_unverified" | "phone_mismatch";
+
+function bad(message: string, status = 400, reason?: OrderRejection) {
+  return Response.json(
+    reason ? { ok: false, error: message, reason } : { ok: false, error: message },
+    { status },
+  );
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -82,6 +94,7 @@ export async function POST(request: Request): Promise<Response> {
     return bad(
       "Please verify your phone number before ordering. · 下單前請先驗證電話號碼。",
       401,
+      "phone_unverified",
     );
   }
 
@@ -100,6 +113,7 @@ export async function POST(request: Request): Promise<Response> {
     return bad(
       "That phone number doesn't match the one you verified. · 電話號碼與已驗證的號碼不符。",
       403,
+      "phone_mismatch",
     );
   }
   const phoneE164 = verified.e164;
