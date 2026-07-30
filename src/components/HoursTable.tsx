@@ -69,6 +69,9 @@ export default function HoursTable({
   const today = useToday();
   const dark = tone === "dark";
   const pad = dense ? "py-1.5" : "py-2.5";
+  // Every row the same height whatever it holds, so the week reads as a
+  // rhythm and the highlighted row doesn't nudge the ones under it.
+  const rowH = dense ? "h-9" : "h-12";
 
   return (
     <table className={`w-full border-collapse text-sm ${className}`}>
@@ -80,7 +83,7 @@ export default function HoursTable({
           return (
             <tr
               key={day}
-              className={`${dark ? "border-ivory/10" : "border-ink/10"} border-b ${
+              className={`${rowH} ${dark ? "border-ivory/10" : "border-ink/10"} border-b ${
                 isToday ? "bg-gold/15" : ""
               }`}
             >
@@ -104,7 +107,7 @@ export default function HoursTable({
                 )}
               </th>
               <td
-                className={`${pad} pr-2 text-right ${dark ? "text-ivory/80" : "text-ink/80"}`}
+                className={`${pad} whitespace-nowrap pr-2 text-right tabular-nums ${dark ? "text-ivory/80" : "text-ink/80"}`}
               >
                 {h.closed ? "Closed" : `${h.open} – ${h.close}`}
               </td>
