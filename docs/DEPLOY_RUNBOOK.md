@@ -26,6 +26,12 @@ console.twilio.com → Messaging → Regulatory Compliance → A2P 10DLC.
    - **Not** the files in `src/lib/db/migrations/`. Those upgrade an existing
      older database. This project is fresh, so `schema.sql` already contains
      everything they would add — including `alert_attempts` from `002`.
+
+   ⚠️ **An ALREADY-DEPLOYED database needs `004_print_segments.sql` before the
+   next deploy, not after.** The print path selects `print_segment` and
+   `print_segments` on every job GET and every DELETE confirmation; without
+   those columns the GET renders no ticket and the DELETE cannot mark an order
+   PRINTED. Migrations are `add column if not exists` and safe to re-run.
 3. Copy the **pooled** connection string:
    Project Settings → Database → Connection string → **Transaction pooler**.
    - It must contain **port `6543`**, not `5432`. The direct port exhausts
