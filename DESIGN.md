@@ -41,7 +41,7 @@ small-caps labels, and at most one filled button per page.
 
 ## Per-page layout
 
-**Home** — full-bleed 100svh video hero (`HeroVideo.tsx`): /hero.mp4
+**Home** — full-bleed 100svh video hero (`HeroVideo.tsx`): newmandarincanton-hero.mp4, served from R2
 when footage exists (src flag currently null), today a lacquer-to-black
 poster still (`/hero-poster.jpg`) with a 30s Ken Burns drift and a
 giant 富源 watermark at 5% ivory. Ink scrim (0 → 0.62) keeps bottom

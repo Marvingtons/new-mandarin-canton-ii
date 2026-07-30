@@ -11,12 +11,18 @@ import { restaurant } from "@/data/restaurant";
 import { ORDER_DIRECT_NOTE } from "@/data/order";
 
 /**
- * Hero footage: /public/hero.mp4 (10s muted loop, 1080p from the 4K
- * master, ~3.7 MB, faststart). /public/hero-poster.jpg is its first
- * frame, so the poster-to-video handoff is seamless. Set to null to
+ * Hero footage, served from R2 rather than /public: 10s muted loop,
+ * 1920x1080 h264, 3,680,241 bytes, faststart. Keeping 3.7 MB of video
+ * out of the Worker bundle is the point — it was in `public/` until
+ * this moved.
+ *
+ * /public/hero-poster.jpg is frame 0 of THIS file (verified: same
+ * 1920x1080, same wok-flame frame), so the poster-to-video handoff is
+ * seamless and nothing shifts when the video arrives. Set to null to
  * fall back to the poster-only hero without requesting the file.
  */
-const HERO_VIDEO_SRC: string | null = "/hero.mp4";
+const HERO_VIDEO_SRC: string | null =
+  "https://pub-364f647b29874b09922e1889f267c323.r2.dev/newmandarincanton-hero.mp4";
 
 /**
  * After the preloader lifts, the footage plays full-bleed with no text
@@ -169,6 +175,12 @@ export default function HeroVideo() {
 
       {video === "on" && HERO_VIDEO_SRC && (
         <>
+          {/* autoPlay is the belt to the effect's braces: the unveil
+              effect is what starts playback from frame 0, but if that
+              effect never runs the footage still plays rather than
+              freezing on the poster. preload="auto" is required here —
+              this copy must be buffered by the time the overlay lifts
+              (~1.35s), and "metadata" would stall the unveil. */}
           <video
             ref={videoARef}
             className="hero-video absolute inset-0 h-full w-full object-cover"
@@ -176,12 +188,17 @@ export default function HeroVideo() {
             poster="/hero-poster.jpg"
             muted
             loop
+            autoPlay
             playsInline
             preload="auto"
             onError={() => setVideo("failed")}
           />
-          {/* standby copy for the loop-seam crossfade; absolute, so
-              mounting it causes no layout shift */}
+          {/* Standby copy for the loop-seam crossfade; absolute, so
+              mounting it causes no layout shift. Not needed until the
+              first seam ~9.4s in, so it only takes metadata up front —
+              one 3.7 MB fetch on load, not two. No autoPlay: this copy
+              is played by the crossfade, and playing it on mount would
+              run both videos at once. */}
           <video
             ref={videoBRef}
             className="hero-video absolute inset-0 h-full w-full object-cover"
@@ -189,7 +206,7 @@ export default function HeroVideo() {
             muted
             loop
             playsInline
-            preload="auto"
+            preload="metadata"
             aria-hidden="true"
             tabIndex={-1}
             style={{ opacity: 0 }}
