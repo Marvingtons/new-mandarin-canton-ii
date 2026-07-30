@@ -81,3 +81,20 @@ CLOUDPRNT_BUZZER=off
 
 # Optional. Pins the printer by MAC/serial; unset accepts any printer.
 CLOUDPRNT_PRINTER_MAC=
+
+# --- Print patience -------------------------------------------------------
+# How long the server waits on the printer before giving up on a job, and how
+# long after giving up it will still believe a confirmation. All optional; the
+# defaults below are the built-in ones.
+#
+# PRINT_OFFER_CAP counts POLLS, not seconds — at this printer's ~3s polling,
+# 40 is about two minutes. It was 10 (~30s), which was shorter than one slow
+# pass over a tall ticket, so orders were being retired while their paper was
+# still coming out.
+PRINT_OFFER_CAP=40
+# Render failures before an order is condemned. Low on purpose: a render
+# failure is usually a bug, not a blip.
+PRINT_RENDER_CAP=3
+# Seconds after the offer cap retires a job during which its confirmation is
+# still honoured as a print. 0 logs late confirmations but never honours them.
+LATE_CONFIRMATION_GRACE_SECONDS=300

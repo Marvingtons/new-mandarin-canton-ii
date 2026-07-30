@@ -343,6 +343,68 @@ export function ticketCopies(): number {
   return Number.isFinite(n) && n >= 1 ? Math.min(n, 5) : 2;
 }
 
+/* ------------------------------------------------------- print patience --- */
+
+/**
+ * Unconfirmed offers of the SAME job before we stop offering it.
+ *
+ * This counts polls, not paper. Star documents no job lifetime and no required
+ * polling interval that would give this a principled value, so the honest
+ * justification is arithmetic against observed behaviour rather than a citation:
+ * this printer polls roughly every 3 seconds, so the number is a patience in
+ * seconds divided by three.
+ *
+ * 40 ≈ two minutes. The old 10 was ≈ thirty seconds, which is less than one
+ * slow thermal pass over a tall ticket plus the firmware's own cycle — we were
+ * giving up while the paper was still moving, and an order died of impatience
+ * with A-003's confirmation already in flight. Two minutes is long enough that
+ * exhausting it means something is actually wrong (jam, cover open, out of
+ * paper), which is when the kitchen board is the better answer than more
+ * retries.
+ *
+ * Split tickets are counted per PIECE, not per order: advancePrintSegment
+ * resets the counter on every confirmed piece, so a five-piece job gets the
+ * full allowance five times rather than sharing one.
+ */
+export function printOfferCap(): number {
+  const n = intEnv("PRINT_OFFER_CAP", 40);
+  // At least 1, or nothing would ever be offered twice.
+  return Number.isFinite(n) && n >= 1 ? n : 40;
+}
+
+/**
+ * Attempts at which a RENDER failure stops being treated as transient.
+ *
+ * Deliberately far lower than the offer cap: a render failure is usually our
+ * bug, and the point of retrying at all is only to survive a cold-start OOM or
+ * a resource blip, not to grind against a template that cannot render.
+ */
+export function printRenderCap(): number {
+  const n = intEnv("PRINT_RENDER_CAP", 3);
+  return Number.isFinite(n) && n >= 1 ? n : 3;
+}
+
+/**
+ * How long after giving up on a job we will still believe its confirmation.
+ *
+ * A DELETE naming a job we have already retired means the paper came out after
+ * our patience ran out — the print was slower than we were, which is our
+ * misjudgement and not the printer's failure. Inside this window we honour it;
+ * outside it we log and leave the order failed, because by then staff have had
+ * time to act on the board and a very old confirmation is likelier to be a
+ * replay than news.
+ *
+ * Five minutes, not the ~1 minute the offer cap represents, and deliberately
+ * longer than the cap: the whole reason to widen the cap is that printing can
+ * take longer than we assumed, so the window that catches our remaining
+ * misjudgement has to be wider still.
+ */
+export function lateConfirmationGraceSeconds(): number {
+  const n = intEnv("LATE_CONFIRMATION_GRACE_SECONDS", 300);
+  // 0 disables honouring late confirmations; they are still logged.
+  return Number.isFinite(n) && n >= 0 ? n : 300;
+}
+
 export function verifiedPhoneTtlDays(): number {
   const days = intEnv("VERIFIED_PHONE_TTL_DAYS", 90);
   return Number.isFinite(days) && days > 0 ? days : 0;
