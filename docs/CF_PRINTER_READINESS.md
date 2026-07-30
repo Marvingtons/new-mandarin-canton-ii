@@ -15,10 +15,17 @@ checked against reality; disagreements are listed.
 2. **It will deploy. It will not serve a ticket.** The Hyperdrive binding is
    commented out ([wrangler.jsonc:90-97](../wrangler.jsonc#L90)), so on Workers
    there is **no database at all** — every order/print route 503s or 500s.
-3. **Two additional Workers-breakers are live**, both filesystem reads that
-   only fail on workerd: the three `next/og` icon routes
-   ([icon.tsx:15](../src/app/icon.tsx#L15), apple-icon, opengraph-image).
-   Confirmed 500 under `wrangler dev`.
+3. ~~**Two additional Workers-breakers are live**, both filesystem reads that
+   only fail on workerd: the three `next/og` icon routes (`icon.tsx`,
+   `apple-icon`, `opengraph-image`). Confirmed 500 under `wrangler dev`.~~
+   **FIXED.** Those three routes are gone. The images never depended on the
+   request, so they are pre-rendered to committed PNGs
+   (`src/app/icon.png`, `apple-icon.png`, `opengraph-image.png`) by
+   `npm run build:app-icons` and served by Next's static metadata
+   conventions. No `fs` call and no `next/og` render remains on any request
+   path; the built worker no longer references the seal SVG at all, and
+   `@vercel/og`'s `yoga.wasm` has left the bundle with it. Verified 200 +
+   `image/png` under `wrangler dev`.
 4. **Ticket rendering on Workers is UNVERIFIED**, not proven broken. An earlier
    failure was against a since-replaced implementation. See Phase 1.
 5. **From this tree, a printed ticket is blocked on the Hyperdrive binding**,
@@ -101,8 +108,10 @@ Honest status: **unproven either way.** What was actually observed today under
 `wrangler dev`:
 
 - `/` → 200
-- `/icon`, `/opengraph-image` → 500, `no such file or directory, readAll
-  '/bundle/public/brand/fu-yuan-seal.svg'`
+- ~~`/icon`, `/opengraph-image` → 500, `no such file or directory, readAll
+  '/bundle/public/brand/fu-yuan-seal.svg'`~~ — since fixed; they are static
+  files now, and `/icon.png`, `/apple-icon.png` and `/opengraph-image.png`
+  each return 200 `image/png` under `wrangler dev`
 - `/api/print/localtest` → 500, `No Postgres connection available` — the
   renderer was **never reached**
 
