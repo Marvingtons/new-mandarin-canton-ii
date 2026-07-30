@@ -616,17 +616,6 @@ body {
 .spt-small:focus-visible .spt-sm-name {
   color: var(--lacquer);
 }
-/* Review card: quieter — the gold rule under the quote extends */
-.kw-rule {
-  width: 2rem;
-  height: 1px;
-  background: var(--gold);
-  transform-origin: left;
-  transition: transform var(--t-fast) var(--ease-out-soft);
-}
-.kw-card:hover .kw-rule {
-  transform: scaleX(1.375); /* ~+12px on the 32px rule */
-}
 /* Nav links: gold underline slides in from the left */
 .nav-link {
   position: relative;
@@ -769,7 +758,6 @@ body {
     transition: none;
   }
   /* hover transforms off; color/opacity hover changes stay */
-  .kw-rule,
   .nav-link::after,
   .cat-link::after,
   .brand-seal,
@@ -781,7 +769,6 @@ body {
   .spt-plate-body {
     transition: none;
   }
-  .kw-card:hover .kw-rule,
   .brand-link:hover .brand-seal,
   .arrow-link:hover .arrow,
   .spt-btn:hover,

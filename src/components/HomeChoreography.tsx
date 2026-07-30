@@ -71,12 +71,11 @@ export default function HomeChoreography() {
             0,
           )
           // gone by 60% of the exit
-          .to("[data-hero-text]", { opacity: 0, duration: 0.6 }, 0)
-          .to(
-            "[data-hero-ghost]",
-            { y: () => window.innerHeight * 0.25, xPercent: 2, duration: 1 },
-            0,
-          );
+          .to("[data-hero-text]", { opacity: 0, duration: 0.6 }, 0);
+        // A fifth layer used to ride this scrub: [data-hero-ghost], the
+        // 富源 watermark floating over the footage. The seal is down to its
+        // two sanctioned uses (divider ornament, placeholder watermark), so
+        // the element — and its tween — are gone.
 
         // Header transparent→solid rides the same trigger, not its own
         // scroll listener.
@@ -335,18 +334,10 @@ export default function HomeChoreography() {
         loops.push(...steamRise(spt.querySelectorAll("[data-steam-wisp]")));
       }
 
-      /* ---- SCENE 6: seal signature — the closing echo ---- */
-      const sig = document.querySelector<HTMLElement>("[data-seal-sig]");
-      if (sig) {
-        sealStamp(sig.querySelector("svg"), {
-          trigger: sig,
-          start: START.enter,
-          ring: sig.querySelector("[data-seal-ring]"),
-          from: 1.3,
-          rotation: -6,
-          duration: 0.4,
-        });
-      }
+      /* ---- SCENE 6 is gone: it stamped a third seal ([data-seal-sig])
+         under the story copy as a signature. The seal keeps two uses —
+         the divider ornament stamped in SCENE 7, and the placeholder
+         watermark — so there is nothing left here to animate. ---- */
 
       /* ---- SCENE 7: gold dividers draw outward from centre, and the
          red chop presses in where the halves meet ---- */
@@ -391,12 +382,13 @@ export default function HomeChoreography() {
           revealRise(marked.length ? marked : group, { trigger: group });
         });
 
-      /* ---- utility fades: takeout strip + info band (once) ----
-         One trigger EACH — a shared trigger would fire the info band
-         when the takeout strip scrolled in, half a page earlier. */
-      document
-        .querySelectorAll<HTMLElement>("[data-plain-fade]")
-        .forEach((el) => revealRise(el, { y: 0, start: START.edge }));
+      /* The [data-plain-fade] pass that used to close this out fired on
+         the takeout strip and the info band, both of which are gone. The
+         contact band that replaced them lives in the footer, i.e. on
+         every page, and this choreography only mounts on the homepage —
+         animating it here would make the band behave one way on / and
+         another way everywhere else, which is the exact inconsistency
+         this pass is meant to remove. */
     });
 
     // Re-measure once fonts have swapped in — trigger/pin positions

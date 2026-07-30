@@ -1,35 +1,90 @@
-import Image from "next/image";
 import Link from "next/link";
 import SectionHeading from "@/components/SectionHeading";
 import CandleGlow from "@/components/CandleGlow";
-import Established from "@/components/Established";
 import FavoritesSpotlight from "@/components/FavoritesSpotlight";
 import GoldCorners from "@/components/GoldCorners";
 import GoldDivider from "@/components/GoldDivider";
 import HeroVideo from "@/components/HeroVideo";
+import HomeChoreography from "@/components/HomeChoreography";
 import IncenseSmoke from "@/components/IncenseSmoke";
 import MandarinCluster from "@/components/MandarinCluster";
-import HomeChoreography from "@/components/HomeChoreography";
-import OpenNowChip from "@/components/OpenNowChip";
 import Parallax from "@/components/Parallax";
 import PhotoFrame from "@/components/PhotoFrame";
-import Seal from "@/components/Seal";
-import TrustStrip from "@/components/TrustStrip";
 import { photos } from "@/data/images";
-import PhoneLinks from "@/components/PhoneLinks";
-import { phoneLinks, restaurant } from "@/data/restaurant";
-import { reviews } from "@/data/reviews";
 
+/**
+ * SECTION RHYTHM — cream → paper → cream → dark contact band → dark
+ * footer, and nothing else. Every background here is a token; no section
+ * leans on the body default. The contact band and footer are one unit and
+ * live in Footer.tsx, so the pattern closes the same way on every page.
+ *
+ * Four sections used to sit in this file that no longer do: a trust strip
+ * under the hero, a Kind Words review grid, a pinned lacquer statement
+ * band, and a takeout phone strip. They were the reason the page read as
+ * three sites — the lacquer band in particular was the only lacquer
+ * surface on the page, a background value with no partner. Their code is
+ * intact in git; HomeChoreography's statement-band scene (SCENE 4) is
+ * still there too, guarded on a null lookup, so restoring the band is
+ * putting the section back.
+ */
 export default function HomePage() {
-
   return (
     <>
       <HomeChoreography />
       <HeroVideo />
 
-      {/* Trust strip — a quiet band of at-a-glance signals. Only renders
-          facts confirmed in restaurant.ts (see TrustStrip). */}
-      <TrustStrip />
+      {/* OUR STORY — first, and directly against the hero. A 30-year
+          family room is the whole difference between this restaurant and a
+          takeout box, so it is the first thing after the footage rather
+          than something you find two thirds down.
+
+          It stays SHORT here: four sentences and the link out. The full
+          story belongs on /about.
+
+          This is the page's one asymmetric moment — copy running wide on
+          the left, the family frame hung offset on the right, dropping
+          below the heading's baseline. Everything else on the page is a
+          centred stack or an even grid, which is what lets this read as
+          composed rather than as a mistake. */}
+      <section className="bg-cream">
+        <div className="mx-auto max-w-5xl px-4 py-16">
+          <div className="grid items-start gap-10 md:grid-cols-[3fr_2fr]">
+            <div data-rise>
+              <SectionHeading en="Our Story" />
+              <p
+                data-rise-item
+                className="mt-7 max-w-xl leading-relaxed text-ink/80"
+              >
+                New Mandarin Canton II is a small, family-run room on
+                Telegraph Canyon Road — calligraphy on the walls, an altar by
+                the door with incense and fresh tangerines. Mandarin,
+                Szechuan and Cantonese dishes, cooked the way they have
+                always been. No reinvention. Just the food.
+              </p>
+              <p data-rise-item className="mt-6">
+                <Link
+                  href="/about"
+                  className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
+                >
+                  Read our story <span className="arrow">→</span>
+                </Link>
+              </p>
+            </div>
+            {/* The offset. Same frame and caption plate as The Room's
+                photos, so the family reads as one of them. */}
+            <Parallax className="md:mt-16">
+              <PhotoFrame
+                photo={photos.family}
+                sizes="(min-width: 768px) 40vw, 100vw"
+              />
+            </Parallax>
+          </div>
+        </div>
+      </section>
+
+      {/* A drawn hairline hands off from the story to the dishes, with the
+          mandarin as its quiet ornament */}
+      <GoldDivider withMandarin />
 
       {/* House Favorites — spotlight grid (heading, link, and controls
           live in the component's left rail). overflow-hidden crops the
@@ -40,24 +95,17 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* A drawn hairline hands off from the dishes to the room, with
-          the mandarin as its quiet ornament */}
-      <GoldDivider withMandarin />
-
       {/* The Room — the altar, and the page's emotional heart. Three
           layers by depth: candle light and incense BEHIND the grid, the
           grid itself, then the offering of mandarins in FRONT of it. */}
-      <section data-room className="relative overflow-hidden py-16">
+      <section data-room className="relative overflow-hidden bg-cream py-16">
         {/* ambient, behind everything */}
         <CandleGlow intensity={0.3} x="24%" y="54%" spread="64%" />
         <IncenseSmoke count={3} intensity={0.5} on="light" />
 
         <div className="relative mx-auto max-w-5xl px-4">
           <SectionHeading en="The Room" />
-          <p
-            data-rise
-            className="mt-6 max-w-xl leading-relaxed text-ink/70"
-          >
+          <p data-rise className="mt-6 max-w-xl leading-relaxed text-ink/70">
             Come in — the room is part of the meal.
           </p>
           <div className="mt-10 grid gap-6 sm:grid-cols-3">
@@ -73,11 +121,13 @@ export default function HomePage() {
             <PhotoFrame photo={photos.buddha} revealDelay={240} />
           </div>
 
-          {/* The heritage beat, inside a lattice-cornered plaque. The
-              line used to end "…since 1995"; the year came out with the
-              rest of the unsourced founding-date copy (see the
-              TODO(confirm) in restaurant.ts). What is left is only what
-              the room itself shows. */}
+          {/* The heritage beat, inside a lattice-cornered plaque. The line
+              used to end "…since 1995"; the year came out with the rest of
+              the unsourced founding-date copy (see the TODO(confirm) in
+              restaurant.ts). What is left is only what the room shows.
+
+              The Est./tenure lockup that used to sit under it now appears
+              once, in the footer. */}
           <div
             data-rise
             className="relative mx-auto mt-20 max-w-2xl px-8 text-center sm:mt-24"
@@ -90,7 +140,6 @@ export default function HomePage() {
               The altar by the door watches over the kitchen — oranges for
               fortune, incense for family.
             </p>
-            <Established withTenure className="mt-6 items-center" />
           </div>
         </div>
 
@@ -103,212 +152,11 @@ export default function HomePage() {
         />
       </section>
 
-      {/* Kind Words — the page's rest note, deliberately plain */}
-      <section className="mx-auto max-w-5xl px-4 py-16">
-        <SectionHeading en="Kind Words" />
-        <div data-rise className="mt-10 grid gap-6 sm:grid-cols-3">
-          {reviews.map((review) => (
-            <figure
-              key={review.id}
-              data-rise-item
-              className="kw-card border border-gold/30 bg-cream p-6"
-            >
-              <span
-                aria-hidden="true"
-                className="font-display text-4xl leading-none text-gold"
-              >
-                “
-              </span>
-              <blockquote className="mt-2 text-sm italic leading-relaxed text-ink/70">
-                {review.quote}
-              </blockquote>
-              <div aria-hidden="true" className="kw-rule mt-4" />
-              {review.attribution && (
-                <figcaption className="mt-3 text-xs uppercase tracking-[0.15em] text-ink/50">
-                  {review.attribution}
-                </figcaption>
-              )}
-            </figure>
-          ))}
-        </div>
-      </section>
-
-      {/* Statement band — the page's register change; pinned on
-          desktop by HomeChoreography, CSS two-beat entrance on mobile */}
-      <section
-        data-statement
-        className="relative overflow-hidden bg-lacquer text-ivory"
-      >
-        <div
-          aria-hidden="true"
-          className="absolute inset-0"
-          style={{
-            backgroundImage: "url('/bg-red.jpg')",
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-          }}
-        />
-        <div className="relative mx-auto max-w-4xl px-4 py-24 text-center sm:py-32">
-          {/* No scroll-reveal wrapper here — the pin sequence (desktop)
-              / two-beat timeline (mobile) IS this band's entrance. */}
-          <div data-st-lockup>
-            {/* The stamp target for SCENE 4's pin. It used to be 老味道;
-                the seal says the same thing without asking an English
-                reader to decode it — and the existing scale+rotation
-                stamp now reads as what it always looked like. */}
-            <span className="st-eyebrow">
-              <Seal size={54} />
-            </span>
-            <div aria-hidden="true" className="st-rule" />
-            <p className="st-line mt-5 font-display text-3xl leading-tight sm:text-5xl">
-              Cooked the way it&apos;s always been.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* About teaser */}
-      <section className="mx-auto max-w-5xl px-4 py-16">
-        <div className="grid items-center gap-10 md:grid-cols-[2fr_3fr]">
-          <Parallax>
-            <PhotoFrame
-              photo={photos.family}
-              sizes="(min-width: 768px) 40vw, 100vw"
-            />
-          </Parallax>
-          <div data-rise>
-            <SectionHeading en="Our Story" />
-            <p
-              data-rise-item
-              className="mt-7 max-w-xl leading-relaxed text-ink/80"
-            >
-              New Mandarin Canton II is a small, family-run room on Telegraph
-              Canyon Road — calligraphy on the walls, an altar by the door
-              with incense and fresh tangerines, and Mandarin, Szechuan &amp;
-              Cantonese dishes cooked the way they have always been. No
-              reinvention. Just the food.
-            </p>
-            <p data-rise-item className="mt-6">
-              <Link
-                href="/about"
-                className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
-              >
-                Read our story <span className="arrow">→</span>
-              </Link>
-            </p>
-            {/* seal signature — stamps in with a closing ink-ring echo */}
-            <div className="mt-8">
-              <span data-seal-sig className="relative inline-block">
-                <Seal size={40} />
-                <span
-                  data-seal-ring
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 rounded-[2px] border-2 border-lacquer opacity-0"
-                />
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* The page's one chop: the rule draws out and the seal presses in
-          where the halves meet. The ONLY red outside lacquer surfaces —
-          budget is two per page and this spends the second. */}
+          where the halves meet, handing off to the dark contact band. This
+          is the seal's sanctioned ornament use — the other is the
+          placeholder watermark, and there is no third. */}
       <GoldDivider withSeal className="py-4" />
-
-      {/* Takeout strip */}
-      {/* TODO: add DoorDash/Grubhub buttons if owners confirm */}
-      <section className="border-y border-gold/30 bg-paper">
-        <div
-          data-plain-fade
-          className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-5 text-xs uppercase tracking-[0.18em] text-ink/70"
-        >
-          <span>Call ahead</span>
-          <span aria-hidden="true" className="text-gold">
-            ·
-          </span>
-          <PhoneLinks
-            separator=" · "
-            className="font-semibold text-lacquer transition-colors hover:text-lacquer-dark"
-          />
-          <span aria-hidden="true" className="text-gold">
-            ·
-          </span>
-          <span>Pick up on Telegraph Canyon Rd</span>
-        </div>
-      </section>
-
-      {/* Info band, styled like a restaurant placard. When a storefront
-          photo lands in the manifest it becomes the ambient background
-          behind an ink overlay — no reveal animation here. */}
-      <section className="relative overflow-hidden bg-ink text-ivory">
-        {photos.storefront.src && (
-          <>
-            <Image
-              src={photos.storefront.src}
-              alt=""
-              fill
-              sizes="100vw"
-              className="object-cover"
-              aria-hidden="true"
-            />
-            <div aria-hidden="true" className="absolute inset-0 bg-ink/70" />
-          </>
-        )}
-        <div className="relative mx-auto max-w-5xl px-4 py-12">
-          <div
-            data-plain-fade
-            className="border border-gold/50 px-6 py-9 outline outline-offset-4 outline-gold/25 sm:px-10"
-          >
-            <div className="grid gap-8 text-center sm:grid-cols-3">
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-                  Hours
-                </h2>
-                <p className="mt-3 text-sm leading-relaxed text-ivory/85">
-                  Open 7 days · 11 AM to close
-                </p>
-                <div className="mt-3">
-                  <OpenNowChip />
-                </div>
-                <Link
-                  href="/contact"
-                  className="arrow-link token-colors mt-2 block text-sm text-gold-light hover:text-gold"
-                >
-                  Full hours <span className="arrow">→</span>
-                </Link>
-              </div>
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-                  Find Us
-                </h2>
-                <p className="mt-3 text-sm leading-relaxed text-ivory/85">
-                  {restaurant.address.street}
-                  <br />
-                  {restaurant.address.city}, {restaurant.address.state}{" "}
-                  {restaurant.address.zip}
-                </p>
-              </div>
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-                  Call
-                </h2>
-                <p className="mt-3 flex flex-col gap-1 font-display text-lg text-gold-light">
-                  {phoneLinks.map(({ phone, href }) => (
-                    <a
-                      key={phone}
-                      href={href}
-                      className="transition-colors hover:text-gold"
-                    >
-                      {phone}
-                    </a>
-                  ))}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
     </>
   );
 }

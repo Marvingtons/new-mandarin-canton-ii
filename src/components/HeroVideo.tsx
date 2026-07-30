@@ -34,10 +34,10 @@ const TEXT_DELAY_MS = 1200;
 const CROSSFADE_S = 0.6;
 
 /**
- * Full-bleed video hero (100svh). While there is no video — or if it
- * ever fails to load — the hero shows the poster still with a slow
- * Ken Burns drift and a giant 富源 watermark. Text staggers in only
- * after the intro overlay lifts (or immediately if it isn't mounted).
+ * Full-bleed video hero (100svh). While there is no video — if it fails to
+ * load, or under prefers-reduced-motion, where one is never mounted — the
+ * hero shows the poster still with a slow Ken Burns drift. Text staggers
+ * in only after the intro overlay lifts (or immediately without one).
  */
 export default function HeroVideo() {
   /** True the moment the intro overlay lifts (or at once without one). */
@@ -46,8 +46,6 @@ export default function HeroVideo() {
   const [video, setVideo] = useState<"pending" | "on" | "failed">("pending");
   const videoARef = useRef<HTMLVideoElement>(null);
   const videoBRef = useRef<HTMLVideoElement>(null);
-  // The ghost watermark's scroll drift now lives in HomeChoreography's
-  // hero-exit scrub ([data-hero-ghost]).
 
   // Choreography step 1: detect the unveil. Safety timeout so a
   // stalled overlay can never strand the hero.
@@ -150,27 +148,20 @@ export default function HeroVideo() {
       {/* All media surfaces share one wrapper so the hero-exit scrub
           can push into them together */}
       <div data-hero-media className="absolute inset-0">
-      {/* Placeholder still — also sits beneath the video when enabled */}
+      {/* Poster still. This is also, unchanged, what a
+          prefers-reduced-motion visitor sees: no video is ever mounted for
+          them (see the gate below) and .hero-kenburns has its animation
+          removed, so the hero resolves to this static frame.
+
+          A 32svh 富源 watermark used to float on the right here. The seal
+          now has exactly two homes — the divider ornament and the
+          placeholder watermark — and a floating mark over the footage was
+          neither. The lockup in the header is a few pixels above it. */}
       <div aria-hidden="true" className="absolute inset-0">
         <div
           className="hero-kenburns absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: "url('/hero-poster.jpg')" }}
-        >
-          {restaurant.chineseName && (
-            <span
-              data-hero-ghost
-              lang="zh-Hant"
-              className="absolute right-[4%] top-1/2 -translate-y-1/2 select-none font-chinese font-bold leading-[0.95] text-ivory/5"
-              style={{ fontSize: "32svh" }}
-            >
-              {[...restaurant.chineseName].map((char, i) => (
-                <span key={i} className="block">
-                  {char}
-                </span>
-              ))}
-            </span>
-          )}
-        </div>
+        />
       </div>
 
       {video === "on" && HERO_VIDEO_SRC && (
