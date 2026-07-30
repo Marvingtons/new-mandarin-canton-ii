@@ -3,7 +3,7 @@ import "server-only";
 import { Resvg, ensureResvg } from "@/lib/ticket/resvg";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { loadTicketMetrics } from "@/lib/ticket/measure";
-import { encodeOpaqueRgbPng } from "@/lib/ticket/png";
+import { encodeMonochromePng } from "@/lib/ticket/png";
 import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
@@ -491,13 +491,14 @@ export async function renderTicket(
   }).render();
 
   // NOT rendered.asPng(). resvg only emits colour type 6 — 8-bit truecolour
-  // WITH an alpha channel — and the TSP143IV answers a 32-bit RGBA PNG with
-  // `code=511 Media Decoding Error`: it receives the file whole and cannot
-  // decode it. We re-encode the raw pixels as 24-bit truecolour with no alpha
-  // (see png.ts). The channel was redundant anyway; the background below is
-  // opaque, so it carried the value 255 for every pixel on the ticket.
+  // WITH an alpha channel — and the TSP143IV answered that with `code=511
+  // Media Decoding Error`. Re-encoding without alpha, as 24-bit colour, did
+  // not clear it. We now emit 1 bit per pixel (see png.ts), which is the
+  // format Star names first and the only one that describes this artifact
+  // honestly: the ticket is black on white, and the thermal head has no
+  // midtone to print even if we sent one.
   const png = Buffer.from(
-    await encodeOpaqueRgbPng(rendered.pixels, rendered.width, rendered.height),
+    await encodeMonochromePng(rendered.pixels, rendered.width, rendered.height),
   );
   // Free the wasm-side bitmap promptly rather than waiting for GC. The tall
   // ticket is 576x2350; holding several of those in a 128 MB isolate is how

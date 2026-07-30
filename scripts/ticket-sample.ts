@@ -22,6 +22,8 @@
  */
 
 import { writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveOrderLine } from "../src/lib/orders/lines";
@@ -385,16 +387,158 @@ async function render(
   const out = join(tmpdir(), name);
   await writeFile(out, png);
 
-  // PNG header: bytes 16..24 are width and height, big-endian.
-  const width = png.readUInt32BE(16);
-  const height = png.readUInt32BE(20);
+  // Walked, not assumed: every chunk length and CRC is checked against an
+  // independent CRC-32 here, so a bug in the encoder's own table cannot
+  // validate itself.
+  const info = walkPng(png);
   console.log(
     // `items` is deliberately not an array in some fixtures — that is the
     // point of them — so this log must not assume one either.
-    `${out.padEnd(46)} ${(png.length / 1024).toFixed(1).padStart(7)} KB  ${width}x${height}px  ${Array.isArray(order.items) ? order.items.length : "non-array"} lines`,
+    `${out.padEnd(46)} ${(png.length / 1024).toFixed(1).padStart(7)} KB  ` +
+      `${info.width}x${info.height}px  depth ${info.bitDepth} type ${info.colorType}  ` +
+      `${Array.isArray(order.items) ? order.items.length : "non-array"} lines`,
   );
   if (png.length === 0) throw new Error(`${out} is empty`);
-  if (width !== 576) throw new Error(`${out} is ${width}px wide, expected 576`);
+  assertStarPng(out, info);
+  await assertDecodable(out, info);
+}
+
+/* ------------------------------------------------------------ PNG checks -- */
+
+interface PngInfo {
+  width: number;
+  height: number;
+  bitDepth: number;
+  colorType: number;
+  compression: number;
+  filter: number;
+  interlace: number;
+  chunks: { type: string; length: number }[];
+  bytes: number;
+}
+
+/** CRC-32, written out again here on purpose — see walkPng. */
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Walk the file chunk by chunk rather than trusting a summary.
+ *
+ * This is the check that catches a hand-rolled encoder writing a plausible
+ * header over a malformed body: lengths must chain exactly from the signature
+ * to IEND with no trailing bytes, and every CRC must match.
+ */
+function walkPng(png: Buffer): PngInfo {
+  const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  for (let i = 0; i < SIGNATURE.length; i++) {
+    if (png[i] !== SIGNATURE[i]) throw new Error(`bad PNG signature at byte ${i}`);
+  }
+
+  const chunks: { type: string; length: number }[] = [];
+  let at = 8;
+  while (at + 12 <= png.length) {
+    const length = png.readUInt32BE(at);
+    const type = png.toString("ascii", at + 4, at + 8);
+    const end = at + 12 + length;
+    if (end > png.length) throw new Error(`chunk ${type} runs past end of file`);
+    const declared = png.readUInt32BE(at + 8 + length);
+    const actual = crc32(png.subarray(at + 4, at + 8 + length));
+    if (declared !== actual) {
+      throw new Error(
+        `chunk ${type} CRC is ${declared.toString(16)}, computed ${actual.toString(16)}`,
+      );
+    }
+    chunks.push({ type, length });
+    at = end;
+    if (type === "IEND") break;
+  }
+  if (at !== png.length) throw new Error(`${png.length - at} trailing byte(s) after IEND`);
+
+  return {
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+    bitDepth: png[24],
+    colorType: png[25],
+    compression: png[26],
+    filter: png[27],
+    interlace: png[28],
+    chunks,
+    bytes: png.length,
+  };
+}
+
+/**
+ * The properties the printer cares about.
+ *
+ * 1 bit per pixel, greyscale, non-interlaced, 576 wide — Star's first-named
+ * image format on an 80mm roll. Three chunks and nothing else, so an embedded
+ * decoder has fewer places to disagree with us.
+ */
+function assertStarPng(out: string, info: PngInfo): void {
+  const fail = (why: string) => {
+    throw new Error(`${out}: ${why}`);
+  };
+  if (info.width !== 576) fail(`is ${info.width}px wide, expected 576`);
+  if (info.bitDepth !== 1) fail(`bit depth is ${info.bitDepth}, expected 1`);
+  if (info.colorType !== 0) fail(`colour type is ${info.colorType}, expected 0 (greyscale)`);
+  if (info.interlace !== 0) fail(`interlace is ${info.interlace}, expected 0`);
+  if (info.compression !== 0) fail(`compression method is ${info.compression}, expected 0`);
+  if (info.filter !== 0) fail(`filter method is ${info.filter}, expected 0`);
+  const shape = info.chunks.map((c) => c.type).join(",");
+  if (shape !== "IHDR,IDAT,IEND") fail(`chunks are ${shape}, expected IHDR,IDAT,IEND`);
+}
+
+const run = promisify(execFile);
+
+/**
+ * Second opinion from a decoder that is not ours.
+ *
+ * The chunk walk proves the file is self-consistent; it cannot prove the
+ * pixels decode. ffprobe is an independent implementation, and `monob` is what
+ * it calls a 1-bit greyscale raster — if it reports anything else, the packing
+ * is wrong however well-formed the container is.
+ */
+async function assertDecodable(out: string, info: PngInfo): Promise<void> {
+  let stdout: string;
+  try {
+    ({ stdout } = await run("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=width,height,pix_fmt",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      out,
+    ]));
+  } catch (err) {
+    // No ffprobe on this machine is a gap in the check, not a broken ticket.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/ENOENT/.test(message)) {
+      console.warn("  ⚠ ffprobe not found — skipping the independent decode check");
+      return;
+    }
+    throw new Error(`${out}: ffprobe could not decode it — ${message}`);
+  }
+  const [w, h, pixFmt] = stdout.trim().split(/\s+/);
+  if (Number(w) !== info.width || Number(h) !== info.height) {
+    throw new Error(
+      `${out}: ffprobe reads ${w}x${h}, the header says ${info.width}x${info.height}`,
+    );
+  }
+  if (pixFmt !== "monob") {
+    throw new Error(`${out}: ffprobe decodes it as ${pixFmt}, expected monob (1-bit mono)`);
+  }
 }
 
 async function main(): Promise<void> {

@@ -1,20 +1,25 @@
 /**
  * A minimal PNG encoder for thermal print jobs.
  *
- * WHY NOT resvg's own asPng(): it always emits colour type 6 — 8-bit
- * truecolour WITH an alpha channel — and the Star TSP143IV answers such a job
- * with `code=511 Media Decoding Error`. Delivery is fine; the file arrives
- * whole. The firmware simply will not decode a 32-bit RGBA PNG. Star's own
- * format notes name "1 bit per pixel" and "24/32bit per pixel" images, and
- * 24-bit truecolour (colour type 2) is the variant they name for colour PNG
- * data, so that is what this emits.
+ * WHAT THIS EMITS: 1 bit per pixel, colour type 0 (greyscale), one sample per
+ * pixel where 0 is black and 1 is white. Star's format notes name "1 bit per
+ * pixel" FIRST among the image formats a CloudPRNT printer decodes, and it is
+ * the honest description of this artifact — the ticket is pure black on white
+ * by design, because a thermal head has no midtones to print. Anything wider
+ * was carrying 23 bits per pixel that the printer would have thresholded away
+ * itself.
  *
- * The alpha channel was always redundant here. The renderer already paints an
- * opaque white background, so every pixel is at full opacity — the channel
- * carried 1 byte per pixel of the value 255 and nothing else.
+ * HOW WE GOT HERE. resvg's own asPng() emits colour type 6 (8-bit truecolour
+ * WITH alpha); the TSP143IV answered that with `code=511 Media Decoding
+ * Error`. Re-encoding as colour type 2 (24-bit, no alpha) produced a file that
+ * is valid by every decoder we could point at it — and the printer still
+ * answered 511. Alpha was not the problem, or not the only one. Bit depth is
+ * the remaining candidate Star actually names, and it is also the one that
+ * makes the file an order of magnitude smaller, which matters against a
+ * printer-declared height ceiling.
  *
  * CONSTRAINTS THIS FILE HONOURS, all of them things the printer cares about:
- *   - 8 bits per sample, colour type 2 (RGB). No alpha, no palette.
+ *   - Bit depth 1, colour type 0. No alpha, no palette, no colour.
  *   - Non-interlaced. Adam7 would make the firmware buffer the whole image.
  *   - Exactly three chunks: IHDR, IDAT, IEND. No text, no gAMA, no pHYs —
  *     an embedded decoder has fewer places to disagree with us.
@@ -63,15 +68,39 @@ async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
 
 const SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+/** Bytes per scanline at 1 bit per pixel — 8 pixels to the byte. */
+export function monoStride(width: number): number {
+  return (width + 7) >> 3;
+}
+
 /**
- * Composite RGBA over opaque white and encode as a 24-bit non-interlaced PNG.
+ * Threshold a pixel to ink or paper.
+ *
+ * Rec. 601 luma, composited over white first so a partially transparent pixel
+ * is judged on the colour it will actually print as rather than its own. The
+ * cut is at 50%: the ticket is drawn in pure black on pure white, so the only
+ * pixels anywhere near the boundary are antialiasing on glyph edges, and those
+ * genuinely are a coin toss that the printer would otherwise make itself.
+ */
+function isInk(r: number, g: number, b: number, a: number): boolean {
+  if (a !== 255) {
+    const alpha = a / 255;
+    r = r * alpha + 255 * (1 - alpha);
+    g = g * alpha + 255 * (1 - alpha);
+    b = b * alpha + 255 * (1 - alpha);
+  }
+  return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+}
+
+/**
+ * Composite RGBA over opaque white and encode as a 1-bit non-interlaced PNG.
  *
  * `rgba` is resvg's raw pixel buffer: 4 bytes per pixel, top-left origin, no
- * row padding. The scanline filter is 0 (None) on every row — the rows are
- * mostly long runs of identical white, which deflate already collapses, and a
- * predictor would cost CPU on a wasm-rendered raster for no useful gain.
+ * row padding. The scanline filter is 0 (None) on every row — at one bit per
+ * pixel the rows are already long runs of 0xFF, which deflate collapses, and
+ * the sub-byte filtering rules are a place to be subtly wrong for no gain.
  */
-export async function encodeOpaqueRgbPng(
+export async function encodeMonochromePng(
   rgba: Uint8Array,
   width: number,
   height: number,
@@ -83,41 +112,36 @@ export async function encodeOpaqueRgbPng(
     );
   }
 
-  // Each scanline is one filter byte followed by width RGB triples.
-  const stride = width * 3;
+  // Each scanline is one filter byte followed by ceil(width/8) packed bytes.
+  const stride = monoStride(width);
   const raw = new Uint8Array((stride + 1) * height);
 
   for (let y = 0; y < height; y++) {
     const rowStart = y * (stride + 1);
     raw[rowStart] = 0; // filter: None
+    const dst = rowStart + 1;
     let src = y * width * 4;
-    let dst = rowStart + 1;
     for (let x = 0; x < width; x++) {
-      const a = rgba[src + 3];
-      if (a === 255) {
-        raw[dst] = rgba[src];
-        raw[dst + 1] = rgba[src + 1];
-        raw[dst + 2] = rgba[src + 2];
-      } else {
-        // Source-over onto white. The renderer paints an opaque background so
-        // this is the rare path, but a partially transparent pixel must land
-        // on white rather than be truncated to its own colour.
-        const alpha = a / 255;
-        raw[dst] = Math.round(rgba[src] * alpha + 255 * (1 - alpha));
-        raw[dst + 1] = Math.round(rgba[src + 1] * alpha + 255 * (1 - alpha));
-        raw[dst + 2] = Math.round(rgba[src + 2] * alpha + 255 * (1 - alpha));
+      // The buffer starts zeroed, and 0 is black — so only paper sets a bit.
+      // MSB first: pixel 0 is bit 7 of the first byte.
+      if (!isInk(rgba[src], rgba[src + 1], rgba[src + 2], rgba[src + 3])) {
+        raw[dst + (x >> 3)] |= 0x80 >> (x & 7);
       }
       src += 4;
-      dst += 3;
     }
+    // Trailing bits of the last byte are padding. The spec says decoders
+    // ignore them; set them to paper anyway, so firmware that does not mask
+    // them prints a white margin rather than a black bar down the edge.
+    const slack = stride * 8 - width;
+    if (slack > 0) raw[dst + stride - 1] |= (1 << slack) - 1;
   }
 
   const ihdr = new Uint8Array(13);
   const view = new DataView(ihdr.buffer);
   view.setUint32(0, width);
   view.setUint32(4, height);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // colour type 2 = truecolour, no alpha
+  ihdr[8] = 1; // bit depth: 1
+  ihdr[9] = 0; // colour type 0 = greyscale, no alpha
   ihdr[10] = 0; // compression: deflate
   ihdr[11] = 0; // filter method: adaptive
   ihdr[12] = 0; // interlace: none
