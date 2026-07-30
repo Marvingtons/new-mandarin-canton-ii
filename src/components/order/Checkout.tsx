@@ -6,7 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/lib/cart/CartContext";
 import { restaurant } from "@/data/restaurant";
 import { formatCents, taxCents } from "@/lib/money";
-import { normalizePhone, phoneErrorMessage } from "@/lib/phone";
+import {
+  caretAfterFormat,
+  formatPhoneAsTyped,
+  normalizePhone,
+  phoneErrorMessage,
+} from "@/lib/phone";
 import { pickupSlots, type PickupOptions, type PickupSlot } from "@/lib/order/pickup";
 
 /** Payload handed to the confirmation screen via sessionStorage. */
@@ -84,6 +89,38 @@ export default function Checkout({
   const total = subtotalCents + tax;
 
   const phoneCheck = normalizePhone(phone);
+
+  /**
+   * Live "(858) 207-7770" masking.
+   *
+   * The state holds the FORMATTED text because that is what the input shows,
+   * but nothing downstream reads it: every API call runs the value through
+   * normalizePhone() first, so the wire always carries E.164. Paste is handled
+   * for free — phoneDigits strips punctuation, "+" and a leading country code.
+   *
+   * The caret is restored after React commits, in digit terms rather than
+   * character terms, so typing or backspacing mid-number does not throw the
+   * cursor to the end.
+   */
+  const phoneRef = useRef<HTMLInputElement>(null);
+  const caretRef = useRef<number | null>(null);
+
+  const onPhoneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const formatted = formatPhoneAsTyped(raw);
+    caretRef.current = caretAfterFormat(raw, e.target.selectionStart ?? raw.length, formatted);
+    setPhone(formatted);
+  }, []);
+
+  useEffect(() => {
+    const at = caretRef.current;
+    caretRef.current = null;
+    if (at === null) return;
+    const el = phoneRef.current;
+    // Only reposition while the field is focused; doing it otherwise would
+    // steal the caret back from wherever the customer has moved on to.
+    if (el && document.activeElement === el) el.setSelectionRange(at, at);
+  }, [phone]);
 
   /**
    * Verification is DERIVED, not stored — editing the phone after verifying
@@ -301,11 +338,13 @@ export default function Checkout({
                 Mobile number
               </span>
               <input
+                ref={phoneRef}
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={onPhoneChange}
                 required
                 inputMode="tel"
                 autoComplete="tel"
+                maxLength={14}
                 placeholder="(619) 555-0148"
                 disabled={isVerified}
                 className="w-full border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer disabled:opacity-70"

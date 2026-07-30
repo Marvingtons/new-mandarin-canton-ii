@@ -144,6 +144,61 @@ export function normalizePhone(input: string): PhoneResult {
   };
 }
 
+/**
+ * The NANP digits behind whatever the customer typed or pasted.
+ *
+ * Strips punctuation, a leading "+", and the country code — so "+1 858 207
+ * 7770", "1-858-207-7770" and "(858) 207-7770" all reduce to "8582077770".
+ * Capped at 10 so a stray extra keystroke cannot push the mask out of shape.
+ */
+export function phoneDigits(input: string): string {
+  let digits = input.replace(/\D/g, "");
+  // A leading 1 is the country code, not an area code: no NANP area code
+  // starts with 1, so this is unambiguous.
+  if (digits.length > 10 && digits.startsWith("1")) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
+
+/**
+ * Progressive display mask: "" -> "(858" -> "(858) 207" -> "(858) 207-7770".
+ *
+ * DISPLAY ONLY. The value that reaches the API is normalized by
+ * normalizePhone() at the boundary, so nothing downstream ever parses this.
+ */
+export function formatPhoneAsTyped(input: string): string {
+  const d = phoneDigits(input);
+  if (d.length === 0) return "";
+  if (d.length <= 3) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+/**
+ * Where the caret belongs after re-masking.
+ *
+ * Cursor accounting for an input mask is counted in DIGITS, not characters:
+ * work out how many digits precede the caret in the raw text, then find the
+ * offset in the formatted text that has the same number of digits before it.
+ * Without this, typing mid-string or backspacing over ") " sends the caret to
+ * the end on every keystroke.
+ */
+export function caretAfterFormat(
+  rawValue: string,
+  rawCaret: number,
+  formatted: string,
+): number {
+  const digitsBefore = rawValue.slice(0, rawCaret).replace(/\D/g, "").length;
+  if (digitsBefore === 0) return formatted.startsWith("(") ? 1 : 0;
+  let seen = 0;
+  for (let i = 0; i < formatted.length; i++) {
+    if (/\d/.test(formatted[i])) {
+      seen++;
+      if (seen === digitsBefore) return i + 1;
+    }
+  }
+  return formatted.length;
+}
+
 /** "+16195550148" -> "(619) 555-0148". Falls back to the input if unparseable. */
 export function formatPhoneNational(e164: string): string {
   const digits = e164.replace(/\D/g, "");
