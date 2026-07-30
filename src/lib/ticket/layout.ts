@@ -112,6 +112,23 @@ export class Canvas {
     this.cursor += h + marginBottom;
   }
 
+  /**
+   * A dashed rule that reads as "tear here".
+   *
+   * Drawn as discrete filled rects rather than a stroked dashed path: resvg
+   * would render a dash array fine, but on a thermal head a hairline dash can
+   * drop out entirely, and MIN_RULE_PX is the floor everything else on this
+   * ticket respects. Deliberately visually distinct from `rule()` — a solid
+   * divider means "new section", this means "cut the paper".
+   */
+  tearLine(dash = 12, gap = 8, weight = MIN_RULE_PX): void {
+    const h = Math.max(MIN_RULE_PX, weight);
+    for (let x = 0; x < this.width; x += dash + gap) {
+      this.rect(x, this.cursor, Math.min(dash, this.width - x), h);
+    }
+    this.cursor += h;
+  }
+
   /** Filled rectangle in local coordinates. */
   rect(x: number, y: number, w: number, h: number, fill = BLACK): void {
     this.ops.push(

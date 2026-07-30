@@ -375,8 +375,13 @@ async function assertNoOverflow(
   return widest;
 }
 
-async function render(name: string, order: Order, reprint = false): Promise<void> {
-  const png = await renderTicket(order, { timezone: TIMEZONE, reprint });
+async function render(
+  name: string,
+  order: Order,
+  reprint = false,
+  copies = 1,
+): Promise<void> {
+  const png = await renderTicket(order, { timezone: TIMEZONE, reprint, copies });
   const out = join(tmpdir(), name);
   await writeFile(out, png);
 
@@ -404,6 +409,11 @@ async function main(): Promise<void> {
   await render("ticket-sample-reprint.png", order, true);
   await render("ticket-sample-long.png", long);
   await render("ticket-sample-torture.png", torture);
+  // Worst case in production: the 12-line tray at the tenant default of two
+  // copies, stacked into one job body with a tear line between them.
+  const t0 = Date.now();
+  await render("ticket-sample-long-2up.png", long, false, 2);
+  console.log(`  (2-copy render took ${Date.now() - t0} ms)`);
   await render("ticket-sample-sql-shaped.png", sqlShaped);
   await render("ticket-sample-malformed.png", malformed);
 

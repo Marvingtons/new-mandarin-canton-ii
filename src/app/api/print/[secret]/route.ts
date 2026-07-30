@@ -1,4 +1,4 @@
-import { publicTenant } from "@/config/tenant.server";
+import { publicTenant, ticketCopies } from "@/config/tenant.server";
 import {
   JOB_MEDIA_TYPE,
   MAX_PRINT_ATTEMPTS,
@@ -190,7 +190,10 @@ export async function GET(
   logPrinterLimits(limits);
 
   try {
-    const png = await renderTicket(job, { timezone: tenant.timezone });
+    const png = await renderTicket(job, {
+      timezone: tenant.timezone,
+      copies: ticketCopies(),
+    });
 
     // Height gate. ONLY applies when the printer actually declared a limit;
     // with no declaration there is no number to test against and we do not

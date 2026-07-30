@@ -59,6 +59,20 @@ const INDENT = QTY_WIDTH + QTY_GAP;
  */
 const EN_MARK = "⚠ EN";
 
+/**
+ * Which copy is which.
+ *
+ * ⚠️ 廚房 and 袋 are NOT in the shipped subset font today — checked against
+ * public/fonts/ticket-font-coverage.json, all three codepoints absent. They are
+ * in TICKET_LABELS so the next `npm run build:ticket-font` includes them; until
+ * that runs, pick() falls back to the English exactly as it does for an
+ * untranslated dish. The label prints either way; it never prints a blank box.
+ */
+const COPY_LABELS = {
+  kitchen: { zh: L.copyKitchen as string, en: "KITCHEN" },
+  bag: { zh: L.copyBag as string, en: "BAG" },
+} as const;
+
 /* ------------------------------------------------------ shape normalizer -- */
 
 /**
@@ -269,6 +283,11 @@ function drawLine(c: Canvas, line: OrderLine, coverage: Set<number>): void {
 
 export interface RenderTicketOptions {
   timezone: string;
+  /**
+   * How many copies to stack into one job body. Defaults to 1 here so scripts
+   * and fixtures stay single; the print route passes the tenant setting.
+   */
+  copies?: number;
   /** Printed in the header so a reprint is obvious at the pass. */
   reprint?: boolean;
 }
@@ -306,6 +325,31 @@ export async function composeTicketSvg(
   const placedLabel = formatPickupTime(order.createdAt, options.timezone);
 
   const c = new Canvas(CONTENT_WIDTH, metrics);
+
+  /**
+   * Copies, stacked into ONE job body.
+   *
+   * NO MID-JOB CUT. Star documents extra control options in the RESPONSE
+   * HEADERS for text/plain, image/png and image/jpeg — that is how the buzzer
+   * and cash drawer work here (see peripheralHeaders) — but a cut between two
+   * images inside a single job is not among the documented options, and I
+   * found nothing in the CloudPRNT protocol guide describing one for image
+   * media. Rather than guess at firmware behaviour, the copies are separated
+   * by a printed tear line with generous whitespace either side, and the
+   * operator tears. If a cut command for image media does exist, this is the
+   * one place to change.
+   */
+  const copies = Math.max(1, options.copies ?? 1);
+
+  for (let copy = 0; copy < copies; copy++) {
+    if (copy > 0) {
+      // The tear line. Generous whitespace so a slightly-off tear still
+      // misses the type, and a dashed rule so it reads as "tear here"
+      // rather than as another section divider.
+      c.space(26);
+      c.tearLine();
+      c.space(26);
+    }
 
   /* ---------------- header ---------------- */
   const headerTop = c.height;
@@ -371,6 +415,24 @@ export async function composeTicketSvg(
      revision inherited "PAID ONLINE" from the cancelled prepaid flow, which
      would have had staff hand over food without taking money. */
   c.banner(`${L.payAtCounter} · COLLECT PAYMENT`, { size: 30, marginTop: 12 });
+
+    /* Which copy this is — quiet, under the banner, so staff can tell the
+       two apart at a glance without either looking like the "real" one.
+       The 中文 is used only when the subset font can actually draw it; the
+       labels are in glyphs.ts so the next `npm run build:ticket-font` picks
+       them up, and until then this prints the English, which is the same
+       rule every other bilingual string on the ticket follows. */
+    if (copies > 1) {
+      const which = copy === 0 ? COPY_LABELS.kitchen : COPY_LABELS.bag;
+      const label = pick(which.zh, which.en, coverage);
+      c.text(label.primary + (label.fallback ? "" : ` / ${which.en}`), {
+        size: 20,
+        weight: 700,
+        align: "center",
+        marginTop: 8,
+      });
+    }
+  }
 
   const { svg, height } = c.toSvg(TICKET_WIDTH_PX, PAD);
   return { svg, height, lines: c.placed, missing: [...c.missing] };

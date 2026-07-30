@@ -330,6 +330,19 @@ export function cronSecret(): string | null {
  *
  * 0 turns the feature off: no cookie is set, and any already issued is refused.
  */
+/**
+ * Copies of each ticket, stacked into one print job.
+ *
+ * Two by default: one stays with the cooks, one goes on the bag so whoever
+ * hands the order over can check it without walking back to the line.
+ * Separated by a printed tear line — see render.ts for why not a cut.
+ */
+export function ticketCopies(): number {
+  const n = intEnv("TICKET_COPIES", 2);
+  // Clamped: 0 would print nothing and a typo'd 50 would burn the roll.
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 5) : 2;
+}
+
 export function verifiedPhoneTtlDays(): number {
   const days = intEnv("VERIFIED_PHONE_TTL_DAYS", 90);
   return Number.isFinite(days) && days > 0 ? days : 0;

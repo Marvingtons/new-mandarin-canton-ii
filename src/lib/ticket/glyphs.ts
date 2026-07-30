@@ -46,6 +46,10 @@ export const TICKET_LABELS = {
   tip: "小費",
   total: "合計",
   payAtCounter: "到店付款",
+  /** Copy 1 of 2 — stays with the cooks. */
+  copyKitchen: "廚房",
+  /** Copy 2 of 2 — goes on the bag. */
+  copyBag: "袋",
 } as const;
 
 /**
