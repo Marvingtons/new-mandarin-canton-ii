@@ -82,7 +82,7 @@ export function monoStride(width: number): number {
  * pixels anywhere near the boundary are antialiasing on glyph edges, and those
  * genuinely are a coin toss that the printer would otherwise make itself.
  */
-function isInk(r: number, g: number, b: number, a: number): boolean {
+export function isInk(r: number, g: number, b: number, a: number): boolean {
   if (a !== 255) {
     const alpha = a / 255;
     r = r * alpha + 255 * (1 - alpha);

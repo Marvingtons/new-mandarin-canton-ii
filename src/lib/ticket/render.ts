@@ -4,6 +4,7 @@ import { Resvg, ensureResvg } from "@/lib/ticket/resvg";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { loadTicketMetrics } from "@/lib/ticket/measure";
 import { encodeMonochromePng, findSegmentCuts } from "@/lib/ticket/png";
+import { encodeStarPrntRaster } from "@/lib/ticket/starprnt";
 import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
@@ -445,7 +446,7 @@ export async function composeTicketSvg(
  * Waiting for GC is how a 128 MB isolate holding several 576x4401 RGBA buffers
  * OOMs at cold start.
  */
-async function rasterizeTicket(
+export async function rasterizeTicket(
   order: Order,
   options: RenderTicketOptions,
 ): Promise<{ pixels: Uint8Array; width: number; height: number; free: () => void }> {
@@ -497,9 +498,21 @@ async function rasterizeTicket(
   };
 }
 
+/**
+ * What to wrap the raster in.
+ *
+ * "starprnt" is the primary path: printer-ready commands, no on-device
+ * conversion, and therefore no 511. "png" is the 1-bit PNG, which serves both
+ * the vnd.star.png fallback and every human-facing surface (/kitchen, the
+ * preview route) — a browser cannot display StarPRNT commands.
+ */
+export type TicketFormat = "starprnt" | "png";
+
 /** One piece of a ticket, plus how many pieces there turned out to be. */
 export interface TicketJob {
-  png: Buffer;
+  /** The job body, in the requested format. */
+  body: Buffer;
+  format: TicketFormat;
   /** 0-based index of the piece in this buffer. */
   segment: number;
   /** Total pieces. 1 means the ticket was not split. */
@@ -508,6 +521,13 @@ export interface TicketJob {
   height: number;
   /** Height of the whole ticket, in pixels. */
   totalHeight: number;
+}
+
+export interface TicketJobOptions {
+  format?: TicketFormat;
+  /** The printer's OWN declared height ceiling, or null for none. */
+  maxHeight?: number | null;
+  segment?: number;
 }
 
 /**
@@ -523,13 +543,20 @@ export interface TicketJob {
  * render held in memory between them. That trade is deliberate: an isolate
  * that has to hold a 576x4401 RGBA buffer between requests is how cold-start
  * OOM begins, and the render is 77ms.
+ *
+ * Everything above the final encode is shared by both formats — same SVG, same
+ * resvg raster, same threshold — so the two can never drift apart in what they
+ * put on paper.
  */
 export async function renderTicketJob(
   order: Order,
   options: RenderTicketOptions,
-  maxHeight: number | null = null,
-  segment = 0,
+  job: TicketJobOptions = {},
 ): Promise<TicketJob> {
+  const format = job.format ?? "starprnt";
+  const maxHeight = job.maxHeight ?? null;
+  const segment = job.segment ?? 0;
+
   const { pixels, width, height, free } = await rasterizeTicket(order, options);
   try {
     const cuts = maxHeight === null ? [] : findSegmentCuts(pixels, width, height, maxHeight);
@@ -540,10 +567,18 @@ export async function renderTicketJob(
     }
     const from = bounds[segment];
     const rows = bounds[segment + 1] - from;
-    const png = Buffer.from(
-      await encodeMonochromePng(pixels, width, height, from, rows),
-    );
-    return { png, segment, segments, height: rows, totalHeight: height };
+
+    let body: Buffer;
+    if (format === "starprnt") {
+      // The slice is taken here rather than inside the encoder so both formats
+      // are cut at exactly the same rows.
+      const slice = pixels.subarray(from * width * 4, (from + rows) * width * 4);
+      body = Buffer.from(encodeStarPrntRaster(slice, width, rows));
+    } else {
+      body = Buffer.from(await encodeMonochromePng(pixels, width, height, from, rows));
+    }
+
+    return { body, format, segment, segments, height: rows, totalHeight: height };
   } finally {
     free();
   }
