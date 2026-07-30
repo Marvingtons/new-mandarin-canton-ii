@@ -34,9 +34,19 @@ import {
   markPrinted,
   printSegmentState,
   recordPrintAttempt,
+  recordPrintJobKey,
   recordPrintSegments,
   recordRenderFailure,
 } from "@/lib/orders/repository";
+import {
+  deletePrintJob,
+  getPrintJob,
+  printJobKeyFor,
+  printJobStoreReady,
+  printJobUrl,
+  putPrintJob,
+} from "@/lib/print/jobStore";
+import type { Order } from "@/lib/orders/types";
 import { renderTicketJob, TICKET_WIDTH_PX } from "@/lib/ticket/render";
 import { maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
@@ -147,17 +157,38 @@ export async function POST(
 
     if (!job) return Response.json(NO_JOB);
 
+    // Publish the body to R2 and point the printer at the object.
+    //
+    // This is where the 520 fix lives. The body no longer leaves through this
+    // Worker's response — Star's `jobGetUrl` sends the printer to "a different
+    // server for managing the print job file downloads such as a data 'blob'
+    // service", which is an R2 object on our own zone: a static GET with a
+    // fixed Content-Length and no streaming layer to negotiate with.
+    //
+    // Published at CLAIM, not per poll. The key ends in the sha256 of the
+    // body, so the URL cannot be derived without rendering; the key is stored
+    // and reused, and a re-offer of the same piece re-advertises the same
+    // object rather than re-rendering a ticket that already exists.
+    const jobUrl = await publishJobBody(tenant, job);
+
     const body: CloudPrntStatusResponse = {
       jobReady: true,
-      // Star's extended PNG type first, plain PNG as the fallback. Identical
-      // bytes either way; the difference is that the extended type is what
-      // makes the printer declare mono_len / 24bpp_len on the job GET.
-      mediaTypes: OFFERED_MEDIA_TYPES,
-      // Advisory: the printer does not echo this on GET/DELETE, but it makes
-      // the printer's own logs line up with ours.
+      // With the body already encoded and sitting in R2, the media type is no
+      // longer the printer's to choose — so only the type of the object we
+      // published is advertised. Falling back to the Worker path (no jobUrl)
+      // restores the full menu, since then the GET does pick a format.
+      mediaTypes: jobUrl ? [JOB_MEDIA_TYPE_STARPRNT] : OFFERED_MEDIA_TYPES,
+      // Echoed back on the DELETE, which is what lets a confirmation name the
+      // order it belongs to rather than being applied to whatever is in flight.
       jobToken: job.orderNumber,
       deleteMethod: "DELETE",
+      // Only the GET moves. `jobConfirmationUrl` is deliberately left unset so
+      // confirmations still come back here and the state machine is untouched.
+      ...(jobUrl ? { jobGetUrl: jobUrl } : {}),
     };
+    if (jobUrl) {
+      console.info(`[cloudprnt] ${job.orderNumber} job body published at ${jobUrl}`);
+    }
     return Response.json(body);
   } catch (err) {
     console.error(
@@ -166,6 +197,95 @@ export async function POST(
     );
     // Never hand the printer something it might interpret as a job.
     return Response.json(NO_JOB);
+  }
+}
+
+/**
+ * Print the headers a job response actually leaves with.
+ *
+ * Every previous round of this bug was argued from what the code intended to
+ * send. The wire disagreed four times. These are the headers as constructed —
+ * still not what Cloudflare finally emits, but the last point we control, so a
+ * difference between this line and what curl sees is proof the change happened
+ * downstream rather than here.
+ *
+ * Not sampled or deduplicated: a job GET happens a few times a day, and this
+ * is the line worth having when one of them fails.
+ */
+function logJobResponse(orderNumber: string, response: Response): Response {
+  const headers = [...response.headers.entries()]
+    .map(([k, v]) => `${k}: ${v}`)
+    .sort()
+    .join(" | ");
+  console.info(`[cloudprnt] ${orderNumber} response headers -> ${headers}`);
+  return response;
+}
+
+/**
+ * Make sure a body exists in R2 for the piece currently on offer, and return
+ * the URL the printer should fetch.
+ *
+ * Returns null when the store is not configured, or when rendering or the
+ * upload fails. Null is not an error path — it means the poll answers without
+ * a `jobGetUrl` and the printer falls back to fetching from this Worker, which
+ * still prints. A ticket served the slow way beats a ticket not offered.
+ *
+ * Idempotent per piece: the stored key short-circuits everything below, so the
+ * render happens once per piece rather than once per poll.
+ */
+async function publishJobBody(
+  tenant: { tenantId: string; timezone: string },
+  job: Order,
+): Promise<string | null> {
+  if (!printJobStoreReady()) return null;
+
+  const { segment, jobKey } = await printSegmentState(tenant.tenantId, job.id);
+  if (jobKey) return printJobUrl(jobKey);
+
+  try {
+    const ticket = await renderTicketJob(
+      job,
+      { timezone: tenant.timezone, copies: ticketCopies() },
+      {
+        format: "starprnt",
+        // Star's 512KB GET cap, expressed as rows. Applies to the R2 object
+        // exactly as it applied to the Worker response.
+        maxHeight: maxStarPrntRows(TICKET_WIDTH_PX),
+        segment,
+      },
+    );
+
+    if (ticket.segments > 1) {
+      // Read by DELETE to know whether the piece it confirms was the last.
+      await recordPrintSegments(tenant.tenantId, job.id, ticket.segments);
+    }
+
+    const sha256 = await payloadHash(ticket.body);
+    const key = printJobKeyFor(job.orderNumber, sha256);
+    const stored = await putPrintJob(key, ticket.body);
+    if (!stored) return null;
+
+    await recordPrintJobKey(tenant.tenantId, job.id, key);
+    console.info(
+      `[cloudprnt] ${job.orderNumber} piece ${ticket.segment + 1}/${ticket.segments} ` +
+        `-> R2 ${key} (${ticket.body.length} bytes, ${ticket.height}px) sha256=${sha256}`,
+    );
+    return printJobUrl(key);
+  } catch (err) {
+    // Counted like any other render failure so a template that cannot render
+    // is eventually condemned rather than retried forever.
+    const message = err instanceof Error ? err.message : "ticket render failed";
+    const outcome = await recordRenderFailure(
+      tenant.tenantId,
+      job.id,
+      message,
+      printRenderCap(),
+    );
+    console.error(
+      `[cloudprnt] publishing ${job.orderNumber} failed ` +
+        `(attempt ${outcome?.attempts ?? "?"}, now ${outcome?.status ?? "?"}): ${message}`,
+    );
+    return null;
   }
 }
 
@@ -226,13 +346,34 @@ export async function GET(
   if (format === "starprnt") warnBuzzerUnavailable(mediaType);
 
   try {
+    // If a body was already published for this piece, serve THOSE bytes rather
+    // than rendering again. This is the fallback path — a printer that ignores
+    // jobGetUrl, or a deployment with no bucket — and serving the published
+    // object keeps the two paths byte-identical, so the sha256 in the log
+    // describes whichever one the printer actually used.
+    const published = await printSegmentState(tenant.tenantId, job.id);
+    if (published.jobKey && format === "starprnt") {
+      const body = await getPrintJob(published.jobKey);
+      if (body) {
+        const sha256 = await payloadHash(body);
+        console.info(
+          `[cloudprnt] serving ${job.orderNumber} from R2 ${published.jobKey} ` +
+            `(${body.byteLength} bytes) sha256=${sha256}`,
+        );
+        return logJobResponse(
+          job.orderNumber,
+          jobResponse(body, mediaType, peripheralHeaders()),
+        );
+      }
+    }
+
     // The height gate, and the only number allowed to drive it: the printer's
     // own. It gates the PNG paths only: mono_len is the ceiling for 1-bit PNG
     // (24bpp_len describes a format we no longer send), and neither bounds
     // command data. A null ceiling means the printer declared nothing, and
     // renderTicketJob sends the whole ticket rather than falling back to a
     // constant we made up.
-    const { segment } = await printSegmentState(tenant.tenantId, job.id);
+    const { segment } = published;
     // starprnt has no conversion to run out of memory on, but it still has to
     // arrive: Star caps a job GET at 512KB for this printer class and answers
     // 521 above it. Command data is uncompressed, so that cap converts exactly
@@ -272,7 +413,10 @@ export async function GET(
     // data instead, and the TSP100IV accepts no command that does it (see
     // lib/ticket/starprnt.ts). Sent regardless: an unsupported header is
     // ignored, never a failed job.
-    return jobResponse(ticket.body, mediaType, peripheralHeaders());
+    return logJobResponse(
+      job.orderNumber,
+      jobResponse(ticket.body, mediaType, peripheralHeaders()),
+    );
   } catch (err) {
     // A render failure is USUALLY our bug — but "usually" is not "always", and
     // condemning the order on the first one threw away the cold-start OOMs and
@@ -425,7 +569,15 @@ async function confirmPrinted(url: URL): Promise<Response> {
   // ORDER when it completes the SEQUENCE; otherwise it advances the cursor and
   // the next poll hands over the next piece. Half a ticket must never read as
   // PRINTED — that is the one outcome the board and the alert exist to prevent.
-  const { segment, segments } = await printSegmentState(tenant.tenantId, order.id);
+  const { segment, segments, jobKey } = await printSegmentState(
+    tenant.tenantId,
+    order.id,
+  );
+  // The paper is out; the published body has done its job. Removed here rather
+  // than left to the bucket's 24h rule, so a ticket carrying a customer's name
+  // and phone number is reachable for seconds rather than a day.
+  if (jobKey) await deletePrintJob(jobKey);
+
   if (segments > 1 && segment + 1 < segments) {
     const next = await advancePrintSegment(tenant.tenantId, order.id);
     console.info(

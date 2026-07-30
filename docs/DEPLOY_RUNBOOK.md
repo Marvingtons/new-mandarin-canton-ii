@@ -27,11 +27,12 @@ console.twilio.com → Messaging → Regulatory Compliance → A2P 10DLC.
      older database. This project is fresh, so `schema.sql` already contains
      everything they would add — including `alert_attempts` from `002`.
 
-   ⚠️ **An ALREADY-DEPLOYED database needs `004_print_segments.sql` before the
-   next deploy, not after.** The print path selects `print_segment` and
-   `print_segments` on every job GET and every DELETE confirmation; without
-   those columns the GET renders no ticket and the DELETE cannot mark an order
-   PRINTED. Migrations are `add column if not exists` and safe to re-run.
+   ⚠️ **An ALREADY-DEPLOYED database needs `004_print_segments.sql` and
+   `005_print_job_key.sql` before the next deploy, not after.** The print path
+   selects `print_segment`, `print_segments` and `print_job_key` on every poll,
+   job GET and DELETE confirmation; without those columns the poll publishes no
+   body and the DELETE cannot mark an order PRINTED. Migrations are
+   `add column if not exists` and safe to re-run.
 3. Copy the **pooled** connection string:
    Project Settings → Database → Connection string → **Transaction pooler**.
    - It must contain **port `6543`**, not `5432`. The direct port exhausts
@@ -137,6 +138,58 @@ render failure now keeps it `QUEUED` and the next poll retries, giving up only
 at the third attempt. Re-run step 1 to see it re-offered.
 
 **If step 2 returns 404:** no job is in flight. Re-run step 1.
+
+---
+
+## 4b. R2 bucket for print-job bodies — REQUIRED before printing
+
+Four production cycles ended in `520 Download failed` on the job GET. The bytes
+were fine; the way they left the Worker was not — OpenNext rebuilds a route's
+`Response` as a stream, so it went out chunked, without a `Content-Length` the
+firmware could rely on. The body is now an R2 object the printer fetches
+directly, and the poll points at it with CloudPRNT's `jobGetUrl`.
+
+1. Create the bucket and its expiry rule:
+   ```bash
+   wrangler r2 bucket create nmc-print-jobs
+   wrangler r2 bucket lifecycle add nmc-print-jobs --name expire-print-jobs --prefix print-jobs/ --expire-days 1
+   ```
+   The lifecycle rule is the backstop, not the mechanism — a confirmed job
+   deletes its own object within seconds. It matters because a ticket carries a
+   customer's name and phone number.
+2. **Connect a custom domain to the bucket.** Dashboard → R2 → `nmc-print-jobs`
+   → Settings → Public access → Custom Domains → Connect Domain →
+   `print-jobs.newmandarincantonii.com`. Cloudflare adds the DNS record.
+   - **Do not enable the `r2.dev` domain.** It is rate-limited and not on our
+     zone.
+   - **It has to be a subdomain, not a path.** An R2 custom domain attaches a
+     whole hostname; Cloudflare documents no way to bind a bucket to
+     `newmandarincantonii.com/print-jobs/*`. Serving that path would require a
+     Worker route, which is the thing being taken out of the download.
+3. Set `PRINT_JOBS_PUBLIC_BASE` in `wrangler.jsonc` to that origin if you used a
+   different hostname. Empty disables R2 entirely and the Worker serves job
+   bodies itself — which is the configuration that produced the 520s.
+4. Verify object delivery before involving the printer:
+   ```bash
+   scripts/verify-job-wire.sh 'https://print-jobs.newmandarincantonii.com/print-jobs/<key>.bin'
+   ```
+   Expect `content-length` present, no `content-encoding`, no `chunked`.
+
+### If the printer still fails to download
+
+Fall back by clearing `PRINT_JOBS_PUBLIC_BASE`, which sends job bodies back
+through the Worker route — and then turn compression off for that path, since
+the printer advertises `br` in `Accept-Encoding` and cannot decode it:
+
+> Dashboard → your zone → **Rules → Compression Rules → Create rule**
+> - Rule name: `print jobs uncompressed`
+> - If: **URI Path** *starts with* `/api/print/`
+> - Then: **Compression options** → set to **off** (remove all algorithms)
+> - Deploy
+
+Cloudflare honours `cache-control: no-transform` from the origin for this too,
+and the job route already sends it — but a rule is the explicit belt to that
+braces, and it is visible in the dashboard where the next person will look.
 
 ---
 

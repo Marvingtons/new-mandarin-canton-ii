@@ -74,8 +74,42 @@
 		"MAX_ORDERS_PER_PHONE_PER_DAY": "5",
 		"MAX_PICKUP_HOURS": "48",
 		"TIP_PRESETS": "",
-		"CLOUDPRNT_BUZZER": "off"
+		"CLOUDPRNT_BUZZER": "off",
+		// Where the printer fetches job bodies from — the R2 bucket's public
+		// custom domain, on our own zone. Empty disables the R2 path entirely
+		// and the Worker serves job bodies itself, which is the behaviour that
+		// produced the 520s, so this should be set before relying on printing.
+		//
+		// ⚠️ A SUBDOMAIN, NOT A PATH. R2 custom domains attach a whole
+		// hostname (they are a DNS record for the bucket); Cloudflare
+		// documents no way to bind a bucket to a path prefix such as
+		// newmandarincantonii.com/print-jobs/*. That path would have to be
+		// served by a Worker route, which is the thing being removed from the
+		// download. So the object host is its own name on the same zone.
+		"PRINT_JOBS_PUBLIC_BASE": "https://print-jobs.newmandarincantonii.com"
 	},
+	// Print-job bodies, served to the printer as plain R2 objects.
+	//
+	// Four production cycles ended in 520 Download failed on a job GET served
+	// by this Worker. The body left here through OpenNext's response streaming:
+	// chunked, with no Content-Length the firmware could rely on. Rather than
+	// keep tuning that path, the job body is now written to R2 and the printer
+	// is pointed at the object — a static GET with a fixed Content-Length that
+	// never enters the Worker at all.
+	//
+	// Created with:
+	//   wrangler r2 bucket create nmc-print-jobs
+	// and given a 24h expiry so an unconfirmed job cannot linger:
+	//   wrangler r2 bucket lifecycle add nmc-print-jobs \
+	//     --name expire-print-jobs --prefix print-jobs/ --expire-days 1
+	// See docs/DEPLOY_RUNBOOK.md for the custom-domain step, which is what
+	// makes the object reachable on our own zone.
+	"r2_buckets": [
+		{
+			"binding": "PRINT_JOBS",
+			"bucket_name": "nmc-print-jobs"
+		}
+	],
 	// Hyperdrive — created with:
 	//   wrangler hyperdrive create nmc-db --connection-string="<supabase DIRECT/session string>"
 	// NOTE: give Hyperdrive Supabase's DIRECT (port 5432) string, NOT the

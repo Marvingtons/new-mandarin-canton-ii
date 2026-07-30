@@ -299,6 +299,8 @@ export async function bumpPrintAttempt(
 export interface PrintSegmentState {
   segment: number;
   segments: number;
+  /** R2 object holding the body currently on offer, or null if none. */
+  jobKey: string | null;
 }
 
 export async function printSegmentState(
@@ -306,15 +308,35 @@ export async function printSegmentState(
   orderId: number,
 ): Promise<PrintSegmentState> {
   const { rows } = await ordersPool().query(
-    `select print_segment, print_segments from orders
+    `select print_segment, print_segments, print_job_key from orders
       where tenant_id = $1 and id = $2`,
     [tenantId, orderId],
   );
-  if (rows.length === 0) return { segment: 0, segments: 0 };
+  if (rows.length === 0) return { segment: 0, segments: 0, jobKey: null };
   return {
     segment: Number(rows[0].print_segment),
     segments: Number(rows[0].print_segments),
+    jobKey: rows[0].print_job_key === null ? null : String(rows[0].print_job_key),
   };
+}
+
+/**
+ * Remember where this order's published body lives.
+ *
+ * Written once when the body is uploaded, then read on every re-offer — which
+ * is the whole point: the key contains the sha256 of the body, so without this
+ * every poll would have to re-render the ticket just to work out the URL.
+ */
+export async function recordPrintJobKey(
+  tenantId: string,
+  orderId: number,
+  key: string | null,
+): Promise<void> {
+  await ordersPool().query(
+    `update orders set print_job_key = $3, updated_at = now()
+      where tenant_id = $1 and id = $2`,
+    [tenantId, orderId, key],
+  );
 }
 
 /** Record how many pieces this ticket turned out to be, at hand-over. */
@@ -349,6 +371,9 @@ export async function advancePrintSegment(
         set print_segment = print_segment + 1,
             print_attempts = 1,
             last_print_error = null,
+            -- The published body was this piece's. The next poll publishes the
+            -- next one; leaving the key would re-offer the piece just printed.
+            print_job_key = null,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning print_segment`,
@@ -370,6 +395,7 @@ export async function markPrinted(
             -- The sequence is done; the next print of this order starts over.
             print_segment = 0,
             print_segments = 0,
+            print_job_key = null,
             updated_at = now()
       where tenant_id = $1
         and id = $2
@@ -409,9 +435,11 @@ export async function requeueForPrint(
             alert_attempts = 0,
             -- Same reasoning: a reprint starts the ticket again from its first
             -- piece. Left where they were, a requeue after a stalled split
-            -- would resume mid-ticket and print the tail on its own.
+            -- would resume mid-ticket and print the tail on its own. The
+            -- published body goes with them; a reprint republishes.
             print_segment = 0,
             print_segments = 0,
+            print_job_key = null,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning ${ORDER_COLUMNS}`,

@@ -29,13 +29,19 @@ EXPECTED="${2:-}"
 BODY="$(mktemp)"; HEAD="$(mktemp)"
 trap 'rm -f "$BODY" "$HEAD"' EXIT
 
-curl -sS --http1.1 \
+# -L so a redirect is followed the way a client would; the header dump then
+# holds every hop and the checks below read the FINAL one. --http1.1 so
+# Transfer-Encoding is visible at all: HTTP/2 has no chunked framing to see,
+# and chunked-without-length is one of the things being ruled out.
+curl -sS --http1.1 -L \
   -H 'Accept-Encoding: gzip, br' \
   -D "$HEAD" -o "$BODY" \
   --max-time 60 \
   "$URL" || { echo "FAIL: request failed"; exit 1; }
 
+hops="$(grep -ci '^HTTP/' "$HEAD" || true)"
 status="$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{code=$2} END{print code}' "$HEAD")"
+tenc="$(awk 'BEGIN{IGNORECASE=1} /^transfer-encoding:/{sub(/^[^:]*:[ \t]*/,""); gsub(/\r/,""); v=$0} END{print v}' "$HEAD")"
 ctype="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/{sub(/^[^:]*:[ \t]*/,""); gsub(/\r/,""); v=$0} END{print v}' "$HEAD")"
 clen="$(awk 'BEGIN{IGNORECASE=1} /^content-length:/{sub(/^[^:]*:[ \t]*/,""); gsub(/\r/,""); v=$0} END{print v}' "$HEAD")"
 cenc="$(awk 'BEGIN{IGNORECASE=1} /^content-encoding:/{sub(/^[^:]*:[ \t]*/,""); gsub(/\r/,""); v=$0} END{print v}' "$HEAD")"
@@ -44,10 +50,12 @@ actual_bytes="$(wc -c < "$BODY" | tr -d ' ')"
 actual_sha="$(sha256sum "$BODY" | cut -d' ' -f1)"
 
 echo "url             $URL"
+echo "hops            $hops (1 = no redirect)"
 echo "status          $status"
 echo "content-type    ${ctype:-(absent)}"
 echo "content-length  ${clen:-(absent)}"
 echo "content-encoding ${cenc:-(absent)}"
+echo "transfer-encoding ${tenc:-(absent)}"
 echo "cache-control   ${ccont:-(absent)}"
 echo "bytes received  $actual_bytes"
 echo "sha256          $actual_sha"
@@ -60,6 +68,9 @@ note() { echo "  FAIL: $*"; fail=1; }
 # The header the printer cannot handle. Its ABSENCE is the whole point.
 [ -z "$cenc" ] || note "content-encoding is '$cenc' — the firmware cannot decode it"
 [ -n "$clen" ] || note "no content-length; the printer is downloading blind"
+# Chunked and Content-Length are mutually exclusive, and chunked is what the
+# Worker response path was doing when the printer answered 520.
+case "$tenc" in *chunked*) note "transfer-encoding is chunked; no fixed length to download";; esac
 [ -n "$clen" ] && [ "$clen" != "$actual_bytes" ] &&
   note "content-length $clen but $actual_bytes bytes arrived"
 case "$ccont" in *no-transform*) ;; *) note "cache-control lacks no-transform ('$ccont')";; esac

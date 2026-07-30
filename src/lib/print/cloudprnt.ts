@@ -246,6 +246,23 @@ export interface CloudPrntStatusResponse {
   mediaTypes?: string[];
   jobToken?: string;
   deleteMethod?: "DELETE" | "GET";
+  /**
+   * Where to fetch the job body, if not from us.
+   *
+   * Star: "When jobReady is set to true, then this field may be provided to
+   * specify an alternative URL to perform the job GET. This allows easy
+   * distribution to a different server for managing the print job file
+   * downloads such as a data 'blob' service." That is what takes the body out
+   * of this Worker's response path and onto an R2 object — see lib/print/
+   * jobStore.ts for why it had to leave.
+   */
+  jobGetUrl?: string;
+  /**
+   * Where to send the confirmation, if not to us. DELIBERATELY NEVER SET.
+   * Moving the GET was the point; moving the DELETE would take the print
+   * state machine with it.
+   */
+  jobConfirmationUrl?: string;
 }
 
 /** The idle answer, as a constant so it is impossible to get subtly wrong. */

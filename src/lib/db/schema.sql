@@ -55,6 +55,12 @@ create table if not exists orders (
   -- is a ticket that fits, where these stay 0 and 1 and nothing splits.
   print_segment     int         not null default 0,
   print_segments    int         not null default 0,
+  -- The R2 object holding the body currently on offer, or NULL when none is
+  -- published. The name ends in the sha256 of its own bytes, so it can only be
+  -- derived by rendering; keeping it here is what stops every poll re-rendering
+  -- a ticket that already exists, and is how a confirmation knows which object
+  -- to delete. Cleared with the segment counters whenever the sequence resets.
+  print_job_key     text,
   -- Set ONLY by a CloudPRNT DELETE, i.e. the printer's own confirmation that
   -- paper came out. Never set optimistically when a job is handed over. On a
   -- split ticket this waits for the LAST piece, so a sequence that stalls
