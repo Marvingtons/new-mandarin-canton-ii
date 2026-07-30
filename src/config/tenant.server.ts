@@ -319,3 +319,14 @@ export function cloudPrntBuzzerMode(): BuzzerMode {
 export function cronSecret(): string | null {
   return env("CRON_SECRET");
 }
+
+/**
+ * Key that lets a request skip the ORDER TIME gates. See lib/order/bypass.ts.
+ *
+ * Read leniently, and unset is the normal production state: no value means no
+ * bypass exists at all, which is the only configuration a customer should ever
+ * meet. This is a testing affordance, not a feature.
+ */
+export function orderGateBypassSecret(): string | null {
+  return env("ORDER_GATE_BYPASS");
+}

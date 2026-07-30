@@ -11,6 +11,7 @@ import {
   isLunchService,
   lunchClosedMessage,
 } from "@/lib/order/gates";
+import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass";
 import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
@@ -119,15 +120,29 @@ export async function POST(request: Request): Promise<Response> {
   };
   const now = new Date();
 
+  // Keyed skip for the TIME gates only, so a real order can be placed outside
+  // business hours for testing. False unless ORDER_GATE_BYPASS is set AND this
+  // request presents it. See lib/order/bypass.ts for what it does and does not
+  // skip — everything below that is not a clock still runs.
+  const bypass = isGateBypassRequest(request);
+
   // 4. Hours gate — the whole submit path, not just ASAP.
   //
   //    Enforced HERE, server-side, in restaurant time. The client hides the
   //    submit button outside hours, but that is a convenience: the browser
   //    clock is display-only and a crafted request must not reach the kitchen.
-  if (!isAcceptingOrders(now, pickupOpts)) {
+  if (!bypass && !isAcceptingOrders(now, pickupOpts)) {
     return bad(closedMessage(now, pickupOpts));
   }
-  if (!isValidPickup(body.pickup.time, now, pickupOpts)) {
+  // isValidPickup asks the slot GENERATOR whether it would offer this time,
+  // and the generator offers nothing at all outside ordering hours — so a
+  // bypassed request checks the value's shape instead, or the bypass could
+  // never get past its own pickup time. Every other bound still applies: the
+  // max-pickup-hours cap below, and resolution against the business date.
+  const pickupOk = bypass
+    ? isWellFormedPickupValue(body.pickup.time)
+    : isValidPickup(body.pickup.time, now, pickupOpts);
+  if (!pickupOk) {
     return bad("That pickup time is no longer available. Please pick another. · 該取餐時間已不可選，請另選時間。");
   }
 
@@ -185,7 +200,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!isAvailable(item)) return bad(`"${item.nameEn}" is currently unavailable. · 該項目暫時售罄。`);
     // Lunch specials are an 11–3 product. The client hides them outside that
     // window, but the client's clock is display-only — this is the gate.
-    if (item.lunchSpecial && !isLunchService(now, pickupOpts)) {
+    if (!bypass && item.lunchSpecial && !isLunchService(now, pickupOpts)) {
       return bad(lunchClosedMessage());
     }
     const size = itemSizes(item).find((s) => s.id === line.sizeId);
@@ -266,6 +281,18 @@ export async function POST(request: Request): Promise<Response> {
       err instanceof Error ? err.message : "unknown error",
     );
     return bad("We couldn't take your order just now. Please try again. · 目前無法接受訂單，請重試。", 503);
+  }
+
+  // A bypassed order is a TEST order and must never be mistaken for a real one
+  // in the logs. Logged here, after storage, so the line carries the order
+  // number the kitchen board and the ticket will show.
+  if (bypass) {
+    console.warn(
+      `[orders] *** GATE BYPASSED *** order ${result.order.orderNumber} — ` +
+        "accepted with a valid ORDER_GATE_BYPASS header; the business-hours " +
+        "and lunch-window gates were SKIPPED. This is a TEST order and its " +
+        "pickup window may fall outside opening hours.",
+    );
   }
 
   // 8. Confirm. A replayed idempotency key returns the ORIGINAL order number,

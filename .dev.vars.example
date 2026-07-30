@@ -44,6 +44,14 @@ TWILIO_MESSAGING_FROM=
 # Owner's mobile, E.164. Unset = the unprinted-order alert silently no-ops.
 OWNER_ALERT_PHONE=
 
+# TESTING ONLY — skips the hours/lunch gates so an end-to-end order can be
+# placed outside business hours. A request presenting this value in the
+# `x-gate-bypass` header skips ONLY the business-hours gate (including the
+# 20-minute pre-close cutoff) and the lunch-special window; OTP, price
+# recomputation, per-phone caps and idempotency all still apply. Leave UNSET in
+# production — unset means no bypass exists at all.  openssl rand -hex 32
+ORDER_GATE_BYPASS=
+
 # --- Public config --------------------------------------------------------
 # Mirrors the `vars` block in wrangler.jsonc, repeated here so local dev
 # behaves like production without editing that file.
