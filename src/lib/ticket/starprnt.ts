@@ -138,6 +138,122 @@ export function maxStarPrntRows(
   return Math.max(1, rows);
 }
 
+/**
+ * The ESC GS S blocks for one raster — no init, no cut.
+ *
+ * Split out so a multi-copy body and a single-copy body build their pixels
+ * through exactly the same code, and only their framing differs.
+ */
+function rasterBlocks(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  bandRowsOption?: number,
+): Uint8Array {
+  const expected = width * height * 4;
+  if (rgba.length < expected) {
+    throw new Error(
+      `pixel buffer is ${rgba.length} bytes, expected ${expected} for ${width}x${height} RGBA`,
+    );
+  }
+  const rowBytes = (width + 7) >> 3;
+  if (rowBytes > MAX_ROW_BYTES) {
+    throw new Error(
+      `${width}px is ${rowBytes} bytes per row; ESC GS S accepts at most ` +
+        `${MAX_ROW_BYTES} (${MAX_ROW_BYTES * 8} dots)`,
+    );
+  }
+  const bandRows = Math.max(1, bandRowsOption ?? DEFAULT_BAND_ROWS);
+
+  const blocks: Uint8Array[] = [];
+  for (let top = 0; top < height; top += bandRows) {
+    const rows = Math.min(bandRows, height - top);
+    const block = new Uint8Array(ESC_GS_S.length + 6 + rowBytes * rows);
+    let at = 0;
+    block.set(ESC_GS_S, at);
+    at += ESC_GS_S.length;
+    block[at++] = 0x01; // m = 1 block, monochrome
+    block[at++] = rowBytes & 0xff; // xL
+    block[at++] = (rowBytes >> 8) & 0xff; // xH
+    block[at++] = rows & 0xff; // yL
+    block[at++] = (rows >> 8) & 0xff; // yH
+    block[at++] = 0x00; // n = black
+    for (let r = 0; r < rows; r++) {
+      packRow(rgba, width, top + r, block, at, true);
+      at += rowBytes;
+    }
+    blocks.push(block);
+  }
+
+  const total = blocks.reduce((n, b) => n + b.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const b of blocks) {
+    out.set(b, at);
+    at += b.length;
+  }
+  return out;
+}
+
+/* ------------------------------------------------ multi-copy composition -- */
+
+/** ESC @ — start of job. */
+export function starPrntInit(): Uint8Array {
+  return Uint8Array.from(ESC_INIT);
+}
+
+/**
+ * ESC d 2 — feed to the cutting position, then a full cut.
+ *
+ * This is the whole between-copies mechanism, and it needs no separate feed.
+ * Rev. 4.01's Auto-cutter table for n=2: "Paper is fed to cutting position,
+ * then a full cut" — the printer advances the paper far enough for the last
+ * printed line to clear the cutter before firing, so there is no
+ * minimum-feed constant to get wrong. The same entry adds "If there is print
+ * data remaining in the line buffer, printing of line buffer is executed
+ * prior to the operation described above", which is what guarantees a copy is
+ * fully on paper before its cut rather than half-buffered into the next one.
+ *
+ * FULL, not partial: n=1 and n=3 are the partial variants, and a partial cut
+ * leaves the copies joined by a spine. Three separable tickets is the point.
+ */
+export function starPrntCut(): Uint8Array {
+  return Uint8Array.from([...ESC_CUT, CUT_FEED_THEN_FULL]);
+}
+
+/**
+ * Compose several rasters into ONE job body, each followed by a full cut.
+ *
+ *   [ESC @] copy1 [ESC d 2] copy2 [ESC d 2] copy3 [ESC d 2]
+ *
+ * One body, not N jobs. The claim, the confirmation and the state machine all
+ * stay per-ORDER; how many pieces of paper that produces is a property of the
+ * bytes, which is the only place it belongs — N queue entries would mean N
+ * chances to half-print an order.
+ *
+ * Cut after the LAST copy too, so the final ticket is separated from the roll
+ * and staff take three loose tickets rather than two and a tail.
+ */
+export function encodeStarPrntCopies(
+  rasters: { pixels: Uint8Array; width: number; height: number }[],
+  options: { bandRows?: number } = {},
+): Uint8Array {
+  if (rasters.length === 0) throw new Error("no copies to encode");
+  const parts: Uint8Array[] = [starPrntInit()];
+  for (const r of rasters) {
+    parts.push(rasterBlocks(r.pixels, r.width, r.height, options.bandRows));
+    parts.push(starPrntCut());
+  }
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
 export interface StarPrntRasterOptions {
   /** Feed to the cutting position and full-cut at the end of the job. */
   cut?: boolean;
@@ -247,6 +363,14 @@ export interface StarPrntRaster {
   pixels: Uint8Array;
   blocks: number;
   cut: boolean;
+  /**
+   * The payload split at its cut commands — one entry per physical ticket.
+   *
+   * This is what proves the copies are separated rather than stacked: a job
+   * that produced one long strip decodes to a single entry however many copies
+   * it drew, and three cut tickets decode to three.
+   */
+  copies: { height: number; pixels: Uint8Array }[];
 }
 
 /**
@@ -261,9 +385,23 @@ export interface StarPrntRaster {
 export function decodeStarPrntRaster(data: Uint8Array, width: number): StarPrntRaster {
   const rowBytes = (width + 7) >> 3;
   const rows: Uint8Array[] = [];
+  const copies: { height: number; pixels: Uint8Array }[] = [];
+  let copyStart = 0;
   let blocks = 0;
   let cut = false;
   let at = 0;
+
+  const toPixels = (from: number, to: number) => {
+    const h = to - from;
+    const out = new Uint8Array(width * h);
+    for (let y = 0; y < h; y++) {
+      const row = rows[from + y];
+      for (let x = 0; x < width; x++) {
+        out[y * width + x] = (row[x >> 3] >> (7 - (x & 7))) & 1;
+      }
+    }
+    return out;
+  };
 
   const matches = (seq: number[], pos: number) =>
     seq.every((b, i) => data[pos + i] === b);
@@ -275,6 +413,14 @@ export function decodeStarPrntRaster(data: Uint8Array, width: number): StarPrntR
     }
     if (matches(ESC_CUT, at)) {
       cut = true;
+      // Everything drawn since the previous cut is one physical ticket.
+      if (rows.length > copyStart) {
+        copies.push({
+          height: rows.length - copyStart,
+          pixels: toPixels(copyStart, rows.length),
+        });
+        copyStart = rows.length;
+      }
       at += ESC_CUT.length + 1; // command plus its n
       continue;
     }
@@ -300,15 +446,13 @@ export function decodeStarPrntRaster(data: Uint8Array, width: number): StarPrntR
     blocks++;
   }
 
-  const height = rows.length;
-  const pixels = new Uint8Array(width * height);
-  for (let y = 0; y < height; y++) {
-    const row = rows[y];
-    for (let x = 0; x < width; x++) {
-      pixels[y * width + x] = (row[x >> 3] >> (7 - (x & 7))) & 1;
-    }
+  // A trailing copy with no cut after it — a strip, not a ticket.
+  if (rows.length > copyStart) {
+    copies.push({ height: rows.length - copyStart, pixels: toPixels(copyStart, rows.length) });
   }
-  return { width, height, pixels, blocks, cut };
+
+  const height = rows.length;
+  return { width, height, pixels: toPixels(0, height), blocks, cut, copies };
 }
 
 /** The source of truth the decode is diffed against: ink per pixel. */

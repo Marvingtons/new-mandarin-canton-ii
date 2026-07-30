@@ -4,7 +4,7 @@ import { Resvg, ensureResvg } from "@/lib/ticket/resvg";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { loadTicketMetrics } from "@/lib/ticket/measure";
 import { encodeMonochromePng, findSegmentCuts } from "@/lib/ticket/png";
-import { encodeStarPrntRaster } from "@/lib/ticket/starprnt";
+import { encodeStarPrntCopies } from "@/lib/ticket/starprnt";
 import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
@@ -72,7 +72,24 @@ const EN_MARK = "⚠ EN";
 const COPY_LABELS = {
   kitchen: { zh: L.copyKitchen as string, en: "KITCHEN" },
   bag: { zh: L.copyBag as string, en: "BAG" },
+  register: { zh: L.copyRegister as string, en: "REGISTER" },
 } as const;
+
+/**
+ * Which copy this is, for the footer line staff read to sort the stack.
+ *
+ * N=3 is the configured case and its order is fixed by the kitchen: 廚房 / 袋 /
+ * 收銀. Everything else degrades around it — kitchen always first, bag always
+ * last, register filling the middle — so a change to TICKET_COPIES never
+ * produces an unlabelled or misordered stack.
+ */
+function copyLabelFor(index: number, total: number) {
+  if (total <= 1) return COPY_LABELS.kitchen;
+  if (index === 0) return COPY_LABELS.kitchen;
+  if (total === 3) return index === 1 ? COPY_LABELS.bag : COPY_LABELS.register;
+  if (index === total - 1) return COPY_LABELS.bag;
+  return COPY_LABELS.register;
+}
 
 /* ------------------------------------------------------ shape normalizer -- */
 
@@ -285,10 +302,20 @@ function drawLine(c: Canvas, line: OrderLine, coverage: Set<number>): void {
 export interface RenderTicketOptions {
   timezone: string;
   /**
-   * How many copies to stack into one job body. Defaults to 1 here so scripts
-   * and fixtures stay single; the print route passes the tenant setting.
+   * How many copies this order prints. Defaults to 1 here so scripts and
+   * fixtures stay single; the print route passes the tenant setting.
+   *
+   * On the starprnt path this is NOT a stacking instruction — each copy is
+   * rendered separately and cut from the last (see renderCutCopies). It is
+   * still used here to pick the footer label, which needs to know the total.
    */
   copies?: number;
+  /**
+   * Which copy this render IS, 0-based. Set only by renderCutCopies; when
+   * absent the compositor falls back to stacking, which is what the PNG path
+   * and the preview still do.
+   */
+  copyIndex?: number;
   /** Printed in the header so a reprint is obvious at the pass. */
   reprint?: boolean;
 }
@@ -328,25 +355,35 @@ export async function composeTicketSvg(
   const c = new Canvas(CONTENT_WIDTH, metrics);
 
   /**
-   * Copies, stacked into ONE job body.
+   * How many copies this composer draws.
    *
-   * NO MID-JOB CUT. Star documents extra control options in the RESPONSE
-   * HEADERS for text/plain, image/png and image/jpeg — that is how the buzzer
-   * and cash drawer work here (see peripheralHeaders) — but a cut between two
-   * images inside a single job is not among the documented options, and I
-   * found nothing in the CloudPRNT protocol guide describing one for image
-   * media. Rather than guess at firmware behaviour, the copies are separated
-   * by a printed tear line with generous whitespace either side, and the
-   * operator tears. If a cut command for image media does exist, this is the
-   * one place to change.
+   * THE CUT MOVED. This used to stack every copy into one tall image with a
+   * printed tear line between them, because a mid-job cut looked undocumented
+   * for image media. It is documented for COMMAND media: Star's CloudPRNT
+   * media-type appendix routes cut control "in print data" for the vnd.star
+   * formats, and StarPRNT Rev. 4.01's Auto-cutter gives the bytes. So on the
+   * starprnt path each copy is now rendered on its own and separated by a real
+   * full cut — see renderCutCopies and lib/ticket/starprnt.ts.
+   *
+   * This loop still stacks when asked to, which is what the PNG path and the
+   * preview do: a browser cannot act on a cut command, so a tear line remains
+   * the honest thing to draw there. `copyIndex` is how renderCutCopies asks
+   * for exactly one copy, labelled as the Nth.
    */
   const copies = Math.max(1, options.copies ?? 1);
+  const only = options.copyIndex;
+  const first = only ?? 0;
+  const last = only ?? copies - 1;
 
-  for (let copy = 0; copy < copies; copy++) {
-    if (copy > 0) {
-      // The tear line. Generous whitespace so a slightly-off tear still
-      // misses the type, and a dashed rule so it reads as "tear here"
-      // rather than as another section divider.
+  for (let copy = first; copy <= last; copy++) {
+    // The tear line, only when this composer is actually stacking. A single
+    // requested copy is its own piece of paper and needs no tear mark; drawing
+    // one at the top of copy 2 of 3 would print a dashed rule above a ticket
+    // that a cutter already separated.
+    if (copy > first && only === undefined) {
+      // Generous whitespace so a slightly-off tear still misses the type, and
+      // a dashed rule so it reads as "tear here" rather than as another
+      // section divider.
       c.space(26);
       c.tearLine();
       c.space(26);
@@ -424,7 +461,7 @@ export async function composeTicketSvg(
        them up, and until then this prints the English, which is the same
        rule every other bilingual string on the ticket follows. */
     if (copies > 1) {
-      const which = copy === 0 ? COPY_LABELS.kitchen : COPY_LABELS.bag;
+      const which = copyLabelFor(copy, copies);
       const label = pick(which.zh, which.en, coverage);
       c.text(label.primary + (label.fallback ? "" : ` / ${which.en}`), {
         size: 20,
@@ -508,6 +545,67 @@ export async function rasterizeTicket(
  */
 export type TicketFormat = "starprnt" | "png";
 
+/**
+ * N copies, each rasterized on its own and cut from the one before.
+ *
+ * Rendered one at a time and encoded as we go: three 576x1500 RGBA buffers
+ * held together is ~10MB, and this runs in an isolate that also holds a wasm
+ * renderer. Each raster is freed before the next is made.
+ *
+ * `maxHeight` gates the WHOLE body, because the 512KB cap is on the download,
+ * not on any one copy. If N copies would exceed it the caller gets an error
+ * rather than a job the printer answers 521 to — splitting mid-stack would
+ * separate a ticket from its own cut.
+ */
+async function renderCutCopies(
+  order: Order,
+  options: RenderTicketOptions,
+  copies: number,
+  maxHeight: number | null,
+  segment: number,
+): Promise<TicketJob> {
+  if (segment !== 0) {
+    throw new Error(`a ${copies}-copy job has one segment; ${segment} was asked for`);
+  }
+  const parts: { pixels: Uint8Array; width: number; height: number }[] = [];
+  let perCopyHeight = 0;
+  try {
+    for (let copy = 0; copy < copies; copy++) {
+      const raster = await rasterizeTicket(order, { ...options, copies, copyIndex: copy });
+      try {
+        // Copied out of the wasm buffer so it survives free().
+        parts.push({
+          pixels: new Uint8Array(raster.pixels),
+          width: raster.width,
+          height: raster.height,
+        });
+        perCopyHeight = raster.height;
+      } finally {
+        raster.free();
+      }
+    }
+
+    const body = Buffer.from(encodeStarPrntCopies(parts));
+    const totalHeight = parts.reduce((n, p) => n + p.height, 0);
+    if (maxHeight !== null && totalHeight > maxHeight) {
+      throw new Error(
+        `${copies} copies total ${totalHeight}px, over the ${maxHeight}px ceiling ` +
+          `the 512KB job cap allows — reduce TICKET_COPIES`,
+      );
+    }
+    return {
+      body,
+      format: "starprnt",
+      segment: 0,
+      segments: 1,
+      height: perCopyHeight,
+      totalHeight,
+    };
+  } finally {
+    parts.length = 0;
+  }
+}
+
 /** One piece of a ticket, plus how many pieces there turned out to be. */
 export interface TicketJob {
   /** The job body, in the requested format. */
@@ -557,6 +655,19 @@ export async function renderTicketJob(
   const maxHeight = job.maxHeight ?? null;
   const segment = job.segment ?? 0;
 
+  // THREE TICKETS, NOT ONE TALL ONE. On the starprnt path each copy is its own
+  // raster with its own full cut after it, so the copies drop as separate
+  // pieces of paper. The copies are NOT stacked into a single image here —
+  // that is what produced one long strip with a printed tear line, and a
+  // strip is what this replaces.
+  //
+  // Still one job: one claim, one confirmation, one R2 object. How many pieces
+  // of paper the body produces is a property of the bytes.
+  const copies = Math.max(1, options.copies ?? 1);
+  if (format === "starprnt" && copies > 1) {
+    return renderCutCopies(order, options, copies, maxHeight, segment);
+  }
+
   const { pixels, width, height, free } = await rasterizeTicket(order, options);
   try {
     const cuts = maxHeight === null ? [] : findSegmentCuts(pixels, width, height, maxHeight);
@@ -573,7 +684,7 @@ export async function renderTicketJob(
       // The slice is taken here rather than inside the encoder so both formats
       // are cut at exactly the same rows.
       const slice = pixels.subarray(from * width * 4, (from + rows) * width * 4);
-      body = Buffer.from(encodeStarPrntRaster(slice, width, rows));
+      body = Buffer.from(encodeStarPrntCopies([{ pixels: slice, width, height: rows }]));
     } else {
       body = Buffer.from(await encodeMonochromePng(pixels, width, height, from, rows));
     }

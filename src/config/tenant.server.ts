@@ -379,6 +379,31 @@ export function printOfferCap(): number {
  * bug, and the point of retrying at all is only to survive a cold-start OOM or
  * a resource blip, not to grind against a template that cannot render.
  */
+/**
+ * Quiet period after a job has been handed over twice without a confirmation.
+ *
+ * A-008 printed six times off one order. Every unconfirmed poll re-offered it
+ * and the printer obeyed, so the bookkeeping gap turned into paper. Retrying is
+ * still right — a job that genuinely did not print must be offered again — but
+ * retrying every three seconds turns one missed DELETE into a roll of tickets.
+ *
+ * Two offers, then silence for a minute. Long enough that a slow printer
+ * finishing a 2000px ticket and confirming late is never racing a fresh copy
+ * out of the queue, short enough that a real failure still recovers while the
+ * customer is waiting.
+ */
+export function printOfferCooldownSeconds(): number {
+  const n = intEnv("PRINT_OFFER_COOLDOWN_SECONDS", 60);
+  // 0 disables the cooldown; the offer cap still applies.
+  return Number.isFinite(n) && n >= 0 ? n : 60;
+}
+
+/** Offers allowed back-to-back before the cooldown starts applying. */
+export function printOffersBeforeCooldown(): number {
+  const n = intEnv("PRINT_OFFERS_BEFORE_COOLDOWN", 2);
+  return Number.isFinite(n) && n >= 1 ? n : 2;
+}
+
 export function printRenderCap(): number {
   const n = intEnv("PRINT_RENDER_CAP", 3);
   return Number.isFinite(n) && n >= 1 ? n : 3;

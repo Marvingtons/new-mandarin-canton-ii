@@ -75,6 +75,16 @@
 		"MAX_PICKUP_HOURS": "48",
 		"TIP_PRESETS": "",
 		"CLOUDPRNT_BUZZER": "off",
+		// Three tickets per order, each individually cut: kitchen, bag, register.
+		//
+		// ⚠️ THIS IS NEAR A HARD CEILING. Command data is uncompressed, so three
+		// copies of the worst realistic ticket (the 12-line party tray, 2193px
+		// each) is 462.8KB against Star's 512KB job-download cap — 90%. The
+		// headroom is about 230 dot rows, call it three or four more item lines.
+		// A fourth copy does not fit at all and is refused at render rather than
+		// sent for the printer to answer 521. Raise this only with the size
+		// numbers from `npm run ticket:sample` in front of you.
+		"TICKET_COPIES": "3",
 		// Where the printer fetches job bodies from — the R2 bucket's public
 		// custom domain, on our own zone. Empty disables the R2 path entirely
 		// and the Worker serves job bodies itself, which is the behaviour that

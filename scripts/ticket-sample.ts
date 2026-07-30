@@ -724,10 +724,67 @@ async function main(): Promise<void> {
   await assertFormats("reprint", order);
   await assertFormats("12-line party tray", long);
   await assertFormats("wrapping torture", torture);
-  await assertFormats("party tray, 2 copies", long, 2);
+  // Multi-copy is not checked here: a copies>1 starprnt job is now several
+  // rasters with cuts between them, not one tall one, so it decodes to N
+  // tickets and the single-raster diff below does not describe it. The
+  // "three copies" section that follows is where that case is proven.
   await assertFormats("sql-shaped", sqlShaped);
   await assertFormats("malformed", malformed);
   console.log(`  all payloads inside Star's ${512}KB GET cap ✓`);
+
+  // THREE INDIVIDUALLY CUT COPIES — the requirement is three loose tickets,
+  // not one strip. Proven by decoding: the payload is split at its ESC d 2
+  // commands, and a strip would decode to ONE entry however many copies it
+  // drew. Each entry is then diffed against its own re-render, so a cut in the
+  // wrong place shows up as a pixel mismatch rather than as a shrug.
+  console.log("\nthree copies, each individually cut:");
+  for (const [name, order] of [
+    ["short ticket", await Promise.resolve(fixtureOrder())],
+    ["12-line party tray", long],
+  ] as [string, Order][]) {
+    const job = await renderTicketJob(order, { timezone: TIMEZONE, copies: 3 }, {
+      format: "starprnt",
+    });
+    const raster = decodeStarPrntRaster(job.body, TICKET_WIDTH_PX);
+    if (raster.copies.length !== 3) {
+      throw new Error(`${name}: decoded ${raster.copies.length} tickets, expected 3`);
+    }
+    if (!raster.cut) throw new Error(`${name}: no cut commands at all`);
+
+    for (let i = 0; i < 3; i++) {
+      const src = await rasterizeTicket(order, {
+        timezone: TIMEZONE,
+        copies: 3,
+        copyIndex: i,
+      });
+      let expected: Uint8Array;
+      try {
+        expected = thresholdToInk(src.pixels, src.width, src.height);
+      } finally {
+        src.free();
+      }
+      const got = raster.copies[i];
+      if (got.pixels.length !== expected.length) {
+        throw new Error(
+          `${name} copy ${i + 1}: ${got.pixels.length} px decoded vs ${expected.length}`,
+        );
+      }
+      let bad = 0;
+      for (let p = 0; p < expected.length; p++) if (expected[p] !== got.pixels[p]) bad++;
+      if (bad !== 0) throw new Error(`${name} copy ${i + 1}: ${bad} pixel(s) differ`);
+    }
+
+    const heights = raster.copies.map((c) => c.height);
+    if (job.body.length > MAX_JOB_BYTES) {
+      throw new Error(`${name}: 3 copies is ${job.body.length}B, over the 512KB cap`);
+    }
+    console.log(
+      `  ${name.padEnd(22)} 3 tickets ${heights.join(" + ")}px  ` +
+        `${(job.body.length / 1024).toFixed(1)}KB total  ` +
+        `${((job.body.length / MAX_JOB_BYTES) * 100).toFixed(0)}% of cap  ` +
+        `all three match source ✓`,
+    );
+  }
 
   // The cap converted to a row count, and a job encoded right at it — this is
   // what stops a tall ticket becoming a 521 instead of a print.

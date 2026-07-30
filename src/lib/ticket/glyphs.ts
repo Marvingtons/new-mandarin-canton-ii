@@ -50,6 +50,7 @@ export const TICKET_LABELS = {
   copyKitchen: "廚房",
   /** Copy 2 of 2 — goes on the bag. */
   copyBag: "袋",
+  copyRegister: "收銀",
 } as const;
 
 /**

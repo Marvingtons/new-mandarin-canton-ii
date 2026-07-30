@@ -1,6 +1,8 @@
 import {
   lateConfirmationGraceSeconds,
   printOfferCap,
+  printOfferCooldownSeconds,
+  printOffersBeforeCooldown,
   printRenderCap,
   publicTenant,
   ticketCopies,
@@ -138,6 +140,23 @@ export async function POST(
     // unaccounted for would double-print.
     let job = await currentPrintJob(tenant.tenantId);
 
+    // COOLDOWN — the thing that stops one missed confirmation becoming a roll
+    // of paper. A-008 printed six times because every poll re-offered a job
+    // the printer had already produced and the server had not recorded. After
+    // two hand-overs with no DELETE, the job goes quiet for a minute: a slow
+    // printer confirming late can no longer race a fresh copy out of the
+    // queue, and a genuine failure still recovers, just not sixty times.
+    if (job) {
+      const held = coolingDown(job);
+      if (held !== null) {
+        console.warn(
+          `[cloudprnt] verdict=cooldown ${job.orderNumber} — ${job.printAttempts} ` +
+            `offers, no confirmation; holding ${held}s more before re-offering`,
+        );
+        return Response.json(NO_JOB);
+      }
+    }
+
     if (job) {
       const attempts = await bumpPrintAttempt(tenant.tenantId, job.id);
       if (attempts > printOfferCap()) {
@@ -198,6 +217,23 @@ export async function POST(
     // Never hand the printer something it might interpret as a job.
     return Response.json(NO_JOB);
   }
+}
+
+/**
+ * Seconds still to wait before this job may be offered again, or null to offer.
+ *
+ * Reads the two columns the offer loop already maintains: `print_attempts`
+ * counts hand-overs, and `updated_at` moves on every one of them, so "last
+ * offered" needs no column of its own. Exported shape is deliberately a number
+ * rather than a boolean so the log can say how much longer.
+ */
+function coolingDown(job: Order): number | null {
+  const after = printOffersBeforeCooldown();
+  const window = printOfferCooldownSeconds();
+  if (window <= 0 || job.printAttempts < after) return null;
+  const since = (Date.now() - Date.parse(job.updatedAt)) / 1000;
+  if (!Number.isFinite(since)) return null;
+  return since >= window ? null : Math.ceil(window - since);
 }
 
 /**
