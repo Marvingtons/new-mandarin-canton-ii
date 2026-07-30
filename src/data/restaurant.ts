@@ -159,6 +159,29 @@ export const mapEmbedUrl = `https://www.google.com/maps?q=${mapsQuery}&output=em
 /** Opens Google Maps (app or web) pointed at the restaurant. */
 export const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 
+/**
+ * "Open 7 days from 11:00 AM" — derived, never written by hand.
+ *
+ * The footer used to summarise the week as "Open 7 days · 11 AM to
+ * close", sitting inches from a per-day table that closes at 9:00, 9:30
+ * and 8:30 depending on the day. A summary that contradicts the table
+ * below it is worse than no summary, so this only states what every open
+ * day genuinely shares: that we are open, and when we open. If the days
+ * ever stop agreeing on the opening time it says less rather than
+ * something false.
+ */
+export const weeklyOpeningSummary: string = (() => {
+  const all = Object.values(restaurant.hours);
+  const open = all.filter((h) => !h.closed);
+  if (open.length === 0) return "";
+  const days =
+    open.length === all.length
+      ? "Open 7 days"
+      : `Open ${open.length} days a week`;
+  const sameOpening = open.every((h) => h.open === open[0].open);
+  return sameOpening ? `${days} from ${open[0].open}` : days;
+})();
+
 /** "Est. 1995", or null while the founding year is unconfirmed. */
 export const establishedLabel = restaurant.features.foundingYear
   ? `Est. ${restaurant.features.foundingYear}`

@@ -98,7 +98,9 @@ body {
  */
 .frame {
   padding: var(--frame-mount);
-  background: var(--cream);
+  /* Set --frame-fill: transparent to frame something that isn't a photo
+     (the contact band) — the edge, mount and hairline stay identical. */
+  background: var(--frame-fill, var(--cream));
   border: 1px solid var(--frame-edge);
   /* The inner hairline is an outline pulled back onto the mount's inside
      edge, not a nested element — so one frame can hold a flex column

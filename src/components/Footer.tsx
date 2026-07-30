@@ -1,24 +1,75 @@
+import type { CSSProperties } from "react";
 import Established from "@/components/Established";
+import HoursTable from "@/components/HoursTable";
 import LocationMap from "@/components/LocationMap";
 import OpenNowChip from "@/components/OpenNowChip";
-import PhoneLinks from "@/components/PhoneLinks";
 import Seal from "@/components/Seal";
-import { restaurant } from "@/data/restaurant";
-import type { DayOfWeek } from "@/data/restaurant";
+import {
+  directionsUrl,
+  fullAddress,
+  phoneLinks,
+  restaurant,
+  weeklyOpeningSummary,
+} from "@/data/restaurant";
 
-const week: ReadonlyArray<readonly [DayOfWeek, string]> = [
-  ["monday", "Mon"],
-  ["tuesday", "Tue"],
-  ["wednesday", "Wed"],
-  ["thursday", "Thu"],
-  ["friday", "Fri"],
-  ["saturday", "Sat"],
-  ["sunday", "Sun"],
-];
+/** The band frames text, not a photo, so its mount stays transparent. */
+const BAND_FILL = { "--frame-fill": "transparent" } as CSSProperties;
 
+/**
+ * The whole bottom of the site: one contact band, then one footer.
+ *
+ * It used to be three passes at the same information. A gold-boxed
+ * HOURS / FIND US / CALL band on the homepage, then this footer repeating
+ * FIND US and HOURS with the map, then a third phone list inside the
+ * takeout strip just above — both numbers, the address, and an open/closed
+ * pill all visible three times in one viewport. Now the band is the call
+ * to action and the footer carries only what the band doesn't.
+ *
+ * The band lives here rather than on the homepage so the page ends the
+ * same way everywhere, and so the status pill has exactly one home.
+ */
 export default function Footer() {
   return (
     <footer className="mt-auto border-t-4 border-double border-gold/60 bg-ink text-ivory">
+      {/* ---- CONTACT BAND: status, address, both numbers, directions.
+              One row on desktop; stacks on mobile with the numbers as the
+              biggest tap targets on the screen. ---- */}
+      <div className="border-b border-gold/25">
+        <div className="mx-auto max-w-5xl px-4 py-8">
+          <div
+            style={BAND_FILL}
+            className="frame flex flex-col items-center gap-5 px-5 py-5 text-center sm:flex-row sm:justify-between sm:gap-8 sm:px-7 sm:text-left"
+          >
+            <div className="flex flex-col items-center gap-2.5 sm:items-start">
+              <OpenNowChip />
+              <p className="text-sm leading-relaxed text-ivory/85">
+                {fullAddress}
+              </p>
+            </div>
+            <div className="flex w-full flex-col items-stretch gap-2.5 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+              {phoneLinks.map(({ phone, href }) => (
+                <a
+                  key={phone}
+                  href={href}
+                  className="token-colors inline-flex min-h-12 items-center justify-center border border-gold/60 px-6 py-3 font-display text-lg text-gold-light hover:border-gold hover:bg-gold hover:text-ink"
+                >
+                  {phone}
+                </a>
+              ))}
+              <a
+                href={directionsUrl}
+                target="_blank"
+                rel="noopener"
+                className="arrow-link token-colors inline-flex min-h-12 items-center justify-center whitespace-nowrap text-sm font-semibold text-gold-light underline decoration-gold/60 underline-offset-4 hover:text-gold"
+              >
+                Get Directions <span className="arrow">→</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ---- FOOTER: brand, the per-day table, the map ---- */}
       <div className="mx-auto grid max-w-5xl gap-10 px-4 py-12 sm:grid-cols-3">
         <div>
           <Seal size={44} />
@@ -31,8 +82,9 @@ export default function Footer() {
               {restaurant.chineseName}
             </p>
           )}
-          {/* The one heritage beat in the footer — sits with the seal,
-              not with the copy, so the two read as one lockup. */}
+          {/* The site's ONE heritage beat, sitting with the seal so the two
+              read as a single lockup. No year while the founding date is
+              unconfirmed — see the TODO(confirm) in restaurant.ts. */}
           <Established withTenure className="mt-4" />
           <p className="mt-4 text-sm leading-relaxed text-ivory/70">
             {restaurant.tagline}
@@ -40,40 +92,23 @@ export default function Footer() {
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            Find Us
+            Hours
           </h2>
-          <p className="mt-3 text-sm leading-relaxed text-ivory/85">
-            {restaurant.address.street}
-            <br />
-            {restaurant.address.city}, {restaurant.address.state}{" "}
-            {restaurant.address.zip}
-          </p>
-          <LocationMap className="mt-4" />
-          <p className="mt-4 text-sm text-gold-light">
-            <PhoneLinks
-              separator=" · "
-              className="transition-colors hover:text-gold"
-            />
-          </p>
+          {/* Derived from restaurant.hours, like the table under it. The
+              line here used to read "Open 7 days · 11 AM to close" while
+              the table said 9:00, 9:30 and 8:30 depending on the day. */}
+          <p className="mt-3 text-sm text-ivory/70">{weeklyOpeningSummary}</p>
+          <HoursTable tone="dark" dense className="mt-3" />
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            Hours
+            Find Us
           </h2>
-          <ul className="mt-3 space-y-1 text-sm text-ivory/85">
-            {week.map(([day, abbr]) => {
-              const h = restaurant.hours[day];
-              return (
-                <li key={day} className="flex justify-between gap-4">
-                  <span>{abbr}</span>
-                  <span>{h.closed ? "Closed" : `${h.open} – ${h.close}`}</span>
-                </li>
-              );
-            })}
-          </ul>
-          <OpenNowChip className="mt-4" />
+          {/* Directions off: the band above carries that link. */}
+          <LocationMap showDirections={false} className="mt-3" />
         </div>
       </div>
+
       <div className="border-t border-ivory/10 py-4 text-center text-xs text-ivory/50">
         {/* Stated sitewide: we never deliver, and a customer should never have
             to reach the cart to find that out.

@@ -10,6 +10,12 @@ interface LocationMapProps {
   aspect?: string;
   /** "dark" for the lacquer footer, "light" for paper pages. */
   tone?: "dark" | "light";
+  /**
+   * Print the "Get Directions" link under the map. Off in the footer,
+   * where the contact band directly above already carries it — two of
+   * them in one viewport is the redundancy, not the reassurance.
+   */
+  showDirections?: boolean;
   className?: string;
 }
 
@@ -25,6 +31,7 @@ interface LocationMapProps {
 export default function LocationMap({
   aspect = "16/9",
   tone = "dark",
+  showDirections = true,
   className = "",
 }: LocationMapProps) {
   const link =
@@ -48,14 +55,16 @@ export default function LocationMap({
           />
         </div>
       </div>
-      <a
-        href={directionsUrl}
-        target="_blank"
-        rel="noopener"
-        className={`arrow-link token-colors mt-3 inline-block text-sm font-semibold underline decoration-gold/60 underline-offset-4 ${link}`}
-      >
-        Get Directions <span className="arrow">→</span>
-      </a>
+      {showDirections && (
+        <a
+          href={directionsUrl}
+          target="_blank"
+          rel="noopener"
+          className={`arrow-link token-colors mt-3 inline-block text-sm font-semibold underline decoration-gold/60 underline-offset-4 ${link}`}
+        >
+          Get Directions <span className="arrow">→</span>
+        </a>
+      )}
     </div>
   );
 }
