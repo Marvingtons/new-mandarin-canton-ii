@@ -610,6 +610,46 @@ async function main(): Promise<void> {
         "(b) the exhausted order is no longer swept",
         !gone.some((x) => x.id === o.order.id),
       );
+
+      // (b2) A REQUEUE RE-ARMS THE ALERT.
+      //
+      // This order has been alerted about and has exhausted its send budget —
+      // findUnprintedForAlert will never look at it again. Staff hitting 重印
+      // is a fresh attempt at printing, so it must also be a fresh attempt at
+      // alerting: without this, a reprint that also fails to print is silent,
+      // and the one net that catches a ticket the kitchen never saw is gone.
+      await repo.requeueForPrint(tenant, o.order.id);
+      await age(o.order.id);
+      const rearmed = await repo.findUnprintedForAlert(tenant, 120);
+      check(
+        "(b2) a requeued order is swept again",
+        rearmed.some((x) => x.id === o.order.id),
+      );
+      const reclaim = await sweep(o.order.id, false);
+      check(
+        "(b2) and its send budget starts over at 1",
+        reclaim.attempted && reclaim.attempts === 1,
+        `attempted=${reclaim.attempted} attempts=${reclaim.attempts}`,
+      );
+    }
+
+    // (d) a requeued order that PRINTS is not alerted about
+    {
+      const o = await repo.createOrder({
+        ...baseInput,
+        tenantId: tenant,
+        businessDate,
+        idempotencyKey: "alert-retry-d",
+      });
+      await age(o.order.id);
+      await repo.requeueForPrint(tenant, o.order.id);
+      await age(o.order.id);
+      await repo.markPrinted(tenant, o.order.id);
+      const swept = await repo.findUnprintedForAlert(tenant, 120);
+      check(
+        "(d) a requeued order that printed is never alerted about",
+        !swept.some((x) => x.id === o.order.id),
+      );
     }
 
     // (c) success on attempt 2 -> exactly one SMS in total

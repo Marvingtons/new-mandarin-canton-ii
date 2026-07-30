@@ -315,10 +315,26 @@ export async function requeueForPrint(
   orderId: number,
 ): Promise<Order | null> {
   const { rows } = await ordersPool().query(
+    // alerted_at and alert_attempts are reset alongside the print counters,
+    // and that is load-bearing rather than tidiness.
+    //
+    // findUnprintedForAlert only ever considers orders with `alerted_at IS
+    // NULL`, and nothing else in the system clears that column — not
+    // updateStatus, not the print path. So an order that was alerted about,
+    // then requeued by staff (重印), kept its stamp forever: if the reprint
+    // ALSO failed to print, the owner was never told a second time. A staff
+    // reprint silently disarmed the one safety net that catches a ticket the
+    // kitchen never saw.
+    //
+    // A requeue is a fresh attempt at printing, so it gets a fresh attempt at
+    // alerting too. alert_attempts goes back to 0 for the same reason: the
+    // send-failure retry budget belongs to this attempt, not to the last one.
     `update orders
         set status = 'QUEUED',
             print_attempts = 0,
             last_print_error = null,
+            alerted_at = null,
+            alert_attempts = 0,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning ${ORDER_COLUMNS}`,
