@@ -72,7 +72,33 @@ export const JOB_MEDIA_TYPE = "image/png";
 /** Star's extended PNG type — the one that carries the height declarations. */
 export const JOB_MEDIA_TYPE_STAR = "image/vnd.star.png";
 
-export const OFFERED_MEDIA_TYPES = [JOB_MEDIA_TYPE_STAR, JOB_MEDIA_TYPE];
+/**
+ * Printer-ready StarPRNT command data. THE PRIMARY PATH.
+ *
+ * Star's "Data size limitation for print jobs" is explicit that 511 comes from
+ * the CONVERSION step both PNG types require, and that the conversion fails on
+ * memory. This type skips it: the bitmap arrives already packed at 1 bit per
+ * dot and the firmware prints it. Listed in the TSP100IV's supported media
+ * types on Star's Content Media Types page.
+ */
+export const JOB_MEDIA_TYPE_STARPRNT = "application/vnd.star.starprnt";
+
+/**
+ * What we advertise, in our order of preference.
+ *
+ * starprnt first because it is the only one of the three that cannot hit the
+ * 511 conversion failure. vnd.star.png second: still a conversion, but the
+ * mono pathway, and it is the type that makes the printer declare mono_len.
+ * Plain image/png last so the dev preview and any human-facing surface still
+ * get something a browser can open.
+ *
+ * The printer picks; we serve what it names in the GET's `type` parameter.
+ */
+export const OFFERED_MEDIA_TYPES = [
+  JOB_MEDIA_TYPE_STARPRNT,
+  JOB_MEDIA_TYPE_STAR,
+  JOB_MEDIA_TYPE,
+];
 
 /**
  * Which offered type is this GET asking for, if any?
@@ -497,6 +523,36 @@ export function logPrinterLimits(limits: PrinterLimits): void {
  * unknown header rather than failing the job — so enabling this can waste a
  * buzz, never a ticket.
  */
+/**
+ * Say once, loudly, when the configured buzzer cannot fire on this job.
+ *
+ * Star routes peripheral control by media type: through these response headers
+ * for image/png, image/vnd.star.png and text/plain, and through the PRINT DATA
+ * for the vnd.star command formats. So on a starprnt job the headers below are
+ * ignored — and the TSP100IV accepts no in-data command that would replace
+ * them: StarPRNT Rev. 4.01's "External device drive" table marks ESC BEL, BEL,
+ * FS, SUB, EM, ESC GS BEL, ESC GS EM DC1 and ESC GS EM DC2 all "No" for this
+ * model.
+ *
+ * That is a real cost of the starprnt path and the operator should hear about
+ * it rather than wonder why the kitchen went quiet. Module scope, so it is one
+ * line per isolate rather than one per ticket.
+ */
+let buzzerWarned = false;
+
+export function warnBuzzerUnavailable(mediaType: string): void {
+  if (buzzerWarned) return;
+  if (cloudPrntBuzzerMode() === "off") return;
+  buzzerWarned = true;
+  console.warn(
+    `[cloudprnt] CLOUDPRNT_BUZZER is set, but this job is ${mediaType}: Star ` +
+      "routes peripheral control through the print data for vnd.star formats, " +
+      "and the TSP100IV supports no external-device-drive command to put there. " +
+      "The buzzer will not sound on this path. It still works on the image/png " +
+      "and image/vnd.star.png paths, where the control headers apply.",
+  );
+}
+
 export function peripheralHeaders(): Record<string, string> {
   const mode = cloudPrntBuzzerMode();
   const headers: Record<string, string> = {};

@@ -6,6 +6,7 @@ import {
   ticketCopies,
 } from "@/config/tenant.server";
 import {
+  JOB_MEDIA_TYPE_STARPRNT,
   NO_JOB,
   OFFERED_MEDIA_TYPES,
   describeConfirmation,
@@ -19,6 +20,7 @@ import {
   readPoll,
   readPrinterLimits,
   secretMatches,
+  warnBuzzerUnavailable,
   type CloudPrntStatusResponse,
 } from "@/lib/print/cloudprnt";
 import {
@@ -33,7 +35,8 @@ import {
   recordPrintSegments,
   recordRenderFailure,
 } from "@/lib/orders/repository";
-import { renderTicketJob } from "@/lib/ticket/render";
+import { renderTicketJob, TICKET_WIDTH_PX } from "@/lib/ticket/render";
+import { maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
@@ -214,18 +217,31 @@ export async function GET(
   const limits = readPrinterLimits(url);
   logPrinterLimits(limits);
 
+  // StarPRNT command data needs no conversion on the printer, so it is the one
+  // path that cannot hit the 511 memory failure — and the height ceiling the
+  // printer declares describes its PNG converter, so it does not apply.
+  const format = mediaType === JOB_MEDIA_TYPE_STARPRNT ? "starprnt" : "png";
+  if (format === "starprnt") warnBuzzerUnavailable(mediaType);
+
   try {
     // The height gate, and the only number allowed to drive it: the printer's
-    // own. We emit 1 bit per pixel (see lib/ticket/png.ts), so mono_len is the
-    // applicable ceiling — 24bpp_len describes a format we no longer send. A
-    // null ceiling means the printer declared nothing, and renderTicketJob
-    // sends the whole ticket rather than falling back to a constant we made up.
+    // own. It gates the PNG paths only: mono_len is the ceiling for 1-bit PNG
+    // (24bpp_len describes a format we no longer send), and neither bounds
+    // command data. A null ceiling means the printer declared nothing, and
+    // renderTicketJob sends the whole ticket rather than falling back to a
+    // constant we made up.
     const { segment } = await printSegmentState(tenant.tenantId, job.id);
+    // starprnt has no conversion to run out of memory on, but it still has to
+    // arrive: Star caps a job GET at 512KB for this printer class and answers
+    // 521 above it. Command data is uncompressed, so that cap converts exactly
+    // into a row count, and the same splitter the PNG path uses turns an
+    // over-long ticket into consecutive jobs instead of one refusal.
+    const ceiling =
+      format === "starprnt" ? maxStarPrntRows(TICKET_WIDTH_PX) : limits.monoLen;
     const ticket = await renderTicketJob(
       job,
       { timezone: tenant.timezone, copies: ticketCopies() },
-      limits.monoLen,
-      segment,
+      { format, maxHeight: ceiling, segment },
     );
 
     if (ticket.segments > 1) {
@@ -239,13 +255,22 @@ export async function GET(
       );
     }
 
-    return new Response(new Uint8Array(ticket.png), {
+    console.info(
+      `[cloudprnt] serving ${job.orderNumber} as ${mediaType} ` +
+        `(${ticket.body.length} bytes, ${ticket.height}px)`,
+    );
+
+    return new Response(new Uint8Array(ticket.body), {
       headers: {
         // Answer in the type the printer chose, not the one we prefer.
         "content-type": mediaType,
-        "content-length": String(ticket.png.length),
+        "content-length": String(ticket.body.length),
         "cache-control": "no-store",
-        // The audible alert rides on the response headers — see cloudprnt.ts.
+        // Peripheral control rides the response headers, which Star documents
+        // for the PNG and text types only — on a starprnt job it must be in
+        // the print data instead, and the TSP100IV accepts no command that
+        // does it (see lib/ticket/starprnt.ts). Sent regardless: an
+        // unsupported header is ignored, never a failed job.
         ...peripheralHeaders(),
       },
     });

@@ -29,10 +29,18 @@ import { tmpdir } from "node:os";
 import { resolveOrderLine } from "../src/lib/orders/lines";
 import {
   composeTicketSvg,
+  rasterizeTicket,
   renderTicket,
   renderTicketJob,
   TICKET_WIDTH_PX,
 } from "../src/lib/ticket/render";
+import {
+  decodeStarPrntRaster,
+  encodeStarPrntRaster,
+  maxStarPrntRows,
+  thresholdToInk,
+  MAX_JOB_BYTES,
+} from "../src/lib/ticket/starprnt";
 import type { MenuItem } from "../src/lib/menu/types";
 import type { Order, OrderLine } from "../src/lib/orders/types";
 
@@ -513,7 +521,7 @@ function assertStarPng(out: string, info: PngInfo): void {
  * with no ink in it, and each piece is independently a valid 1-bit PNG.
  */
 async function assertSplitsCleanly(order: Order, ceiling: number): Promise<void> {
-  const whole = await renderTicketJob(order, { timezone: TIMEZONE, copies: 2 });
+  const whole = await renderTicketJob(order, { timezone: TIMEZONE, copies: 2 }, { format: "png" });
   if (whole.segments !== 1) {
     throw new Error(`no ceiling should mean one piece, got ${whole.segments}`);
   }
@@ -524,13 +532,12 @@ async function assertSplitsCleanly(order: Order, ceiling: number): Promise<void>
     const piece = await renderTicketJob(
       order,
       { timezone: TIMEZONE, copies: 2 },
-      ceiling,
-      i,
+      { format: "png", maxHeight: ceiling, segment: i },
     );
     if (piece.height > ceiling) {
       throw new Error(`piece ${i + 1} is ${piece.height}px, over the ${ceiling}px ceiling`);
     }
-    const info = walkPng(piece.png);
+    const info = walkPng(piece.body);
     if (info.bitDepth !== 1 || info.colorType !== 0 || info.width !== 576) {
       throw new Error(`piece ${i + 1} is not a 576px 1-bit greyscale PNG`);
     }
@@ -543,10 +550,10 @@ async function assertSplitsCleanly(order: Order, ceiling: number): Promise<void>
     if (process.env.TICKET_DUMP_SPLITS) {
       await writeFile(
         join(tmpdir(), `ticket-split-${ceiling}-${i + 1}of${piece.segments}.png`),
-        piece.png,
+        piece.body,
       );
     }
-    pieces.push({ height: piece.height, bytes: piece.png.length });
+    pieces.push({ height: piece.height, bytes: piece.body.length });
     total += piece.height;
     if (i + 1 >= piece.segments) {
       if (total !== piece.totalHeight) {
@@ -562,6 +569,67 @@ async function assertSplitsCleanly(order: Order, ceiling: number): Promise<void>
   console.log(
     `  ${whole.totalHeight}px ticket under a ${ceiling}px ceiling -> ` +
       `${pieces.length} pieces: ${pieces.map((p) => `${p.height}px`).join(" + ")} ✓`,
+  );
+}
+
+
+/**
+ * Encode a fixture both ways and prove the StarPRNT payload round-trips.
+ *
+ * The size table is the point of the exercise — 511 is a memory failure during
+ * the printer's PNG conversion, so what matters is that the command path never
+ * asks it to convert anything and stays inside the 512KB GET cap.
+ *
+ * The round trip is the correctness half: a packing bug that inverted a bit or
+ * dropped a row would still produce a byte stream the printer accepts, and
+ * paper is a slow way to discover that. So the payload is walked back to
+ * pixels and diffed against the same threshold the encoder used.
+ */
+async function assertFormats(name: string, order: Order, copies = 1): Promise<void> {
+  const opts = { timezone: TIMEZONE, copies };
+  const star = await renderTicketJob(order, opts, { format: "starprnt" });
+  const png = await renderTicketJob(order, opts, { format: "png" });
+
+  const raster = decodeStarPrntRaster(star.body, TICKET_WIDTH_PX);
+  if (raster.height !== star.height) {
+    throw new Error(
+      `${name}: payload decodes to ${raster.height} rows, expected ${star.height}`,
+    );
+  }
+  if (!raster.cut) throw new Error(`${name}: payload carries no cut command`);
+
+  // The same raster the encoder saw, thresholded the same way.
+  const source = await rasterizeTicket(order, opts);
+  let expected: Uint8Array;
+  try {
+    expected = thresholdToInk(source.pixels, source.width, source.height);
+  } finally {
+    source.free();
+  }
+  if (expected.length !== raster.pixels.length) {
+    throw new Error(
+      `${name}: ${raster.pixels.length} decoded pixels vs ${expected.length} source`,
+    );
+  }
+  let mismatches = 0;
+  for (let i = 0; i < expected.length; i++) {
+    if (expected[i] !== raster.pixels[i]) mismatches++;
+  }
+  if (mismatches !== 0) {
+    throw new Error(`${name}: ${mismatches} pixel(s) differ after round trip`);
+  }
+
+  const over = [star, png].filter((j) => j.body.length > MAX_JOB_BYTES);
+  if (over.length > 0) {
+    throw new Error(`${name}: ${over[0].format} payload exceeds the 512KB GET cap`);
+  }
+
+  const kb = (n: number) => `${(n / 1024).toFixed(1)}KB`;
+  console.log(
+    `  ${name.padEnd(24)} ${String(star.height).padStart(5)}px  ` +
+      `starprnt ${kb(star.body.length).padStart(8)} (${raster.blocks} blocks)  ` +
+      `png ${kb(png.body.length).padStart(8)}  ` +
+      `round-trip ${expected.length} px, 0 mismatches ✓`,
   );
 }
 
@@ -636,6 +704,42 @@ async function main(): Promise<void> {
   await assertNoOverflow("ticket-sample-sql-shaped", sqlShaped);
   await assertNoOverflow("ticket-sample-malformed", malformed);
   console.log("  all lines within their columns and inside 576px ✓");
+
+  // Both job formats for every fixture, with the StarPRNT payload walked back
+  // to pixels and diffed against the threshold that produced it.
+  console.log("\njob formats (starprnt is what the printer gets):");
+  await assertFormats("short ticket", order);
+  await assertFormats("reprint", order);
+  await assertFormats("12-line party tray", long);
+  await assertFormats("wrapping torture", torture);
+  await assertFormats("party tray, 2 copies", long, 2);
+  await assertFormats("sql-shaped", sqlShaped);
+  await assertFormats("malformed", malformed);
+  console.log(`  all payloads inside Star's ${512}KB GET cap ✓`);
+
+  // The cap converted to a row count, and a job encoded right at it — this is
+  // what stops a tall ticket becoming a 521 instead of a print.
+  const capRows = maxStarPrntRows(TICKET_WIDTH_PX);
+  const atCap = encodeStarPrntRaster(
+    new Uint8Array(TICKET_WIDTH_PX * capRows * 4),
+    TICKET_WIDTH_PX,
+    capRows,
+  );
+  if (atCap.length > MAX_JOB_BYTES) {
+    throw new Error(`${capRows} rows encodes to ${atCap.length}B, over the cap`);
+  }
+  const overCap = encodeStarPrntRaster(
+    new Uint8Array(TICKET_WIDTH_PX * (capRows + 1) * 4),
+    TICKET_WIDTH_PX,
+    capRows + 1,
+  );
+  if (overCap.length <= MAX_JOB_BYTES) {
+    throw new Error(`${capRows} is not the tightest row count under the cap`);
+  }
+  console.log(
+    `  512KB cap = ${capRows} rows at 576px: ${capRows} rows -> ${atCap.length}B, ` +
+      `${capRows + 1} -> ${overCap.length}B ✓`,
+  );
 
   // The split path, which only runs in production when a printer declares a
   // ceiling this ticket exceeds. Three ceilings: one that lands between the
