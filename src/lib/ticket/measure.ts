@@ -129,7 +129,20 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
   const ref = byWeight[400].font;
   const upem = ref.unitsPerEm;
 
-  const measure = (text: string, fontSize: number, weight: Weight): number => {
+  /**
+   * Coerce to a string before ANY `for…of`.
+   *
+   * `for (const ch of text)` over a non-string throws "text is not iterable" —
+   * which, minified, is the bare identifier that took production down when a
+   * hand-written `items` JSONB omitted nameEn. The renderer normalizes shape at
+   * its entry (see normalizeOrder), and this is the second line of defence:
+   * nothing reaching a measurement primitive should be able to throw on type.
+   */
+  const str = (text: unknown): string =>
+    typeof text === "string" ? text : text == null ? "" : String(text);
+
+  const measure = (raw: string, fontSize: number, weight: Weight): number => {
+    const text = str(raw);
     const w = byWeight[weight];
     let em = 0;
     for (const ch of text) {
@@ -186,7 +199,7 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
     return out;
   };
 
-  const wrap = (
+  const wrapInner = (
     text: string,
     fontSize: number,
     weight: Weight,
@@ -236,7 +249,15 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
     return lines.length > 0 ? lines : [""];
   };
 
-  const missingIn = (text: string, weight: Weight): number[] => {
+  const wrap = (
+    raw: string,
+    fontSize: number,
+    weight: Weight,
+    maxWidth: number,
+  ): string[] => wrapInner(str(raw), fontSize, weight, maxWidth);
+
+  const missingIn = (raw: string, weight: Weight): number[] => {
+    const text = str(raw);
     const w = byWeight[weight];
     const out: number[] = [];
     for (const ch of text) {

@@ -258,6 +258,76 @@ function tortureOrder(): Order {
   };
 }
 
+/**
+ * A row as a hand-written INSERT leaves it: every NOT NULL column present,
+ * every OPTIONAL field of the jsonb payloads absent.
+ *
+ * This is the shape that took production down. `mapOrder` casts the jsonb
+ * columns straight through, so an operator writing `items` by hand during an
+ * incident produces exactly this: name, qty, price, and none of the fields the
+ * layout iterates. An item without `nameEn` put undefined into the measurer and
+ * threw "text is not iterable" — "A11 is not iterable" once minified.
+ *
+ * Deliberately built with `as unknown as Order` rather than a typed literal:
+ * the type system is what is ABSENT on this path, so a fixture that satisfies
+ * it would test nothing.
+ */
+function sqlShapedOrder(): Order {
+  return {
+    id: 996,
+    tenantId: "fixture",
+    orderNumber: "T-996",
+    businessDate: "2026-07-30",
+    status: "QUEUED",
+    idempotencyKey: "manual-t996",
+    // Only what a human types. No nameZh, no sizeLabelZh, no modifiers,
+    // no specialInstructions.
+    items: [
+      {
+        itemId: "kung-pao",
+        nameEn: "Kung Pao Chicken",
+        quantity: 2,
+        sizeId: "regular",
+        sizeLabel: "Regular",
+        unitCents: 1495,
+        lineCents: 2990,
+      },
+      // The worst case: an item with nothing but a price.
+      { itemId: "mystery", lineCents: 500 },
+    ],
+    totals: { subtotalCents: 3490, taxCents: 270, tipCents: 0, totalCents: 3760 },
+    customer: { name: "Walk In", phone: "+16195550100" },
+    phoneVerifiedAt: new Date("2026-07-30T01:00:00.000Z").toISOString(),
+    pickupAt: new Date("2026-07-30T01:45:00.000Z").toISOString(),
+    readyFrom: null,
+    readyTo: null,
+    printAttempts: 0,
+    printedAt: null,
+    lastPrintError: null,
+    alertedAt: null,
+    createdAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
+    updatedAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
+  } as unknown as Order;
+}
+
+/**
+ * The same idea taken further: the jsonb columns hold the WRONG TYPE, not just
+ * missing keys. A jsonb column can hold an object where an array belongs, and a
+ * TEXT column holding JSON comes back as a string — which is iterable, so it
+ * would render one ticket line per character rather than failing loudly.
+ */
+function malformedOrder(): Order {
+  const base = sqlShapedOrder() as unknown as Record<string, unknown>;
+  return {
+    ...base,
+    orderNumber: "T-997",
+    // object where an array belongs
+    items: { 0: { itemId: "x", nameEn: "Object Not Array", quantity: 1, lineCents: 100 } },
+    customer: {},
+    totals: {},
+  } as unknown as Order;
+}
+
 /** Ticket padding, so the assertion can work in page coordinates. */
 const PAD = 20;
 
@@ -314,7 +384,9 @@ async function render(name: string, order: Order, reprint = false): Promise<void
   const width = png.readUInt32BE(16);
   const height = png.readUInt32BE(20);
   console.log(
-    `${out.padEnd(46)} ${(png.length / 1024).toFixed(1).padStart(7)} KB  ${width}x${height}px  ${order.items.length} lines`,
+    // `items` is deliberately not an array in some fixtures — that is the
+    // point of them — so this log must not assume one either.
+    `${out.padEnd(46)} ${(png.length / 1024).toFixed(1).padStart(7)} KB  ${width}x${height}px  ${Array.isArray(order.items) ? order.items.length : "non-array"} lines`,
   );
   if (png.length === 0) throw new Error(`${out} is empty`);
   if (width !== 576) throw new Error(`${out} is ${width}px wide, expected 576`);
@@ -325,10 +397,15 @@ async function main(): Promise<void> {
   const long = await longOrder();
   const torture = tortureOrder();
 
+  const sqlShaped = sqlShapedOrder();
+  const malformed = malformedOrder();
+
   await render("ticket-sample.png", order);
   await render("ticket-sample-reprint.png", order, true);
   await render("ticket-sample-long.png", long);
   await render("ticket-sample-torture.png", torture);
+  await render("ticket-sample-sql-shaped.png", sqlShaped);
+  await render("ticket-sample-malformed.png", malformed);
 
   // Geometry is asserted, not eyeballed: nothing may exceed its column or run
   // off the 576px roll. This is the check that a hand-rolled wrapper needs and
@@ -338,6 +415,8 @@ async function main(): Promise<void> {
   await assertNoOverflow("ticket-sample-reprint", order, true);
   await assertNoOverflow("ticket-sample-long", long);
   await assertNoOverflow("ticket-sample-torture", torture);
+  await assertNoOverflow("ticket-sample-sql-shaped", sqlShaped);
+  await assertNoOverflow("ticket-sample-malformed", malformed);
   console.log("  all lines within their columns and inside 576px ✓");
 
   // Report what the override lookup actually resolved, so a missing 中文 is

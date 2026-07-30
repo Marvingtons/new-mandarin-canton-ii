@@ -58,6 +58,124 @@ const INDENT = QTY_WIDTH + QTY_GAP;
  */
 const EN_MARK = "⚠ EN";
 
+/* ------------------------------------------------------ shape normalizer -- */
+
+/**
+ * Coerce an order into the shape the layout code assumes.
+ *
+ * `mapOrder` casts the JSONB columns straight through — `items: row.items as
+ * OrderLine[]` (repository.ts) — so whatever is in the column IS the object
+ * this renderer gets. Orders arrive here from three places and only one of them
+ * is typed: the order route builds lines through `resolveOrderLine`, /kitchen
+ * reprints replay a stored row, and operators write rows by hand during
+ * incidents. A hand-written `items` array carries what a human types — name,
+ * qty, price — and none of the fields the layout iterates.
+ *
+ * That is what took printing down: an item without `nameEn` put `undefined`
+ * into the measurer, and `for (const ch of text)` threw "text is not iterable"
+ * (minified: "A11 is not iterable"). Attempts then climbed to PRINT_FAILED and
+ * the printer 520'd every download.
+ *
+ * A ticket is the last thing standing between a customer and food nobody
+ * cooked. It renders what it has and marks what it lacks; it does not refuse
+ * the order because a column was terse.
+ */
+
+/** Missing/blank text renders as this rather than throwing or printing "undefined". */
+const UNNAMED = "(unnamed item)";
+
+function asText(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  if (typeof value === "number" || typeof value === "bigint") return String(value);
+  return fallback;
+}
+
+/** Nullable 中文: anything non-string becomes null, i.e. "fall back to English". */
+function asZh(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function asCount(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function asCents(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+/**
+ * `items` may not even be an array. A jsonb column can hold an object, and a
+ * TEXT column holding JSON comes back as a string — which IS iterable, so it
+ * would silently render one ticket line per character.
+ */
+function asLines(value: unknown): OrderLine[] {
+  let raw: unknown = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = [];
+    }
+  }
+  if (!Array.isArray(raw)) {
+    // An object keyed "0","1",… is what a malformed insert usually produces.
+    raw = raw && typeof raw === "object" ? Object.values(raw) : [];
+  }
+  return (raw as unknown[])
+    .filter((line): line is Record<string, unknown> => !!line && typeof line === "object")
+    .map((line) => {
+      const mods = Array.isArray(line.modifiers) ? line.modifiers : [];
+      return {
+        itemId: asText(line.itemId, "unknown"),
+        nameEn: asText(line.nameEn).trim() || UNNAMED,
+        nameZh: asZh(line.nameZh),
+        sizeId: asText(line.sizeId, "regular"),
+        // "regular" is the tier the layout treats as implicit, so an absent
+        // size prints nothing rather than an empty size line.
+        sizeLabel: asText(line.sizeLabel, "regular"),
+        sizeLabelZh: asZh(line.sizeLabelZh),
+        quantity: asCount(line.quantity, 1),
+        modifiers: mods
+          .filter((m): m is Record<string, unknown> => !!m && typeof m === "object")
+          .map((m, i) => ({
+            id: asText(m.id, `mod-${i}`),
+            nameEn: asText(m.nameEn).trim() || UNNAMED,
+            nameZh: asZh(m.nameZh),
+            priceCents: asCents(m.priceCents),
+          })),
+        specialInstructions: asZh(line.specialInstructions),
+        unitCents: asCents(line.unitCents),
+        lineCents: asCents(line.lineCents),
+      } as OrderLine;
+    });
+}
+
+/** The subset of the order this renderer reads, guaranteed well-formed. */
+function normalizeOrder(order: Order): Order {
+  const customer = (order.customer ?? {}) as unknown as Record<string, unknown>;
+  const totals = (order.totals ?? {}) as unknown as Record<string, unknown>;
+  return {
+    ...order,
+    orderNumber: asText(order.orderNumber, "—"),
+    items: asLines(order.items),
+    customer: {
+      ...(order.customer ?? {}),
+      name: asText(customer.name).trim() || "—",
+      phone: asText(customer.phone).trim() || "—",
+    },
+    totals: {
+      ...(order.totals ?? {}),
+      subtotalCents: asCents(totals.subtotalCents),
+      taxCents: asCents(totals.taxCents),
+      tipCents: asCents(totals.tipCents),
+      totalCents: asCents(totals.totalCents),
+    },
+  } as Order;
+}
+
 interface Bilingual {
   /** What to print in the large primary line. */
   primary: string;
@@ -161,7 +279,7 @@ export interface RenderTicketOptions {
  * geometry — line widths, total height — without paying for a PNG.
  */
 export async function composeTicketSvg(
-  order: Order,
+  raw: Order,
   options: RenderTicketOptions,
 ): Promise<{
   svg: string;
@@ -171,6 +289,10 @@ export async function composeTicketSvg(
   /** Codepoints drawn as .notdef because the subset lacks them. */
   missing: number[];
 }> {
+  // Every field the layout reads is made well-formed HERE, once, before any
+  // measurement runs. Nothing below this line may assume a typed order.
+  const order = normalizeOrder(raw);
+
   const [fonts, metrics] = await Promise.all([
     loadTicketFonts(),
     loadTicketMetrics(),
