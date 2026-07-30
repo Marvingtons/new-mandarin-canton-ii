@@ -44,9 +44,18 @@ export default function Header() {
     getHeaderSolid,
     () => false,
   );
-  // On the home page the header floats transparent over the hero and
-  // turns solid lacquer once you scroll past it. Other pages keep the
-  // static solid header (so e.g. the menu's sticky nav is unaffected).
+  // ONE behaviour, two states: transparent while it floats over the hero,
+  // solid lacquer with a gold hairline everywhere else — scrolled past the
+  // hero, or on any subpage, which is the same state reached two ways.
+  //
+  // Both states are the same height by construction: py-4, border-b-2 in
+  // both (transparent, not absent, over the hero), and the same lockup, so
+  // the transition is a pure colour change with nothing to reflow.
+  //
+  // Positioning is the one thing that differs by route: fixed on the home
+  // page, where the 100svh hero is meant to run under it, and static
+  // elsewhere, where a fixed header would sit on top of the menu page's
+  // own sticky category nav.
   const overHero = isHome && !scrolledPast && !triggerSolid;
 
   return (
