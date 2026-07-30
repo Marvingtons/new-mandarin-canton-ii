@@ -46,8 +46,19 @@ create table if not exists orders (
   ready_from        timestamptz,
   ready_to          timestamptz,
   print_attempts    int         not null default 0,
+  -- Where we are in a ticket the printer cannot take in one piece. A printer
+  -- may declare a maximum decodable image height (Star's mono_len); a ticket
+  -- taller than it is cut on blank rows and sent as consecutive jobs, and
+  -- these two track that sequence across polls. print_segments is 0 until a
+  -- job is handed over, then the total; print_segment is the next piece to
+  -- send. Both return to 0 once the last piece is confirmed. The common case
+  -- is a ticket that fits, where these stay 0 and 1 and nothing splits.
+  print_segment     int         not null default 0,
+  print_segments    int         not null default 0,
   -- Set ONLY by a CloudPRNT DELETE, i.e. the printer's own confirmation that
-  -- paper came out. Never set optimistically when a job is handed over.
+  -- paper came out. Never set optimistically when a job is handed over. On a
+  -- split ticket this waits for the LAST piece, so a sequence that stalls
+  -- half-printed stays visible to the board and the unprinted-order alert.
   printed_at        timestamptz,
   last_print_error  text,
   -- Stamped when the unprinted-order alert CLAIMS this order, before the SMS

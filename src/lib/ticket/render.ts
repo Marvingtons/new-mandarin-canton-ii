@@ -3,7 +3,7 @@ import "server-only";
 import { Resvg, ensureResvg } from "@/lib/ticket/resvg";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { loadTicketMetrics } from "@/lib/ticket/measure";
-import { encodeMonochromePng } from "@/lib/ticket/png";
+import { encodeMonochromePng, findSegmentCuts } from "@/lib/ticket/png";
 import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
@@ -439,17 +439,16 @@ export async function composeTicketSvg(
 }
 
 /**
- * Render an order to an 80mm-wide PNG.
+ * Compose and rasterize, stopping short of encoding.
  *
- * PNG is the printer's own media type — CloudPRNT streams these bytes to the
- * printer untouched and the firmware rasterizes them. There is no ESC/POS
- * conversion step anywhere in this system, which is why the CJK code-page
- * problem simply does not arise.
+ * `free()` releases the wasm-side bitmap; callers must invoke it in a finally.
+ * Waiting for GC is how a 128 MB isolate holding several 576x4401 RGBA buffers
+ * OOMs at cold start.
  */
-export async function renderTicket(
+async function rasterizeTicket(
   order: Order,
   options: RenderTicketOptions,
-): Promise<Buffer> {
+): Promise<{ pixels: Uint8Array; width: number; height: number; free: () => void }> {
   const fonts = await loadTicketFonts();
   const { svg, missing } = await composeTicketSvg(order, options);
 
@@ -490,21 +489,91 @@ export async function renderTicket(
     },
   }).render();
 
-  // NOT rendered.asPng(). resvg only emits colour type 6 — 8-bit truecolour
-  // WITH an alpha channel — and the TSP143IV answered that with `code=511
-  // Media Decoding Error`. Re-encoding without alpha, as 24-bit colour, did
-  // not clear it. We now emit 1 bit per pixel (see png.ts), which is the
-  // format Star names first and the only one that describes this artifact
-  // honestly: the ticket is black on white, and the thermal head has no
-  // midtone to print even if we sent one.
-  const png = Buffer.from(
-    await encodeMonochromePng(rendered.pixels, rendered.width, rendered.height),
-  );
-  // Free the wasm-side bitmap promptly rather than waiting for GC. The tall
-  // ticket is 576x2350; holding several of those in a 128 MB isolate is how
-  // OOM at cold start starts.
-  rendered.free();
-  return png;
+  return {
+    pixels: rendered.pixels,
+    width: rendered.width,
+    height: rendered.height,
+    free: () => rendered.free(),
+  };
+}
+
+/** One piece of a ticket, plus how many pieces there turned out to be. */
+export interface TicketJob {
+  png: Buffer;
+  /** 0-based index of the piece in this buffer. */
+  segment: number;
+  /** Total pieces. 1 means the ticket was not split. */
+  segments: number;
+  /** Height of THIS piece, in pixels. */
+  height: number;
+  /** Height of the whole ticket, in pixels. */
+  totalHeight: number;
+}
+
+/**
+ * Render one printable job for an order, splitting only if forced to.
+ *
+ * `maxHeight` is the printer's OWN declared ceiling or null. Null means send
+ * the whole ticket — there is no constant here to fall back on, because a
+ * height limit we invented would be indistinguishable from one the printer
+ * asked for and would silently start tearing tickets in half.
+ *
+ * The raster is produced once and only the requested piece is encoded, so a
+ * three-piece ticket costs three renders across three polls rather than one
+ * render held in memory between them. That trade is deliberate: an isolate
+ * that has to hold a 576x4401 RGBA buffer between requests is how cold-start
+ * OOM begins, and the render is 77ms.
+ */
+export async function renderTicketJob(
+  order: Order,
+  options: RenderTicketOptions,
+  maxHeight: number | null = null,
+  segment = 0,
+): Promise<TicketJob> {
+  const { pixels, width, height, free } = await rasterizeTicket(order, options);
+  try {
+    const cuts = maxHeight === null ? [] : findSegmentCuts(pixels, width, height, maxHeight);
+    const bounds = [0, ...cuts, height];
+    const segments = bounds.length - 1;
+    if (segment < 0 || segment >= segments) {
+      throw new Error(`segment ${segment} requested of a ${segments}-segment ticket`);
+    }
+    const from = bounds[segment];
+    const rows = bounds[segment + 1] - from;
+    const png = Buffer.from(
+      await encodeMonochromePng(pixels, width, height, from, rows),
+    );
+    return { png, segment, segments, height: rows, totalHeight: height };
+  } finally {
+    free();
+  }
+}
+
+/**
+ * Render an order to an 80mm-wide PNG.
+ *
+ * PNG is the printer's own media type — CloudPRNT streams these bytes to the
+ * printer untouched and the firmware rasterizes them. There is no ESC/POS
+ * conversion step anywhere in this system, which is why the CJK code-page
+ * problem simply does not arise.
+ */
+export async function renderTicket(
+  order: Order,
+  options: RenderTicketOptions,
+): Promise<Buffer> {
+  const { pixels, width, height, free } = await rasterizeTicket(order, options);
+  try {
+    // NOT rendered.asPng(). resvg only emits colour type 6 — 8-bit truecolour
+    // WITH an alpha channel — and the TSP143IV answered that with `code=511
+    // Media Decoding Error`. Re-encoding without alpha, as 24-bit colour, did
+    // not clear it. We now emit 1 bit per pixel (see png.ts), which is the
+    // format Star names first and the only one that describes this artifact
+    // honestly: the ticket is black on white, and the thermal head has no
+    // midtone to print even if we sent one.
+    return Buffer.from(await encodeMonochromePng(pixels, width, height));
+  } finally {
+    free();
+  }
 }
 
 /** Re-exported so callers keep importing one module. */

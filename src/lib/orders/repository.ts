@@ -288,6 +288,75 @@ export async function bumpPrintAttempt(
   return rows.length > 0 ? Number(rows[0].print_attempts) : 0;
 }
 
+/* ------------------------------------------------- split-ticket sequence -- */
+
+/**
+ * Where we are in a ticket the printer cannot take in one piece.
+ *
+ * `segments` is 0 before the first piece of a ticket has been handed over —
+ * i.e. we have not yet rendered it and do not know whether it splits at all.
+ */
+export interface PrintSegmentState {
+  segment: number;
+  segments: number;
+}
+
+export async function printSegmentState(
+  tenantId: string,
+  orderId: number,
+): Promise<PrintSegmentState> {
+  const { rows } = await ordersPool().query(
+    `select print_segment, print_segments from orders
+      where tenant_id = $1 and id = $2`,
+    [tenantId, orderId],
+  );
+  if (rows.length === 0) return { segment: 0, segments: 0 };
+  return {
+    segment: Number(rows[0].print_segment),
+    segments: Number(rows[0].print_segments),
+  };
+}
+
+/** Record how many pieces this ticket turned out to be, at hand-over. */
+export async function recordPrintSegments(
+  tenantId: string,
+  orderId: number,
+  segments: number,
+): Promise<void> {
+  await ordersPool().query(
+    `update orders set print_segments = $3, updated_at = now()
+      where tenant_id = $1 and id = $2`,
+    [tenantId, orderId, segments],
+  );
+}
+
+/**
+ * A piece printed, and it was not the last one.
+ *
+ * print_attempts goes back to 1 because the offer ceiling counts polls against
+ * a job that is NOT progressing, and this one just did. Left climbing, a
+ * three-piece ticket would spend its way toward MAX_PRINT_ATTEMPTS for doing
+ * exactly what was asked of it. The 1 rather than 0 keeps the order matching
+ * `currentPrintJob`, which is what makes the next poll offer the next piece
+ * instead of claiming a different order.
+ */
+export async function advancePrintSegment(
+  tenantId: string,
+  orderId: number,
+): Promise<number> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set print_segment = print_segment + 1,
+            print_attempts = 1,
+            last_print_error = null,
+            updated_at = now()
+      where tenant_id = $1 and id = $2
+      returning print_segment`,
+    [tenantId, orderId],
+  );
+  return rows.length > 0 ? Number(rows[0].print_segment) : 0;
+}
+
 /** The printer confirmed it printed. The ONLY path to PRINTED. */
 export async function markPrinted(
   tenantId: string,
@@ -298,6 +367,9 @@ export async function markPrinted(
         set status = 'PRINTED',
             printed_at = now(),
             last_print_error = null,
+            -- The sequence is done; the next print of this order starts over.
+            print_segment = 0,
+            print_segments = 0,
             updated_at = now()
       where tenant_id = $1
         and id = $2
@@ -335,6 +407,11 @@ export async function requeueForPrint(
             last_print_error = null,
             alerted_at = null,
             alert_attempts = 0,
+            -- Same reasoning: a reprint starts the ticket again from its first
+            -- piece. Left where they were, a requeue after a stalled split
+            -- would resume mid-ticket and print the tail on its own.
+            print_segment = 0,
+            print_segments = 0,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning ${ORDER_COLUMNS}`,

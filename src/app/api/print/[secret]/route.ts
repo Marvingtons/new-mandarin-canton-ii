@@ -16,14 +16,17 @@ import {
   type CloudPrntStatusResponse,
 } from "@/lib/print/cloudprnt";
 import {
+  advancePrintSegment,
   bumpPrintAttempt,
   claimNextPrintJob,
   currentPrintJob,
   markPrinted,
+  printSegmentState,
   recordPrintAttempt,
+  recordPrintSegments,
   recordRenderFailure,
 } from "@/lib/orders/repository";
-import { renderTicket } from "@/lib/ticket/render";
+import { renderTicketJob } from "@/lib/ticket/render";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
@@ -205,38 +208,35 @@ export async function GET(
   logPrinterLimits(limits);
 
   try {
-    const png = await renderTicket(job, {
-      timezone: tenant.timezone,
-      copies: ticketCopies(),
-    });
+    // The height gate, and the only number allowed to drive it: the printer's
+    // own. We emit 1 bit per pixel (see lib/ticket/png.ts), so mono_len is the
+    // applicable ceiling — 24bpp_len describes a format we no longer send. A
+    // null ceiling means the printer declared nothing, and renderTicketJob
+    // sends the whole ticket rather than falling back to a constant we made up.
+    const { segment } = await printSegmentState(tenant.tenantId, job.id);
+    const ticket = await renderTicketJob(
+      job,
+      { timezone: tenant.timezone, copies: ticketCopies() },
+      limits.monoLen,
+      segment,
+    );
 
-    // Height gate. ONLY applies when the printer actually declared a limit;
-    // with no declaration there is no number to test against and we do not
-    // invent one. We emit 24-bit colour (see lib/ticket/png.ts), so 24bpp_len
-    // is the applicable ceiling.
-    const ceiling = limits.colorLen;
-    if (ceiling !== null) {
-      const height = png.readUInt32BE(20); // PNG IHDR height
-      if (height > ceiling) {
-        console.error(
-          `[cloudprnt] ${job.orderNumber} is ${height}px tall but the printer ` +
-            `declares 24bpp_len=${ceiling}. Refusing to send a job it cannot ` +
-            `decode — split the ticket or reduce copies.`,
-        );
-        await recordRenderFailure(
-          tenant.tenantId,
-          job.id,
-          `ticket ${height}px exceeds the printer's declared limit ${ceiling}px`,
-          MAX_RENDER_ATTEMPTS,
-        );
-        return new Response("", { status: 500 });
-      }
+    if (ticket.segments > 1) {
+      // Recorded on every piece, not just the first: it is what DELETE reads
+      // to know whether the piece it is confirming was the last one.
+      await recordPrintSegments(tenant.tenantId, job.id, ticket.segments);
+      console.info(
+        `[cloudprnt] ${job.orderNumber} is ${ticket.totalHeight}px against a ` +
+          `declared mono_len=${limits.monoLen}; sending piece ` +
+          `${ticket.segment + 1}/${ticket.segments} (${ticket.height}px)`,
+      );
     }
-    return new Response(new Uint8Array(png), {
+
+    return new Response(new Uint8Array(ticket.png), {
       headers: {
         // Answer in the type the printer chose, not the one we prefer.
         "content-type": mediaType,
-        "content-length": String(png.length),
+        "content-length": String(ticket.png.length),
         "cache-control": "no-store",
         // The audible alert rides on the response headers — see cloudprnt.ts.
         ...peripheralHeaders(),
@@ -305,6 +305,22 @@ async function confirmPrinted(url: URL): Promise<Response> {
       ok: false,
       error: `printer reported code ${code}`,
     });
+    return new Response("", { status: 200 });
+  }
+
+  // A ticket too tall for this printer goes over as consecutive jobs, and the
+  // printer confirms each one separately without ever saying which it was. So
+  // a confirmation only completes the ORDER when it completes the SEQUENCE;
+  // otherwise it advances the cursor and the next poll hands over the next
+  // piece. Half a ticket must never read as PRINTED — that is the one outcome
+  // the board and the unprinted-order alert exist to prevent.
+  const { segment, segments } = await printSegmentState(tenant.tenantId, job.id);
+  if (segments > 1 && segment + 1 < segments) {
+    const next = await advancePrintSegment(tenant.tenantId, job.id);
+    console.info(
+      `[cloudprnt] ${job.orderNumber} piece ${segment + 1}/${segments} printed; ` +
+        `${next + 1}/${segments} next`,
+    );
     return new Response("", { status: 200 });
   }
 

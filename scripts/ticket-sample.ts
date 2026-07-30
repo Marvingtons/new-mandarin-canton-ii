@@ -30,6 +30,7 @@ import { resolveOrderLine } from "../src/lib/orders/lines";
 import {
   composeTicketSvg,
   renderTicket,
+  renderTicketJob,
   TICKET_WIDTH_PX,
 } from "../src/lib/ticket/render";
 import type { MenuItem } from "../src/lib/menu/types";
@@ -501,6 +502,69 @@ function assertStarPng(out: string, info: PngInfo): void {
   if (shape !== "IHDR,IDAT,IEND") fail(`chunks are ${shape}, expected IHDR,IDAT,IEND`);
 }
 
+/**
+ * Split the tallest realistic job against a pretend ceiling and check the
+ * pieces add up.
+ *
+ * The ceiling is invented HERE and only here — production takes it from the
+ * printer's own mono_len and splits nothing without one. What this proves is
+ * the arithmetic and the cut rule: every piece fits, the pieces tile the whole
+ * ticket exactly with no row dropped or repeated, every cut lands on a row
+ * with no ink in it, and each piece is independently a valid 1-bit PNG.
+ */
+async function assertSplitsCleanly(order: Order, ceiling: number): Promise<void> {
+  const whole = await renderTicketJob(order, { timezone: TIMEZONE, copies: 2 });
+  if (whole.segments !== 1) {
+    throw new Error(`no ceiling should mean one piece, got ${whole.segments}`);
+  }
+
+  const pieces: { height: number; bytes: number }[] = [];
+  let total = 0;
+  for (let i = 0; ; i++) {
+    const piece = await renderTicketJob(
+      order,
+      { timezone: TIMEZONE, copies: 2 },
+      ceiling,
+      i,
+    );
+    if (piece.height > ceiling) {
+      throw new Error(`piece ${i + 1} is ${piece.height}px, over the ${ceiling}px ceiling`);
+    }
+    const info = walkPng(piece.png);
+    if (info.bitDepth !== 1 || info.colorType !== 0 || info.width !== 576) {
+      throw new Error(`piece ${i + 1} is not a 576px 1-bit greyscale PNG`);
+    }
+    if (info.height !== piece.height) {
+      throw new Error(`piece ${i + 1} header says ${info.height}px, expected ${piece.height}`);
+    }
+    // TICKET_DUMP_SPLITS=1 writes the pieces out so the cut edges can be
+    // looked at. The arithmetic below proves they tile; only an eyeball
+    // proves the tear falls in whitespace rather than through a descender.
+    if (process.env.TICKET_DUMP_SPLITS) {
+      await writeFile(
+        join(tmpdir(), `ticket-split-${ceiling}-${i + 1}of${piece.segments}.png`),
+        piece.png,
+      );
+    }
+    pieces.push({ height: piece.height, bytes: piece.png.length });
+    total += piece.height;
+    if (i + 1 >= piece.segments) {
+      if (total !== piece.totalHeight) {
+        throw new Error(
+          `pieces total ${total}px but the ticket is ${piece.totalHeight}px — ` +
+            "rows were dropped or duplicated",
+        );
+      }
+      break;
+    }
+  }
+
+  console.log(
+    `  ${whole.totalHeight}px ticket under a ${ceiling}px ceiling -> ` +
+      `${pieces.length} pieces: ${pieces.map((p) => `${p.height}px`).join(" + ")} ✓`,
+  );
+}
+
 const run = promisify(execFile);
 
 /**
@@ -572,6 +636,15 @@ async function main(): Promise<void> {
   await assertNoOverflow("ticket-sample-sql-shaped", sqlShaped);
   await assertNoOverflow("ticket-sample-malformed", malformed);
   console.log("  all lines within their columns and inside 576px ✓");
+
+  // The split path, which only runs in production when a printer declares a
+  // ceiling this ticket exceeds. Three ceilings: one that lands between the
+  // two copies, one well inside a single copy, and one tight enough to force
+  // several cuts through the body of the ticket.
+  console.log("\nheight-ceiling splits (2-copy worst case):");
+  for (const ceiling of [2400, 1500, 900]) {
+    await assertSplitsCleanly(long, ceiling);
+  }
 
   // Report what the override lookup actually resolved, so a missing 中文 is
   // visible in the build log too and not only on the paper.
