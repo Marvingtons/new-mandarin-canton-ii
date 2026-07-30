@@ -93,7 +93,7 @@ interface MenuCombosProps {
 
 export default function MenuCombos({ section }: MenuCombosProps) {
   return (
-    <section id={section.id} className="scroll-mt-20 pt-12">
+    <section id={section.id} tabIndex={-1} className="menu-section">
       <SectionHeading en={section.name} />
       {section.note && (
         <p className="mt-3 max-w-2xl text-sm italic text-ink/60">

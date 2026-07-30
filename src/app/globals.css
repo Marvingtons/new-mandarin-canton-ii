@@ -660,6 +660,97 @@ body {
 .cat-link-active::after {
   transform: scaleX(1);
 }
+/* ---- Menu category bar ------------------------------------------------
+ *
+ * Sticky under the top of the menu page. It carries the page background, not
+ * a lighter one — it should read as the page holding still, not as a strip
+ * floating over it — with a single gold hairline as its bottom edge.
+ *
+ * Where a category lands is set here, not in JS: .menu-section carries a
+ * scroll-margin-top of the bar's own height, and the pills reach it through
+ * scrollIntoView, which honours that margin. Nothing computes an offset.
+ */
+:root {
+  --menu-bar-h: 3.5rem;
+}
+.cat-bar {
+  height: var(--menu-bar-h);
+  border-bottom: 1px solid var(--frame-hairline);
+}
+/* The bar's height is the whole landing offset; a section's own top padding
+   then supplies the gap under it. */
+.menu-section {
+  padding-top: 3rem;
+  scroll-margin-top: var(--menu-bar-h);
+}
+/* The bar scrolls horizontally, but never shows a scrollbar to say so — on
+   Windows that control is a chunky strip with stepper arrows at each end.
+   The fades below carry that information instead. */
+.cat-scroller {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.cat-scroller::-webkit-scrollbar {
+  display: none;
+}
+/* Soft edge masks, one per direction, each collapsing to nothing when there
+   is no more bar that way. */
+.cat-scroller {
+  /* Wider than the chevrons (1.75rem) so a chevron always sits inside the
+     faded band rather than on top of a legible pill. */
+  --cat-fade: 2.5rem;
+  --cat-fade-start: var(--cat-fade);
+  --cat-fade-end: var(--cat-fade);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--cat-fade-start),
+    #000 calc(100% - var(--cat-fade-end)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--cat-fade-start),
+    #000 calc(100% - var(--cat-fade-end)),
+    transparent 100%
+  );
+}
+.cat-scroller[data-at-start="true"] {
+  --cat-fade-start: 0px;
+}
+.cat-scroller[data-at-end="true"] {
+  --cat-fade-end: 0px;
+}
+.cat-chevron {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--lacquer);
+  opacity: 1;
+  transition:
+    opacity var(--t-fast) var(--ease-out-soft),
+    color var(--t-fast) var(--ease-out-soft);
+}
+.cat-chevron:hover {
+  color: var(--gold);
+}
+.cat-chevron-start {
+  left: 0;
+}
+.cat-chevron-end {
+  right: 0;
+}
+.cat-chevron-off {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Header seal: hover tilts to the intro's -2deg resting angle */
 .brand-seal {
   transition: transform var(--t-med) var(--ease-stamp);

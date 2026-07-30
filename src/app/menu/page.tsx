@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import SectionHeading from "@/components/SectionHeading";
-import MenuNavigator from "@/components/MenuNavigator";
+import MenuCategoryBar from "@/components/MenuCategoryBar";
+import MenuHeadings from "@/components/MenuHeadings";
 import MenuSection from "@/components/MenuSection";
 import MenuCombos from "@/components/MenuCombos";
 import { menu, combos } from "@/data/menu";
@@ -14,7 +15,7 @@ export default function MenuPage() {
 
   return (
     <>
-      <MenuNavigator />
+      <MenuHeadings />
       <div className="mx-auto max-w-5xl px-4 pb-5 pt-8">
         <SectionHeading as="h1" en="Menu" />
         {/* TODO: current items are examples — swap in the real menu (later pass) */}
@@ -28,27 +29,11 @@ export default function MenuPage() {
         </p>
       </div>
 
-      {/* Category jump nav — sticks under the top of the viewport */}
-      <nav
-        aria-label="Menu categories"
-        className="sticky top-0 z-40 border-y border-gold/40 bg-ivory/95 backdrop-blur"
-      >
-        <ul
-          data-lenis-prevent
-          className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 py-3 text-sm"
-        >
-          {[...menu, ...combos].map((section) => (
-            <li key={section.id}>
-              <a
-                href={`#${section.id}`}
-                className="cat-link token-colors whitespace-nowrap border border-transparent px-3 py-1 font-semibold text-lacquer hover:border-gold/60"
-              >
-                {section.name}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      {/* Category jump nav — sticks under the top of the viewport. The header
+          is static on this page and scrolls away, so this is the only bar. */}
+      <MenuCategoryBar
+        items={[...menu, ...combos].map(({ id, name }) => ({ id, name }))}
+      />
 
       <div className="mx-auto max-w-5xl px-4 pb-20">
         {menu.map((category) => (

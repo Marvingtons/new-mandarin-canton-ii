@@ -44,8 +44,10 @@ interface MenuSectionProps {
 }
 
 export default function MenuSection({ category }: MenuSectionProps) {
+  // tabIndex -1 so a jump to #id moves focus here as well as the viewport,
+  // which is the browser's own behaviour for a focusable anchor target.
   return (
-    <section id={category.id} className="scroll-mt-20 pt-12">
+    <section id={category.id} tabIndex={-1} className="menu-section">
       <SectionHeading en={category.name} />
       {category.note && (
         <p className="mt-3 text-sm italic text-ink/60">{category.note}</p>
