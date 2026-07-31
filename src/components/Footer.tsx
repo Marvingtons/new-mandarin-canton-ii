@@ -58,7 +58,7 @@ export default function Footer() {
                   <a
                     key={phone}
                     href={href}
-                    className="token-colors inline-flex min-h-12 items-center justify-center whitespace-nowrap border border-gold/60 px-6 py-3 font-display text-lg text-gold-light hover:border-gold hover:bg-gold hover:text-ink"
+                    className="token-colors inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-lg border border-gold/60 px-6 py-3 font-display text-lg text-gold-light hover:border-gold hover:bg-gold hover:text-ink"
                   >
                     {phone}
                   </a>
@@ -67,7 +67,7 @@ export default function Footer() {
                   href={directionsUrl}
                   target="_blank"
                   rel="noopener"
-                  className="arrow-link token-colors inline-flex min-h-12 items-center justify-center whitespace-nowrap border border-gold/60 px-6 py-3 text-sm font-semibold text-gold-light hover:border-gold hover:bg-gold hover:text-ink"
+                  className="arrow-link token-colors inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-lg border border-gold/60 px-6 py-3 text-sm font-semibold text-gold-light hover:border-gold hover:bg-gold hover:text-ink"
                 >
                   Get Directions <span className="arrow">→</span>
                 </a>

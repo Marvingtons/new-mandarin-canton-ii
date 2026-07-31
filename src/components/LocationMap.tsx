@@ -41,9 +41,12 @@ export default function LocationMap({
 
   return (
     <div className={className}>
-      {/* The site frame, same as the photo frames — this used to draw its
+      {/* The site frame, same as the photo frames. This used to draw its
           own gold/50 border with an outward gold/20 halo and a rounded
-          corner, the only rounded frame on the site. */}
+          corner — rejected at the time as the only rounded frame on the
+          site. The corner is back, but as a system value: .frame carries
+          --radius-md and clips the iframe to it, so every framed thing
+          rounds together and none of them decides on its own. */}
       <div className="frame">
         <div className="overflow-hidden" style={{ aspectRatio: aspect }}>
           <iframe

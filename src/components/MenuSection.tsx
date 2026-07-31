@@ -10,7 +10,7 @@ import { formatCents } from "@/lib/money";
  */
 export function SpicyMark() {
   return (
-    <span className="inline-flex shrink-0 items-center self-center border border-lacquer/40 px-1 text-xs uppercase leading-4 tracking-[0.12em] text-lacquer">
+    <span className="inline-flex shrink-0 items-center self-center rounded-full border border-lacquer/40 px-1 text-xs uppercase leading-4 tracking-[0.12em] text-lacquer">
       Spicy
     </span>
   );

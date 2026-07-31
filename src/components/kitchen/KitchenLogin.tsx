@@ -34,14 +34,14 @@ export default function KitchenLogin() {
             required
             autoFocus
             autoComplete="current-password"
-            className="min-h-14 w-full border-2 border-gold/50 bg-ink px-4 text-xl text-ivory outline-none focus:border-gold"
+            className="min-h-14 w-full rounded-sm border-2 border-gold/50 bg-ink px-4 text-xl text-ivory outline-none focus:border-gold"
           />
         </label>
 
         {state.error && (
           <p
             role="alert"
-            className="border-2 border-lacquer bg-lacquer/20 px-4 py-3 text-base font-semibold text-ivory"
+            className="rounded-md border-2 border-lacquer bg-lacquer/20 px-4 py-3 text-base font-semibold text-ivory"
           >
             {state.error}
           </p>
@@ -50,7 +50,7 @@ export default function KitchenLogin() {
         <button
           type="submit"
           disabled={pending}
-          className="min-h-14 bg-gold text-xl font-semibold text-ink transition-colors hover:bg-gold-light disabled:opacity-50"
+          className="min-h-14 rounded-lg bg-gold text-xl font-semibold text-ink transition-colors hover:bg-gold-light disabled:opacity-50"
         >
           {pending ? "…" : "登入 Sign in"}
         </button>

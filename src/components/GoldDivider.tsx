@@ -52,7 +52,7 @@ export default function GoldDivider({
           <Seal size={34} tone="chop" />
           <span
             data-divider-ring
-            className="pointer-events-none absolute inset-0 rounded-[3px] border border-lacquer opacity-0"
+            className="pointer-events-none absolute inset-0 rounded-sm border border-lacquer opacity-0"
           />
         </span>
       )}

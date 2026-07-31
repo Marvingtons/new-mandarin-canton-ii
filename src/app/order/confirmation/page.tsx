@@ -42,7 +42,7 @@ export default function ConfirmationPage() {
         </p>
         <Link
           href="/menu#order"
-          className="mt-2 inline-flex min-h-12 items-center bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
+          className="mt-2 inline-flex min-h-12 items-center rounded-lg bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
         >
           Order pickup
         </Link>
@@ -65,7 +65,7 @@ export default function ConfirmationPage() {
         at the counter and pay when you do.
       </p>
 
-      <dl className="mt-8 w-full max-w-md divide-y divide-gold/20 border border-gold/40 bg-cream text-left">
+      <dl className="mt-8 w-full max-w-md divide-y divide-gold/20 overflow-hidden rounded-md border border-gold/40 bg-cream text-left">
         <div className="flex justify-between px-5 py-3">
           <dt className="text-ink/70">Order number</dt>
           <dd className="font-display text-xl text-lacquer">

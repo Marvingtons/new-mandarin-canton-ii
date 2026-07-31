@@ -25,7 +25,7 @@ function Price({ set }: { set: ComboSet }) {
 
 function ComboCard({ set }: { set: ComboSet }) {
   return (
-    <div className="border border-gold/40 bg-cream px-5 py-4">
+    <div className="rounded-md border border-gold/40 bg-cream px-5 py-4">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="font-display text-xl text-ink">{set.name}</h3>
         <Price set={set} />

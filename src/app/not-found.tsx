@@ -38,13 +38,13 @@ export default function NotFound() {
       <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <Link
           href="/menu"
-          className="token-colors inline-flex min-h-12 items-center justify-center bg-gold px-7 font-semibold text-ink hover:bg-gold-light"
+          className="token-colors inline-flex min-h-12 items-center justify-center rounded-lg bg-gold px-7 font-semibold text-ink hover:bg-gold-light"
         >
           View the menu
         </Link>
         <Link
           href="/"
-          className="arrow-link token-colors inline-flex min-h-12 items-center justify-center border border-gold/60 px-7 font-semibold text-lacquer hover:border-gold hover:bg-gold/10"
+          className="arrow-link token-colors inline-flex min-h-12 items-center justify-center rounded-lg border border-gold/60 px-7 font-semibold text-lacquer hover:border-gold hover:bg-gold/10"
         >
           Back home <span className="arrow">→</span>
         </Link>

@@ -52,7 +52,7 @@ export default function CartDrawer({
       <aside
         aria-label="Your pickup order"
         aria-hidden={!open}
-        className={`fixed inset-y-0 right-0 z-[65] flex w-full max-w-md flex-col bg-cream shadow-xl transition-transform duration-300 ${
+        className={`fixed inset-y-0 right-0 z-[65] flex w-full max-w-md flex-col rounded-l-lg bg-cream shadow-xl transition-transform duration-300 ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -103,13 +103,17 @@ export default function CartDrawer({
                     </span>
                   </div>
                   <div className="mt-2 flex items-center gap-3">
-                    <div className="flex items-center border border-gold/50">
+                    {/* The two buttons carry the outer corners themselves
+                        rather than the wrapper clipping them: they fill it
+                        edge to edge, so overflow-hidden here would cut the
+                        focus ring off both of them. */}
+                    <div className="flex items-center rounded-sm border border-gold/50">
                       <button
                         onClick={() =>
                           updateQuantity(line.lineId, line.quantity - 1)
                         }
                         aria-label={`Decrease ${line.item.nameEn}`}
-                        className="min-h-9 w-9 text-lg text-ink hover:bg-gold/10"
+                        className="min-h-9 w-9 rounded-l-sm text-lg text-ink hover:bg-gold/10"
                       >
                         −
                       </button>
@@ -121,7 +125,7 @@ export default function CartDrawer({
                           updateQuantity(line.lineId, line.quantity + 1)
                         }
                         aria-label={`Increase ${line.item.nameEn}`}
-                        className="min-h-9 w-9 text-lg text-ink hover:bg-gold/10"
+                        className="min-h-9 w-9 rounded-r-sm text-lg text-ink hover:bg-gold/10"
                       >
                         +
                       </button>
@@ -179,7 +183,7 @@ export default function CartDrawer({
             <Link
               href="/order/checkout"
               onClick={onClose}
-              className="mt-4 flex min-h-12 items-center justify-center bg-gold px-5 font-semibold text-ink transition-colors hover:bg-gold-light"
+              className="mt-4 flex min-h-12 items-center justify-center rounded-lg bg-gold px-5 font-semibold text-ink transition-colors hover:bg-gold-light"
             >
               Checkout · {itemCount} {itemCount === 1 ? "item" : "items"}
             </Link>

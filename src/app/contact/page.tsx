@@ -37,7 +37,7 @@ export default function ContactPage() {
               <a
                 key={phone}
                 href={href}
-                className="block bg-lacquer px-8 py-4 text-center font-display text-xl text-ivory transition-colors hover:bg-lacquer-dark sm:inline-block"
+                className="block rounded-lg bg-lacquer px-8 py-4 text-center font-display text-xl text-ivory transition-colors hover:bg-lacquer-dark sm:inline-block"
               >
                 Call {phone}
               </a>

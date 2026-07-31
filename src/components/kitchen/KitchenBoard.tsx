@@ -109,7 +109,7 @@ function PrinterStrip({ printer }: { printer: PrinterPayload | null }) {
   return (
     <div
       role={state.urgent ? "alert" : "status"}
-      className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-2 px-5 py-3 ${state.className} ${
+      className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border-2 px-5 py-3 ${state.className} ${
         state.urgent ? "text-lg font-bold" : "text-base"
       }`}
     >
@@ -326,14 +326,14 @@ export default function KitchenBoard({
           <button
             onClick={toggleMute}
             aria-pressed={muted}
-            className="min-h-11 border-2 border-gold/50 px-4 font-semibold text-ivory transition-colors hover:border-gold"
+            className="min-h-11 rounded-md border-2 border-gold/50 px-4 font-semibold text-ivory transition-colors hover:border-gold"
           >
             {muted ? "🔕 Muted" : "🔔 Sound on"}
           </button>
           <button
             onClick={() => setShowCompleted((v) => !v)}
             aria-pressed={showCompleted}
-            className={`min-h-11 border-2 px-4 font-semibold transition-colors ${
+            className={`min-h-11 rounded-md border-2 px-4 font-semibold transition-colors ${
               showCompleted
                 ? "border-gold bg-gold text-ink"
                 : "border-gold/50 text-ivory hover:border-gold"
@@ -344,7 +344,7 @@ export default function KitchenBoard({
           <form action={logoutAction}>
             <button
               type="submit"
-              className="min-h-11 border-2 border-ivory/30 px-4 font-semibold text-ivory/70 transition-colors hover:border-ivory/60"
+              className="min-h-11 rounded-md border-2 border-ivory/30 px-4 font-semibold text-ivory/70 transition-colors hover:border-ivory/60"
             >
               Sign out
             </button>
@@ -359,7 +359,7 @@ export default function KitchenBoard({
 
       {/* ---------------- operator banners ---------------- */}
       {!ordersConfigured && (
-        <p className="mt-4 border-2 border-lacquer bg-lacquer/25 px-5 py-4 text-lg font-semibold">
+        <p className="mt-4 rounded-md border-2 border-lacquer bg-lacquer/25 px-5 py-4 text-lg font-semibold">
           The order database is not configured. Set{" "}
           <code className="text-gold">DATABASE_URL</code> — no orders can be
           stored or shown until you do.
@@ -367,14 +367,14 @@ export default function KitchenBoard({
       )}
 
       {!printingConfigured && ordersConfigured && (
-        <p className="mt-4 border-2 border-gold/40 bg-gold/10 px-5 py-3 text-base text-ivory/85">
+        <p className="mt-4 rounded-md border-2 border-gold/40 bg-gold/10 px-5 py-3 text-base text-ivory/85">
           No printer configured — this board is the only copy of every order.
           That is a supported setup, not an error.
         </p>
       )}
 
       {failedCount > 0 && (
-        <p className="mt-4 animate-pulse border-4 border-lacquer bg-lacquer px-5 py-4 text-xl font-bold text-ivory">
+        <p className="mt-4 animate-pulse rounded-md border-4 border-lacquer bg-lacquer px-5 py-4 text-xl font-bold text-ivory">
           ⚠ {failedCount} order{failedCount > 1 ? "s" : ""} did not print — read
           them here and hand-write if needed. 未印出，請在此查看。
         </p>
@@ -383,7 +383,7 @@ export default function KitchenBoard({
       {error && (
         <p
           role="alert"
-          className="mt-4 border-2 border-lacquer bg-lacquer/25 px-5 py-3 text-base font-semibold"
+          className="mt-4 rounded-md border-2 border-lacquer bg-lacquer/25 px-5 py-3 text-base font-semibold"
         >
           {error}
         </p>
@@ -392,13 +392,13 @@ export default function KitchenBoard({
       {notice && (
         <div
           role="status"
-          className="mt-4 flex items-center justify-between gap-4 border-2 border-gold bg-gold/15 px-5 py-3 text-base font-semibold text-ivory"
+          className="mt-4 flex items-center justify-between gap-4 rounded-md border-2 border-gold bg-gold/15 px-5 py-3 text-base font-semibold text-ivory"
         >
           <span>{notice}</span>
           <button
             onClick={() => setNotice(null)}
             aria-label="Dismiss"
-            className="min-h-11 px-3 text-2xl leading-none text-ivory/70 hover:text-ivory"
+            className="min-h-11 rounded-full px-3 text-2xl leading-none text-ivory/70 hover:text-ivory"
           >
             ×
           </button>

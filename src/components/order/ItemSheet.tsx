@@ -111,7 +111,7 @@ function ItemSheetInner({
         className="absolute inset-0 bg-ink/60"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[90svh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-cream shadow-xl sm:rounded-2xl">
+      <div className="relative z-10 flex max-h-[90svh] w-full max-w-lg flex-col overflow-hidden rounded-t-lg bg-cream shadow-xl sm:rounded-lg">
         <div className="flex items-start justify-between gap-4 border-b border-gold/30 px-5 py-4">
           <div>
             <h2 className="font-display text-2xl text-ink">{item.nameEn}</h2>
@@ -139,7 +139,7 @@ function ItemSheetInner({
                 {sizes.map((s) => (
                   <label
                     key={s.id}
-                    className={`flex cursor-pointer items-center justify-between border px-4 py-3 ${
+                    className={`flex cursor-pointer items-center justify-between rounded-md border px-4 py-3 ${
                       sizeId === s.id
                         ? "border-lacquer bg-lacquer/5"
                         : "border-gold/40 hover:border-gold"
@@ -186,7 +186,7 @@ function ItemSheetInner({
                   return (
                     <label
                       key={m.id}
-                      className={`flex cursor-pointer items-center justify-between border px-4 py-2.5 ${
+                      className={`flex cursor-pointer items-center justify-between rounded-md border px-4 py-2.5 ${
                         checked
                           ? "border-lacquer bg-lacquer/5"
                           : "border-gold/40 hover:border-gold"
@@ -238,7 +238,7 @@ function ItemSheetInner({
               onChange={(e) => setInstructions(e.target.value)}
               rows={2}
               placeholder="e.g. no peanuts, extra spicy"
-              className="w-full resize-none border border-gold/40 bg-ivory px-3 py-2 text-sm text-ink outline-none focus:border-lacquer"
+              className="w-full resize-none rounded-sm border border-gold/40 bg-ivory px-3 py-2 text-sm text-ink outline-none focus:border-lacquer"
             />
             <p className="mt-1 text-right text-xs text-ink/45">
               {instructions.length}/{MAX_INSTRUCTIONS}
@@ -248,11 +248,13 @@ function ItemSheetInner({
 
         {/* Footer: quantity + add */}
         <div className="flex items-center gap-3 border-t border-gold/30 px-5 py-4">
-          <div className="flex items-center border border-gold/50">
+          {/* Corners on the buttons, not a clip on the wrapper — see the
+              same stepper in CartDrawer for why. */}
+          <div className="flex items-center rounded-sm border border-gold/50">
             <button
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
               aria-label="Decrease quantity"
-              className="min-h-11 w-11 text-xl text-ink hover:bg-gold/10"
+              className="min-h-11 w-11 rounded-l-sm text-xl text-ink hover:bg-gold/10"
             >
               −
             </button>
@@ -262,7 +264,7 @@ function ItemSheetInner({
             <button
               onClick={() => setQuantity((q) => q + 1)}
               aria-label="Increase quantity"
-              className="min-h-11 w-11 text-xl text-ink hover:bg-gold/10"
+              className="min-h-11 w-11 rounded-r-sm text-xl text-ink hover:bg-gold/10"
             >
               +
             </button>
@@ -270,7 +272,7 @@ function ItemSheetInner({
           <button
             onClick={handleAdd}
             disabled={!groupsValid}
-            className="flex min-h-12 flex-1 items-center justify-center gap-2 bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span>Add to Cart</span>
             <span aria-hidden="true">·</span>

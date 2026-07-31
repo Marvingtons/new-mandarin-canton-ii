@@ -342,7 +342,7 @@ export default function Checkout({
         <p className="text-ink/70">Add a few dishes to start a pickup order.</p>
         <Link
           href="/menu#order"
-          className="mt-2 inline-flex min-h-12 items-center bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
+          className="mt-2 inline-flex min-h-12 items-center rounded-lg bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
         >
           Back to menu
         </Link>
@@ -358,7 +358,7 @@ export default function Checkout({
         <p className="mt-2 text-sm uppercase tracking-[0.15em] text-ink/55">
           Pickup only · {restaurant.address.street}
         </p>
-        <p className="mt-3 border border-gold/40 bg-gold/5 px-4 py-3 text-sm text-ink/80">
+        <p className="mt-3 rounded-md border border-gold/40 bg-gold/5 px-4 py-3 text-sm text-ink/80">
           <span className="font-semibold text-ink">Pay when you pick up.</span>{" "}
           We don&apos;t take payment online — cash or card at the counter.
         </p>
@@ -378,7 +378,7 @@ export default function Checkout({
                 onChange={(e) => setName(e.target.value)}
                 required
                 autoComplete="name"
-                className="w-full border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer"
+                className="w-full rounded-sm border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer"
               />
             </label>
             <label className="block">
@@ -395,7 +395,7 @@ export default function Checkout({
                 maxLength={14}
                 placeholder="(619) 555-0148"
                 disabled={isVerified}
-                className="w-full border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer disabled:opacity-70"
+                className="w-full rounded-sm border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer disabled:opacity-70"
               />
             </label>
           </div>
@@ -407,7 +407,7 @@ export default function Checkout({
               <select
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
-                className="w-full border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer"
+                className="w-full rounded-sm border border-gold/50 bg-ivory px-3 py-3 text-ink outline-none focus:border-lacquer"
               >
                 {slots.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -423,17 +423,17 @@ export default function Checkout({
               // pickupSlots({asIfOpen}) does not currently produce. Kept so
               // this branch can never silently show the closed notice to a
               // session that was told gates are off.
-              <p className="border-2 border-lacquer bg-gold/30 px-3 py-3 text-sm font-semibold text-ink">
+              <p className="rounded-md border-2 border-lacquer bg-gold/30 px-3 py-3 text-sm font-semibold text-ink">
                 TEST MODE · gates off — no pickup times could be generated for
                 today.
               </p>
             ) : (
-              <p className="border border-lacquer/40 bg-lacquer/5 px-3 py-3 text-sm text-lacquer">
+              <p className="rounded-md border border-lacquer/40 bg-lacquer/5 px-3 py-3 text-sm text-lacquer">
                 We&apos;re closed right now. Please order during store hours.
               </p>
             )}
             {testMode && slots.length > 0 && (
-              <p className="mt-2 border-2 border-lacquer bg-gold/30 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-ink">
+              <p className="mt-2 rounded-md border-2 border-lacquer bg-gold/30 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-ink">
                 TEST MODE · gates off — these times are offered as if open
               </p>
             )}
@@ -451,7 +451,7 @@ export default function Checkout({
           </p>
 
           {isVerified ? (
-            <p className="flex items-center gap-2 border border-gold bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">
+            <p className="flex items-center gap-2 rounded-md border border-gold bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">
               <span aria-hidden="true">✓</span>
               Number verified. · 號碼已驗證。
             </p>
@@ -461,7 +461,7 @@ export default function Checkout({
                 type="button"
                 onClick={sendCode}
                 disabled={verify === "sending" || verify === "checking"}
-                className="min-h-12 self-start border-2 border-lacquer px-5 font-semibold text-lacquer transition-colors hover:bg-lacquer hover:text-ivory disabled:opacity-50"
+                className="min-h-12 self-start rounded-lg border-2 border-lacquer px-5 font-semibold text-lacquer transition-colors hover:bg-lacquer hover:text-ivory disabled:opacity-50"
               >
                 {verify === "sending"
                   ? "Sending…"
@@ -483,14 +483,14 @@ export default function Checkout({
                       }
                       inputMode="numeric"
                       autoComplete="one-time-code"
-                      className="w-40 border border-gold/50 bg-ivory px-3 py-3 font-mono text-lg tracking-[0.3em] text-ink outline-none focus:border-lacquer"
+                      className="w-40 rounded-sm border border-gold/50 bg-ivory px-3 py-3 font-mono text-lg tracking-[0.3em] text-ink outline-none focus:border-lacquer"
                     />
                   </label>
                   <button
                     type="button"
                     onClick={submitCode}
                     disabled={code.length < 4 || verify === "checking"}
-                    className="min-h-12 bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:opacity-50"
+                    className="min-h-12 rounded-lg bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:opacity-50"
                   >
                     {verify === "checking" ? "Checking…" : "Verify"}
                   </button>
@@ -503,7 +503,7 @@ export default function Checkout({
         {notice && (
           <p
             role="status"
-            className="mt-6 border border-gold/50 bg-gold/10 px-4 py-3 text-sm text-ink"
+            className="mt-6 rounded-md border border-gold/50 bg-gold/10 px-4 py-3 text-sm text-ink"
           >
             {notice}
           </p>
@@ -512,7 +512,7 @@ export default function Checkout({
         {error && (
           <p
             role="alert"
-            className="mt-6 border border-lacquer/40 bg-lacquer/5 px-4 py-3 text-sm font-medium text-lacquer"
+            className="mt-6 rounded-md border border-lacquer/40 bg-lacquer/5 px-4 py-3 text-sm font-medium text-lacquer"
           >
             {error}
           </p>
@@ -521,7 +521,7 @@ export default function Checkout({
         <button
           type="submit"
           disabled={!canSubmit}
-          className="mt-6 flex min-h-12 w-full items-center justify-center bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-6 flex min-h-12 w-full items-center justify-center rounded-lg bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting
             ? "Placing pickup order…"
@@ -533,7 +533,7 @@ export default function Checkout({
       </form>
 
       {/* Right: order summary */}
-      <aside className="order-1 h-max border border-gold/40 bg-cream px-5 py-5 lg:order-2 lg:sticky lg:top-6">
+      <aside className="order-1 h-max rounded-md border border-gold/40 bg-cream px-5 py-5 lg:order-2 lg:sticky lg:top-6">
         <h2 className="font-display text-2xl text-ink">Your order</h2>
         <ul className="mt-4 divide-y divide-gold/20">
           {detailedLines.map((line) => (

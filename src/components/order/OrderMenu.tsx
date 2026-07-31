@@ -83,7 +83,7 @@ export default function OrderMenu({
           </div>
           <button
             onClick={() => setCartOpen(true)}
-            className="hidden items-center gap-2 border border-gold/60 px-4 py-2.5 font-semibold text-lacquer transition-colors hover:border-gold hover:bg-gold/10 sm:inline-flex"
+            className="hidden items-center gap-2 rounded-lg border border-gold/60 px-4 py-2.5 font-semibold text-lacquer transition-colors hover:border-gold hover:bg-gold/10 sm:inline-flex"
           >
             <span aria-hidden="true">🛒</span>
             Cart{hydrated && itemCount > 0 ? ` · ${itemCount}` : ""}
@@ -92,7 +92,7 @@ export default function OrderMenu({
 
         {/* The persistent line: pickup and the wait, stated at the entry point
             so nobody discovers either at the cart. */}
-        <p className="mt-4 border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
+        <p className="mt-4 rounded-md border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
           <span className="font-semibold text-ink">
             Pickup only · ready in 15–20 minutes.
           </span>{" "}
@@ -113,7 +113,7 @@ export default function OrderMenu({
               <li key={cat.id}>
                 <a
                   href={`#cat-${cat.id}`}
-                  className="cat-link token-colors whitespace-nowrap border border-transparent px-3 py-1 font-semibold text-lacquer hover:border-gold/60"
+                  className="cat-link token-colors whitespace-nowrap rounded-full border border-transparent px-3 py-1 font-semibold text-lacquer hover:border-gold/60"
                 >
                   {cat.nameEn}
                 </a>
@@ -143,7 +143,7 @@ export default function OrderMenu({
                     key={item.id}
                     onClick={() => !disabled && setActiveItem(item)}
                     disabled={disabled}
-                    className="flex items-start justify-between gap-3 border border-gold/40 bg-cream px-4 py-3 text-left transition-colors hover:border-gold enabled:hover:bg-gold/5 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex items-start justify-between gap-3 rounded-md border border-gold/40 bg-cream px-4 py-3 text-left transition-colors hover:border-gold enabled:hover:bg-gold/5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="min-w-0">
                       <span className="flex items-center gap-2">

@@ -101,7 +101,7 @@ export default function HoursTable({
               >
                 {dense ? label[day].slice(0, 3) : label[day]}
                 {isToday && !dense && (
-                  <span className="ml-2 border border-gold px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-lacquer">
+                  <span className="ml-2 rounded-sm border border-gold px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-lacquer">
                     Today
                   </span>
                 )}

@@ -37,7 +37,7 @@ export default async function TestModeBadge() {
       role="status"
       aria-live="polite"
     >
-      <span className="inline-flex items-center gap-2 border-2 border-lacquer bg-gold px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-ink shadow-lg">
+      <span className="inline-flex items-center gap-2 rounded-full border-2 border-lacquer bg-gold px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-ink shadow-lg">
         <span
           aria-hidden="true"
           className="inline-block h-2 w-2 rounded-full bg-lacquer"

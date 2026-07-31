@@ -257,12 +257,12 @@ export default function HeroVideo() {
             className="hero-item mt-3 flex flex-wrap justify-center gap-4 sm:justify-start"
             style={{ transitionDelay: "360ms" }}
           >
-            <OrderTakeout className="inline-flex min-h-12 items-center justify-center bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light">
+            <OrderTakeout className="inline-flex min-h-12 items-center justify-center rounded-lg bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light">
               Order Takeout
             </OrderTakeout>
             <Link
               href="/menu"
-              className="hero-cta-ghost inline-flex min-h-12 items-center justify-center border border-ivory/60 px-7 py-3 font-semibold text-ivory"
+              className="hero-cta-ghost inline-flex min-h-12 items-center justify-center rounded-lg border border-ivory/60 px-7 py-3 font-semibold text-ivory"
             >
               View Menu
             </Link>

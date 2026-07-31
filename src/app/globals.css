@@ -472,6 +472,14 @@ body {
 .spt-card {
   display: flex;
   flex-direction: column;
+  /* The one frame on the site that steps up a tier. Everything framed
+     takes --radius-md from .frame; this is the "large feature frame" of
+     the scale, a ~520px plate that is the visual anchor of its section,
+     and at that size md reads as barely-rounded. Both rules are unlayered
+     and this one is later in the file, so it wins without !important.
+     The small up-next cards beside it stay at md deliberately: the tier
+     difference is part of how the featured card dominates. */
+  border-radius: var(--radius-lg);
 }
 .spt-photo {
   position: relative;
@@ -779,6 +787,11 @@ body {
   width: 1.75rem;
   align-items: center;
   justify-content: center;
+  /* Nothing is square at rest — this button draws no border and no fill —
+     but it is still a button, and the global :focus-visible ring would
+     otherwise paint a hard rectangle around it. Same reasoning as
+     .spt-btn and .spt-small. */
+  border-radius: var(--radius-full);
   color: var(--lacquer);
   opacity: 1;
   transition:

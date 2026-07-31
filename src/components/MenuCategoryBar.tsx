@@ -184,7 +184,7 @@ export default function MenuCategoryBar({
                   data-cat={id}
                   aria-current={active ? "true" : undefined}
                   onClick={(e) => jumpTo(e, id)}
-                  className={`cat-link token-colors whitespace-nowrap px-3 py-1 font-semibold text-lacquer ${
+                  className={`cat-link token-colors whitespace-nowrap rounded-full px-3 py-1 font-semibold text-lacquer ${
                     active ? "cat-link-active" : ""
                   }`}
                 >

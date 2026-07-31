@@ -66,7 +66,7 @@ export default function KitchenOrderCard({
 
   return (
     <article
-      className={`flex flex-col border-4 bg-ink/60 ${
+      className={`flex flex-col overflow-hidden rounded-md border-4 bg-ink/60 ${
         failed
           ? "border-lacquer"
           : fresh
@@ -122,7 +122,7 @@ export default function KitchenOrderCard({
         {order.items.map((line, index) => (
           <li key={`${line.itemId}-${index}`} className="py-3">
             <div className="flex items-baseline gap-3">
-              <span className="min-w-12 bg-gold px-2 text-center text-2xl font-bold text-ink">
+              <span className="min-w-12 rounded-sm bg-gold px-2 text-center text-2xl font-bold text-ink">
                 ×{line.quantity}
               </span>
               <span className="text-3xl font-bold leading-tight text-ivory">
@@ -160,7 +160,7 @@ export default function KitchenOrderCard({
             )}
 
             {line.specialInstructions && (
-              <div className="ml-15 mt-2 border-2 border-gold px-3 py-2">
+              <div className="ml-15 mt-2 rounded-sm border-2 border-gold px-3 py-2">
                 <div className="text-xs font-bold uppercase tracking-[0.12em] text-gold">
                   備註 NOTE
                 </div>
@@ -195,7 +195,7 @@ export default function KitchenOrderCard({
           <button
             onClick={() => run("accept")}
             disabled={busy !== null}
-            className="min-h-14 flex-1 bg-gold px-4 text-2xl font-bold text-ink transition-colors hover:bg-gold-light disabled:opacity-50"
+            className="min-h-14 flex-1 rounded-md bg-gold px-4 text-2xl font-bold text-ink transition-colors hover:bg-gold-light disabled:opacity-50"
           >
             {busy === "accept" ? "…" : "接單"}
           </button>
@@ -204,7 +204,7 @@ export default function KitchenOrderCard({
           <button
             onClick={() => run("complete")}
             disabled={busy !== null}
-            className="min-h-14 flex-1 border-2 border-gold px-4 text-2xl font-bold text-gold transition-colors hover:bg-gold hover:text-ink disabled:opacity-50"
+            className="min-h-14 flex-1 rounded-md border-2 border-gold px-4 text-2xl font-bold text-gold transition-colors hover:bg-gold hover:text-ink disabled:opacity-50"
           >
             {busy === "complete" ? "…" : "完成"}
           </button>
@@ -212,13 +212,13 @@ export default function KitchenOrderCard({
         <button
           onClick={() => run("reprint")}
           disabled={busy !== null}
-          className="min-h-14 border-2 border-ivory/30 px-4 text-xl font-semibold text-ivory/80 transition-colors hover:border-ivory/70 disabled:opacity-50"
+          className="min-h-14 rounded-md border-2 border-ivory/30 px-4 text-xl font-semibold text-ivory/80 transition-colors hover:border-ivory/70 disabled:opacity-50"
         >
           {busy === "reprint" ? "…" : "重印"}
         </button>
         <button
           onClick={() => setShowTicket((v) => !v)}
-          className="min-h-14 border-2 border-ivory/30 px-4 text-xl font-semibold text-ivory/80 transition-colors hover:border-ivory/70"
+          className="min-h-14 rounded-md border-2 border-ivory/30 px-4 text-xl font-semibold text-ivory/80 transition-colors hover:border-ivory/70"
         >
           {showTicket ? "收起" : "單據"}
         </button>
