@@ -104,7 +104,7 @@ export default function OrderMenu({
               Pickup only · ready in 15–20 minutes.
             </span>{" "}
             Party trays and family dinners take 20–30. Pay at the counter when
-            you collect — we don&apos;t take payment online.
+            you collect. We don&apos;t take payment online.
           </p>
           <p className="mt-1.5 border-t border-gold/25 pt-1.5">
             <span className="font-semibold text-ink">

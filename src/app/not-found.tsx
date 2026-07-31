@@ -32,7 +32,7 @@ export default function NotFound() {
       </h1>
       <p className="mt-4 leading-relaxed text-ink/75">
         That link has wandered off. The menu and the hours are all still
-        here — the kitchen never moved.
+        here. The kitchen never moved.
       </p>
 
       <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">

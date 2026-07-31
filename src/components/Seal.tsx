@@ -66,7 +66,7 @@ export default function Seal({
   return (
     <svg
       role="img"
-      aria-label={`${restaurant.chineseName} — ${restaurant.name} seal`}
+      aria-label={`${restaurant.chineseName}, ${restaurant.name} seal`}
       viewBox={small ? VIEWBOX_SMALL : VIEWBOX_FULL}
       style={{ height: size, width: "auto" }}
       className={className}

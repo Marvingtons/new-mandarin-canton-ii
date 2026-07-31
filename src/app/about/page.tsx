@@ -61,7 +61,7 @@ export default function AboutPage() {
               which sets the Est. mark above — keep the two in step. */}
           <p>
             New Mandarin Canton II opened on Telegraph Canyon Road in 1995. It
-            was a family restaurant then and it is a family restaurant now —
+            was a family restaurant then and it is a family restaurant now:
             Mandarin, Szechuan and Cantonese dishes, cooked to order, in a room
             the family runs themselves.
           </p>
@@ -77,7 +77,7 @@ export default function AboutPage() {
             Come in and it still looks like itself: calligraphy on the walls,
             the altar by the door with incense and fresh tangerines. The same
             dishes are on the menu, at the same counter, seven days a week.
-            That is most of what there is to tell — the rest is on the plate.
+            That is most of what there is to tell. The rest is on the plate.
           </p>
         </div>
       </div>

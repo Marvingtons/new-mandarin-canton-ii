@@ -196,12 +196,12 @@ function normalizeOrder(order: Order): Order {
   const totals = (order.totals ?? {}) as unknown as Record<string, unknown>;
   return {
     ...order,
-    orderNumber: asText(order.orderNumber, "—"),
+    orderNumber: asText(order.orderNumber, "-"),
     items: asLines(order.items),
     customer: {
       ...(order.customer ?? {}),
-      name: asText(customer.name).trim() || "—",
-      phone: asText(customer.phone).trim() || "—",
+      name: asText(customer.name).trim() || "-",
+      phone: asText(customer.phone).trim() || "-",
     },
     totals: {
       ...(order.totals ?? {}),

@@ -56,7 +56,7 @@ export default function HomePage() {
                 className="mt-7 max-w-xl leading-relaxed text-ink/80"
               >
                 New Mandarin Canton II is a small, family-run room on
-                Telegraph Canyon Road — calligraphy on the walls, an altar by
+                Telegraph Canyon Road: calligraphy on the walls, an altar by
                 the door with incense and fresh tangerines. Mandarin,
                 Szechuan and Cantonese dishes, cooked the way they have
                 always been. No reinvention. Just the food.
@@ -107,7 +107,7 @@ export default function HomePage() {
         <div className="relative mx-auto max-w-5xl px-4">
           <SectionHeading en="The Room" />
           <p data-rise className="mt-6 max-w-xl leading-relaxed text-ink/70">
-            Come in — the room is part of the meal.
+            Come in. The room is part of the meal.
           </p>
           <div className="mt-10 grid gap-6 sm:grid-cols-3">
             <PhotoFrame photo={photos.altar} />
@@ -138,7 +138,7 @@ export default function HomePage() {
               data-rise-item
               className="font-display text-xl italic leading-relaxed text-ink/80 sm:text-2xl"
             >
-              The altar by the door watches over the kitchen — oranges for
+              The altar by the door watches over the kitchen: oranges for
               fortune, incense for family.
             </p>
           </div>

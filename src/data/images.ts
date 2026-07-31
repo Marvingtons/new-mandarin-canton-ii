@@ -28,7 +28,7 @@ export const photos = {
     id: "altar",
     src: "/images/altar.jpg",
     alt: "The family altar: a carved shrine with a Guan Yu figure, lit candles, burning incense and a plate of fresh tangerines",
-    caption: "The altar — incense & tangerines",
+    caption: "The altar · incense & tangerines",
     aspect: "4/5",
   },
   diningRoom: {

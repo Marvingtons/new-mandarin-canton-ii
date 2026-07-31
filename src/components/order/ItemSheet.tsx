@@ -157,7 +157,7 @@ function ItemSheetInner({
                         {s.label}
                         {s.servesNote && (
                           <span className="ml-1 text-sm text-ink/55">
-                            — {s.servesNote}
+                            · {s.servesNote}
                           </span>
                         )}
                       </span>
@@ -206,7 +206,7 @@ function ItemSheetInner({
                           {m.nameEn}
                           {m.note && (
                             <span className="ml-1 text-sm text-ink/55">
-                              — {m.note}
+                              · {m.note}
                             </span>
                           )}
                         </span>

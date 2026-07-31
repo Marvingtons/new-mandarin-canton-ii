@@ -73,7 +73,7 @@ function ComboCard({ set }: { set: ComboSet }) {
                 {/* The printed menu's "Except Noodle & Rice" rule, shown
                     against the entrées it actually applies to. */}
                 {choice.noRiceSide && (
-                  <span className="text-ink/55"> — no rice side</span>
+                  <span className="text-ink/55"> · no rice side</span>
                 )}
               </li>
             ))}

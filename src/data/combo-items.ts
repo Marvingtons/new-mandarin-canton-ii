@@ -164,7 +164,7 @@ function familyItems(): MenuItem[] {
       nameEn: set.name,
       // TODO(confirm): descriptive translation, family to approve
       nameZh: i === 0 ? "家庭套餐一" : "家庭套餐二",
-      description: [courses, addOns].filter(Boolean).join(" — ") || null,
+      description: [courses, addOns].filter(Boolean).join(". ") || null,
       // Base price is the two-person minimum; sizes carry the real tiers.
       priceCents: set.priceCents * FAMILY_MIN_PEOPLE,
       sizes: familySizes(set.priceCents),
@@ -185,7 +185,7 @@ function bigFamilyItems(): MenuItem[] {
 
   return section.sets.map((set) => ({
     id: `combo-${set.id}`,
-    nameEn: `Big Family Dinner — ${set.name}`,
+    nameEn: `Big Family Dinner · ${set.name}`,
     // TODO(confirm): descriptive translation, family to approve
     nameZh: "大家庭套餐",
     description: (set.dishes ?? []).join(" · ") || null,

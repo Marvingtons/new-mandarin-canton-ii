@@ -376,7 +376,7 @@ export default function Checkout({
         </p>
         <p className="mt-3 rounded-md border border-gold/40 bg-gold/5 px-4 py-3 text-sm text-ink/80">
           <span className="font-semibold text-ink">Pay when you pick up.</span>{" "}
-          We don&apos;t take payment online — cash or card at the counter.
+          We don&apos;t take payment online. Cash or card at the counter.
         </p>
 
         {/* Pickup details */}
@@ -440,7 +440,7 @@ export default function Checkout({
               // this branch can never silently show the closed notice to a
               // session that was told gates are off.
               <p className="rounded-md border-2 border-lacquer bg-gold/30 px-3 py-3 text-sm font-semibold text-ink">
-                TEST MODE · gates off — no pickup times could be generated for
+                TEST MODE · gates off. No pickup times could be generated for
                 today.
               </p>
             ) : (
@@ -450,7 +450,7 @@ export default function Checkout({
             )}
             {testMode && slots.length > 0 && (
               <p className="mt-2 rounded-md border-2 border-lacquer bg-gold/30 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-ink">
-                TEST MODE · gates off — these times are offered as if open
+                TEST MODE · gates off. These times are offered as if open
               </p>
             )}
           </label>
@@ -462,7 +462,7 @@ export default function Checkout({
             Verify your number
           </legend>
           <p className="mb-3 mt-1 text-sm text-ink/60">
-            We text you a code so the kitchen knows the order is real — and so
+            We text you a code so the kitchen knows the order is real, and so
             we can reach you when it&apos;s ready.
           </p>
 
@@ -607,7 +607,7 @@ export default function Checkout({
           <div className="flex justify-between">
             <dt className="text-ink/70">Tax</dt>
             <dd className="text-ink">
-              {taxRateBps != null ? formatCents(tax) : "—"}
+              {taxRateBps != null ? formatCents(tax) : "added at pickup"}
             </dd>
           </div>
           <div className="flex justify-between border-t border-gold/20 pt-1 text-base font-semibold">

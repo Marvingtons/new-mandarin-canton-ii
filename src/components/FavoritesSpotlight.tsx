@@ -30,7 +30,7 @@ const blurbs: Record<string, string> = {
   "salted-pepper-chicken-wings-special":
     "Crispy fried wings sautéed with salt, pepper & hot chili.",
   "kung-po-san-shein":
-    "Shrimp, chicken & beef in classic kung pao style — peanuts, chilies, heat.",
+    "Shrimp, chicken & beef in classic kung pao style: peanuts, chilies, heat.",
   "mongolian-beef-special":
     "Sliced tenderloin with jade-green scallions in a natural sauce.",
   "honey-walnut-shrimp": "Crisp shrimp in a honey glaze with candied walnuts.",
@@ -310,7 +310,7 @@ export default function FavoritesSpotlight() {
               type="button"
               data-spt-small
               className={`spt-small ${swapping ? "is-dim" : ""}`}
-              aria-label={`${dish.name} — bring to spotlight`}
+              aria-label={`${dish.name}, bring to spotlight`}
               onClick={() => advance(faceIdx + n, 1)}
             >
               {/* one framed object, same anatomy as the featured card:

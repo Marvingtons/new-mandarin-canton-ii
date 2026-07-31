@@ -60,7 +60,7 @@ export default function ConfirmationPage() {
       </span>
       <h1 className="mt-6 font-display text-4xl text-lacquer">Order confirmed</h1>
       <p className="mt-2 text-ink/75">
-        Thank you — your order is with the kitchen. This is a{" "}
+        Thank you. Your order is with the kitchen. This is a{" "}
         <span className="font-semibold text-ink">pickup order</span>: collect it
         at the counter and pay when you do.
       </p>

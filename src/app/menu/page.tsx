@@ -6,7 +6,7 @@ import OrderMenu from "@/components/order/OrderMenu";
 export const metadata: Metadata = {
   title: "Menu",
   description:
-    "The full menu at New Mandarin Canton II in Chula Vista — Mandarin, Szechuan and Cantonese, cooked to order. Order pickup direct, no delivery-app fees.",
+    "The full menu at New Mandarin Canton II in Chula Vista: Mandarin, Szechuan and Cantonese, cooked to order. Order pickup direct, no delivery-app fees.",
 };
 
 /**

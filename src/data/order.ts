@@ -23,4 +23,4 @@ export function orderTarget(): OrderTarget {
 }
 
 /** Value line shown beside ordering CTAs. */
-export const ORDER_DIRECT_NOTE = "Order direct — no delivery-app fees";
+export const ORDER_DIRECT_NOTE = "Order direct · no delivery-app fees";
