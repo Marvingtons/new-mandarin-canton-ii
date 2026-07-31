@@ -152,8 +152,11 @@ export async function POST(request: Request): Promise<Response> {
 
   // Keyed skip for the TIME gates only, so a real order can be placed outside
   // business hours for testing. False unless ORDER_GATE_BYPASS is set AND this
-  // request presents it. See lib/order/bypass.ts for what it does and does not
-  // skip — everything below that is not a clock still runs.
+  // request presents it — either as the x-gate-bypass header (curl) or as a
+  // test-mode session cookie minted at /api/test-mode (a real browser). Both
+  // are the same signal and land here, so there is one code path, one warning
+  // below, and one set of things skipped. See lib/order/bypass.ts for what it
+  // does and does not skip — everything below that is not a clock still runs.
   const bypass = isGateBypassRequest(request);
 
   // 4. Hours gate — the whole submit path, not just ASAP.
@@ -319,7 +322,8 @@ export async function POST(request: Request): Promise<Response> {
   if (bypass) {
     console.warn(
       `[orders] *** GATE BYPASSED *** order ${result.order.orderNumber} — ` +
-        "accepted with a valid ORDER_GATE_BYPASS header; the business-hours " +
+        "accepted with a valid ORDER_GATE_BYPASS header or test-mode " +
+        "session; the business-hours " +
         "and lunch-window gates were SKIPPED. This is a TEST order and its " +
         "pickup window may fall outside opening hours.",
     );
