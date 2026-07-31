@@ -146,19 +146,45 @@ export function clockLabel(minutes: number): string {
  * Slots for today: "ASAP" (when open) plus scheduled times from the next
  * interval boundary after now+lead, up to close. Empty when closed.
  */
-export function pickupSlots(now: Date, opts: PickupOptions): PickupSlot[] {
+export interface PickupSlotOptions {
+  /**
+   * Offer slots as though the restaurant were open, ignoring the clocks.
+   *
+   * ONLY for a test-mode session, and ONLY presentation. The server does not
+   * trust this and never sees it: a submitted value is still validated there,
+   * by isWellFormedPickupValue on a bypassed request and by isValidPickup on
+   * every other one. Setting it here cannot make the server accept anything
+   * it would otherwise refuse.
+   *
+   * It exists because the bypass was unreachable from the real UI. The server
+   * would accept an out-of-hours order, but pickupSlots returned [] when
+   * closed, so the selector had nothing to select and Place Order stayed
+   * disabled — the one path that could not be tested end to end was the one
+   * customers actually use.
+   */
+  asIfOpen?: boolean;
+}
+
+export function pickupSlots(
+  now: Date,
+  opts: PickupOptions,
+  slotOpts: PickupSlotOptions = {},
+): PickupSlot[] {
+  const asIfOpen = slotOpts.asIfOpen === true;
   const { day, minutes } = localNow(opts.timezone, now);
   const w = todaysWindow(day);
-  if (!w || minutes >= w.close) return [];
 
-  // Past the ordering cutoff nothing is offerable — the submit path would
-  // reject it anyway, and showing slots the server will refuse is worse than
-  // showing none.
-  if (!isAcceptingOrders(now, opts)) return [];
+  if (!asIfOpen) {
+    if (!w || minutes >= w.close) return [];
+
+    // Past the ordering cutoff nothing is offerable — the submit path would
+    // reject it anyway, and showing slots the server will refuse is worse than
+    // showing none.
+    if (!isAcceptingOrders(now, opts)) return [];
+  }
 
   const slots: PickupSlot[] = [];
-  const open = isOpenNow(now, opts);
-  if (open) {
+  if (asIfOpen || isOpenNow(now, opts)) {
     slots.push({
       value: "asap",
       // TODO(confirm): real ASAP quote with the owner.
@@ -166,11 +192,19 @@ export function pickupSlots(now: Date, opts: PickupOptions): PickupSlot[] {
     });
   }
 
-  const earliest = Math.max(w.open, minutes + opts.leadMinutes);
-  let t = Math.ceil(earliest / opts.intervalMinutes) * opts.intervalMinutes;
-  for (; t <= w.close; t += opts.intervalMinutes) {
-    slots.push({ value: hhmm(t), label: label12h(t) });
+  if (w) {
+    let earliest = Math.max(w.open, minutes + opts.leadMinutes);
+    // Testing at 3am, every scheduled time for the day is already behind us.
+    // Offer the day's window from the top rather than an ASAP-only list, so
+    // the scheduled-time path is exercisable too.
+    if (asIfOpen && earliest > w.close) earliest = w.open;
+    let t = Math.ceil(earliest / opts.intervalMinutes) * opts.intervalMinutes;
+    for (; t <= w.close; t += opts.intervalMinutes) {
+      slots.push({ value: hhmm(t), label: label12h(t) });
+    }
   }
+  // On a day with no window at all, asIfOpen still leaves ASAP — which
+  // isWellFormedPickupValue accepts — so the form is never stuck.
   return slots;
 }
 

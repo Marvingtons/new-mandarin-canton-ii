@@ -30,6 +30,16 @@ interface CheckoutProps {
   leadMinutes: number;
   intervalMinutes: number;
   taxRateBps: number | null;
+  /**
+   * This browser holds a valid test-mode session, read SERVER-side from the
+   * httpOnly cookie (see TestModeBadge, and lib/order/bypass.ts).
+   *
+   * Presentation only. It unlocks the selector so the ordering UI can be
+   * driven while closed; whether the submitted value is accepted is decided
+   * by the server, which re-reads the same cookie and does not trust this
+   * prop. A browser that set it by hand would get slots it cannot submit.
+   */
+  testMode?: boolean;
 }
 
 const LAST_ORDER_KEY = "nmc-last-order";
@@ -51,6 +61,7 @@ export default function Checkout({
   leadMinutes,
   intervalMinutes,
   taxRateBps,
+  testMode = false,
 }: CheckoutProps) {
   const router = useRouter();
   const { detailedLines, lines, subtotalCents, hydrated, clear } = useCart();
@@ -76,14 +87,14 @@ export default function Checkout({
   // slot that just passed drops out.
   useEffect(() => {
     const compute = () => {
-      const next = pickupSlots(new Date(), pickupOpts);
+      const next = pickupSlots(new Date(), pickupOpts, { asIfOpen: testMode });
       setSlots(next);
       setTime((t) => (t && next.some((s) => s.value === t) ? t : next[0]?.value ?? ""));
     };
     compute();
     const id = setInterval(compute, 60_000);
     return () => clearInterval(id);
-  }, [pickupOpts]);
+  }, [pickupOpts, testMode]);
 
   const tax = taxRateBps != null ? taxCents(subtotalCents, taxRateBps) : 0;
   const total = subtotalCents + tax;
@@ -400,13 +411,30 @@ export default function Checkout({
               >
                 {slots.map((s) => (
                   <option key={s.value} value={s.value}>
-                    {s.label}
+                    {/* Suffixed so a screenshot of a test order is never
+                        mistaken for a real one. Presentation only — the value
+                        submitted is unchanged. */}
+                    {testMode ? `${s.label} (test)` : s.label}
                   </option>
                 ))}
               </select>
+            ) : testMode ? (
+              // Reachable only if the day has no window AND no ASAP, which
+              // pickupSlots({asIfOpen}) does not currently produce. Kept so
+              // this branch can never silently show the closed notice to a
+              // session that was told gates are off.
+              <p className="border-2 border-lacquer bg-gold/30 px-3 py-3 text-sm font-semibold text-ink">
+                TEST MODE · gates off — no pickup times could be generated for
+                today.
+              </p>
             ) : (
               <p className="border border-lacquer/40 bg-lacquer/5 px-3 py-3 text-sm text-lacquer">
                 We&apos;re closed right now. Please order during store hours.
+              </p>
+            )}
+            {testMode && slots.length > 0 && (
+              <p className="mt-2 border-2 border-lacquer bg-gold/30 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-ink">
+                TEST MODE · gates off — these times are offered as if open
               </p>
             )}
           </label>
