@@ -7,8 +7,10 @@ import { siteUrl } from "@/lib/siteUrl";
  * A sitemap is a statement about what this site IS, not a dump of its routes.
  * Deliberately absent, and each for its own reason:
  *
- *   /kitchen              — staff-only. Already noindex'd at the layout, and
- *                           listing it here would undo that by advertising it.
+ *   the kitchen board     — staff-only, and its path is configurable
+ *                           (KITCHEN_ROUTE_SLUG). Already noindex'd at its own
+ *                           layout; naming it in a public file would undo both
+ *                           that and the point of making it configurable.
  *   /api/*                — not pages. The CloudPRNT endpoint's whole security
  *                           model is an unguessable path segment.
  *   /order                — a redirect to /menu. Listing both would ask Google

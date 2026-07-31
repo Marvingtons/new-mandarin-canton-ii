@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { loginAction, type LoginState } from "@/app/kitchen/actions";
+import { loginAction, type LoginState } from "@/app/[kitchenSlug]/actions";
 
 /**
  * Staff login. The password is submitted as a POST body to a Server Action, so

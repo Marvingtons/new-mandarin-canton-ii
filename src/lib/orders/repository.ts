@@ -439,6 +439,72 @@ export async function advancePrintSegment(
   return rows.length > 0 ? Number(rows[0].print_segment) : 0;
 }
 
+/**
+ * PAPER IS BACK — put back what the outage broke.
+ *
+ * Called once, on the blocked→unblocked edge (see healthStore.recordPoll,
+ * which reports that edge atomically so two polls cannot both fire this).
+ *
+ * WHICH ORDERS. Everything condemned to PRINT_FAILED since the outage began,
+ * with a lead-in: `since` is the moment the printer first reported the
+ * condition, and the grace is because the failure that matters usually happens
+ * just BEFORE the printer admits anything. The roll runs out mid-job, the job
+ * is never confirmed, the confirmation window expires a few times, the order
+ * is condemned — and only then, or in amongst it, does the status flip. An
+ * outage window with no lead-in would leave exactly those orders behind.
+ *
+ * WHY A TIME WINDOW AND NOT `last_print_error LIKE '%paper%'`. The server never
+ * writes the word paper into that column: an order dies of "no print
+ * confirmation after N hand-overs" whatever the physical reason was. The
+ * outage is the thing that is actually known, so the outage is what is matched
+ * on.
+ *
+ * IDEMPOTENT BY CONSTRUCTION. The WHERE clause requires PRINT_FAILED, so a
+ * second call matches nothing — the first one already moved them to QUEUED.
+ * That, not a flag, is what makes "requeued once" true.
+ *
+ * The counters reset exactly as a staff 重印 resets them, and for the same
+ * reason: this is a fresh attempt, and it must not inherit a budget that a
+ * dead printer already spent. Nothing here can double-print — the order goes
+ * back to QUEUED with no body in flight, and the confirmation window governs
+ * the re-offer from there like any other job.
+ */
+export async function requeueAfterPrinterRestored(
+  tenantId: string,
+  since: Date,
+  graceSeconds: number,
+): Promise<string[]> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set status = 'QUEUED',
+            print_attempts = 0,
+            print_offered_at = null,
+            print_job_key = null,
+            print_segment = 0,
+            print_segments = 0,
+            last_print_error = null,
+            alerted_at = null,
+            alert_attempts = 0,
+            updated_at = now()
+      where tenant_id = $1
+        and status = 'PRINT_FAILED'
+        and updated_at >= $2::timestamptz - make_interval(secs => $3)
+      returning order_number`,
+    [tenantId, since.toISOString(), graceSeconds],
+  );
+  return rows.map((r) => String(r.order_number));
+}
+
+/** How many orders are waiting for the printer right now. */
+export async function countQueuedOrders(tenantId: string): Promise<number> {
+  const { rows } = await ordersPool().query(
+    `select count(*)::int as n from orders
+      where tenant_id = $1 and status = 'QUEUED'`,
+    [tenantId],
+  );
+  return rows.length > 0 ? Number(rows[0].n) : 0;
+}
+
 /** The printer confirmed it printed. The ONLY path to PRINTED. */
 export async function markPrinted(
   tenantId: string,

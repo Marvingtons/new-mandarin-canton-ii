@@ -7,6 +7,8 @@ import {
   loginFailureDelay,
   setKitchenCookie,
 } from "@/lib/auth/kitchenSession";
+// The board's path is configured, never written out — see lib/kitchenRoute.
+import { kitchenPath } from "@/lib/kitchenRoute";
 
 /**
  * Login / logout for the kitchen board.
@@ -34,11 +36,11 @@ export async function loginAction(
   }
 
   await setKitchenCookie(token);
-  revalidatePath("/kitchen");
+  revalidatePath(kitchenPath());
   return { error: null };
 }
 
 export async function logoutAction(): Promise<void> {
   await clearKitchenCookie();
-  revalidatePath("/kitchen");
+  revalidatePath(kitchenPath());
 }

@@ -9,6 +9,8 @@ import {
   ticketCopyRoles,
 } from "@/config/tenant.server";
 import { decideOffer, entitledToOffer } from "@/lib/print/entitlement";
+import { readPrinterCondition } from "@/lib/print/printerStatus";
+import { recordPoll } from "@/lib/print/healthStore";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
   NO_JOB,
@@ -19,7 +21,6 @@ import {
   payloadHash,
   peripheralHeaders,
   printerMacAllowed,
-  printerReportsHealthy,
   logPollBody,
   logPrinterLimits,
   readConfirmation,
@@ -41,6 +42,7 @@ import {
   recordPrintJobKey,
   recordPrintSegments,
   recordRenderFailure,
+  requeueAfterPrinterRestored,
   revokePrintOffer,
 } from "@/lib/orders/repository";
 import {
@@ -80,6 +82,25 @@ import { isOrdersDbConfigured } from "@/lib/db/postgres";
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * How far BEFORE the printer admitted a problem the requeue looks.
+ *
+ * The order that dies of a paper-out usually dies before the status flips: the
+ * roll runs out mid-job, the job is never confirmed, the confirmation window
+ * expires its allowance, and the order is condemned — all while the printer is
+ * still reporting whatever it was reporting. Five minutes covers a full
+ * delivery-cap sequence (4 hand-overs × a 90s window) with room over.
+ */
+const PAPER_RESTORE_LEAD_SECONDS = 300;
+
+/**
+ * Fallback window when the outage has no recorded start — a row written before
+ * migration 007, or a restore observed on the very first poll after a deploy.
+ * Deliberately short: with no evidence of when the outage began, requeuing an
+ * hour of history would put long-abandoned orders back on the line.
+ */
+const PAPER_RESTORE_LOOKBACK_SECONDS = 900;
 
 /** 404, never 401: an unauthenticated caller learns nothing from the shape. */
 function notFound(): Response {
@@ -124,20 +145,110 @@ export async function POST(
     return Response.json(NO_JOB);
   }
 
-  // Advisory only. A printer reporting trouble still gets offered the job —
-  // it may be a recoverable cover-open, and withholding work from the only
-  // printer is never the safer choice.
-  if (!printerReportsHealthy(poll)) {
-    console.warn(`[cloudprnt] printer reports status ${poll.statusCode}`);
-  }
-
-  // No database means no jobs. Answer honestly and quietly; the printer keeps
-  // polling, and the operator sees the real problem on /kitchen.
+  // No database means no jobs, and nowhere to record health either. Answer
+  // honestly and quietly; the printer keeps polling, and the operator sees the
+  // real problem on the kitchen screen.
   if (!isOrdersDbConfigured()) return Response.json(NO_JOB);
 
   const tenant = publicTenant();
 
   try {
+    /* ---------------- what the printer just told us ---------------- */
+    //
+    // Read and recorded BEFORE any job logic, because the answer decides
+    // whether there is any job logic to do. This is the signal the system was
+    // throwing away: a printer out of paper polled exactly like a healthy one,
+    // so it was handed jobs it could not print until the retry budget ran out
+    // and the orders were condemned. Paper came back to an empty queue.
+    const condition = readPrinterCondition(poll);
+    const transition = await recordPoll(
+      tenant.tenantId,
+      condition,
+      poll.printerMAC ?? null,
+    );
+
+    // EDGES ONLY. A line every three seconds for the life of the deployment
+    // buries everything worth reading; a line when the paper runs out is the
+    // one somebody needs.
+    if (transition.firstEver) {
+      console.info(
+        `[printer] first poll from this printer — status ${JSON.stringify(condition.statusCode)}`,
+      );
+    } else if (transition.returnedFromSilence) {
+      console.warn(
+        `[printer] BACK after ${Math.round(transition.secondsSincePreviousPoll ?? 0)}s of silence ` +
+          `— status ${JSON.stringify(condition.statusCode)}`,
+      );
+    }
+    if (transition.blocked) {
+      console.warn(
+        `[printer] ${transition.blockedReason?.toUpperCase()} — status ` +
+          `${JSON.stringify(condition.statusCode)} raw=${JSON.stringify(condition.statusRaw)}. ` +
+          "Withholding jobs until it clears; no retry budget will be spent.",
+      );
+    }
+
+    /* ---------------- paper is back ---------------- */
+    if (transition.unblocked) {
+      console.warn(
+        `[printer] RECOVERED from ${transition.previousBlockedReason} — status ` +
+          `${JSON.stringify(condition.statusCode)}`,
+      );
+      // The edge is reported by a single atomic statement, so this runs once
+      // per outage however many polls arrive at the same moment.
+      const since = transition.blockedSince
+        ? new Date(transition.blockedSince)
+        : new Date(Date.now() - PAPER_RESTORE_LOOKBACK_SECONDS * 1000);
+      try {
+        const restored = await requeueAfterPrinterRestored(
+          tenant.tenantId,
+          since,
+          PAPER_RESTORE_LEAD_SECONDS,
+        );
+        if (restored.length > 0) {
+          console.warn(
+            `[printer] PAPER-RESTORED REQUEUE: ${restored.length} order(s) put back in ` +
+              `the queue — ${restored.join(", ")}. They were condemned during the outage ` +
+              `that began ${since.toISOString()}; their print budgets are reset and the ` +
+              "confirmation window governs them from here like any other job.",
+          );
+        } else {
+          console.info(
+            "[printer] PAPER-RESTORED REQUEUE: nothing to put back — no order was " +
+              "condemned during the outage.",
+          );
+        }
+      } catch (err) {
+        // A failed requeue must not also cost the poll its job. The kitchen
+        // board still shows every one of these orders.
+        console.error(
+          "[printer] paper-restored requeue failed:",
+          err instanceof Error ? err.message : "unknown error",
+        );
+      }
+    }
+
+    /* ---------------- the gate ---------------- */
+    //
+    // THE WHOLE POINT: no offer, and NO ATTEMPT COUNTED. Returning here is
+    // before `currentPrintJob`, before `bumpPrintAttempt`, before
+    // `print_offered_at` — so a printer that is out of paper for an hour costs
+    // an order exactly nothing, and the queue it comes back to is intact.
+    if (transition.blockedReason !== null) {
+      return Response.json(NO_JOB);
+    }
+
+    // Advisory only, and deliberately NOT a gate. A printer reporting some
+    // other fault is still the only printer, and a non-2xx status can be
+    // transient — withholding work from it is how a recoverable blip becomes
+    // an unprinted order.
+    if (!condition.online) {
+      console.warn(
+        `[cloudprnt] printer reports status ${JSON.stringify(condition.statusCode)} ` +
+          "— still offering work; only paper-out and cover-open withhold it",
+      );
+    }
+
     // A job already handed over and not yet confirmed wins: re-offering the
     // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
     // while the first is unaccounted for would double-print.

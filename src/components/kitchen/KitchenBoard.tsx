@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatCents } from "@/lib/money";
 import { formatPickupTime } from "@/lib/orders/businessDate";
 import type { Order } from "@/lib/orders/types";
-import { logoutAction } from "@/app/kitchen/actions";
+import { logoutAction } from "@/app/[kitchenSlug]/actions";
 import KitchenOrderCard from "@/components/kitchen/KitchenOrderCard";
 
 /**
@@ -29,10 +29,107 @@ interface KitchenBoardProps {
   printingConfigured: boolean;
 }
 
+interface PrinterPayload {
+  health: "ok" | "paper-out" | "cover-open" | "offline" | "unknown";
+  secondsSinceSeen: number | null;
+  statusCode: string | null;
+  blocked: boolean;
+  configured: boolean;
+}
+
 interface OrdersResponse {
   ok: boolean;
   orders?: Order[];
+  printer?: PrinterPayload;
   error?: string;
+}
+
+/**
+ * THE PRINTER STRIP — always on screen, above everything.
+ *
+ * The failure it exists for: paper runs out at 7pm, tickets stop, and the only
+ * evidence anybody has is that the board looks normal and the kitchen has gone
+ * quiet. Nobody thinks to check the roll for twenty minutes. One line at the
+ * top of the screen turns that into a glance.
+ *
+ * Bilingual because the person who notices first is whoever is nearest the
+ * tablet, and that is not reliably the person who reads English.
+ */
+function PrinterStrip({ printer }: { printer: PrinterPayload | null }) {
+  // Before the first poll answers, and when no printer is configured at all —
+  // that second case already has its own banner below and does not need a
+  // second one contradicting it.
+  if (!printer || !printer.configured) return null;
+
+  const seen =
+    printer.secondsSinceSeen === null
+      ? null
+      : printer.secondsSinceSeen < 90
+        ? `${printer.secondsSinceSeen}s ago`
+        : `${Math.round(printer.secondsSinceSeen / 60)} min ago`;
+
+  const state = {
+    ok: {
+      dot: "🟢",
+      text: "Printer OK",
+      zh: "打印機正常",
+      className: "border-gold/40 bg-gold/10 text-ivory/85",
+      urgent: false,
+    },
+    "paper-out": {
+      dot: "🟡",
+      text: "PAPER OUT (printer reporting)",
+      zh: "打印機缺紙",
+      className: "border-gold bg-gold/25 text-ivory",
+      urgent: true,
+    },
+    "cover-open": {
+      dot: "🟡",
+      text: "COVER OPEN (printer reporting)",
+      zh: "打印機蓋未關",
+      className: "border-gold bg-gold/25 text-ivory",
+      urgent: true,
+    },
+    offline: {
+      dot: "🔴",
+      text: "PRINTER OFFLINE — no poll for over 60s",
+      zh: "打印機離線",
+      className: "border-lacquer bg-lacquer text-ivory",
+      urgent: true,
+    },
+    unknown: {
+      dot: "⚪",
+      text: "Printer has not checked in yet",
+      zh: "尚未連線",
+      className: "border-ivory/30 bg-ivory/5 text-ivory/70",
+      urgent: false,
+    },
+  }[printer.health];
+
+  return (
+    <div
+      role={state.urgent ? "alert" : "status"}
+      className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-2 px-5 py-3 ${state.className} ${
+        state.urgent ? "text-lg font-bold" : "text-base"
+      }`}
+    >
+      <span>
+        {state.dot} {state.text}
+      </span>
+      <span className="font-display text-xl">{state.zh}</span>
+      {seen && <span className="text-sm font-normal opacity-70">last seen {seen}</span>}
+      {state.urgent && printer.statusCode && (
+        <span className="text-sm font-normal opacity-70">
+          reported: {printer.statusCode}
+        </span>
+      )}
+      {state.urgent && (
+        <span className="text-sm font-normal opacity-80">
+          Queued orders are waiting, not lost — they print when it recovers.
+        </span>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -91,6 +188,7 @@ export default function KitchenBoard({
   const [muted, setMuted] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [freshIds, setFreshIds] = useState<Set<number>>(new Set());
+  const [printer, setPrinter] = useState<PrinterPayload | null>(null);
 
   // Ids seen in a previous poll. Seeded on the first poll so a page refresh
   // mid-service does not chime for every order already on the board.
@@ -157,6 +255,7 @@ export default function KitchenBoard({
       }
 
       setOrders(next);
+      setPrinter(data.printer ?? null);
       setError(null);
       setLastSync(new Date());
     } catch {
@@ -253,6 +352,11 @@ export default function KitchenBoard({
         </div>
       </header>
 
+      {/* ---------------- printer health ---------------- */}
+      {/* First thing under the header, before the queue: when nothing is
+          printing, this is the answer, and it should not be below the fold. */}
+      <PrinterStrip printer={printer} />
+
       {/* ---------------- operator banners ---------------- */}
       {!ordersConfigured && (
         <p className="mt-4 border-2 border-lacquer bg-lacquer/25 px-5 py-4 text-lg font-semibold">
@@ -315,6 +419,10 @@ export default function KitchenBoard({
             order={order}
             timezone={timezone}
             fresh={freshIds.has(order.id)}
+            // A QUEUED order under a dead printer is WAITING, not stuck. The
+            // distinction matters at the pass: one means "do nothing, it will
+            // print", the other means "go and read this card out loud".
+            waitingForPrinter={printer?.blocked === true}
             onAction={act}
           />
         ))}

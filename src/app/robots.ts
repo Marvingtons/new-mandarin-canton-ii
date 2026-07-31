@@ -8,19 +8,26 @@ import { siteUrl } from "@/lib/siteUrl";
  * crawlers that choose to, and a published list of paths worth looking at for
  * anyone who does not. So nothing here is the only thing protecting anything:
  *
- *   /kitchen        — also `robots: { index: false }` in its own layout, which
- *                     is the directive that actually removes a page already in
- *                     an index, and also behind a session cookie.
- *   /api/           — the CloudPRNT endpoint's protection is an unguessable
- *                     secret in the path, and it is deliberately NOT named
- *                     here; `/api/` is enough to keep crawlers out without
- *                     publishing the shape of what is behind it.
- *   /order/         — checkout and confirmation. The confirmation page shows a
- *                     customer's name, phone number and order number; it is
- *                     also unreachable without their own session cookie.
+ *   /api/    — the CloudPRNT endpoint's protection is an unguessable secret in
+ *              the path, and it is deliberately NOT named here; `/api/` is
+ *              enough to keep crawlers out without publishing the shape of
+ *              what is behind it.
+ *   /order/  — checkout and confirmation. The confirmation page shows a
+ *              customer's name, phone number and order number; it is also
+ *              unreachable without their own session cookie.
  *
  * /order itself redirects to /menu, so disallowing the prefix costs nothing:
  * the destination is the page that is meant to be indexed.
+ *
+ * ⚠️ THE KITCHEN BOARD IS DELIBERATELY ABSENT, and used to be listed here.
+ * Its path is configurable now (KITCHEN_ROUTE_SLUG — see lib/kitchenRoute), and
+ * a Disallow line is the one place on a website guaranteed to publish a path
+ * to anyone curious enough to read it. Printing the slug here would hand out
+ * the thing the variable exists to keep quiet, for no benefit: what actually
+ * keeps that screen out of an index is `robots: { index: false }` in its own
+ * layout — which is the directive that removes a page ALREADY indexed, where a
+ * Disallow only stops the crawl — and what actually protects it is the
+ * password. Not listing it costs nothing and gives nothing away.
  */
 export default function robots(): MetadataRoute.Robots {
   const base = siteUrl();
@@ -29,7 +36,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/kitchen", "/api/", "/order/", "/order"],
+        disallow: ["/api/", "/order/", "/order"],
       },
     ],
     sitemap: `${base}/sitemap.xml`,

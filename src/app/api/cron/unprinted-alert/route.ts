@@ -8,10 +8,17 @@ import {
 import { restaurant } from "@/data/restaurant";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import {
+  countQueuedOrders,
   findUnprintedForAlert,
   markAlerted,
   releaseAlertClaim,
 } from "@/lib/orders/repository";
+import {
+  claimPrinterAlert,
+  readPrinterStatus,
+  releasePrinterAlert,
+} from "@/lib/print/healthStore";
+import { cloudPrntConfigured } from "@/lib/print/status";
 import { sendSms } from "@/lib/otp/twilio";
 
 /**
@@ -33,6 +40,22 @@ export const dynamic = "force-dynamic";
 
 /** Minutes an order may sit unprinted before the owner is told. */
 const THRESHOLD_SECONDS = 120;
+
+/**
+ * How long a printer may be gone, or out of paper, before the owner hears —
+ * PROVIDED something is waiting on it.
+ *
+ * Five minutes, and the "with orders waiting" condition is the important half.
+ * A printer switched off at closing time is not an incident; a printer switched
+ * off with four tickets queued behind it is. Alerting on the printer alone
+ * would text the owner every night and train them to ignore it, which is the
+ * failure mode that matters more than a slightly late alert.
+ *
+ * Deliberately shorter than the 120s-per-order threshold above compounds to:
+ * that sweep waits for an individual order to age, and with the printer known
+ * to be down there is nothing to wait for.
+ */
+const PRINTER_ALERT_SECONDS = 300;
 
 /**
  * Alert sends attempted per order before the claim is left in place for good.
@@ -86,6 +109,91 @@ function authorized(request: Request): boolean {
   return token.length > 0 && secretMatches(token, expected);
 }
 
+/**
+ * THE PRINTER ITSELF, checked once per sweep.
+ *
+ * The per-order alert above catches an order that did not print. This catches
+ * the cause a few minutes earlier — and, more usefully, catches it ONCE for
+ * the whole outage instead of once per order. Ten orders behind a dead printer
+ * should be one text saying the printer is dead, not ten saying ten tickets
+ * are missing.
+ *
+ * Alert-once has its own stamp per condition (offline_alerted_at,
+ * paper_alerted_at), claimed by the same conditional UPDATE the order sweep
+ * uses. The stamps are cleared by the poll route the moment the condition
+ * clears, so this is once per OUTAGE and not once ever.
+ *
+ * Returns a description for the sweep's JSON, or null when there is nothing to
+ * say. No-ops entirely when there is no printer configured, no status row yet,
+ * or nothing queued.
+ */
+async function alertOnPrinter(
+  tenantId: string,
+  owner: string | null,
+  smsReady: boolean,
+): Promise<{ condition: string; queued: number; sent: boolean } | null> {
+  if (!cloudPrntConfigured()) return null;
+
+  const row = await readPrinterStatus(tenantId);
+  if (!row) return null;
+
+  const silentFor = (Date.now() - Date.parse(row.lastSeenAt)) / 1000;
+  const blockedFor =
+    row.blockedSince === null
+      ? 0
+      : (Date.now() - Date.parse(row.blockedSince)) / 1000;
+
+  // Offline wins when both are true: a printer that is not answering cannot be
+  // fixed by putting paper in it, and the owner should be told the bigger fact.
+  const kind: "offline" | "paper" | null =
+    silentFor > PRINTER_ALERT_SECONDS
+      ? "offline"
+      : (row.paperOut || row.coverOpen) && blockedFor > PRINTER_ALERT_SECONDS
+        ? "paper"
+        : null;
+  if (kind === null) return null;
+
+  // The condition that makes it an incident rather than a closed restaurant.
+  const queued = await countQueuedOrders(tenantId);
+  if (queued === 0) return null;
+
+  const condition =
+    kind === "offline"
+      ? `offline for ${Math.round(silentFor / 60)} min`
+      : `${row.paperOut ? "out of paper" : "cover open"} for ${Math.round(blockedFor / 60)} min`;
+
+  // Loud in the log whether or not a text can go out — the same rule the order
+  // sweep follows, for the same reason.
+  console.warn(
+    `[alert] printer ${condition} with ${queued} order(s) queued behind it.`,
+  );
+
+  if (!owner || !smsReady) return { condition, queued, sent: false };
+
+  // Claim before sending. A concurrent sweep that loses the claim stays quiet.
+  if (!(await claimPrinterAlert(tenantId, kind))) {
+    return { condition, queued, sent: false };
+  }
+
+  const body =
+    `${restaurant.name}: the printer is ${condition} and ${queued} order` +
+    `${queued === 1 ? " is" : "s are"} waiting. Check paper, power and network, ` +
+    "then open the kitchen screen.";
+
+  const result = await sendSms(owner, body);
+  if (result.sent) return { condition, queued, sent: true };
+
+  // Nobody was told, so the claim is a lie. Give it back for the next sweep —
+  // uncapped on purpose, unlike the per-order retry: the condition is ongoing
+  // and self-clearing, so a failed send retries only while the printer is
+  // still down rather than forever.
+  await releasePrinterAlert(tenantId, kind);
+  console.error(
+    `[alert] could not text the owner about the printer (${condition}): ${result.error}`,
+  );
+  return { condition, queued, sent: false };
+}
+
 export async function GET(request: Request): Promise<Response> {
   if (!authorized(request)) {
     return Response.json({ ok: false }, { status: 401 });
@@ -97,6 +205,19 @@ export async function GET(request: Request): Promise<Response> {
 
   const tenant = publicTenant();
   const owner = ownerAlertPhone();
+
+  // The printer check runs FIRST and independently of the per-order scan: an
+  // outage is worth reporting before any single order has aged past two
+  // minutes, and a failure in either half must not silence the other.
+  let printerAlert = null;
+  try {
+    printerAlert = await alertOnPrinter(tenant.tenantId, owner, isSmsConfigured());
+  } catch (err) {
+    console.error(
+      "[alert] printer health check failed:",
+      err instanceof Error ? err.message : "unknown error",
+    );
+  }
 
   let due;
   try {
@@ -110,7 +231,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   if (due.length === 0) {
-    return Response.json({ ok: true, found: 0, alerted: 0 });
+    return Response.json({ ok: true, found: 0, alerted: 0, printer: printerAlert });
   }
 
   // Loud in the logs even when SMS cannot go out — an operator reading logs
@@ -126,6 +247,7 @@ export async function GET(request: Request): Promise<Response> {
       found: due.length,
       alerted: 0,
       skipped: owner ? "SMS is not configured" : "OWNER_ALERT_PHONE is not set",
+      printer: printerAlert,
     });
   }
 
@@ -178,5 +300,6 @@ export async function GET(request: Request): Promise<Response> {
     alerted,
     retrying,
     exhausted,
+    printer: printerAlert,
   });
 }

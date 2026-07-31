@@ -27,20 +27,32 @@ export default function KitchenOrderCard({
   order,
   timezone,
   fresh,
+  waitingForPrinter = false,
   onAction,
 }: {
   order: Order;
   timezone: string;
   fresh: boolean;
+  /** The printer is out of paper, cover-open, or silent. See KitchenBoard. */
+  waitingForPrinter?: boolean;
   onAction: (orderId: number, action: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [showTicket, setShowTicket] = useState(false);
 
   const failed = order.status === "PRINT_FAILED";
-  // A QUEUED order the printer has already been handed (attempts > 0) and not
-  // confirmed is the quiet failure mode: paper may never have come out.
-  const stale = order.status === "QUEUED" && order.printAttempts > 0;
+  /**
+   * A QUEUED order the printer has already been handed and not confirmed is
+   * the quiet failure mode: paper may never have come out.
+   *
+   * UNLESS the printer is simply unavailable, in which case this is not a
+   * failure at all — the server is deliberately withholding the job and will
+   * hand it over when the printer comes back. Showing "check the paper" on
+   * every queued card during a known paper-out is how a screen full of red
+   * warnings stops meaning anything.
+   */
+  const waiting = order.status === "QUEUED" && waitingForPrinter;
+  const stale = order.status === "QUEUED" && order.printAttempts > 0 && !waiting;
   const done = order.status === "COMPLETED" || order.status === "CANCELLED";
 
   async function run(action: string) {
@@ -95,6 +107,13 @@ export default function KitchenOrderCard({
         <div className="bg-lacquer px-4 py-2 text-base font-bold text-ivory">
           ⚠ 未確認 — sent to the printer {order.printAttempts}× with no
           confirmation. Check the paper.
+        </div>
+      )}
+
+      {waiting && (
+        <div className="bg-gold/25 px-4 py-2 text-base font-bold text-ivory">
+          ⏳ 等待打印機 — waiting for the printer. Nothing is lost; this prints
+          as soon as it recovers.
         </div>
       )}
 

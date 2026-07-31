@@ -138,6 +138,42 @@ comment on table order_counters is
   'One row per tenant per business day. Incremented by a single atomic UPSERT so 50 concurrent submissions get 50 distinct numbers.';
 
 -- ---------------------------------------------------------------------------
+-- What the printer is telling us, remembered between polls.
+--
+-- The CloudPRNT poll carries the printer's own state, and the server used to
+-- read one bit of it. So a printer out of paper looked exactly like a healthy
+-- one: it kept being handed jobs it could not print, each hand-over spent part
+-- of a retry budget, and paper came back to a queue whose orders had already
+-- been condemned. One row per tenant — one printer per restaurant, rewritten
+-- every three seconds. Mutable state, not a log; the transitions go to the
+-- Workers Logs.
+-- ---------------------------------------------------------------------------
+create table if not exists printer_status (
+  tenant_id          text        primary key,
+  -- The poll clock. "Offline" is not a flag the printer sets; it is this
+  -- column going stale.
+  last_seen_at       timestamptz not null default now(),
+  online             boolean     not null default true,
+  paper_out          boolean     not null default false,
+  cover_open         boolean     not null default false,
+  paper_low          boolean     not null default false,
+  -- Verbatim, both fields, because the parser in lib/print/printerStatus.ts is
+  -- deliberately conservative: when it misses a condition, this is the
+  -- evidence needed to teach it.
+  status_code        text,
+  status_raw         text,
+  printer_mac        text,
+  -- When the current blocked spell began; cleared when it ends. The window the
+  -- paper-restored requeue looks back over.
+  blocked_since      timestamptz,
+  -- Alert-once stamps, one per condition so an offline alert and a paper alert
+  -- cannot silence each other. Cleared when the condition clears.
+  offline_alerted_at timestamptz,
+  paper_alerted_at   timestamptz,
+  updated_at         timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
 -- Row Level Security
 --
 -- Defense in depth ONLY. The real boundary is that the browser never talks to
@@ -147,3 +183,4 @@ comment on table order_counters is
 -- ---------------------------------------------------------------------------
 alter table orders         enable row level security;
 alter table order_counters enable row level security;
+alter table printer_status enable row level security;

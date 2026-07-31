@@ -29,8 +29,22 @@ CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=
 # without it.  openssl rand -hex 32
 OTP_SIGNING_SECRET=
 
-# Shared password for the /kitchen board.
+# Shared password for the kitchen board. THIS is what protects that screen.
 ADMIN_DASH_PASSWORD=
+
+# Where the kitchen board answers: the screen mounts at /<slug>.
+#
+# NOT A SECRET, and not a credential — it is a URL, so it lives in browser
+# history, in a bookmark on a shared tablet, and in whatever a phone syncs to
+# the cloud. It is a speed bump that keeps the staff screen out of casual scans
+# and out of a pasted referrer. ADMIN_DASH_PASSWORD above is the actual
+# security and must never be dropped because this is set.
+#
+# Unset = "kitchen", which is exactly what the path used to be. A wrong slug
+# 404s like any other unknown page, and the value is never printed in
+# robots.txt or the sitemap — listing it there would hand it out.
+#   Example: orders-x7k2
+KITCHEN_ROUTE_SLUG=
 
 # The print endpoint's only credential; travels in the printer's URL.
 #   openssl rand -hex 32
