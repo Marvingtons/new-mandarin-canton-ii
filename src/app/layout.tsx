@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import BackToTop from "@/components/BackToTop";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import SmoothScroll from "@/components/SmoothScroll";
 import StickyOrderBar from "@/components/StickyOrderBar";
@@ -60,6 +61,9 @@ export default function RootLayout({
         {/* Clearance so the fixed mobile bar never covers page footers. */}
         <div aria-hidden="true" className="h-14 sm:hidden" />
         <StickyOrderBar />
+        {/* Bottom-right, opposite TestModeBadge. It opts itself out of the
+            kitchen board by looking for [data-kitchen-surface]. */}
+        <BackToTop />
       </body>
     </html>
   );

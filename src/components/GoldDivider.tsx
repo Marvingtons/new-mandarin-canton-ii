@@ -1,4 +1,4 @@
-import MandarinMark from "@/components/MandarinMark";
+import KnotMark from "@/components/motifs/KnotMark";
 import Seal from "@/components/Seal";
 
 interface GoldDividerProps {
@@ -9,10 +9,10 @@ interface GoldDividerProps {
    */
   withSeal?: boolean;
   /**
-   * Punctuate the rule with the mandarin instead — the quieter of the
-   * two ornaments, for handing off between sections.
+   * Punctuate the rule with the endless knot instead — the quieter of
+   * the two ornaments, for handing off between sections.
    */
-  withMandarin?: boolean;
+  withKnot?: boolean;
   className?: string;
 }
 
@@ -21,12 +21,20 @@ interface GoldDividerProps {
  * view, optionally with the 富源 chop pressing in where the two halves
  * meet. Animated by HomeChoreography via the data hooks below.
  *
+ * TWO ORNAMENTS, AND THERE IS NO THIRD. The chop is the loud one and gets
+ * the page's last handoff; the knot ([[KnotMark]], from the brand motif
+ * sheet) is the quiet one. The quiet slot used to be [[MandarinMark]] —
+ * the knot took it over rather than joining it, so the site still has
+ * exactly two divider styles. Variety by rotation, not by addition; the
+ * mandarin keeps its own home in [[MandarinCluster]] on the altar, where
+ * it means something.
+ *
  * The resting state (no JS, or reduced motion) is the finished rule —
- * drawn, seal visible, nothing hidden.
+ * drawn, ornament visible, nothing hidden.
  */
 export default function GoldDivider({
   withSeal = false,
-  withMandarin = false,
+  withKnot = false,
   className = "",
 }: GoldDividerProps) {
   return (
@@ -36,8 +44,8 @@ export default function GoldDivider({
       className={`mx-auto flex max-w-5xl items-center gap-5 px-4 ${className}`}
     >
       <span data-divider-rule className="gd-rule gd-rule-left" />
-      {withMandarin && !withSeal && (
-        <MandarinMark size={17} className="shrink-0 text-gold/70" />
+      {withKnot && !withSeal && (
+        <KnotMark width={46} className="shrink-0 text-gold/70" />
       )}
       {withSeal && (
         <span data-divider-seal className="relative inline-flex shrink-0">

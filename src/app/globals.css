@@ -773,6 +773,52 @@ body {
   padding-inline: var(--container-wide-pad);
 }
 
+/*
+ * ---- BACK TO TOP (see BackToTop.tsx) --------------------------------
+ *
+ * The fade is 200ms; the colour changes stay on the site's --t-fast, so
+ * the button appears at its own pace but hovers like every other button.
+ *
+ * This is ONE declaration rather than `.token-colors` plus a Tailwind
+ * `duration-200`, because .token-colors sets the `transition` shorthand
+ * and — being unlayered CSS — outranks any utility class. A duration-200
+ * on the element silently loses to it and the fade comes out at 150ms.
+ * (Same trap as the padding note in Footer.tsx.) Owning the whole
+ * transition here is also what lets the reduced-motion rule switch every
+ * part of it off in one line.
+ *
+ * `visibility` is in the transition on purpose: it makes the resting
+ * state genuinely hidden rather than merely transparent, so a button the
+ * visitor cannot see is not a stop in the tab order either. It flips at
+ * the end of the fade out and at the start of the fade in, which is the
+ * behaviour you want from a discrete property.
+ */
+.btt {
+  transition:
+    opacity 200ms var(--ease-out-soft),
+    visibility 200ms var(--ease-out-soft),
+    color var(--t-fast) var(--ease-out-soft),
+    background-color var(--t-fast) var(--ease-out-soft),
+    border-color var(--t-fast) var(--ease-out-soft);
+}
+.btt-hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+/* Instant show/hide — the scroll home goes instant too, in the component. */
+@media (prefers-reduced-motion: reduce) {
+  .btt {
+    transition: none;
+  }
+}
+/* A control is not part of a printed page. Unlayered, so it beats the
+   `flex` utility the button carries. */
+@media print {
+  .btt {
+    display: none;
+  }
+}
+
 /* Token-driven color transitions for CTAs/links */
 .token-colors {
   transition:

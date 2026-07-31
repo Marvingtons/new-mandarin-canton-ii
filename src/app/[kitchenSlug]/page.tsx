@@ -76,7 +76,14 @@ export async function generateMetadata({
  */
 function BoardSurface({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-ink text-ivory">
+    <div
+      // The marker root-layout widgets check to opt themselves out. Covering
+      // the chrome hides it visually but leaves it in the DOM, so anything
+      // FOCUSABLE down there is still reachable by Tab from this screen —
+      // see BackToTop, which reads this attribute and refuses to appear.
+      data-kitchen-surface=""
+      className="fixed inset-0 z-[100] overflow-y-auto bg-ink text-ivory"
+    >
       {children}
     </div>
   );

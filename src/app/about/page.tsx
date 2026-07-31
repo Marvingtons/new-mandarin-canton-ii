@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Established from "@/components/Established";
 import PhotoFrame from "@/components/PhotoFrame";
 import SectionHeading from "@/components/SectionHeading";
+import CraneMark from "@/components/motifs/CraneMark";
 import { photos } from "@/data/images";
 
 export const metadata: Metadata = {
@@ -35,29 +36,50 @@ export default function AboutPage() {
         The people have changed. The cooking hasn&apos;t.
       </blockquote>
 
-      <div className="mt-9 space-y-5 leading-relaxed text-ink/80">
-        {/* The year is the same fact as restaurant.features.foundingYear,
-            which sets the Est. mark above — keep the two in step. */}
-        <p>
-          New Mandarin Canton II opened on Telegraph Canyon Road in 1995. It
-          was a family restaurant then and it is a family restaurant now —
-          Mandarin, Szechuan and Cantonese dishes, cooked to order, in a room
-          the family runs themselves.
-        </p>
-        {/* Second sentence below is the memorial line.
-            TODO(confirm): family to approve this wording before launch */}
-        <p>
-          A restaurant open this long outlives some of the people who built
-          it. When one of the original owners passed away, someone who had
-          worked here since the early days became an owner and kept it open.
-          The kitchen carried on as it was.
-        </p>
-        <p>
-          Come in and it still looks like itself: calligraphy on the walls, the
-          altar by the door with incense and fresh tangerines. The same dishes
-          are on the menu, at the same counter, seven days a week. That is
-          most of what there is to tell — the rest is on the plate.
-        </p>
+      {/* The crane stands in the left margin beside the story, and it is the
+          only motif on this page. 鶴 is the character for a long life, and
+          this is the page about a room that outlived the people who opened
+          it — so it is saying the same thing the paragraphs are, which is
+          the whole test for whether it earns the space.
+
+          Single colour, gold at 30%, and outside the reading column
+          entirely: it is an accent in the margin, not an illustration in
+          the text. `right-full` hangs it off the column's left edge and
+          `absolute` keeps it out of flow, so it cannot shift a line of
+          copy. Gated at xl (1280px), where the max-w-3xl column leaves
+          256px of gutter each side and a 66px mark plus its 40px offset
+          cannot reach the viewport edge — no horizontal scroll. */}
+      <div className="relative mt-9">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute right-full top-1 mr-10 hidden xl:block"
+        >
+          <CraneMark width={66} className="text-gold/30" />
+        </div>
+        <div className="space-y-5 leading-relaxed text-ink/80">
+          {/* The year is the same fact as restaurant.features.foundingYear,
+              which sets the Est. mark above — keep the two in step. */}
+          <p>
+            New Mandarin Canton II opened on Telegraph Canyon Road in 1995. It
+            was a family restaurant then and it is a family restaurant now —
+            Mandarin, Szechuan and Cantonese dishes, cooked to order, in a room
+            the family runs themselves.
+          </p>
+          {/* Second sentence below is the memorial line.
+              TODO(confirm): family to approve this wording before launch */}
+          <p>
+            A restaurant open this long outlives some of the people who built
+            it. When one of the original owners passed away, someone who had
+            worked here since the early days became an owner and kept it open.
+            The kitchen carried on as it was.
+          </p>
+          <p>
+            Come in and it still looks like itself: calligraphy on the walls,
+            the altar by the door with incense and fresh tangerines. The same
+            dishes are on the menu, at the same counter, seven days a week.
+            That is most of what there is to tell — the rest is on the plate.
+          </p>
+        </div>
       </div>
 
       {/* Same frame, same placeholder, same caption plate as the homepage

@@ -83,8 +83,9 @@ export default function HomePage() {
       </section>
 
       {/* A drawn hairline hands off from the story to the dishes, with the
-          mandarin as its quiet ornament */}
-      <GoldDivider withMandarin />
+          endless knot as its quiet ornament — no beginning and no end,
+          which is the story's own claim */}
+      <GoldDivider withKnot />
 
       {/* House Favorites — spotlight grid (heading, link, and controls
           live in the component's left rail). overflow-hidden crops the
