@@ -43,7 +43,7 @@ export default function GoldDivider({
       data-divider
       className={`mx-auto flex max-w-5xl items-center gap-5 px-4 ${className}`}
     >
-      <span data-divider-rule className="gd-rule gd-rule-left" />
+      <ArcRule side="left" />
       {withKnot && !withSeal && (
         <KnotMark width={46} className="shrink-0 text-gold/70" />
       )}
@@ -56,7 +56,49 @@ export default function GoldDivider({
           />
         </span>
       )}
-      <span data-divider-rule className="gd-rule gd-rule-right" />
+      <ArcRule side="right" />
     </div>
+  );
+}
+
+/**
+ * One half of the rule, as a shallow arc that crests where the ornament
+ * sits — so the two halves and the chop between them read as a single
+ * lifted eave rather than as two lines with a stamp dropped on top.
+ *
+ * Both curves are cubics with a HORIZONTAL TANGENT AT BOTH ENDS: flat as
+ * they arrive under the ornament, flat again as they fade out at the
+ * page edge. That is what stops a visible kink across the 20px gap on
+ * either side of the seal, and it is the only reason a two-piece curve
+ * can pass for one.
+ *
+ * Each path starts at its ORNAMENT end, which is also the end the
+ * clip-path reveal opens from (see .gd-rule in globals.css and SCENE 7 in
+ * HomeChoreography). The resting state carries no clip at all, so with no
+ * JavaScript — or under reduced motion, where the motion context is never
+ * built — the rule is simply already drawn.
+ */
+function ArcRule({ side }: { side: "left" | "right" }) {
+  const left = side === "left";
+  return (
+    <svg
+      data-divider-rule
+      data-divider-side={side}
+      className="gd-rule"
+      viewBox="0 0 100 10"
+      // The arc is a proportion of the box, not of the viewBox: stretched
+      // to whatever width flex hands it and to the height the clamp sets.
+      preserveAspectRatio="none"
+      fill="none"
+    >
+      <path
+        d={left ? "M100 2C70 2 45 9 0 9" : "M0 2C30 2 55 9 100 9"}
+        stroke="currentColor"
+        strokeWidth="1"
+        // Without this the 1px stroke is stretched by the same non-uniform
+        // scale as the geometry and thins to nothing along the flat runs.
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
   );
 }

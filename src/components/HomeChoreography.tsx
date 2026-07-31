@@ -304,12 +304,41 @@ export default function HomeChoreography() {
               once: true,
             },
           });
-          tl.fromTo(
-            divider.querySelectorAll("[data-divider-rule]"),
-            { scaleX: 0 },
-            { scaleX: 1, duration: 0.8, ease: EASE.soft },
-            0,
-          );
+          /* The rules are ARCS now, so the reveal is a clip travelling
+             outward from the ornament rather than a scaleX. Scaling an
+             arc on one axis leaves its rise untouched while squeezing its
+             width, so a shallow curve becomes a steep hump that unbends
+             over the tween — a bent wire straightening, not a line being
+             drawn. Clipping never touches the geometry, so the curve is
+             identical at every frame.
+
+             The inset is on the side the ornament is NOT on, so each half
+             opens from the centre out: the left rule uncovers right-to-
+             left, the right rule left-to-right. Same reading as before.
+
+             duration/ease/position are UNCHANGED ON PURPOSE — the chop
+             below is nested at a hard 0.45, which only means "lands as
+             the two halves are nearly met" while this tween keeps its
+             current shape. */
+          for (const rule of divider.querySelectorAll<SVGElement>(
+            "[data-divider-rule]",
+          )) {
+            const fromLeft = rule.dataset.dividerSide === "right";
+            tl.fromTo(
+              rule,
+              { clipPath: fromLeft ? "inset(0 100% 0 0)" : "inset(0 0 0 100%)" },
+              {
+                clipPath: "inset(0 0 0 0)",
+                duration: 0.8,
+                ease: EASE.soft,
+                // The resting state is the finished rule, so hand the
+                // element back with no clip at all rather than an
+                // inset(0 0 0 0) that would outlive the animation.
+                clearProps: "clipPath",
+              },
+              0,
+            );
+          }
           const chop = divider.querySelector<HTMLElement>("[data-divider-seal]");
           if (chop) {
             // Built paused so it carries no ScrollTrigger of its own,

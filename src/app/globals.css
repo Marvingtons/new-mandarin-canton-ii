@@ -48,6 +48,39 @@
   --frame-hairline: color-mix(in srgb, var(--gold) 45%, transparent);
 }
 
+/*
+ * ---- THE RADIUS SCALE ------------------------------------------------
+ *
+ * The reference tradition curves: eaves lift at the corner, a moon gate
+ * is a circle, nothing structural meets at a raw 90°. The site was drawn
+ * entirely in square corners, which reads closer to a spreadsheet than to
+ * the room. This is that one idea, expressed as four values and nothing
+ * else — no typography, palette, spacing, layout or motion moves with it.
+ *
+ *   sm    chips, tags, small inputs, the code field
+ *   md    cards, framed images, panels, notice banners, the contact band
+ *   lg    CTAs, the cart drawer, the item sheet, large feature frames
+ *   full  things that are genuinely pills or circles
+ *
+ * FOUR VALUES, NO FIFTH. Every rounded corner on the site resolves to one
+ * of these; a one-off `rounded-[3px]` is the thing this block exists to
+ * prevent. They live in @theme (not @theme inline) so ONE declaration
+ * does both jobs: Tailwind's `rounded-sm|md|lg|full` utilities are
+ * redefined to these values, AND `var(--radius-md)` resolves in the hand
+ * written CSS further down. A utility and a stylesheet rule can therefore
+ * never drift apart, because they are reading the same variable.
+ *
+ * The steps are deliberately not a doubling series. 6 → 11 → 18 keeps
+ * each tier visibly distinct at the sizes they are actually used at,
+ * where 4 → 8 → 16 would make sm and md indistinguishable on a 32px chip.
+ */
+@theme {
+  --radius-sm: 6px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --radius-full: 9999px;
+}
+
 @theme inline {
   --color-lacquer: var(--lacquer);
   --color-lacquer-dark: var(--lacquer-dark);
@@ -107,6 +140,16 @@ body {
      (photo + plate) without an extra wrapper to draw the line on. */
   outline: 1px solid var(--frame-hairline);
   outline-offset: calc(-1px - var(--frame-mount));
+  /* The corner. `overflow: hidden` is doing the real work here: every
+     framed thing on the site is a photo, a map iframe or a caption plate
+     that would otherwise push its own square corners through the new
+     curve, and clipping at the frame means not one of them needs a
+     matching inner radius of its own. The outline is unaffected — an
+     element's own outline is not clipped by its own overflow — so the
+     inner hairline still draws, at r − 3px, which is the correct
+     slightly-tighter curve for a line nested inside an edge. */
+  border-radius: var(--radius-md);
+  overflow: hidden;
   transition: border-color var(--t-med) var(--ease-out-soft);
 }
 /* The one hover, identical on every frame whether or not it is
@@ -516,6 +559,11 @@ body {
   display: flex;
   flex-direction: column;
   text-align: left;
+  /* The <button> is the card's OUTER element and .frame is its child, so
+     the global :focus-visible ring is drawn out here. Without a matching
+     radius, tabbing to an up-next card paints a square gold rectangle
+     around a rounded card. */
+  border-radius: var(--radius-md);
   transition: opacity 160ms var(--ease-out-soft);
 }
 .spt-small.is-dim {
@@ -569,7 +617,7 @@ body {
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--frame-edge);
   color: var(--lacquer);
   transition:
@@ -1108,22 +1156,45 @@ body {
 }
 
 /*
- * Gold hairline divider (see GoldDivider.tsx). The rules draw OUTWARD
- * from the centre, so each half scales from the edge the seal sits on.
+ * Gold divider (see GoldDivider.tsx). The rules draw OUTWARD from the
+ * centre, so each half is revealed from the edge the ornament sits on.
  * Resting state is fully drawn — the animation only ever removes and
  * restores what is already there.
+ *
+ * ---- WHY THIS IS AN ARC, AND WHY IT IS NOT ANIMATED WITH scaleX ----
+ *
+ * The rule used to be a 1px <span> with a gold gradient, scaled on X from
+ * 0 to 1. On a curve that trick falls apart: scaleX squeezes the width
+ * while leaving the rise alone, so at scaleX 0.2 a 2%-shallow arc is a
+ * 10% hump that visibly unbends as the tween runs. It reads as a bent
+ * wire straightening, not as a line being drawn.
+ *
+ * So the geometry is never scaled. Each half is an <svg> at its full
+ * width the whole time, and the reveal is a clip-path inset travelling
+ * outward from the ornament — the same curtain idiom PhotoFrame already
+ * uses. The curve is therefore identical at every frame of the animation.
+ *
+ * The height IS the curvature: preserveAspectRatio="none" stretches the
+ * viewBox to the box, so a shorter box is a flatter arc. That is the
+ * whole reason for the clamp — at 390px each half is ~136px wide and a
+ * desktop-tuned rise would read as a smudge or a misaligned straight
+ * line, so the box collapses toward flat. The rise stays ~2% of the
+ * half's width at both ends of the range. The ornament (34-46px) sets the
+ * row height at every width, so this box never moves the layout.
  */
 .gd-rule {
   display: block;
   flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
-}
-.gd-rule-left {
-  transform-origin: right center;
-}
-.gd-rule-right {
-  transform-origin: left center;
+  /* flex-basis is 0 but min-width defaults to auto, whose automatic
+     minimum for an <svg> is its intrinsic width — without this the rule
+     refuses to shrink and pushes a horizontal scrollbar at 390px. */
+  min-width: 0;
+  height: clamp(4px, 0.9vw, 13px);
+  color: var(--gold);
+  /* Was the background gradient's job: brightest mid-half, fading out at
+     the outer edge and again as it reaches the ornament. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
 }
 
 /*
