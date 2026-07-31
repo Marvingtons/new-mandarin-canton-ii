@@ -341,7 +341,7 @@ export default function Checkout({
         <h1 className="font-display text-3xl text-lacquer">Your cart is empty</h1>
         <p className="text-ink/70">Add a few dishes to start a pickup order.</p>
         <Link
-          href="/order"
+          href="/menu#order"
           className="mt-2 inline-flex min-h-12 items-center bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
         >
           Back to menu
@@ -574,7 +574,7 @@ export default function Checkout({
           </div>
         </dl>
         <Link
-          href="/order"
+          href="/menu#order"
           className="mt-4 inline-block text-sm text-ink/60 underline underline-offset-2 hover:text-lacquer"
         >
           ← Edit order

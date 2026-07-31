@@ -25,18 +25,25 @@ import { useIsomorphicLayoutEffect } from "@/lib/useIsomorphicLayoutEffect";
  * inside a motion context and reverts everything on unmount. Scenes are
  * built from the shared primitives in lib/motion so the whole page eases
  * with one voice — reach for a raw gsap call only where a scene genuinely
- * has no reusable shape (the hero scrub and the statement pin).
+ * has no reusable shape (the hero exit scrub).
+ *
+ * ⚠️ NOTHING ON THIS PAGE PINS, and nothing may. A pinned ScrollTrigger
+ * takes its target out of flow and rewrites the document height, which is
+ * how this site locked the scroll once already; SCENE 4 was the last one
+ * and is now a plain once-trigger entrance at every width. Scrubs stay —
+ * a scrub READS the scroll position, a pin CHANGES it, and only the second
+ * can strand a thumb.
  *
  * The reduced-motion gate lives in createMotionContext: it returns null
- * and never runs the builder, so the server-rendered DOM IS the
- * reduced-motion experience.
+ * and never runs the builder, so no ScrollTrigger and no observer is ever
+ * created and the server-rendered DOM IS the reduced-motion experience.
  */
 export default function HomeChoreography() {
-  // MUST be a layout effect, not useEffect. SCENE 4 pins [data-statement],
-  // which makes ScrollTrigger wrap that <section> in a .pin-spacer — the
-  // section's DOM parent stops being <main>, while React still thinks it is.
-  // Only a layout-phase cleanup reverts that before React's mutation phase
-  // calls main.removeChild(section). See useIsomorphicLayoutEffect.
+  // A layout effect rather than useEffect. Nothing here reparents the DOM any
+  // more (that was the pin's .pin-spacer), but SplitText still replaces a
+  // heading's text node with per-character spans, and revert() has to restore
+  // those during React's mutation phase — before React removes the heading on
+  // unmount. See useIsomorphicLayoutEffect.
   useIsomorphicLayoutEffect(() => {
     const splits: SplitText[] = [];
     const loops: gsap.core.Timeline[] = [];
@@ -169,84 +176,29 @@ export default function HomeChoreography() {
         }
       }
 
-      /* ---- SCENE 4: statement band — the one pin (desktop only) ----
-         RULE: pinned elements never receive transforms from other
-         animations; pin an inner wrapper if a section needs both.
-         The section [data-statement] is the pin target and nothing
-         else may tween it or any of its ancestors (no transform,
-         will-change, filter, or perspective) while pinned — the
-         lockup/line/eyebrow tweens all target CHILDREN only. */
+      /* ---- SCENE 4: statement band — entrance, NO PIN ----
+         RULE, and it is now absolute: nothing on this page pins. See the
+         note below the selectors. */
       const band = document.querySelector<HTMLElement>("[data-statement]");
       const line = band?.querySelector<HTMLElement>(".st-line") ?? null;
       const eyebrow = band?.querySelector<HTMLElement>(".st-eyebrow") ?? null;
       const stRule = band?.querySelector<HTMLElement>(".st-rule") ?? null;
       const lockup = band?.querySelector<HTMLElement>("[data-st-lockup]") ?? null;
 
-      const mm = gsap.matchMedia();
-      mm.add("(min-width: 768px)", () => {
-        if (!band || !line || !eyebrow || !stRule || !lockup) return;
-
-        // The stamp is a toggle at 40%, not a scrub — overshoot needs
-        // real time, not thumb time. Built paused; the scrub plays it.
-        // sealStamp's fromTo renders immediately, so the seal is hidden
-        // from the first frame without a separate gsap.set.
-        const stamp = sealStamp(eyebrow, {
-          paused: true,
-          from: 1.4,
-          rotation: -2,
-        });
-        stamp?.eventCallback("onComplete", () =>
-          lockup.classList.add("st-shimmer-go"),
-        );
-        let stamped = false;
-
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: band,
-            start: "top top",
-            end: "+=80%", // 80% of the viewport — never outruns the page
-            pin: true,
-            pinSpacing: true,
-            anticipatePin: 1,
-            scrub: true,
-            onUpdate: (self) => {
-              if (self.progress >= 0.4 && !stamped) {
-                stamped = true;
-                stamp?.play();
-              } else if (self.progress < 0.35 && stamped) {
-                stamped = false;
-                stamp?.reverse();
-              }
-            },
-          },
-          defaults: { ease: EASE.none },
-        });
-        tl.fromTo(
-          line,
-          { clipPath: "inset(0% 100% 0% 0%)", letterSpacing: "0.04em" },
-          {
-            clipPath: "inset(0% 0% 0% 0%)",
-            letterSpacing: "0em",
-            duration: 0.4,
-          },
-          0,
-        )
-          .fromTo(
-            stRule,
-            { scaleX: 0, transformOrigin: "center" },
-            { scaleX: 1, duration: 0.2 },
-            0.6,
-          )
-          .to(lockup, { y: -20, duration: 0.2 }, 0.8);
-
-        return () => {
-          stamp?.kill();
-        };
-      });
-      // <768px: NO pin (mobile URL-bar resizes make pins jank) — the
-      // two-beat entrance runs as a plain once-trigger timeline.
-      mm.add("(max-width: 767px)", () => {
-        if (!band || !line || !eyebrow || !stRule || !lockup) return;
+      /* ⚠️ THE PIN IS GONE, AT EVERY WIDTH.
+         This scene used to pin [data-statement] for 80% of the viewport on
+         desktop (>=768px) and run a plain entrance below that. A pinned
+         trigger is what produced this site's scroll-lock once already, and
+         the desktop branch was the last one left: ScrollTrigger's pin takes
+         the section out of flow and rebuilds the page's scroll height, so a
+         resize, a late-loading image, or a refresh mid-pin can leave the
+         document short and the thumb stuck.
+         The mobile branch was already the same beats without it — a
+         once-trigger timeline in real time rather than thumb time — so this
+         is that branch, unconditionally. Nothing was designed away: the line
+         wipes, the seal stamps, the rule draws. It just plays on its own
+         clock, and the page never stops scrolling. */
+      if (band && line && eyebrow && stRule && lockup) {
         const entrance = gsap.timeline({
           scrollTrigger: { trigger: band, start: START.late, once: true },
         });
@@ -281,7 +233,7 @@ export default function HomeChoreography() {
             { scaleX: 1, duration: 0.4, ease: EASE.soft },
             0.9,
           );
-      });
+      }
 
       /* ---- SCENE 5: Spotlight entrance (once) — rail items stagger,
          the featured card curtain-reveals, small cards follow. ---- */
@@ -310,9 +262,10 @@ export default function HomeChoreography() {
 
         /* The signature-dish moment: the featured plate swells a few
            percent across its own scroll range while steam lifts off it.
-           Scrubbed, NOT pinned — this page already spends its one pin on
-           the statement band, and a second pin is where mobile jank
-           starts. */
+           Scrubbed, NOT pinned. A scrub reads the scroll position; a pin
+           CHANGES it, by taking its target out of flow and rewriting the
+           document height. Only the second one can strand a thumb, which is
+           why this survives and the statement-band pin above did not. */
         const card = spt.querySelector<HTMLElement>("[data-spt-card]");
         const dish = spt.querySelector<HTMLElement>("[data-spt-photo]");
         if (card && dish) {

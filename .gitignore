@@ -50,3 +50,8 @@ next-env.d.ts
 .wrangler/
 .dev.vars
 
+
+# Full-resolution photo masters. The web-ready derivatives in
+# public/images/ are what the site serves and what git tracks; these are
+# 28 MB of PNG kept on disk for re-cropping, not for the bundle.
+/photo-originals/

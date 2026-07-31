@@ -1,27 +1,20 @@
-import type { Metadata } from "next";
-import { getMenu } from "@/lib/menu/source";
-import { publicTenant } from "@/config/tenant.server";
-import OrderMenu from "@/components/order/OrderMenu";
-
-export const metadata: Metadata = {
-  title: "Order Pickup",
-  description:
-    "Order pickup direct from New Mandarin Canton II in Chula Vista — no delivery-app fees. Order online, pay when you collect.",
-};
+import { redirect } from "next/navigation";
 
 /**
- * Online PICKUP ordering. Browse → cart → checkout, all pickup-only. The menu
- * comes from getMenu() (the restaurant's own catalogue); the cart lives in the
- * client CartProvider from the order layout.
+ * /order is now /menu.
+ *
+ * There were two pages rendering the same catalogue — this one with an Add
+ * button on every row, /menu without one — so the page search traffic lands on
+ * was the page that could not take an order. They are one surface now.
+ *
+ * This redirect is kept rather than deleted because /order is in the wild: the
+ * hero CTA, the sticky bar and every confirmation page pointed at it for
+ * months, and a 404 on the ordering link is the most expensive 404 this site
+ * could serve.
+ *
+ * NOT a permanent redirect: browsers cache a 308 indefinitely, and where
+ * ordering lives is a routing decision that has already changed once.
  */
-export default async function OrderPage() {
-  const menu = await getMenu();
-  const tenant = publicTenant();
-  return (
-    <OrderMenu
-      menu={menu}
-      taxRateBps={tenant.taxRateBps}
-      timezone={tenant.timezone}
-    />
-  );
+export default function OrderPage(): never {
+  redirect("/menu#order");
 }

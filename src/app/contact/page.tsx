@@ -3,6 +3,8 @@ import SectionHeading from "@/components/SectionHeading";
 import HoursTable from "@/components/HoursTable";
 import LocationMap from "@/components/LocationMap";
 import OpenNowChip from "@/components/OpenNowChip";
+import PhotoFrame from "@/components/PhotoFrame";
+import { photos } from "@/data/images";
 import { phoneLinks, restaurant } from "@/data/restaurant";
 
 export const metadata: Metadata = {
@@ -44,6 +46,16 @@ export default function ContactPage() {
           <p className="mt-3 text-sm italic text-ink/60">
             Takeout orders welcome by phone.
           </p>
+
+          {/* What to look for from the road. Its caption in the manifest is
+              the street address, which is the whole reason it belongs on this
+              page and not on the homepage. */}
+          <PhotoFrame
+            photo={photos.storefront}
+            className="mt-9"
+            parallaxAmp={0}
+            sizes="(min-width: 768px) 45vw, 100vw"
+          />
         </div>
 
         <div>

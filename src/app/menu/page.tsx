@@ -1,48 +1,49 @@
 import type { Metadata } from "next";
-import SectionHeading from "@/components/SectionHeading";
-import MenuCategoryBar from "@/components/MenuCategoryBar";
-import MenuHeadings from "@/components/MenuHeadings";
-import MenuSection from "@/components/MenuSection";
-import MenuCombos from "@/components/MenuCombos";
-import { menu, combos } from "@/data/menu";
-import PhoneLinks from "@/components/PhoneLinks";
+import { getMenu } from "@/lib/menu/source";
+import { publicTenant } from "@/config/tenant.server";
+import OrderMenu from "@/components/order/OrderMenu";
 
 export const metadata: Metadata = {
   title: "Menu",
+  description:
+    "The full menu at New Mandarin Canton II in Chula Vista — Mandarin, Szechuan and Cantonese, cooked to order. Order pickup direct, no delivery-app fees.",
 };
 
-export default function MenuPage() {
-
+/**
+ * THE menu. One surface, browse and order.
+ *
+ * This page used to render `data/menu.ts` as a printed menu — dish names,
+ * prices, no way to order any of it — while /order rendered the same catalogue
+ * through `catalogMenu()` with an Add button on every row. Two pages, one
+ * menu, and the one people actually find in search was the one that could not
+ * take an order.
+ *
+ * So this now renders the ordering surface itself, and /order redirects here.
+ * The hero keeps both calls to action: "View Menu" lands at the top of the
+ * page, "Order Takeout" lands on #order — same live menu, different emphasis.
+ *
+ * ⚠️ THIS PAGE IS NOW SERVER-RENDERED PER REQUEST rather than prerendered at
+ * build. Not a choice made here: the layout renders <TestModeBadge/>, which
+ * reads an httpOnly cookie, and one cookies() call opts the whole segment out
+ * of static generation. That was already true of /order; converging moved it
+ * onto the URL search traffic lands on.
+ *
+ * What matters for that traffic is unaffected — OrderMenu is a client
+ * component, but Next renders it on the server for the initial response, so
+ * every dish name and price is in the HTML before any JavaScript runs
+ * (verified: the markup contains "Kung Pao Chicken" and "$22.50"). The cost is
+ * a render per request instead of a cache hit. If that shows up in the
+ * numbers, the fix is to move the badge behind its own boundary rather than to
+ * split the menu back in two.
+ */
+export default async function MenuPage() {
+  const menu = await getMenu();
+  const tenant = publicTenant();
   return (
-    <>
-      <MenuHeadings />
-      <div className="mx-auto max-w-5xl px-4 pb-5 pt-8">
-        <SectionHeading as="h1" en="Menu" />
-        {/* TODO: current items are examples — swap in the real menu (later pass) */}
-        <p className="mt-4 text-sm italic text-ink/60">
-          Prices and availability subject to change — please call{" "}
-          <PhoneLinks
-            separator=" or "
-            className="whitespace-nowrap text-lacquer underline decoration-gold underline-offset-2 transition-colors hover:text-lacquer-dark"
-          />
-          .
-        </p>
-      </div>
-
-      {/* Category jump nav — sticks under the top of the viewport. The header
-          is static on this page and scrolls away, so this is the only bar. */}
-      <MenuCategoryBar
-        items={[...menu, ...combos].map(({ id, name }) => ({ id, name }))}
-      />
-
-      <div className="mx-auto max-w-5xl px-4 pb-20">
-        {menu.map((category) => (
-          <MenuSection key={category.id} category={category} />
-        ))}
-        {combos.map((section) => (
-          <MenuCombos key={section.id} section={section} />
-        ))}
-      </div>
-    </>
+    <OrderMenu
+      menu={menu}
+      taxRateBps={tenant.taxRateBps}
+      timezone={tenant.timezone}
+    />
   );
 }

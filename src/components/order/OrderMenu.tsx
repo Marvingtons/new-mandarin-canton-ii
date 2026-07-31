@@ -13,9 +13,14 @@ import CartDrawer from "@/components/order/CartDrawer";
 import StickyCartBar from "@/components/order/StickyCartBar";
 
 /**
- * The online-ordering experience: category nav + item grid, item sheet, cart
- * drawer, sticky mobile bar. Reads the menu passed from the server (getMenu);
- * the cart lives in CartProvider. Pickup only — no delivery language anywhere.
+ * The menu. Category nav + item grid, item sheet, cart drawer, sticky mobile
+ * bar. Reads the menu passed from the server (getMenu); the cart lives in
+ * CartProvider. Pickup only — no delivery language anywhere.
+ *
+ * This is now the ONLY menu surface — /menu renders it and /order redirects
+ * there — so it is both the thing search traffic lands on and the thing an
+ * order is built in. The two hero CTAs differ only in where they land: "View
+ * Menu" at the top, "Order Takeout" at #order, which is the grid itself.
  */
 export default function OrderMenu({
   menu,
@@ -29,6 +34,19 @@ export default function OrderMenu({
   const { itemCount, hydrated } = useCart();
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
+
+  /* ARRIVING VIA "ORDER TAKEOUT" (/menu#order, and /order redirects to it) is
+     handled by the browser: the hash scrolls past the header copy and onto the
+     grid, which is the whole difference between the two hero CTAs.
+
+     No effect opens the cart drawer on arrival. A hash is available before
+     hydration but the CART is not — it rehydrates from sessionStorage after
+     mount — so anything that opened the drawer would have to be an effect
+     firing on a state change, i.e. a drawer that appears a beat after the page
+     settles and re-appears if the customer closes it and the count changes.
+     StickyCartBar and the Cart button already surface a non-empty cart the
+     moment it hydrates, which is the same information without seizing the
+     screen. */
 
   // Lunch specials are an 11–3 product. This is a UX hint only — it decides
   // what the grid offers, never whether an order is accepted. The submit path
@@ -54,7 +72,7 @@ export default function OrderMenu({
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="font-display text-4xl text-lacquer sm:text-5xl">
-              Order Pickup
+              Menu
             </h1>
             <p className="mt-3 max-w-2xl leading-relaxed text-ink/75">
               Order straight from the family, not a delivery app.{" "}
@@ -103,6 +121,9 @@ export default function OrderMenu({
             ))}
           </ul>
         </nav>
+
+        {/* Where "Order Takeout" lands: the first dish you can actually add. */}
+        <div id="order" className="scroll-mt-20" />
 
         {categories.map((cat) => (
           <section key={cat.id} id={`cat-${cat.id}`} className="scroll-mt-20 pt-10">

@@ -1,19 +1,26 @@
 import type { Metadata } from "next";
 import Established from "@/components/Established";
-import PhotoPlaceholder from "@/components/PhotoPlaceholder";
+import PhotoFrame from "@/components/PhotoFrame";
 import SectionHeading from "@/components/SectionHeading";
+import { photos } from "@/data/images";
 
 export const metadata: Metadata = {
   title: "About",
 };
 
-// Photo slots — TODO: drop real photos in later. Each empty frame holds
-// a ghosted seal, matching PhotoFrame's placeholder treatment.
-const photoSlots: ReadonlyArray<string> = [
-  "The dining room",
-  "The family altar",
-  "From the kitchen",
-];
+/**
+ * The three frames under the story.
+ *
+ * Driven by the shared manifest now rather than by three hard-coded captions
+ * with a placeholder inside each. That is what lets a photo appear here by
+ * setting one `src` in data/images.ts, and it is also the only way these stay
+ * identical to the homepage frames — which the comment below has been claiming
+ * since before they actually were.
+ *
+ * Landscape here, portrait on the homepage: same photographs, cropped to suit
+ * a three-up row on a narrower page. `aspect` is the override that allows it.
+ */
+const photoSlots = [photos.diningRoom, photos.altar, photos.kitchen] as const;
 
 export default function AboutPage() {
   return (
@@ -58,16 +65,15 @@ export default function AboutPage() {
           a gold/50 border, no mount, a 35%-opacity seal, and an italic
           caption hanging outside the frame. */}
       <div className="mt-14 grid gap-6 sm:grid-cols-3">
-        {photoSlots.map((caption) => (
-          <figure key={caption} className="frame flex flex-col">
-            <div className="relative aspect-[4/3] overflow-hidden">
-              <PhotoPlaceholder sealSize={64} />
-              <span className="sr-only">Photo coming soon</span>
-            </div>
-            <figcaption className="frame-rule frame-caption px-3 py-2.5 text-ink/60">
-              {caption}
-            </figcaption>
-          </figure>
+        {photoSlots.map((photo, i) => (
+          <PhotoFrame
+            key={photo.id}
+            photo={photo}
+            aspect="4/3"
+            revealDelay={i * 120}
+            direction={i % 2 === 1 ? "rtl" : "ltr"}
+            sizes="(min-width: 640px) 33vw, 100vw"
+          />
         ))}
       </div>
     </div>

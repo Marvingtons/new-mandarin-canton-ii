@@ -16,7 +16,11 @@ export interface RevealRiseOptions {
   /** Element whose scroll position fires the tween. Defaults to the first target. */
   trigger?: Element | null;
   start?: string;
-  /** Travel distance in px. Keep small — this is a settle, not an entrance. */
+  /**
+   * Travel distance in px. Keep small — this is a settle, not an entrance.
+   * The default is 14: far enough to read as arriving, near enough that a
+   * reader already looking at the element does not watch it move.
+   */
   y?: number;
   stagger?: number;
   duration?: number;
@@ -42,9 +46,9 @@ export function revealRise(
   const {
     trigger,
     start = START.enter,
-    y = 20,
+    y = 14,
     stagger = 0.08,
-    duration = 0.7,
+    duration = 0.6,
     delay = 0,
     clear = true,
   } = options;

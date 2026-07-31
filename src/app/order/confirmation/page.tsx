@@ -41,7 +41,7 @@ export default function ConfirmationPage() {
           Start a new pickup order from the menu.
         </p>
         <Link
-          href="/order"
+          href="/menu#order"
           className="mt-2 inline-flex min-h-12 items-center bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
         >
           Order pickup

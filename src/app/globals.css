@@ -896,36 +896,46 @@ body {
  * photos — clip sweeps open left-to-right while the image settles from
  * 1.06 scale. Reduced motion gets a plain fade instead.
  */
-.pf-media {
+/*
+ * THE RESTING STATE IS THE FINISHED STATE. Every rule that hides a photo
+ * hangs off .pf-armed, which PhotoFrame adds on mount and ONLY when motion is
+ * allowed — so a visitor with no JavaScript, or with reduced motion on, gets
+ * the photograph, not an empty gold frame waiting for a script.
+ *
+ * It used to be the other way round: .pf-media started clipped to nothing and
+ * .pf-revealed opened it, which meant the picture existed only if an
+ * IntersectionObserver fired. Under prefers-reduced-motion it was worse — the
+ * start state was opacity: 0, so the accessibility path was the one that
+ * depended most on the animation running.
+ */
+.pf-armed .pf-media {
   clip-path: inset(0 100% 0 0);
   transition: clip-path var(--t-slow) var(--ease-out-soft) var(--pf-delay, 0ms);
 }
 /* alternate curtain direction (right→left) for composed rows */
-.pf-media-rtl {
+.pf-armed .pf-media.pf-media-rtl {
   clip-path: inset(0 0 0 100%);
 }
-.pf-media img {
+.pf-armed .pf-media img {
   transform: scale(1.06);
   transition: transform var(--t-slow) var(--ease-out-soft) var(--pf-delay, 0ms);
 }
-.pf-revealed .pf-media {
+.pf-armed.pf-revealed .pf-media {
   clip-path: inset(0 0 0 0);
 }
-.pf-revealed .pf-media img {
+.pf-armed.pf-revealed .pf-media img {
   transform: scale(1);
 }
+/* Belt and braces: PhotoFrame does not arm under reduced motion, so these
+   selectors should never match. If one ever does, it renders instantly. */
 @media (prefers-reduced-motion: reduce) {
-  .pf-media {
+  .pf-armed .pf-media,
+  .pf-armed .pf-media.pf-media-rtl,
+  .pf-armed .pf-media img {
     clip-path: none;
-    opacity: 0;
-    transition: opacity 400ms ease;
-  }
-  .pf-media img {
+    opacity: 1;
     transform: none;
     transition: none;
-  }
-  .pf-revealed .pf-media {
-    opacity: 1;
   }
 }
 
