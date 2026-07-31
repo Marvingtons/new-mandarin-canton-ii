@@ -25,7 +25,8 @@
     "cf-typegen": "wrangler types",
     "build:font-module": "tsx scripts/emit-font-module.ts",
     "torture:print": "tsx scripts/print-torture.ts",
-    "verify:otp": "tsx --conditions=react-server scripts/verify-otp-cookie.ts"
+    "verify:otp": "tsx --conditions=react-server scripts/verify-otp-cookie.ts",
+    "verify:allergy-hint": "tsx scripts/verify-allergy-hint.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

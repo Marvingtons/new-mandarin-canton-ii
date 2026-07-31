@@ -92,6 +92,23 @@ export default function ConfirmationPage() {
         </div>
       </dl>
 
+      {/* Only when something in the notes looked allergy-shaped. This is
+          best effort and it knows it: the order is already placed, so the
+          line is not a safeguard, it is a last chance to pick up the phone
+          before the food is cooked. Never blocks anything. */}
+      {order.allergyNote && (
+        <p className="mt-8 w-full max-w-md rounded-md border border-lacquer/40 bg-lacquer/5 px-4 py-3 text-left text-sm text-ink/80">
+          <span className="font-semibold text-lacquer">
+            You mentioned something we should hear about by phone.
+          </span>{" "}
+          <span lang="zh-Hant" className="font-chinese text-ink/75">
+            · 過敏問題請致電
+          </span>{" "}
+          An order note reaches the kitchen only when your ticket prints, so
+          please call and tell us directly.
+        </p>
+      )}
+
       <div className="mt-8 text-sm text-ink/70">
         <p className="font-semibold text-ink">Pickup location</p>
         <p className="mt-1">{fullAddress}</p>

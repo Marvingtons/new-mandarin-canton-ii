@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { siteUrl } from "@/lib/siteUrl";
 
 /**
- * The four pages worth indexing.
+ * The six pages worth indexing.
  *
  * A sitemap is a statement about what this site IS, not a dump of its routes.
  * Deliberately absent, and each for its own reason:
@@ -56,6 +56,23 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified,
       changeFrequency: "yearly",
       priority: 0.6,
+    },
+    /* The legal pages are listed and INDEXABLE on purpose. A privacy
+       policy nobody can find is not a disclosure, and a customer deciding
+       whether to hand over a phone number should be able to reach it from
+       a search as easily as from the footer. Low priority: they are worth
+       finding, not worth ranking. */
+    {
+      url: `${base}/privacy`,
+      lastModified,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+    {
+      url: `${base}/terms`,
+      lastModified,
+      changeFrequency: "yearly",
+      priority: 0.3,
     },
   ];
 }

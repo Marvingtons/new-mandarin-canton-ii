@@ -237,11 +237,28 @@ function ItemSheetInner({
               maxLength={MAX_INSTRUCTIONS}
               onChange={(e) => setInstructions(e.target.value)}
               rows={2}
-              placeholder="e.g. no peanuts, extra spicy"
+              // WAS "e.g. no peanuts, extra spicy". The site now tells
+              // people, twice, that an order note is not a safe way to
+              // report an allergy — and the placeholder in the very box
+              // it is talking about was suggesting they use it for
+              // exactly that. An example is an instruction.
+              placeholder="e.g. extra spicy, sauce on the side"
               className="w-full resize-none rounded-sm border border-gold/40 bg-ivory px-3 py-2 text-sm text-ink outline-none focus:border-lacquer"
             />
             <p className="mt-1 text-right text-xs text-ink/45">
               {instructions.length}/{MAX_INSTRUCTIONS}
+            </p>
+            {/* Beside the box itself, because this is the one place on the
+                site where somebody is actively typing the thing we need
+                them not to rely on. */}
+            <p className="mt-1 text-xs leading-relaxed text-ink/60">
+              <span className="font-semibold text-lacquer">
+                Allergies: please call us instead
+              </span>{" "}
+              <span lang="zh-Hant" className="font-chinese">
+                · 過敏請致電
+              </span>
+              . This note only reaches the kitchen when your ticket prints.
             </p>
           </div>
         </div>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/lib/cart/CartContext";
+import PhoneLinks from "@/components/PhoneLinks";
 import { restaurant } from "@/data/restaurant";
 import { formatCents, taxCents } from "@/lib/money";
 import {
@@ -13,6 +14,7 @@ import {
   phoneErrorMessage,
 } from "@/lib/phone";
 import { pickupSlots, type PickupOptions, type PickupSlot } from "@/lib/order/pickup";
+import { mentionsAllergy } from "@/lib/order/allergyHint";
 
 /** Payload handed to the confirmation screen via sessionStorage. */
 export interface LastOrder {
@@ -23,6 +25,16 @@ export interface LastOrder {
   readyWindow?: string | null;
   /** True when a tray or family dinner pushed the order to 20–30 minutes. */
   longPrep?: boolean;
+  /**
+   * Something in the special instructions read like it might be about an
+   * allergy, so the confirmation screen repeats the "call us" line.
+   *
+   * Computed HERE rather than read back on the confirmation page, because
+   * that page never receives the order lines — it gets this summary and
+   * nothing else. Best effort, and absent on orders placed before this
+   * field existed, which is why it is optional.
+   */
+  allergyNote?: boolean;
 }
 
 interface CheckoutProps {
@@ -321,6 +333,10 @@ export default function Checkout({
         orderNumber: data.orderNumber,
         total: data.total,
         pickupTime: data.pickupTime,
+        // Read off the cart before clear() empties it, two lines below.
+        allergyNote: mentionsAllergy(
+          lines.map((l) => l.specialInstructions),
+        ),
       };
       try {
         sessionStorage.setItem(LAST_ORDER_KEY, JSON.stringify(last));
@@ -518,10 +534,36 @@ export default function Checkout({
           </p>
         )}
 
+        {/* ALLERGIES, STATED WHERE THE ORDER IS COMMITTED.
+            The brief asked for this "near the special-instructions area",
+            and on this page there is no such area — notes are per item,
+            typed back in the item sheet, which is where the matching line
+            also sits. So on this screen it goes at the last moment a
+            customer can still act on it: directly above the button that
+            creates the order.
+
+            The wording is load-bearing. An order note is a message to a
+            cook that nobody reads until the ticket prints, and a customer
+            who types "severe peanut allergy" into it has told no one. The
+            line has to move them to the phone, not reassure them that
+            they have already been heard. */}
+        <p className="mt-6 rounded-md border border-lacquer/40 bg-lacquer/5 px-4 py-3 text-sm text-ink/80">
+          <span className="font-semibold text-lacquer">
+            Please call for allergy questions, do not rely on order notes
+          </span>{" "}
+          <span lang="zh-Hant" className="font-chinese text-ink/75">
+            · 過敏問題請致電，請勿只依賴備註
+          </span>{" "}
+          <PhoneLinks
+            separator=" or "
+            className="font-semibold text-lacquer underline underline-offset-2"
+          />
+        </p>
+
         <button
           type="submit"
           disabled={!canSubmit}
-          className="mt-6 flex min-h-12 w-full items-center justify-center rounded-lg bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-4 flex min-h-12 w-full items-center justify-center rounded-lg bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting
             ? "Placing pickup order…"

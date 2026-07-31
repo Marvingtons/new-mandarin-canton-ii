@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import Established from "@/components/Established";
 import HoursTable from "@/components/HoursTable";
 import LocationMap from "@/components/LocationMap";
@@ -131,11 +132,37 @@ export default function Footer() {
             functional 中文 — 富源 is its one Chinese moment — so a 自取 here
             would be the first half-translated label on the page. The kitchen
             ticket, which IS Chinese-primary, already prints 取餐. */}
-        <p className="text-ivory/60">Takeout pickup only · no delivery</p>
+        <p className="text-ivory/60">
+          Takeout pickup only · no delivery · Questions about allergies? Call
+          us.
+        </p>
         <p className="mt-2.5">
           © {new Date().getFullYear()} {restaurant.name}
         </p>
-        <p className="mt-2.5">
+        {/* Legal and credit on one line, at the same weight as each other.
+            Muted on purpose: these have to be FINDABLE, not prominent —
+            somebody deciding whether to hand over a phone number needs to
+            be able to reach the privacy page without hunting, and nobody
+            else should have to look at it. */}
+        <p className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1">
+          <Link
+            href="/privacy"
+            className="text-ivory/40 transition-colors hover:text-ivory/60"
+          >
+            Privacy
+          </Link>
+          <span aria-hidden="true" className="text-ivory/25">
+            ·
+          </span>
+          <Link
+            href="/terms"
+            className="text-ivory/40 transition-colors hover:text-ivory/60"
+          >
+            Terms
+          </Link>
+          <span aria-hidden="true" className="text-ivory/25">
+            ·
+          </span>
           <a
             href="https://norvix.ai"
             target="_blank"

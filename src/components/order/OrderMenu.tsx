@@ -7,6 +7,7 @@ import { useCart } from "@/lib/cart/CartContext";
 import { isLunchService } from "@/lib/order/gates";
 import { restaurant } from "@/data/restaurant";
 import { formatCents } from "@/lib/money";
+import PhoneLinks from "@/components/PhoneLinks";
 import { SpicyMark } from "@/components/MenuSection";
 import ItemSheet from "@/components/order/ItemSheet";
 import CartDrawer from "@/components/order/CartDrawer";
@@ -91,14 +92,33 @@ export default function OrderMenu({
         </div>
 
         {/* The persistent line: pickup and the wait, stated at the entry point
-            so nobody discovers either at the cart. */}
-        <p className="mt-4 rounded-md border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
-          <span className="font-semibold text-ink">
-            Pickup only · ready in 15–20 minutes.
-          </span>{" "}
-          Party trays and family dinners take 20–30. Pay at the counter when
-          you collect — we don&apos;t take payment online.
-        </p>
+            so nobody discovers either at the cart.
+
+            The allergy sentence is a SECOND LINE OF THIS BANNER, not a
+            banner of its own. A page that opens with two stacked notices
+            teaches people to skip both, and the one we most need read is
+            the one about allergies. */}
+        <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
+          <p>
+            <span className="font-semibold text-ink">
+              Pickup only · ready in 15–20 minutes.
+            </span>{" "}
+            Party trays and family dinners take 20–30. Pay at the counter when
+            you collect — we don&apos;t take payment online.
+          </p>
+          <p className="mt-1.5 border-t border-gold/25 pt-1.5">
+            <span className="font-semibold text-ink">
+              Food allergies? Please call us before ordering
+            </span>{" "}
+            <span lang="zh-Hant" className="font-chinese text-ink/75">
+              · 食物過敏請先致電
+            </span>{" "}
+            <PhoneLinks
+              separator=" or "
+              className="font-semibold text-lacquer underline underline-offset-2"
+            />
+          </p>
+        </div>
 
         {/* Category jump nav */}
         <nav

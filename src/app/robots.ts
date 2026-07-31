@@ -2,7 +2,10 @@ import type { MetadataRoute } from "next";
 import { siteUrl } from "@/lib/siteUrl";
 
 /**
- * Crawl the four marketing pages; stay out of everything else.
+ * Crawl the marketing and legal pages; stay out of everything else.
+ *
+ * /privacy and /terms need no rule here: `allow: "/"` already covers
+ * them, and they are meant to be found. They are in the sitemap too.
  *
  * ⚠️ ROBOTS.TXT IS NOT ACCESS CONTROL. It is a request, honoured by the
  * crawlers that choose to, and a published list of paths worth looking at for
