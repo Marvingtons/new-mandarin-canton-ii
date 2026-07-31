@@ -202,7 +202,14 @@ function ItemSheetInner({
                             toggleModifier(g.id, m.id, g.maxAllowed)
                           }
                         />
-                        <span className="text-ink">{m.nameEn}</span>
+                        <span className="text-ink">
+                          {m.nameEn}
+                          {m.note && (
+                            <span className="ml-1 text-sm text-ink/55">
+                              — {m.note}
+                            </span>
+                          )}
+                        </span>
                       </span>
                       {m.priceCents > 0 && (
                         <span className="text-sm text-ink/70">

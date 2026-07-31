@@ -3,7 +3,8 @@
  *
  * `src/data/menu.ts` is English-only — its `chineseName` field is declared but
  * populated on zero items — so every piece of 中文 the kitchen ticket prints,
- * and every spicy / vegetarian / chef's-special marker, comes from this file.
+ * and every vegetarian / chef's-special marker, comes from this file. The
+ * printed menu's 🌶 markers do NOT: those live in menu.ts with the prices.
  *
  * TWO KEYING STRATEGIES, on purpose:
  *
@@ -20,12 +21,17 @@
  * shipped in this repo.
  */
 
+/**
+ * ⚠️ NO `spicy` FIELD, deliberately. The printed menu's 🌶 set is transcribed
+ * in src/data/menu.ts and read from there alone. It used to be settable here
+ * too, which meant a dish could be marked hot in one file and not the other,
+ * and a heat warning is not something to keep in two places.
+ */
 export interface MenuItemOverride {
   nameZh?: string;
   /** Overrides the catalogue name when it is abbreviated or internal. */
   nameEn?: string;
   description?: string;
-  spicy?: boolean;
   vegetarian?: boolean;
   chefSpecial?: boolean;
   /** Force-hide from online ordering while keeping it on the printed menu. */
@@ -56,7 +62,7 @@ export function overrideKey(nameEn: string): string {
  */
 export const itemOverridesById: Record<string, MenuItemOverride> = {
   // "Kung-Po San Shein" — the printed menu's own hyphenation.
-  "kung-po-san-shein": { nameZh: "宮保三鮮", spicy: true },
+  "kung-po-san-shein": { nameZh: "宮保三鮮" },
   // The catalogue says "Chicken or Beef Chow Fun (Dry)".
   "chow-fun-chicken-or-beef": { nameZh: "炒粉" },
   "seafood-chow-fun": { nameZh: "炒粉" },
@@ -72,8 +78,8 @@ export const itemOverridesById: Record<string, MenuItemOverride> = {
 const RAW_NAME_OVERRIDES: Record<string, MenuItemOverride> = {
   // Chicken
   "Salted Pepper Chicken Wings": { nameZh: "椒鹽雞翼" },
-  "Kung Pao Chicken": { nameZh: "宮保雞丁", spicy: true },
-  "Curry Chicken": { nameZh: "咖喱雞", spicy: true },
+  "Kung Pao Chicken": { nameZh: "宮保雞丁" },
+  "Curry Chicken": { nameZh: "咖喱雞" },
   "Chicken with Cashew Nuts": { nameZh: "腰果雞丁" },
   "Sesame Chicken": { nameZh: "芝麻雞" },
   "Moo Goo Gai Pan": { nameZh: "蘑菇雞片" },
@@ -82,39 +88,36 @@ const RAW_NAME_OVERRIDES: Record<string, MenuItemOverride> = {
   "Mongolian Beef": { nameZh: "蒙古牛" },
   "Beef with Oyster Sauce": { nameZh: "蠔油牛肉" },
   "Green Pepper Beef": { nameZh: "青椒牛肉" },
-  "Kung Pao Beef": { nameZh: "宮保牛肉", spicy: true },
-  "Curry Beef": { nameZh: "咖喱牛肉", spicy: true },
-  "Szechuan Style Beef": { spicy: true },
-  "Crispy Beef with Spicy Sauce": { spicy: true },
+  "Kung Pao Beef": { nameZh: "宮保牛肉" },
+  "Curry Beef": { nameZh: "咖喱牛肉" },
   "Beef Egg Foo Young": { nameZh: "芙蓉蛋" },
   // Pork
   "Pork Chop Peking": { nameZh: "京都豬扒" },
   "Salted Pepper Pork Chop": { nameZh: "椒鹽豬扒" },
-  "Yu Hsiang Pork": { nameZh: "魚香肉絲", spicy: true },
-  "Mapo Tofu": { nameZh: "麻婆豆腐", spicy: true },
+  "Yu Hsiang Pork": { nameZh: "魚香肉絲" },
+  "Mapo Tofu": { nameZh: "麻婆豆腐" },
   "BBQ Pork Egg Foo Young": { nameZh: "芙蓉蛋" },
   "Sweet & Sour Pork": { nameZh: "咕嚕肉" },
   // Seafood
-  "Kung Pao Shrimp": { nameZh: "宮保蝦仁", spicy: true },
-  "Szechuan Style Shrimp": { spicy: true },
+  "Kung Pao Shrimp": { nameZh: "宮保蝦仁" },
   "Shrimp Egg Foo Young": { nameZh: "芙蓉蛋" },
-  "Curry Shrimp": { nameZh: "咖喱蝦", spicy: true },
+  "Curry Shrimp": { nameZh: "咖喱蝦" },
   // Vegetables
   "Vegetarian Egg Foo Young": { nameZh: "芙蓉蛋", vegetarian: true },
-  "Kung Pao Tofu": { nameZh: "宮保豆腐", spicy: true, vegetarian: true },
+  "Kung Pao Tofu": { nameZh: "宮保豆腐", vegetarian: true },
   "Salted Pepper Tofu": { nameZh: "椒鹽豆腐", vegetarian: true },
-  "Spicy Hot Eggplant": { spicy: true, vegetarian: true },
-  "Hot Eggplant with Tofu": { spicy: true, vegetarian: true },
+  "Spicy Hot Eggplant": { vegetarian: true },
+  "Hot Eggplant with Tofu": { vegetarian: true },
   "Mixed Vegetables": { vegetarian: true },
   "Tofu with Vegetables": { vegetarian: true },
   // Rice & noodles
   "Shrimp Fried Rice": { nameZh: "蝦仁炒飯" },
   "BBQ Pork Fried Rice": { nameZh: "叉燒炒飯" },
   "Steamed Rice": { nameZh: "白飯" },
-  "Singapore Style Rice Noodle": { nameZh: "星洲炒米", spicy: true },
+  "Singapore Style Rice Noodle": { nameZh: "星洲炒米" },
   "Chow Fun (Chicken or Beef)": { nameZh: "炒粉" },
   // Mandarin specialties
-  "Kung Pao San Shein": { nameZh: "宮保三鮮", spicy: true },
+  "Kung Pao San Shein": { nameZh: "宮保三鮮" },
 };
 
 export const itemOverridesByName: Record<string, MenuItemOverride> =

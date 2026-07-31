@@ -13,6 +13,13 @@ export interface MenuModifier {
   nameZh: string | null;
   /** Integer cents. 0 = free. */
   priceCents: number;
+  /**
+   * A menu RULE attached to this choice, e.g. the lunch menu's "Except Noodle
+   * & Rice" — a noodle or rice entrée comes without the included rice side.
+   * Display only: it is not a customer instruction, so it does not travel to
+   * the stored order or the kitchen ticket.
+   */
+  note?: string;
 }
 
 export interface MenuModifierGroup {

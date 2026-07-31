@@ -1,17 +1,20 @@
 import "server-only";
 
 import { menu as catalog } from "@/data/menu";
+import type { MenuItem as CatalogItem } from "@/data/menu";
 import { comboCategories } from "@/data/combo-items";
-import { PARTY_TRAY_SERVES, partyTrayFor } from "@/data/party-trays";
+import { PARTY_TRAY_SERVES } from "@/data/party-trays";
 import {
   categoryZhByName,
   overrideKey,
   resolveItemOverride,
+  resolveModifierZh,
 } from "@/data/menu-overrides";
 import type {
   Menu,
   MenuCategory,
   MenuItem,
+  MenuModifierGroup,
   MenuSize,
 } from "@/lib/menu/types";
 
@@ -19,45 +22,75 @@ import type {
  * Builds the orderable menu from the restaurant's own transcribed catalogue.
  *
  * This replaces the Clover inventory sync AND the 16-item seed file. Both are
- * gone: there is no remote menu source any more, so `src/data/menu.ts` — 138
- * items transcribed from the printed menu (rev. 9/25) — is simply the truth.
+ * gone: there is no remote menu source any more, so `src/data/menu.ts` — 137
+ * items reconciled against the printed menu (rev. 9/25) — is simply the truth.
  *
- * Two conversions happen here and nowhere else:
+ * No price conversion happens here any more. `menu.ts` stores INTEGER CENTS,
+ * so cents flow unchanged from the catalogue through the cart and the totals
+ * to the printed ticket, and there is no rounding boundary to get wrong.
  *
- *  1. DOLLARS -> INTEGER CENTS. `menu.ts` stores display dollars as floats
- *     (`price: 24.95`) because it was written for a marketing page. Every
- *     downstream consumer — cart, ticket, totals — is integer cents. Rounding
- *     at this single boundary is what keeps a float out of the orders path.
- *
- *  2. ENGLISH -> BILINGUAL. `menu.ts` carries no 中文 (its `chineseName` field
- *     is declared but populated on zero items). The 中文 comes from
- *     menu-overrides.ts, which is also where spicy / vegetarian / chef's
- *     special markers are layered on.
+ * The one transformation left is ENGLISH -> BILINGUAL: `menu.ts` carries no
+ * 中文 (its `chineseName` field is declared but populated on zero items), so
+ * the 中文 comes from menu-overrides.ts, which is also where vegetarian and
+ * chef's-special markers are layered on. `spicy` is NOT layered here — the
+ * printed menu's 🌶 set lives in menu.ts and nowhere else.
  */
-
-/** 24.95 -> 2495. Rounds at the cent, so float dust cannot survive. */
-function toCents(dollars: number): number {
-  return Math.round(dollars * 100);
-}
 
 /**
- * Price tiers for an item: always an individual price, plus a party tray when
- * one is configured. An item with no tray entry is single-size, which is the
- * safe default — see the provenance warning in data/party-trays.ts.
+ * Price tiers for an item.
+ *
+ * Three shapes, all read from the item itself:
+ *  - no explicit sizes, no tray -> undefined, i.e. a single implicit tier
+ *    (itemSizes() supplies "Regular"). Appetizers and soups land here, which
+ *    is why no tray option renders for them.
+ *  - explicit sizes (Roasted Duck half/whole, Egg Drop Soup cup/bowl) -> those
+ *    tiers, in printed order.
+ *  - a tray price -> the individual tier plus a "Party Tray" tier.
  */
-function sizesFor(itemId: string, individualCents: number): MenuSize[] | undefined {
-  const tray = partyTrayFor(itemId);
-  if (!tray) return undefined;
+function sizesFor(item: CatalogItem): MenuSize[] | undefined {
+  const base: MenuSize[] =
+    item.sizes?.map((s) => ({
+      id: s.id,
+      label: s.label,
+      priceCents: s.priceCents,
+    })) ?? [{ id: "individual", label: "Individual", priceCents: item.priceCents }];
+
+  if (item.trayCents === undefined) return item.sizes ? base : undefined;
+
   return [
-    { id: "individual", label: "Individual", priceCents: individualCents },
+    ...base,
     {
       id: "party-tray",
       label: "Party Tray",
-      priceCents: tray.priceCents,
+      priceCents: item.trayCents,
       // One constant, never an inline string — the capacity is an
       // owner-provided claim the printed menu does not make, so it has to be
       // correctable in a single edit. See PARTY_TRAY_SERVES.
       servesNote: PARTY_TRAY_SERVES.short,
+    },
+  ];
+}
+
+/**
+ * The printed menu's per-item add-ons ("Add Noodle $3.00 Extra") as an
+ * optional multi-select group. Priced from the catalogue, so the +$3.00 the
+ * customer sees and the +300 the server charges are the same number.
+ */
+function modifierGroupsFor(item: CatalogItem): MenuModifierGroup[] {
+  if (!item.modifiers?.length) return [];
+  return [
+    {
+      id: `${item.id}-extras`,
+      nameEn: "Extras",
+      nameZh: null,
+      minRequired: 0,
+      maxAllowed: null,
+      modifiers: item.modifiers.map((m) => ({
+        id: m.id,
+        nameEn: m.name,
+        nameZh: resolveModifierZh(m.name),
+        priceCents: m.priceCents,
+      })),
     },
   ];
 }
@@ -76,7 +109,6 @@ export function catalogMenu(): Menu {
   const categories: MenuCategory[] = catalog.map((category, index) => {
     const items: MenuItem[] = category.items.map((item) => {
       const override = resolveItemOverride(item.id, item.name);
-      const priceCents = toCents(item.price);
 
       return {
         id: item.id,
@@ -85,13 +117,13 @@ export function catalogMenu(): Menu {
         // override map is the only source of 中文.
         nameZh: item.chineseName ?? override?.nameZh ?? null,
         description: item.description ?? override?.description ?? null,
-        priceCents,
-        sizes: sizesFor(item.id, priceCents),
+        priceCents: item.priceCents,
+        sizes: sizesFor(item),
         categoryId: category.id,
-        // No modifier groups in the printed catalogue. Special instructions
-        // carry the customer's requests instead.
-        modifierGroups: [],
-        spicy: item.spicy ?? override?.spicy ?? false,
+        modifierGroups: modifierGroupsFor(item),
+        // The printed menu's 🌶 set, straight from the catalogue. No override
+        // fallback: a second source for this flag is how it drifts.
+        spicy: item.spicy === true,
         vegetarian: override?.vegetarian ?? false,
         chefSpecial: override?.chefSpecial ?? false,
         available: override?.hidden ? false : true,

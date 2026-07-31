@@ -1,25 +1,47 @@
 /**
- * Menu data for New Mandarin Canton II — transcribed from the printed
- * menu (rev. 9/25, September 2025).
+ * Menu data for New Mandarin Canton II — reconciled against
+ * `docs/nmc-menu-prices-authoritative.md` (physical menu rev. 9/25).
  *
  * SCOPE / CONVENTIONS
- * - Prices are display DOLLARS and the INDIVIDUAL price only. The printed
- *   menu also lists a "party tray" price for most entrées; those were never
- *   transcribed here and live in src/data/party-trays.ts — read the
- *   provenance warning in that file before trusting them.
- * - THIS FILE IS THE ORDERABLE MENU. src/lib/menu/catalog.ts adapts it into
- *   the normalized shape the cart, the ticket and the totals use, converting
- *   dollars to integer cents at that single boundary.
+ * - THIS FILE IS THE ONLY PRICE SOURCE. Individual price, party-tray price,
+ *   size tiers and per-item add-ons all live here; `src/lib/menu/catalog.ts`
+ *   adapts them into the normalized shape the cart, the ticket and the totals
+ *   use. There is no second table to keep in sync — the tray prices that used
+ *   to live in `src/data/party-trays.ts` were estimates and are gone.
+ * - Money is INTEGER CENTS everywhere. 24.95 is stored as 2495. A float never
+ *   enters the data, so one can never enter a price calculation.
+ * - `trayCents` is set only where the printed menu prints a party-tray price.
+ *   Appetizers and soups have no tray column, so they carry none and the UI
+ *   shows no tray option for them.
  * - English-only: dish Chinese names are intentionally omitted. 富源 (the
  *   seal) is the site's only Chinese text by design.
- * - `spicy` mirrors the printed menu's 🌶 markers.
+ * - `spicy` mirrors the printed menu's 🌶 markers and is the ONLY source of
+ *   that flag — see the note in src/data/menu-overrides.ts.
  * - Names follow the printed menu verbatim, including its own spellings
- *   ("Bac Choy", "Egg Plant", singular "Vegetable").
+ *   ("Bac Choy", "Egg Plant", singular "Vegetable"). Where the site's existing
+ *   spelling differs from the price document the SITE wins: this pass
+ *   reconciles prices and flags, it does not rename dishes.
  *
- * ⚠️ UNVERIFIED PRICES: the scallop/squid block (Seafood) was hard to
- * read on the source and is flagged in the transcription — spot-check
- * these against the physical menu before relying on them.
+ * ⚠️ TODO(confirm) markers below flag the five prices the source photographs
+ * could not resolve. They carry the document's value and need the owner's
+ * confirmation against the physical menu.
  */
+
+/** A price tier beyond the plain individual price (Half/Whole, Cup/Bowl). */
+export interface MenuItemSize {
+  id: string;
+  label: string;
+  /** Integer cents. */
+  priceCents: number;
+}
+
+/** A printed per-item add-on, e.g. "Add Noodle $3.00 Extra". */
+export interface MenuItemModifier {
+  id: string;
+  name: string;
+  /** Integer cents. */
+  priceCents: number;
+}
 
 export interface MenuItem {
   id: string;
@@ -34,7 +56,18 @@ export interface MenuItem {
    */
   chineseName?: string;
   description?: string;
-  price: number;
+  /** Integer cents. The printed menu's INDIVIDUAL price. */
+  priceCents: number;
+  /** Integer cents. The printed menu's PARTY TRAY price, where it prints one. */
+  trayCents?: number;
+  /**
+   * Explicit tiers, when the printed menu prices one dish two ways (Roasted
+   * Duck half/whole, Egg Drop Soup cup/bowl). Replaces the single individual
+   * tier; a party tray, if any, is still appended after these.
+   */
+  sizes?: MenuItemSize[];
+  /** Printed per-item add-ons. Real priced options, never prose. */
+  modifiers?: MenuItemModifier[];
   spicy?: boolean;
   tags?: string[];
 }
@@ -42,7 +75,7 @@ export interface MenuItem {
 export interface MenuCategory {
   id: string;
   name: string;
-  /** Optional footnote under the section, e.g. "Add noodles +$3.00". */
+  /** Optional footnote under the section. */
   note?: string;
   items: MenuItem[];
 }
@@ -57,27 +90,31 @@ export const menu: MenuCategory[] = [
         name: "Mandarin Special",
         description:
           "Duck, shrimp, chicken, roast pork, broccoli, mushroom, water chestnuts, snow peas, chef's special sauce.",
-        price: 24.95,
+        priceCents: 2495,
+        trayCents: 9200,
       },
       {
         id: "oceania",
         name: "Oceania",
         description:
           "Shrimp, scallops, squid, fish fillet, mushrooms, snow peas, vegetables.",
-        price: 26.5,
+        priceCents: 2650,
+        trayCents: 10000,
       },
       {
         id: "orange-flavored-chicken-special",
         name: "Orange Flavored Chicken",
         description: "Chef's special tangerine sauce.",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7200,
         spicy: true,
       },
       {
         id: "salted-pepper-chicken-wings-special",
         name: "Salted Pepper Chicken Wings",
         description: "Crispy fried, sautéed with hot pepper.",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7500,
         spicy: true,
       },
       {
@@ -85,41 +122,50 @@ export const menu: MenuCategory[] = [
         name: "Kung-Po San Shein",
         description:
           "Shrimp, chicken, beef, green onion, peanuts, spicy sauce.",
-        price: 22.95,
+        priceCents: 2295,
+        trayCents: 9000,
         spicy: true,
       },
       {
         id: "mongolian-beef-special",
         name: "Mongolian Beef",
         description: "Sliced tenderloin, jade green scallions, natural sauce.",
-        price: 21.5,
+        priceCents: 2150,
+        trayCents: 7500,
       },
       {
         id: "upside-down-pan-fried-noodles",
         name: "Upside Down Pan Fried Noodles",
         description: "Beef, chicken, shrimp, vegetables.",
-        price: 20.95,
+        priceCents: 2095,
+        trayCents: 7400,
       },
       {
         id: "honey-walnut-shrimp",
         name: "Honey Walnut Shrimp",
         description: "Special mayonnaise dressing, honey walnut.",
-        price: 25.95,
+        priceCents: 2550,
+        trayCents: 9500,
       },
       {
         id: "black-pepper-beef-or-chicken",
         name: "Black Pepper Beef or Chicken",
-        price: 21.5,
+        priceCents: 2150,
+        trayCents: 7500,
+        spicy: true,
       },
       {
         id: "steamed-fish-filet-special",
         name: "Steamed Fish Filet",
-        price: 24.5,
+        priceCents: 2450,
+        trayCents: 9200,
       },
       {
         id: "salted-pepper-squid-special",
         name: "Salted Pepper Squid",
-        price: 24.5,
+        priceCents: 2450,
+        trayCents: 9200,
+        spicy: true,
       },
     ],
   },
@@ -127,58 +173,78 @@ export const menu: MenuCategory[] = [
     id: "appetizers",
     name: "Appetizers",
     items: [
-      { id: "egg-rolls", name: "Egg Rolls (2)", price: 3.5 },
+      { id: "egg-rolls", name: "Egg Rolls (2)", priceCents: 350 },
       {
         id: "salt-pepper-chicken-wings-app",
         name: "Salt Pepper Chicken Wings (6)",
-        price: 12.95,
+        priceCents: 1295,
       },
-      { id: "bbq-pork-app", name: "B.B.Q. Pork", price: 14.95 },
-      { id: "bbq-spareribs", name: "B.B.Q. Spareribs", price: 16.95 },
-      { id: "roasted-duck-half", name: "Roasted Duck (Half)", price: 20.0 },
-      { id: "roasted-duck-whole", name: "Roasted Duck (Whole)", price: 38.0 },
+      { id: "bbq-pork-app", name: "B.B.Q. Pork", priceCents: 1495 },
+      { id: "bbq-spareribs", name: "B.B.Q. Spareribs", priceCents: 1695 },
+      {
+        // One dish, two printed weights — a size pair, not two items. The old
+        // `roasted-duck-whole` row is folded in here as the second tier.
+        id: "roasted-duck",
+        name: "Roasted Duck",
+        priceCents: 2000,
+        sizes: [
+          { id: "half", label: "Half", priceCents: 2000 },
+          { id: "whole", label: "Whole", priceCents: 3800 },
+        ],
+      },
       {
         id: "steamed-or-fried-dumplings",
         name: "Steamed or Fried Dumplings (8)",
-        price: 15.95,
+        priceCents: 1595,
       },
       {
+        // The printed menu says "Fired"; the site's corrected spelling stands.
         id: "fried-cream-cheese-wonton",
         name: "Fried Cream Cheese Wonton (8)",
-        price: 9.95,
+        priceCents: 995,
       },
     ],
   },
   {
     id: "soup",
     name: "Soup",
-    note: "Add noodles $3.00 extra.",
     items: [
-      { id: "seafood-soup", name: "Seafood Soup (for 2)", price: 18.95 },
+      { id: "seafood-soup", name: "Seafood Soup (for 2)", priceCents: 1895 },
       {
         id: "three-flavor-sizzling-rice-soup",
         name: "Three Flavor Sizzling Rice Soup (for 2)",
-        price: 18.95,
+        priceCents: 1895,
       },
-      { id: "hot-sour-soup", name: "Hot & Sour Soup", price: 16.95, spicy: true },
+      {
+        id: "hot-sour-soup",
+        name: "Hot & Sour Soup",
+        priceCents: 1695,
+        spicy: true,
+      },
       {
         id: "chicken-corn-soup",
         name: "Chicken and Corn Soup",
-        price: 16.95,
+        priceCents: 1695,
       },
-      { id: "wor-wonton-soup", name: "Wor Wonton Soup", price: 16.95 },
-      { id: "wonton-soup", name: "Wonton Soup", price: 13.95 },
+      { id: "wor-wonton-soup", name: "Wor Wonton Soup", priceCents: 1895 },
+      { id: "wonton-soup", name: "Wonton Soup", priceCents: 1695 },
       {
         id: "egg-drop-soup",
         name: "Egg Drop Soup",
-        description: "Cup $6.50.",
-        price: 13.95,
+        priceCents: 1395,
+        sizes: [
+          { id: "cup", label: "Cup", priceCents: 650 },
+          { id: "bowl", label: "Bowl", priceCents: 1395 },
+        ],
       },
-      { id: "vegetables-soup", name: "Vegetables Soup", price: 14.95 },
+      { id: "vegetables-soup", name: "Vegetables Soup", priceCents: 1495 },
       {
         id: "chicken-vegetable-soup",
         name: "Chicken Vegetable Soup",
-        price: 16.95,
+        priceCents: 1695,
+        modifiers: [
+          { id: "add-noodle", name: "Add Noodle", priceCents: 300 },
+        ],
       },
     ],
   },
@@ -189,65 +255,115 @@ export const menu: MenuCategory[] = [
       {
         id: "salted-pepper-chicken-wings",
         name: "Salted Pepper Chicken Wings",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7500,
         spicy: true,
       },
       {
         id: "orange-flavored-chicken",
         name: "Orange Flavored Chicken",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7200,
         spicy: true,
       },
       {
         id: "kung-pao-chicken",
         name: "Kung Pao Chicken",
-        price: 22.5,
+        priceCents: 2250,
+        trayCents: 9000,
         spicy: true,
       },
-      { id: "curry-chicken", name: "Curry Chicken", price: 19.5, spicy: true },
+      {
+        id: "curry-chicken",
+        name: "Curry Chicken",
+        priceCents: 1950,
+        trayCents: 7000,
+        spicy: true,
+      },
       {
         id: "chicken-black-bean-sauce",
         name: "Chicken with Black Bean Sauce",
-        price: 19.5,
+        priceCents: 1950,
+        trayCents: 7000,
         spicy: true,
       },
       {
         id: "chicken-cashew-nuts",
         name: "Chicken with Cashew Nuts",
-        price: 22.5,
+        priceCents: 2250,
+        trayCents: 9000,
       },
-      { id: "chicken-broccoli", name: "Chicken with Broccoli", price: 19.5 },
-      { id: "chicken-snow-peas", name: "Chicken with Snow Peas", price: 20.95 },
-      { id: "almond-chicken", name: "Almond Chicken", price: 19.5 },
-      { id: "sesame-chicken", name: "Sesame Chicken", price: 19.95 },
+      {
+        id: "chicken-broccoli",
+        name: "Chicken with Broccoli",
+        priceCents: 1950,
+        trayCents: 7000,
+      },
+      {
+        id: "chicken-snow-peas",
+        name: "Chicken with Snow Peas",
+        priceCents: 2095,
+        trayCents: 8000,
+      },
+      { id: "almond-chicken", name: "Almond Chicken", priceCents: 1950, trayCents: 7000 },
+      { id: "sesame-chicken", name: "Sesame Chicken", priceCents: 1995, trayCents: 7000 },
       {
         id: "mandarin-chicken",
         name: "Mandarin Chicken",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7000,
         spicy: true,
       },
       {
         id: "garlic-chicken",
         name: "Garlic Chicken",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7000,
         spicy: true,
       },
-      { id: "lemon-chicken", name: "Lemon with Chicken", price: 19.95 },
-      { id: "sweet-sour-chicken", name: "Sweet & Sour Chicken", price: 19.5 },
-      { id: "moo-goo-gai-pan", name: "Moo Goo Gai Pan", price: 19.5 },
-      { id: "chicken-chop-suey", name: "Chicken Chop Suey", price: 19.5 },
+      {
+        id: "lemon-chicken",
+        name: "Lemon with Chicken",
+        priceCents: 1995,
+        trayCents: 7000,
+      },
+      {
+        id: "sweet-sour-chicken",
+        name: "Sweet & Sour Chicken",
+        priceCents: 1950,
+        trayCents: 7000,
+      },
+      { id: "moo-goo-gai-pan", name: "Moo Goo Gai Pan", priceCents: 1995, trayCents: 7200 },
+      {
+        id: "chicken-chop-suey",
+        name: "Chicken Chop Suey",
+        priceCents: 1950,
+        trayCents: 6500,
+      },
       {
         id: "chicken-egg-foo-young",
         name: "Chicken Egg Foo Young",
-        price: 20.95,
+        priceCents: 2095,
+        trayCents: 7500,
       },
-      { id: "chicken-cantonese", name: "Chicken Cantonese", price: 19.95 },
+      {
+        id: "chicken-cantonese",
+        name: "Chicken Cantonese",
+        priceCents: 1950,
+        trayCents: 7000,
+      },
       {
         id: "chicken-vegetable",
         name: "Chicken with Vegetable",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7200,
       },
-      { id: "chicken-bac-choy", name: "Chicken with Bac Choy", price: 19.95 },
+      {
+        id: "chicken-bac-choy",
+        name: "Chicken with Bac Choy",
+        priceCents: 1995,
+        trayCents: 7200,
+      },
     ],
   },
   {
@@ -257,178 +373,293 @@ export const menu: MenuCategory[] = [
       {
         id: "salted-fried-shrimp-with-shell",
         name: "Salted & Deep Fried Shrimp (with shell)",
-        price: 23.5,
+        priceCents: 2350,
+        trayCents: 9500,
         spicy: true,
       },
       {
+        // The price document calls this "Salted & Deep Fried Shrimp (no
+        // shell)"; the site's existing name stands — prices only in this pass.
         id: "salted-pepper-shrimp-no-shell",
         name: "Salted Pepper Shrimp (no shell)",
-        price: 25.5,
+        priceCents: 2550,
+        trayCents: 9800,
         spicy: true,
       },
       {
         id: "szechuan-style-shrimp",
         name: "Szechuan Style Shrimp",
-        price: 25.5,
+        priceCents: 2550,
+        trayCents: 9500,
         spicy: true,
       },
       {
         id: "shrimp-black-bean-sauce",
         name: "Shrimp with Black Bean Sauce",
-        price: 21.5,
+        priceCents: 2150,
+        trayCents: 8200,
         spicy: true,
       },
       {
         id: "kung-pao-shrimp",
         name: "Kung-Pao Shrimp",
-        price: 25.5,
+        priceCents: 2550,
+        trayCents: 10000,
         spicy: true,
       },
-      { id: "shrimp-cantonese", name: "Shrimp Cantonese", price: 21.95 },
-      { id: "shrimp-chop-suey", name: "Shrimp Chop Suey", price: 21.95 },
+      {
+        id: "shrimp-cantonese",
+        name: "Shrimp Cantonese",
+        priceCents: 2195,
+        trayCents: 8000,
+      },
+      {
+        id: "shrimp-chop-suey",
+        name: "Shrimp Chop Suey",
+        priceCents: 2195,
+        trayCents: 7800,
+      },
       {
         id: "shrimp-lobster-sauce",
         name: "Shrimp with Lobster Sauce",
-        price: 21.95,
+        priceCents: 2195,
+        trayCents: 8200,
       },
-      { id: "shrimp-broccoli", name: "Shrimp with Broccoli", price: 21.95 },
-      { id: "shrimp-snow-peas", name: "Shrimp with Snow Peas", price: 24.5 },
-      { id: "curry-shrimp", name: "Curry Shrimp", price: 21.95, spicy: true },
-      { id: "sweet-sour-shrimp", name: "Sweet & Sour Shrimp", price: 22.5 },
-      { id: "almond-shrimp", name: "Almond Shrimp", price: 22.5 },
+      {
+        id: "shrimp-broccoli",
+        name: "Shrimp with Broccoli",
+        priceCents: 2195,
+        trayCents: 8200,
+      },
+      {
+        id: "shrimp-snow-peas",
+        name: "Shrimp with Snow Peas",
+        priceCents: 2450,
+        trayCents: 9200,
+      },
+      {
+        id: "curry-shrimp",
+        name: "Curry Shrimp",
+        priceCents: 2195,
+        trayCents: 8200,
+        spicy: true,
+      },
+      {
+        id: "sweet-sour-shrimp",
+        name: "Sweet & Sour Shrimp",
+        priceCents: 2250,
+        trayCents: 8200,
+      },
+      { id: "almond-shrimp", name: "Almond Shrimp", priceCents: 2250, trayCents: 8200 },
       {
         id: "shrimp-egg-foo-young",
         name: "Shrimp Egg Foo Young",
-        price: 23.5,
+        priceCents: 2350,
+        trayCents: 9000,
       },
-      { id: "house-egg-foo-young", name: "House Egg Foo Young", price: 23.5 },
-      { id: "chow-san-shein", name: "Chow San Shein", price: 21.95 },
-      { id: "house-chop-suey", name: "House Chop Suey", price: 21.95 },
+      {
+        id: "house-egg-foo-young",
+        name: "House Egg Foo Young",
+        priceCents: 2350,
+        trayCents: 9000,
+      },
+      { id: "chow-san-shein", name: "Chow San Shein", priceCents: 2195, trayCents: 8500 },
+      { id: "house-chop-suey", name: "House Chop Suey", priceCents: 2195, trayCents: 7800 },
       {
         id: "shrimp-vegetable",
         name: "Shrimp with Vegetable",
-        price: 22.5,
+        priceCents: 2250,
+        trayCents: 8500,
       },
       {
         id: "sweet-sour-fish-fillet",
         name: "Sweet & Sour Fish Fillet",
-        price: 22.5,
+        priceCents: 2250,
+        trayCents: 8200,
       },
       {
         id: "fish-fillet-black-bean-sauce",
         name: "Fish Fillet with Black Bean Sauce",
-        price: 22.5,
+        priceCents: 2250,
+        // TODO(confirm): price partially obscured on menu photo — owner to confirm
+        trayCents: 8200,
+        spicy: true,
       },
       {
         id: "salt-pepper-fish-filet",
         name: "Salt Pepper Fish Filet",
-        price: 24.5,
+        priceCents: 2450,
+        trayCents: 9000,
+        spicy: true,
       },
       {
         id: "scallops-black-bean-sauce",
         name: "Scallops with Black Bean Sauce",
-        price: 19.5,
+        priceCents: 2550,
+        trayCents: 10000,
+        spicy: true,
       },
       {
         id: "kung-pao-scallops",
         name: "Kung-Pao Scallops",
-        price: 26.5,
+        priceCents: 2650,
+        trayCents: 11000,
         spicy: true,
       },
       {
         id: "yu-hsiang-scallops",
         name: "Yu-Hsiang Scallops",
-        price: 25.5,
+        priceCents: 2550,
+        trayCents: 10000,
         spicy: true,
       },
-      { id: "kung-pao-squid", name: "Kung Pao Squid", price: 24.5, spicy: true },
+      {
+        id: "kung-pao-squid",
+        name: "Kung Pao Squid",
+        priceCents: 2450,
+        trayCents: 9000,
+        spicy: true,
+      },
       {
         id: "squid-black-bean-sauce",
         name: "Squid with Black Bean Sauce",
-        price: 23.95,
+        priceCents: 2395,
+        trayCents: 9000,
+        spicy: true,
       },
-      { id: "salted-pepper-squid", name: "Salted Pepper Squid", price: 24.5 },
-      { id: "sauteed-scallops", name: "Sauteed Scallops", price: 25.5 },
+      {
+        id: "salted-pepper-squid",
+        name: "Salted Pepper Squid",
+        priceCents: 2450,
+        trayCents: 9200,
+        spicy: true,
+      },
+      { id: "sauteed-scallops", name: "Sauteed Scallops", priceCents: 2550, trayCents: 10000 },
     ],
   },
   {
     id: "beef",
     name: "Beef",
     items: [
-      { id: "mongolian-beef", name: "Mongolian Beef", price: 21.5 },
-      { id: "beef-broccoli", name: "Beef with Broccoli", price: 20.5 },
-      { id: "beef-snow-peas", name: "Beef with Snow Peas", price: 21.5 },
+      { id: "mongolian-beef", name: "Mongolian Beef", priceCents: 2150, trayCents: 7500 },
+      { id: "beef-broccoli", name: "Beef with Broccoli", priceCents: 2050, trayCents: 7200 },
+      {
+        id: "beef-snow-peas",
+        name: "Beef with Snow Peas",
+        priceCents: 2150,
+        // TODO(confirm): price partially obscured on menu photo — owner to confirm
+        trayCents: 8200,
+      },
       {
         id: "beef-oyster-sauce",
         name: "Beef with Oyster Sauce",
-        price: 22.5,
+        priceCents: 2250,
+        // TODO(confirm): price partially obscured on menu photo — owner to confirm
+        trayCents: 8300,
       },
-      { id: "green-pepper-beef", name: "Green Pepper Beef", price: 20.5 },
-      { id: "black-mushroom-beef", name: "Black Mushroom Beef", price: 24.5 },
+      { id: "green-pepper-beef", name: "Green Pepper Beef", priceCents: 2050, trayCents: 7200 },
+      {
+        id: "black-mushroom-beef",
+        name: "Black Mushroom Beef",
+        priceCents: 2450,
+        trayCents: 9200,
+      },
       {
         id: "szechuan-style-beef",
         name: "Szechuan Style Beef",
-        price: 20.5,
+        // TODO(confirm): price partially obscured on menu photo — owner to confirm
+        priceCents: 2150,
+        trayCents: 7200,
         spicy: true,
       },
       {
         id: "orange-flavored-beef",
         name: "Orange Flavored Beef",
-        price: 22.5,
+        priceCents: 2250,
+        trayCents: 7500,
         spicy: true,
       },
-      { id: "kung-pao-beef", name: "Kung Pao Beef", price: 23.5, spicy: true },
+      {
+        id: "kung-pao-beef",
+        name: "Kung Pao Beef",
+        priceCents: 2350,
+        trayCents: 9000,
+        spicy: true,
+      },
       {
         id: "beef-black-bean-sauce",
         name: "Beef with Black Bean Sauce",
-        price: 20.5,
+        priceCents: 2050,
+        trayCents: 7200,
         spicy: true,
       },
       {
         id: "crispy-beef-spicy-sauce",
         name: "Crispy Beef with Spicy Sauce",
-        price: 22.5,
+        priceCents: 2250,
+        trayCents: 7500,
         spicy: true,
       },
-      { id: "curry-beef", name: "Curry Beef", price: 20.5, spicy: true },
-      { id: "beef-chop-suey", name: "Beef Chop Suey", price: 20.5 },
-      { id: "beef-egg-foo-young", name: "Beef Egg Foo Young", price: 21.5 },
-      { id: "beef-vegetable", name: "Beef with Vegetable", price: 21.5 },
-      { id: "beef-bac-choy", name: "Beef with Bac Choy", price: 21.5 },
+      {
+        id: "curry-beef",
+        name: "Curry Beef",
+        priceCents: 2050,
+        trayCents: 7200,
+        spicy: true,
+      },
+      { id: "beef-chop-suey", name: "Beef Chop Suey", priceCents: 2050, trayCents: 6800 },
+      {
+        id: "beef-egg-foo-young",
+        name: "Beef Egg Foo Young",
+        priceCents: 2150,
+        trayCents: 7500,
+      },
+      { id: "beef-vegetable", name: "Beef with Vegetable", priceCents: 2150, trayCents: 7500 },
+      { id: "beef-bac-choy", name: "Beef with Bac Choy", priceCents: 2150, trayCents: 7500 },
     ],
   },
   {
     id: "pork",
     name: "Pork",
     items: [
-      { id: "pork-chop-peking", name: "Pork Chop Peking", price: 22.95 },
+      { id: "pork-chop-peking", name: "Pork Chop Peking", priceCents: 2295, trayCents: 8500 },
       {
         id: "salted-pepper-pork-chop",
         name: "Salted Pepper Pork Chop",
-        price: 22.95,
+        priceCents: 2295,
+        trayCents: 8500,
         spicy: true,
       },
       {
         id: "yu-hsiang-pork",
         name: "Yu Hsiang Pork",
-        price: 19.95,
+        priceCents: 1950,
+        trayCents: 7000,
         spicy: true,
       },
       {
         id: "mandarin-pork",
         name: "Mandarin Pork",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7000,
         spicy: true,
       },
-      { id: "sweet-sour-pork", name: "Sweet & Sour Pork", price: 19.5 },
-      { id: "sesame-pork", name: "Sesame Pork", price: 19.95 },
-      { id: "pork-chop-suey", name: "Pork Chop Suey", price: 19.5 },
+      { id: "sweet-sour-pork", name: "Sweet & Sour Pork", priceCents: 1950, trayCents: 7000 },
+      { id: "sesame-pork", name: "Sesame Pork", priceCents: 1995, trayCents: 7000 },
+      { id: "pork-chop-suey", name: "Pork Chop Suey", priceCents: 1950, trayCents: 6500 },
       {
         id: "bbq-pork-egg-foo-young",
         name: "B.B.Q. Pork Egg Foo Young",
-        price: 21.5,
+        priceCents: 2150,
+        trayCents: 7500,
       },
-      { id: "mapo-tofu", name: "Mapo Tofu", price: 19.5, spicy: true },
+      {
+        id: "mapo-tofu",
+        name: "Mapo Tofu",
+        priceCents: 1950,
+        trayCents: 6800,
+        spicy: true,
+      },
     ],
   },
   {
@@ -438,74 +669,117 @@ export const menu: MenuCategory[] = [
       {
         id: "seafood-combination-hot-pot",
         name: "Seafood Combination Hot Pot",
-        price: 23.95,
+        priceCents: 2395,
+        trayCents: 8800,
       },
       {
         id: "house-special-combination-hot-pot",
         name: "House Special Combination Hot Pot",
-        price: 23.95,
+        priceCents: 2395,
+        trayCents: 8800,
       },
-      { id: "sizzling-san-shein", name: "Sizzling San Shein", price: 22.95 },
-      { id: "sizzling-shrimp", name: "Sizzling Shrimp", price: 22.95 },
+      {
+        id: "sizzling-san-shein",
+        name: "Sizzling San Shein",
+        priceCents: 2295,
+        trayCents: 8500,
+        spicy: true,
+      },
+      {
+        id: "sizzling-shrimp",
+        name: "Sizzling Shrimp",
+        priceCents: 2295,
+        trayCents: 8500,
+        spicy: true,
+      },
       {
         id: "sizzling-double-happiness",
         name: "Sizzling Double Happiness",
-        price: 25.5,
+        priceCents: 2550,
+        trayCents: 9500,
+        spicy: true,
       },
       {
         id: "sizzling-fish-fillet",
         name: "Sizzling Fish Fillet",
-        price: 22.95,
+        priceCents: 2295,
+        trayCents: 8500,
+        spicy: true,
       },
-      { id: "sizzling-chicken", name: "Sizzling Chicken", price: 20.5 },
-      { id: "sizzling-beef", name: "Sizzling Beef", price: 20.95 },
+      {
+        id: "sizzling-chicken",
+        name: "Sizzling Chicken",
+        priceCents: 2050,
+        trayCents: 7200,
+        spicy: true,
+      },
+      {
+        id: "sizzling-beef",
+        name: "Sizzling Beef",
+        priceCents: 2095,
+        trayCents: 7200,
+        spicy: true,
+      },
     ],
   },
   {
     id: "vegetables",
     name: "Vegetables",
     items: [
-      { id: "mixed-vegetable", name: "Mixed Vegetable", price: 18.95 },
+      { id: "mixed-vegetable", name: "Mixed Vegetable", priceCents: 1895, trayCents: 7000 },
       {
         id: "black-mushrooms-oyster-sauce",
         name: "Black Mushrooms with Oyster Sauce",
-        price: 20.95,
+        priceCents: 2095,
+        trayCents: 8000,
       },
       {
         id: "broccoli-oyster-sauce",
         name: "Broccoli with Oyster Sauce",
-        price: 17.95,
+        priceCents: 1795,
+        trayCents: 5800,
       },
-      { id: "sauteed-snow-peas", name: "Sauteed Snow Peas", price: 19.95 },
+      { id: "sauteed-snow-peas", name: "Sauteed Snow Peas", priceCents: 1995, trayCents: 8000 },
       {
         id: "spicy-hot-egg-plant",
         name: "Spicy Hot Egg Plant",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7800,
         spicy: true,
       },
       {
         id: "vegetarian-egg-foo-young",
         name: "Vegetarian Egg Foo Young",
-        price: 19.95,
+        priceCents: 2095,
+        trayCents: 7500,
       },
-      { id: "bean-sprout-saute", name: "Bean Sprout Saute", price: 16.95 },
-      { id: "tofu-vegetable", name: "Tofu with Vegetable", price: 18.95 },
+      { id: "bean-sprout-saute", name: "Bean Sprout Saute", priceCents: 1695, trayCents: 5200 },
+      { id: "tofu-vegetable", name: "Tofu with Vegetable", priceCents: 1895, trayCents: 6800 },
       {
         id: "sauteed-bac-choy-garlic",
         name: "Sauteed Bac Choy with Garlic",
-        price: 18.95,
+        priceCents: 1895,
+        trayCents: 7000,
       },
-      { id: "salted-pepper-tofu", name: "Salted Pepper Tofu", price: 19.95 },
+      {
+        id: "salted-pepper-tofu",
+        name: "Salted Pepper Tofu",
+        priceCents: 1995,
+        trayCents: 6800,
+        spicy: true,
+      },
       {
         id: "kung-pao-tofu",
         name: "Kung Pao Tofu",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 6800,
         spicy: true,
       },
       {
         id: "hot-egg-plant-tofu",
         name: "Hot Egg Plant with Tofu",
-        price: 20.5,
+        priceCents: 2050,
+        trayCents: 7500,
         spicy: true,
       },
     ],
@@ -517,59 +791,81 @@ export const menu: MenuCategory[] = [
       {
         id: "house-special-fried-rice",
         name: "House Special Fried Rice",
-        price: 19.5,
+        priceCents: 1950,
+        trayCents: 6500,
       },
-      { id: "shrimp-fried-rice", name: "Shrimp Fried Rice", price: 19.5 },
-      { id: "chicken-fried-rice", name: "Chicken Fried Rice", price: 18.5 },
-      { id: "beef-fried-rice", name: "Beef Fried Rice", price: 18.5 },
+      { id: "shrimp-fried-rice", name: "Shrimp Fried Rice", priceCents: 1950, trayCents: 6500 },
+      { id: "chicken-fried-rice", name: "Chicken Fried Rice", priceCents: 1850, trayCents: 6200 },
+      { id: "beef-fried-rice", name: "Beef Fried Rice", priceCents: 1850, trayCents: 6200 },
       {
         id: "vegetarian-fried-rice",
         name: "Vegetarian Fried Rice",
-        price: 17.5,
+        priceCents: 1750,
+        trayCents: 5800,
       },
       {
         id: "bbq-pork-fried-rice",
         name: "B.B.Q. Pork Fried Rice",
-        price: 18.5,
+        priceCents: 1850,
+        trayCents: 6200,
       },
-      { id: "fried-steamed-rice", name: "Fried/Steamed Rice", price: 3.0 },
+      { id: "fried-steamed-rice", name: "Fried/Steamed Rice", priceCents: 300, trayCents: 3800 },
     ],
   },
   {
     id: "noodles",
     name: "Noodles",
-    note: "Skinny egg noodle $3.00 extra.",
     items: [
-      { id: "house-soft-noodle", name: "House Soft Noodle", price: 19.95 },
-      { id: "seafood-soft-noodle", name: "Seafood Soft Noodle", price: 19.95 },
-      { id: "shrimp-soft-noodle", name: "Shrimp Soft Noodle", price: 19.95 },
-      { id: "beef-soft-noodle", name: "Beef Soft Noodle", price: 18.95 },
-      { id: "chicken-soft-noodle", name: "Chicken Soft Noodle", price: 18.95 },
+      { id: "house-soft-noodle", name: "House Soft Noodle", priceCents: 1995, trayCents: 6800 },
+      {
+        id: "seafood-soft-noodle",
+        name: "Seafood Soft Noodle",
+        priceCents: 1995,
+        trayCents: 7000,
+      },
+      { id: "shrimp-soft-noodle", name: "Shrimp Soft Noodle", priceCents: 1995, trayCents: 7000 },
+      { id: "beef-soft-noodle", name: "Beef Soft Noodle", priceCents: 1895, trayCents: 6500 },
+      {
+        id: "chicken-soft-noodle",
+        name: "Chicken Soft Noodle",
+        priceCents: 1895,
+        trayCents: 6500,
+      },
       {
         id: "bbq-pork-soft-noodle",
         name: "B.B.Q. Pork Soft Noodle",
-        price: 18.95,
+        priceCents: 1895,
+        trayCents: 6500,
       },
       {
+        // The price document lists this as "Vegetarian Noodle"; the site's
+        // existing name stands.
         id: "vegetarian-soft-noodle",
         name: "Vegetarian Soft Noodle",
-        price: 17.95,
+        priceCents: 1795,
+        trayCents: 6000,
       },
       {
         id: "chow-fun-chicken-or-beef",
         name: "Chicken or Beef Chow Fun (Dry)",
-        price: 19.95,
+        priceCents: 1995,
+        trayCents: 7000,
       },
       {
         id: "seafood-chow-fun",
         name: "Seafood Chow Fun (Dry)",
-        price: 20.5,
+        priceCents: 2050,
+        trayCents: 7200,
       },
       {
         id: "singapore-style-rice-noodle",
         name: "Singapore Style Rice Noodle",
-        price: 19.95,
+        priceCents: 2050,
+        trayCents: 7200,
         spicy: true,
+        modifiers: [
+          { id: "skinny-egg-noodle", name: "Skinny Egg Noodle", priceCents: 300 },
+        ],
       },
     ],
   },
@@ -578,9 +874,12 @@ export const menu: MenuCategory[] = [
 /* ------------------------------------------------------------------ *
  * Prix-fixe / combination sections. These are per-person or fixed-price
  * sets, not single orderable line items, so they render through
- * MenuCombos rather than MenuSection. Party trays and à la carte pricing
- * are not individually orderable online; these mirror the printed menu's
- * combo panels, including the lunch "no soup on pickup orders" rule.
+ * MenuCombos rather than MenuSection.
+ *
+ * LUNCH PRICING IS INDEPENDENT OF DINNER PRICING. A lunch entrée is
+ * priced by its TIER ($15.75 or $16.25 per person), never by the à la
+ * carte price of the same-named dish. The entrée list below is a set of
+ * references into the tier, and carries no price of its own.
  * ------------------------------------------------------------------ */
 
 export interface ComboAddOn {
@@ -590,23 +889,34 @@ export interface ComboAddOn {
   dish: string;
 }
 
+/**
+ * One entrée on a lunch tier. Deliberately NOT a price — the tier price is
+ * the price. `noRiceSide` carries the printed menu's "Except Noodle & Rice"
+ * rule: a noodle or rice entrée arrives without the included rice side.
+ */
+export interface LunchChoice {
+  name: string;
+  noRiceSide?: boolean;
+}
+
 export interface ComboSet {
   id: string;
   /** e.g. "$15.75 per person", "Family Dinner No. 1", "$128". */
   name: string;
-  price: number;
+  /** Integer cents. Per person where `priceUnit` says so, else flat. */
+  priceCents: number;
   /** e.g. "per person"; omitted for flat-price sets. */
   priceUnit?: string;
   /** Serving line, e.g. "Good for 4–6 people". */
   serves?: string;
-  /** One-line "served with" summary (lunch specials). */
-  includes?: string;
+  /** Included sides (lunch specials), as data rather than one prose line. */
+  sides?: string[];
   /** Labeled course lines (family dinners): {label:"Appetizer", value:"…"}. */
   courses?: { label: string; value: string }[];
   /** Fixed included dishes (big family dinner). */
   dishes?: string[];
   /** Choose-your-entrée options (lunch specials). */
-  choices?: string[];
+  choices?: LunchChoice[];
   /** Per-additional-person add-ons (family dinners). */
   addOns?: ComboAddOn[];
 }
@@ -623,61 +933,68 @@ export const combos: ComboSection[] = [
   {
     id: "lunch-specials",
     name: "Lunch Specials",
-    note: "Served 11:00 AM–3:00 PM. Pickup orders do not include soup. Except Noodle & Rice. No lunch on holidays.",
+    note: "Served 11:00 AM–3:00 PM. Pickup orders do not include soup. No lunch on holidays.",
     sets: [
       {
         id: "lunch-15-75",
         name: "$15.75 per person",
-        price: 15.75,
+        priceCents: 1575,
         priceUnit: "per person",
-        includes: "Egg Roll, Chicken Wing & Fried Rice or Steamed Rice",
+        sides: [
+          "Egg Drop Soup",
+          "Egg Roll",
+          "Chicken Wing",
+          "Fried Rice or Steamed Rice",
+        ],
         choices: [
-          "Chicken Chop Suey",
-          "Almond Chicken",
-          "Sweet & Sour Pork",
-          "Beef Szechuan Style",
-          "Chicken Szechuan Style",
-          "Beef with Broccoli",
-          "Chicken with Black Bean Sauce",
-          "Chicken with Broccoli",
-          "Mixed Vegetable",
-          "Beef with Black Bean Sauce",
+          { name: "Chicken Chop Suey" },
+          { name: "Almond Chicken" },
+          { name: "Sweet & Sour Pork" },
+          { name: "Beef Szechuan Style" },
+          { name: "Chicken Szechuan Style" },
+          { name: "Beef with Broccoli" },
+          { name: "Chicken with Black Bean Sauce" },
+          { name: "Chicken with Broccoli" },
+          { name: "Mixed Vegetable" },
+          { name: "Beef with Black Bean Sauce" },
         ],
       },
       {
         id: "lunch-16-25",
         name: "$16.25 per person",
-        price: 16.25,
+        priceCents: 1625,
         priceUnit: "per person",
-        includes: "Egg Roll & Fried Rice or Steamed Rice",
+        sides: ["Egg Drop Soup", "Fried Rice or Steamed Rice"],
         choices: [
-          "Salt Pepper Chicken Wings",
-          "Kung Pao Chicken",
-          "Chicken with Broccoli",
-          "Chicken or Beef Chow Fun (Dry)",
-          "Chicken with Vegetable",
-          "Orange Flavor Chicken",
-          "Sweet & Sour Chicken",
-          "Curry Chicken",
-          "Chicken Cantonese",
-          "Beef with Green Pepper",
-          "Mongolian Beef",
-          "Curry Beef",
-          "Yu-Hsiang Beef",
-          "Beef Chop Suey",
-          "Kung Pao Squid",
-          "Squid with Black Bean Sauce",
-          "Shrimp with Black Bean Sauce",
-          "Shrimp Chop Suey",
-          "Shrimp with Broccoli",
-          "Shrimp with Lobster Sauce",
-          "Chow San Shein",
-          "Fish Fillet with Black Bean Sauce",
-          "House Soft Noodles",
-          "Chicken Soft Noodles",
-          "House Fried Rice",
-          "Shrimp Fried Rice",
-          "Chicken Fried Rice",
+          { name: "Salt Pepper Chicken Wings" },
+          { name: "Kung Pao Chicken" },
+          // TODO(confirm): price partially obscured on menu photo — owner to confirm
+          // (entrée 13: the NAME is partially obscured, not the tier price.)
+          { name: "Chicken with Broccoli" },
+          { name: "Chicken or Beef Chow Fun (Dry)", noRiceSide: true },
+          { name: "Chicken with Vegetable" },
+          { name: "Orange Flavor Chicken" },
+          { name: "Sweet & Sour Chicken" },
+          { name: "Curry Chicken" },
+          { name: "Chicken Cantonese" },
+          { name: "Beef with Green Pepper" },
+          { name: "Mongolian Beef" },
+          { name: "Curry Beef" },
+          { name: "Yu-Hsiang Beef" },
+          { name: "Beef Chop Suey" },
+          { name: "Kung Pao Squid" },
+          { name: "Squid with Black Bean Sauce" },
+          { name: "Shrimp with Black Bean Sauce" },
+          { name: "Shrimp Chop Suey" },
+          { name: "Shrimp with Broccoli" },
+          { name: "Shrimp with Lobster Sauce" },
+          { name: "Chow San Shein" },
+          { name: "Fish Fillet with Black Bean Sauce" },
+          { name: "House Soft Noodles", noRiceSide: true },
+          { name: "Chicken Soft Noodles", noRiceSide: true },
+          { name: "House Fried Rice", noRiceSide: true },
+          { name: "Shrimp Fried Rice", noRiceSide: true },
+          { name: "Chicken Fried Rice", noRiceSide: true },
         ],
       },
     ],
@@ -690,7 +1007,7 @@ export const combos: ComboSection[] = [
       {
         id: "family-dinner-1",
         name: "Family Dinner No. 1",
-        price: 21.95,
+        priceCents: 2195,
         priceUnit: "per person",
         courses: [
           { label: "Soup", value: "Egg Drop Soup" },
@@ -711,7 +1028,7 @@ export const combos: ComboSection[] = [
       {
         id: "family-dinner-2",
         name: "Family Dinner No. 2",
-        price: 22.95,
+        priceCents: 2295,
         priceUnit: "per person",
         courses: [
           { label: "Soup", value: "Wonton Soup" },
@@ -737,7 +1054,7 @@ export const combos: ComboSection[] = [
       {
         id: "big-family-128",
         name: "Good for 4 to 6 people",
-        price: 128.0,
+        priceCents: 12800,
         dishes: [
           "Wor Wonton Soup",
           "B.B.Q. Pork",
@@ -750,7 +1067,7 @@ export const combos: ComboSection[] = [
       {
         id: "big-family-178",
         name: "Good for 6 to 8 people",
-        price: 178.0,
+        priceCents: 17800,
         dishes: [
           "Wor Wonton Soup",
           "B.B.Q. Pork",

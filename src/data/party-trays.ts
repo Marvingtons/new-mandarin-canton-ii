@@ -1,25 +1,15 @@
 /**
- * Party-tray pricing, keyed by menu item id.
+ * Party-tray presentation constants.
  *
- * ⚠️ PROVENANCE — READ BEFORE TRUSTING THESE NUMBERS.
+ * ⚠️ THERE IS NO TRAY PRICE TABLE HERE ANY MORE. This file used to carry a
+ * twelve-entry map of tray prices carried over from the deleted seed data,
+ * where they were flagged as estimates rather than transcriptions. Three of
+ * them disagreed with the printed menu. Tray prices now live beside their
+ * dish, as `trayCents` in src/data/menu.ts, so an item's individual price and
+ * its tray price cannot drift apart — there is exactly one price source.
  *
- * The printed menu (rev. 9/25) lists a party-tray price beside most entrées,
- * but `src/data/menu.ts` deliberately transcribed only the INDIVIDUAL prices —
- * its header says tray pricing was to be "modeled in Clover as size variants".
- * Clover is now gone, so this file is where tray pricing lives instead.
- *
- * The ten entries below are carried over from the deleted `seed-menu.ts`, where
- * they were explicitly flagged as estimates rather than transcriptions. Their
- * INDIVIDUAL prices were verified to match `menu.ts` exactly (15 of 16 items),
- * which is why the file is trustworthy as a mapping — but that says nothing
- * about the tray prices themselves.
- *
- * ⚠️ TODO(confirm): every value here must be checked against the printed menu
- * before a tray can be sold. Until an id appears in this map the item is sold
- * single-size only, which is the safe default — an item with no tray option
- * cannot be mispriced.
- *
- * Money is INTEGER CENTS. Nothing in the orders path may introduce a float.
+ * What remains are two display strings that are NOT on the printed menu and
+ * therefore cannot come from the menu data.
  */
 
 /**
@@ -41,38 +31,3 @@ export const PARTY_TRAY_SERVES = {
 /** Prep-time warning shown before submit when a tray is in the cart. */
 export const PARTY_TRAY_PREP_NOTE =
   "Party trays: ready in 20–30 minutes";
-
-export interface PartyTray {
-  /** Integer cents. */
-  priceCents: number;
-  /** Display-only serving hint. */
-  servesNote?: string;
-}
-
-/**
- * ⚠️ TODO(confirm): unverified tray prices AND unverified serving counts.
- * Two ids appear for the same dish where the printed menu lists it under both
- * Specials and its own section; both carry the same tray price on purpose.
- */
-export const partyTraysByItemId: Record<string, PartyTray> = {
-  // Chicken
-  "orange-flavored-chicken": { priceCents: 7500 },
-  "orange-flavored-chicken-special": { priceCents: 7500 },
-  "kung-pao-chicken": { priceCents: 9000 },
-  "chicken-broccoli": { priceCents: 7000 },
-  "sesame-chicken": { priceCents: 7500 },
-  // Beef
-  "mongolian-beef": { priceCents: 7500 },
-  "mongolian-beef-special": { priceCents: 7500 },
-  "beef-broccoli": { priceCents: 7200 },
-  // Seafood
-  "honey-walnut-shrimp": { priceCents: 9500 },
-  "kung-pao-shrimp": { priceCents: 10000 },
-  // Rice & noodles
-  "house-special-fried-rice": { priceCents: 6500 },
-  "house-soft-noodle": { priceCents: 6800 },
-};
-
-export function partyTrayFor(itemId: string): PartyTray | undefined {
-  return partyTraysByItemId[itemId];
-}

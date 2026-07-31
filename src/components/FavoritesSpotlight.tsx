@@ -10,6 +10,7 @@ import { photos } from "@/data/images";
 import type { SitePhoto } from "@/data/images";
 import { menu } from "@/data/menu";
 import type { MenuItem } from "@/data/menu";
+import { formatCents } from "@/lib/money";
 
 const COUNT = 6;
 /** Curtain-wipe duration — the transaction commits when it ends. */
@@ -293,7 +294,7 @@ export default function FavoritesSpotlight() {
               {blurbs[face.id]}
             </p>
             <p className="mt-2 font-medium text-lacquer">
-              ${face.price.toFixed(2)}
+              {formatCents(face.priceCents)}
             </p>
           </div>
         </div>
@@ -326,7 +327,7 @@ export default function FavoritesSpotlight() {
                     {dish.name}
                   </span>
                   <span className="spt-sm-price shrink-0">
-                    ${dish.price.toFixed(2)}
+                    {formatCents(dish.priceCents)}
                   </span>
                 </div>
               </div>

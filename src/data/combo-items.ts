@@ -1,4 +1,5 @@
 import { combos } from "@/data/menu";
+import type { LunchChoice } from "@/data/menu";
 import { resolveItemOverride, resolveModifierZh } from "@/data/menu-overrides";
 import type { MenuItem, MenuModifier, MenuSize } from "@/lib/menu/types";
 
@@ -23,6 +24,11 @@ import type { MenuItem, MenuModifier, MenuSize } from "@/lib/menu/types";
  *    reaches the kitchen ticket as a modifier line rather than as free text.
  *    Flagged `lunchSpecial` so the 11–3 gate can find them.
  *
+ *    LUNCH PRICE IS THE TIER PRICE. The entrée modifiers are all priceCents 0,
+ *    so a lunch line costs $15.75 or $16.25 per person and NOTHING else — the
+ *    dinner à-la-carte price of the same-named dish can never reach it. There
+ *    is no link from an entrée name to a catalogue item, by design.
+ *
  *  - FAMILY DINNERS — per-person prices become SIZES: "2 people" through
  *    "6 people" at perPerson × count. The menu prices them per head with a
  *    two-person minimum, and a size tier is the one part of the existing model
@@ -42,9 +48,11 @@ const BIG_FAMILY_CATEGORY = "big-family-dinner";
 const FAMILY_MIN_PEOPLE = 2;
 const FAMILY_MAX_PEOPLE = 6;
 
-function toCents(dollars: number): number {
-  return Math.round(dollars * 100);
-}
+/**
+ * The printed menu's "Except Noodle & Rice" rule, shown against the entrées it
+ * applies to. Display only — see MenuModifier.note.
+ */
+const NO_RICE_SIDE_NOTE = "no rice side";
 
 /** kebab-case id from a dish name. */
 function slug(value: string): string {
@@ -61,13 +69,31 @@ function slug(value: string): string {
  * "Kung Pao Chicken" on a lunch special prints the same 宮保雞丁 it prints as
  * its own dish. No second translation to keep in sync.
  */
-function choiceModifier(name: string): MenuModifier {
+function choiceModifier(choice: LunchChoice): MenuModifier {
+  const { name } = choice;
   return {
     id: slug(name),
     nameEn: name,
     nameZh: resolveModifierZh(name) ?? resolveItemOverride(slug(name), name)?.nameZh ?? null,
+    // Zero, always: the tier price is the price of a lunch special.
     priceCents: 0,
+    note: choice.noRiceSide ? NO_RICE_SIDE_NOTE : undefined,
   };
+}
+
+/**
+ * The tier's included sides, as one sentence.
+ *
+ * Soup is dropped rather than described, because every online order is to-go
+ * and the printed menu's own parenthetical says the soup does not travel.
+ * Listing it and then retracting it is how a customer ends up expecting soup.
+ */
+function lunchSidesSentence(sides: string[]): string {
+  const travelling = sides.filter((s) => !/soup/i.test(s));
+  const included = travelling.length
+    ? `Includes ${travelling.join(", ")}. `
+    : "";
+  return `${included}Soup is not included on to-go orders.`;
 }
 
 function lunchItems(): MenuItem[] {
@@ -80,12 +106,8 @@ function lunchItems(): MenuItem[] {
     // a cart, with the included sides as the subtitle.
     nameEn: "Lunch Special",
     nameZh: "午市套餐",
-    // The soup line is deliberate: the menu's own parenthetical says the
-    // included soup does not travel, and every online order is to-go.
-    description: set.includes
-      ? `Includes ${set.includes}. Soup is not included on to-go orders.`
-      : "Soup is not included on to-go orders.",
-    priceCents: toCents(set.price),
+    description: lunchSidesSentence(set.sides ?? []),
+    priceCents: set.priceCents,
     categoryId: LUNCH_CATEGORY,
     modifierGroups: (set.choices ?? []).length
       ? [
@@ -140,8 +162,8 @@ function familyItems(): MenuItem[] {
       nameZh: i === 0 ? "家庭套餐一" : "家庭套餐二",
       description: [courses, addOns].filter(Boolean).join(" — ") || null,
       // Base price is the two-person minimum; sizes carry the real tiers.
-      priceCents: toCents(set.price) * FAMILY_MIN_PEOPLE,
-      sizes: familySizes(toCents(set.price)),
+      priceCents: set.priceCents * FAMILY_MIN_PEOPLE,
+      sizes: familySizes(set.priceCents),
       categoryId: FAMILY_CATEGORY,
       modifierGroups: [],
       spicy: false,
@@ -162,7 +184,7 @@ function bigFamilyItems(): MenuItem[] {
     nameEn: `Big Family Dinner — ${set.name}`,
     nameZh: "大家庭套餐",
     description: (set.dishes ?? []).join(" · ") || null,
-    priceCents: toCents(set.price),
+    priceCents: set.priceCents,
     categoryId: BIG_FAMILY_CATEGORY,
     modifierGroups: [],
     spicy: false,

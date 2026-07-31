@@ -1,5 +1,6 @@
 import SectionHeading from "@/components/SectionHeading";
 import type { ComboSection, ComboSet } from "@/data/menu";
+import { formatCents } from "@/lib/money";
 
 /**
  * Renders a prix-fixe / combination section (Lunch Specials, Family
@@ -12,7 +13,7 @@ import type { ComboSection, ComboSet } from "@/data/menu";
 function Price({ set }: { set: ComboSet }) {
   return (
     <span className="shrink-0 font-semibold text-lacquer">
-      ${set.price.toFixed(2)}
+      {formatCents(set.priceCents)}
       {set.priceUnit && (
         <span className="ml-1 text-sm font-normal text-ink/60">
           {set.priceUnit}
@@ -33,9 +34,9 @@ function ComboCard({ set }: { set: ComboSet }) {
         <p className="mt-1 text-sm text-ink/60">{set.serves}</p>
       )}
 
-      {set.includes && (
+      {set.sides && set.sides.length > 0 && (
         <p className="mt-3 text-sm leading-relaxed text-ink/75">
-          Served with {set.includes}.
+          Served with {set.sides.join(", ")}.
         </p>
       )}
 
@@ -67,7 +68,14 @@ function ComboCard({ set }: { set: ComboSet }) {
           </p>
           <ul className="mt-2 grid gap-x-6 gap-y-1 text-sm text-ink/80 sm:grid-cols-2">
             {set.choices.map((choice) => (
-              <li key={choice}>{choice}</li>
+              <li key={choice.name}>
+                {choice.name}
+                {/* The printed menu's "Except Noodle & Rice" rule, shown
+                    against the entrées it actually applies to. */}
+                {choice.noRiceSide && (
+                  <span className="text-ink/55"> — no rice side</span>
+                )}
+              </li>
             ))}
           </ul>
         </div>
