@@ -7,6 +7,8 @@ import { encodeMonochromePng, findSegmentCuts } from "@/lib/ticket/png";
 import { encodeStarPrntCopies } from "@/lib/ticket/starprnt";
 import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
+import { copyProfile } from "@/lib/ticket/copies";
+import type { TicketCopyProfile, TicketCopyRole } from "@/lib/ticket/copies";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 import { formatPickupTime } from "@/lib/orders/businessDate";
 import { orderReadyLabel } from "@/lib/order/readyWindow";
@@ -36,8 +38,13 @@ import type { Order, OrderLine } from "@/lib/orders/types";
  *   - No hairlines. Every rule is >= 3px so it survives the print head.
  *   - Big type. This is read at arm's length, fast, by someone cooking.
  *
- * Chinese-primary by design: 中文 is the large type, English is the small
- * cross-check line underneath for staff who prefer it.
+ * ENGLISH-PRIMARY, 中文 UNDER IT. The first revision printed 中文 large with a
+ * small English cross-check, plus a loud ⚠ EN wherever a translation was
+ * missing — which, with a quarter of the menu translated, was most of the
+ * ticket. The catalogue now carries 中文 on every dish, so the marker has no
+ * job left and is gone: the English is the primary line, the 中文 sits directly
+ * under it in the same size class, and a dish with no 中文 simply prints one
+ * line. Missing glyphs are still reported — to the server log, never to paper.
  */
 
 /** 80mm at 203dpi. The standard receipt printer raster width. */
@@ -53,43 +60,40 @@ const QTY_GAP = 14;
 const QTY_HEIGHT = 48;
 const INDENT = QTY_WIDTH + QTY_GAP;
 
-/**
- * Marker printed wherever 中文 is unavailable — either no override exists or
- * the character is outside the subset font. Loud on purpose: a silent English
- * fallback is a translation gap nobody ever notices and nobody ever fixes.
- */
-const EN_MARK = "⚠ EN";
+/** Item name type. English leads; the 中文 under it is one step down, regular. */
+const NAME_SIZE = 34;
+const NAME_ZH_SIZE = 30;
 
 /**
- * Which copy is which.
+ * The money column on an item row.
  *
- * ⚠️ 廚房 and 袋 are NOT in the shipped subset font today — checked against
- * public/fonts/ticket-font-coverage.json, all three codepoints absent. They are
- * in TICKET_LABELS so the next `npm run build:ticket-font` includes them; until
- * that runs, pick() falls back to the English exactly as it does for an
- * untranslated dish. The label prints either way; it never prints a blank box.
+ * Fixed rather than fitted, so the amounts line up down the ticket and a
+ * cashier can read the column instead of hunting for each number. 128px holds
+ * "$1068.00" at 28px bold — more than six of the most expensive thing on the
+ * menu — with room to spare.
  */
-const COPY_LABELS = {
-  kitchen: { zh: L.copyKitchen as string, en: "KITCHEN" },
-  bag: { zh: L.copyBag as string, en: "BAG" },
-  register: { zh: L.copyRegister as string, en: "REGISTER" },
-} as const;
+const PRICE_SIZE = 28;
+const PRICE_WIDTH = 128;
+const PRICE_GAP = 14;
 
 /**
- * Which copy this is, for the footer line staff read to sort the stack.
+ * Size tiers that are the DEFAULT and therefore print nothing.
  *
- * N=3 is the configured case and its order is fixed by the kitchen: 廚房 / 袋 /
- * 收銀. Everything else degrades around it — kitchen always first, bag always
- * last, register filling the middle — so a change to TICKET_COPIES never
- * produces an unlabelled or misordered stack.
+ * "Individual" is what most of the menu is, and "Regular" is the implicit
+ * single tier an item with no size choice resolves to (and what normalizeOrder
+ * fills in for a row that carries no size at all). Printing either of them cost
+ * a whole row per item and told the kitchen nothing it did not already assume.
+ * Everything else — tray, cup, half a duck — prints a chip.
  */
-function copyLabelFor(index: number, total: number) {
-  if (total <= 1) return COPY_LABELS.kitchen;
-  if (index === 0) return COPY_LABELS.kitchen;
-  if (total === 3) return index === 1 ? COPY_LABELS.bag : COPY_LABELS.register;
-  if (index === total - 1) return COPY_LABELS.bag;
-  return COPY_LABELS.register;
-}
+const DEFAULT_SIZE_LABELS = new Set(["individual", "regular", ""]);
+
+/**
+ * Short English for a size chip, where the catalogue's label is too long to sit
+ * inline. Anything not listed prints its own label, uppercased.
+ */
+const SIZE_CHIP_EN: Record<string, string> = {
+  "party tray": "TRAY",
+};
 
 /* ------------------------------------------------------ shape normalizer -- */
 
@@ -209,27 +213,66 @@ function normalizeOrder(order: Order): Order {
   } as Order;
 }
 
-interface Bilingual {
-  /** What to print in the large primary line. */
-  primary: string;
-  /** True when `primary` is an English fallback and must carry the marker. */
-  fallback: boolean;
+/**
+ * The 中文 when we have it AND can draw it, otherwise null.
+ *
+ * A null here means "print the English alone". It is NOT marked on paper any
+ * more: with the catalogue fully translated a missing 中文 is either a
+ * hand-written row or a forgotten `npm run build:ticket-font`, and both of
+ * those are reported to the server log by rasterizeTicket. A ⚠ on a ticket is
+ * a warning to someone who cannot act on it.
+ */
+function zhIfPrintable(zh: string | null, coverage: Set<number>): string | null {
+  if (zh && zh.trim().length > 0 && isPrintable(zh, coverage)) return zh;
+  return null;
 }
 
 /**
- * Choose the primary string: the 中文 when we have it AND can draw it,
- * otherwise the English with the fallback flag set.
+ * The size chip, or null for a default tier.
+ *
+ * Exception-based on purpose: individual is what most of the menu is, so
+ * marking it cost one row on every single item. `【餐盤 TRAY】` is one bracketed
+ * token that rides along at the end of the English name — the wrapper treats a
+ * 【…】 run as a single atom, so it moves whole or wraps whole, and it can never
+ * split across two lines.
  */
-function pick(zh: string | null, en: string, coverage: Set<number>): Bilingual {
-  if (zh && zh.trim().length > 0 && isPrintable(zh, coverage)) {
-    return { primary: zh, fallback: false };
-  }
-  return { primary: en, fallback: true };
+function sizeChip(line: OrderLine, coverage: Set<number>): string | null {
+  const label = line.sizeLabel.trim();
+  if (DEFAULT_SIZE_LABELS.has(label.toLowerCase())) return null;
+  const en = SIZE_CHIP_EN[label.toLowerCase()] ?? label.toUpperCase();
+  const zh = zhIfPrintable(line.sizeLabelZh, coverage);
+  return zh ? `【${zh} ${en}】` : `【${en}】`;
 }
 
-/** One order line: quantity badge, name, cross-check, size, modifiers, note. */
-function drawLine(c: Canvas, line: OrderLine, coverage: Set<number>): void {
-  const name = pick(line.nameZh, line.nameEn, coverage);
+/**
+ * One order line.
+ *
+ *   ×2  Mandarin Special 【餐盤 TRAY】              $49.90
+ *       招牌大拼盤
+ *       ● 加辣 / Extra Spicy
+ *       ┌ 備註 NOTE ─────────────────┐
+ *
+ * The English name is the primary line and the line total rides its first row,
+ * right-aligned in a fixed money column. The 中文 sits directly beneath in the
+ * same size class — the kitchen reads that line, so it is not a footnote.
+ *
+ * `showPrice` is false on the kitchen copy, which takes the money column back
+ * and gives the whole width to the name.
+ */
+function drawLine(
+  c: Canvas,
+  line: OrderLine,
+  coverage: Set<number>,
+  showPrice: boolean,
+): void {
+  const column = CONTENT_WIDTH - INDENT;
+  // The money column is reserved on the NAME'S FIRST LINE only; a wrapped name
+  // runs the full width underneath it.
+  const firstLine = showPrice ? column - PRICE_WIDTH - PRICE_GAP : column;
+
+  const chip = sizeChip(line, coverage);
+  const nameEn = chip ? `${line.nameEn} ${chip}` : line.nameEn;
+  const nameZh = zhIfPrintable(line.nameZh, coverage);
 
   // The badge and the name sit on one row, so the row's height is whichever is
   // taller — a two-line name pushes the row, a short one leaves the badge's
@@ -245,50 +288,54 @@ function drawLine(c: Canvas, line: OrderLine, coverage: Set<number>): void {
     });
   });
 
-  const nameHeight = c.group(INDENT, CONTENT_WIDTH - INDENT, (col) => {
-    col.text(name.primary, { size: 40, weight: 700, lineHeight: 1.2 });
-    if (name.fallback) col.text(EN_MARK, { size: 20, weight: 700 });
+  const nameHeight = c.group(INDENT, column, (col) => {
+    col.text(nameEn, {
+      size: NAME_SIZE,
+      weight: 700,
+      lineHeight: 1.2,
+      firstLineMaxWidth: firstLine,
+    });
+    if (nameZh) {
+      col.text(nameZh, { size: NAME_ZH_SIZE, lineHeight: 1.2, marginTop: 2 });
+    }
   });
   if (nameHeight < QTY_HEIGHT) c.space(QTY_HEIGHT - nameHeight);
 
-  // English cross-check line — always printed when the primary is 中文, so
-  // staff can verify against the English menu without a second copy.
-  if (!name.fallback) {
-    c.text(line.nameEn, {
-      size: 21,
-      x: INDENT,
-      maxWidth: CONTENT_WIDTH - INDENT,
-      marginTop: 3,
+  // The line total, on the name's own first row, vertically centred against
+  // that row's line box so the two read as one line.
+  //
+  // `lineCents` IS qty × unit: resolveLinePrice does that multiplication in
+  // integer cents, once, at order time, and stores the result — which is also
+  // the number that was summed into the subtotal below. Multiplying again here
+  // would be the same arithmetic on a good row and a column that does not add
+  // up to its own subtotal on a hand-written one. ticket:sample asserts both:
+  // that the column sums to the printed subtotal, and that stored lineCents
+  // really is quantity × unitCents on every catalogue-built order.
+  if (showPrice) {
+    const drop = ((NAME_SIZE - PRICE_SIZE) * 1.2) / 2;
+    c.place(CONTENT_WIDTH - PRICE_WIDTH, rowTop + drop, PRICE_WIDTH, (money) => {
+      money.text(formatCents(line.lineCents), {
+        size: PRICE_SIZE,
+        weight: 700,
+        align: "right",
+      });
     });
   }
 
-  // Size is only worth a line when the item actually has a choice; "Regular"
-  // is the implicit single tier and would be noise on every row.
-  if (line.sizeLabel.toLowerCase() !== "regular") {
-    const size = pick(line.sizeLabelZh, line.sizeLabel, coverage);
-    c.text(
-      size.primary + (size.fallback ? `  ${EN_MARK}` : ` / ${line.sizeLabel}`),
-      { size: 26, weight: 700, x: INDENT, maxWidth: CONTENT_WIDTH - INDENT, marginTop: 5 },
-    );
-  }
-
   for (const [i, mod] of line.modifiers.entries()) {
-    const m = pick(mod.nameZh, mod.nameEn, coverage);
-    c.text(
-      `● ${m.primary}` + (m.fallback ? `  ${EN_MARK}` : ` / ${mod.nameEn}`),
-      {
-        size: 26,
-        lineHeight: 1.35,
-        x: INDENT,
-        maxWidth: CONTENT_WIDTH - INDENT,
-        marginTop: i === 0 ? 5 : 0,
-      },
-    );
+    const zh = zhIfPrintable(mod.nameZh, coverage);
+    c.text(zh ? `● ${zh} / ${mod.nameEn}` : `● ${mod.nameEn}`, {
+      size: 26,
+      lineHeight: 1.35,
+      x: INDENT,
+      maxWidth: column,
+      marginTop: i === 0 ? 5 : 0,
+    });
   }
 
   if (line.specialInstructions) {
     c.box(
-      { x: INDENT, width: CONTENT_WIDTH - INDENT, border: 3, padding: 8, marginTop: 8 },
+      { x: INDENT, width: column, border: 3, padding: 8, marginTop: 8 },
       (note) => {
         note.text(`${L.note} NOTE`, { size: 22, weight: 700 });
         note.text(line.specialInstructions as string, { size: 27, lineHeight: 1.35 });
@@ -316,8 +363,24 @@ export interface RenderTicketOptions {
    * and the preview still do.
    */
   copyIndex?: number;
+  /**
+   * Which copy is which, and therefore what each shows. The print route passes
+   * the tenant's configured roles; everything else takes the default sequence
+   * for `copies`. See lib/ticket/copies.ts.
+   */
+  copyRoles?: TicketCopyRole[] | null;
   /** Printed in the header so a reprint is obvious at the pass. */
   reprint?: boolean;
+}
+
+/** What a composed ticket actually printed in money terms. */
+export interface TicketMoney {
+  /** The profile this copy rendered under. */
+  role: TicketCopyRole;
+  /** Line totals as printed, in order. Empty when the copy shows no prices. */
+  lineCents: number[];
+  /** The totals block as printed, or null when the copy omits it. */
+  totals: { subtotal: number; tax: number; tip: number; total: number } | null;
 }
 
 /**
@@ -336,6 +399,8 @@ export async function composeTicketSvg(
   lines: PlacedLine[];
   /** Codepoints drawn as .notdef because the subset lacks them. */
   missing: number[];
+  /** What each composed copy printed in money terms, in copy order. */
+  money: TicketMoney[];
 }> {
   // Every field the layout reads is made well-formed HERE, once, before any
   // measurement runs. Nothing below this line may assume a typed order.
@@ -374,8 +439,19 @@ export async function composeTicketSvg(
   const only = options.copyIndex;
   const first = only ?? 0;
   const last = only ?? copies - 1;
+  const printed: TicketMoney[] = [];
 
   for (let copy = first; copy <= last; copy++) {
+    /**
+     * WHAT THIS COPY IS. Everything below reads these flags; there is no second
+     * renderer for the kitchen copy. See lib/ticket/copies.ts.
+     */
+    const profile: TicketCopyProfile = copyProfile(copy, copies, options.copyRoles);
+    const copyLabelZh = zhIfPrintable(profile.labelZh, coverage);
+    const copyLabel = copyLabelZh
+      ? `${copyLabelZh} ${profile.labelEn}`
+      : profile.labelEn;
+
     // The tear line, only when this composer is actually stacking. A single
     // requested copy is its own piece of paper and needs no tear mark; drawing
     // one at the top of copy 2 of 3 would print a dashed rule above a ticket
@@ -388,6 +464,18 @@ export async function composeTicketSvg(
       c.tearLine();
       c.space(26);
     }
+
+  /* ---------------- copy bar ---------------- */
+  /* THE FIRST THING VISIBLE, above everything else. Three loose tickets land
+     in the same tray, and until now the only thing telling them apart was a
+     20px line at the very bottom — under the totals, under the payment banner,
+     on the part that gets folded. A full-width inverted bar at the top is
+     readable on a ticket lying face up in a pile. A small repeat stays at the
+     bottom as a tear check: if the bottom label is missing, paper is missing. */
+  if (profile.labelEn) {
+    c.banner(copyLabel, { size: 30, padY: 8 });
+    c.space(10);
+  }
 
   /* ---------------- header ---------------- */
   const headerTop = c.height;
@@ -414,7 +502,7 @@ export async function composeTicketSvg(
   c.rule(5);
 
   /* ---------------- items ---------------- */
-  for (const line of order.items) drawLine(c, line, coverage);
+  for (const line of order.items) drawLine(c, line, coverage, profile.linePrices);
 
   c.rule(5);
 
@@ -423,57 +511,70 @@ export async function composeTicketSvg(
   c.text(`${L.phone} ${order.customer.phone}`, { size: 30, weight: 700, marginTop: 2 });
   c.text(`${L.placed} ${placedLabel}`, { size: 21, marginTop: 6 });
 
-  c.rule();
-
   /* ---------------- totals ---------------- */
-  const money = (
-    label: string,
-    cents: number,
-    size: number,
-    weight: 400 | 700,
-    marginTop: number,
-  ) => {
-    const top = c.height + marginTop;
-    c.text(label, { size, weight, marginTop });
-    // The amount rides the same row, right-aligned, without moving the cursor.
-    c.place(0, top, CONTENT_WIDTH, (v) => {
-      v.text(formatCents(cents), { size, weight, align: "right" });
-    });
-  };
+  /* THE KITCHEN COPY STOPS HERE. No subtotal, no tax, no total, no COLLECT
+     PAYMENT bar: a cook does not ring the order, so every one of those lines
+     is paper spent on something nobody on the line reads. */
+  if (profile.priceBlock) {
+    c.rule();
 
-  money(`${L.subtotal} SUBTOTAL`, order.totals.subtotalCents, 22, 400, 0);
-  money(`${L.tax} TAX`, order.totals.taxCents, 22, 400, 2);
-  if (order.totals.tipCents > 0) {
-    money(`${L.tip} TIP`, order.totals.tipCents, 22, 400, 2);
+    const money = (
+      label: string,
+      cents: number,
+      size: number,
+      weight: 400 | 700,
+      marginTop: number,
+    ) => {
+      const top = c.height + marginTop;
+      c.text(label, { size, weight, marginTop });
+      // The amount rides the same row, right-aligned, without moving the cursor.
+      c.place(0, top, CONTENT_WIDTH, (v) => {
+        v.text(formatCents(cents), { size, weight, align: "right" });
+      });
+    };
+
+    money(`${L.subtotal} SUBTOTAL`, order.totals.subtotalCents, 22, 400, 0);
+    money(`${L.tax} TAX`, order.totals.taxCents, 22, 400, 2);
+    if (order.totals.tipCents > 0) {
+      money(`${L.tip} TIP`, order.totals.tipCents, 22, 400, 2);
+    }
+    money(`${L.total} TOTAL`, order.totals.totalCents, 36, 700, 6);
+
+    /* The single most consequential string on the ticket. Nothing is paid
+       online any more, so this must read as "COLLECT PAYMENT" — an earlier
+       revision inherited "PAID ONLINE" from the cancelled prepaid flow, which
+       would have had staff hand over food without taking money. */
+    c.banner(`${L.payAtCounter} · COLLECT PAYMENT`, { size: 30, marginTop: 12 });
   }
-  money(`${L.total} TOTAL`, order.totals.totalCents, 36, 700, 6);
 
-  /* The single most consequential string on the ticket. Nothing is paid
-     online any more, so this must read as "COLLECT PAYMENT" — an earlier
-     revision inherited "PAID ONLINE" from the cancelled prepaid flow, which
-     would have had staff hand over food without taking money. */
-  c.banner(`${L.payAtCounter} · COLLECT PAYMENT`, { size: 30, marginTop: 12 });
-
-    /* Which copy this is — quiet, under the banner, so staff can tell the
-       two apart at a glance without either looking like the "real" one.
-       The 中文 is used only when the subset font can actually draw it; the
-       labels are in glyphs.ts so the next `npm run build:ticket-font` picks
-       them up, and until then this prints the English, which is the same
-       rule every other bilingual string on the ticket follows. */
-    if (copies > 1) {
-      const which = copyLabelFor(copy, copies);
-      const label = pick(which.zh, which.en, coverage);
-      c.text(label.primary + (label.fallback ? "" : ` / ${which.en}`), {
+    /* The tear check: the same label as the top bar, small, at the very end of
+       the paper. Its job is not identification — the bar at the top does that
+       — but to prove the ticket came out whole. */
+    if (profile.labelEn) {
+      c.text(copyLabel, {
         size: 20,
         weight: 700,
         align: "center",
-        marginTop: 8,
+        marginTop: profile.priceBlock ? 8 : 14,
       });
     }
+
+    printed.push({
+      role: profile.role,
+      lineCents: profile.linePrices ? order.items.map((l) => l.lineCents) : [],
+      totals: profile.priceBlock
+        ? {
+            subtotal: order.totals.subtotalCents,
+            tax: order.totals.taxCents,
+            tip: order.totals.tipCents,
+            total: order.totals.totalCents,
+          }
+        : null,
+    });
   }
 
   const { svg, height } = c.toSvg(TICKET_WIDTH_PX, PAD);
-  return { svg, height, lines: c.placed, missing: [...c.missing] };
+  return { svg, height, lines: c.placed, missing: [...c.missing], money: printed };
 }
 
 /**

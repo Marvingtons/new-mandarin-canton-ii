@@ -1,6 +1,8 @@
 import "server-only";
 
 import { restaurant } from "@/data/restaurant";
+import { defaultCopyRoles, parseCopyRoles } from "@/lib/ticket/copies";
+import type { TicketCopyRole } from "@/lib/ticket/copies";
 import type {
   DayKey,
   OrderingWindow,
@@ -331,16 +333,31 @@ export function cronSecret(): string | null {
  * 0 turns the feature off: no cookie is set, and any already issued is refused.
  */
 /**
- * Copies of each ticket, stacked into one print job.
+ * Copies of each ticket in one print job, each cut from the last.
  *
  * Two by default: one stays with the cooks, one goes on the bag so whoever
- * hands the order over can check it without walking back to the line.
- * Separated by a printed tear line — see render.ts for why not a cut.
+ * hands the order over can check it without walking back to the line. The
+ * restaurant runs three — kitchen, bag, register.
  */
 export function ticketCopies(): number {
   const n = intEnv("TICKET_COPIES", 2);
   // Clamped: 0 would print nothing and a typo'd 50 would burn the roll.
   return Number.isFinite(n) && n >= 1 ? Math.min(n, 5) : 2;
+}
+
+/**
+ * WHICH copy each of those is, and therefore what it shows.
+ *
+ * The roles decide the render profile — the kitchen copy carries no prices at
+ * all (see lib/ticket/copies.ts). Unset is the normal case: the default
+ * sequence for the configured count is what the kitchen asked for. Set
+ * TICKET_COPY_ROLES to a comma list ("kitchen,register,bag") to reorder, and
+ * it is IGNORED unless it names exactly as many copies as TICKET_COPIES, so a
+ * half-edited variable can never silently drop a ticket.
+ */
+export function ticketCopyRoles(): TicketCopyRole[] {
+  const total = ticketCopies();
+  return parseCopyRoles(env("TICKET_COPY_ROLES")) ?? defaultCopyRoles(total);
 }
 
 /* ------------------------------------------------------- print patience --- */

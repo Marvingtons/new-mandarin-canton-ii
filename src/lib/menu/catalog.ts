@@ -29,11 +29,12 @@ import type {
  * so cents flow unchanged from the catalogue through the cart and the totals
  * to the printed ticket, and there is no rounding boundary to get wrong.
  *
- * The one transformation left is ENGLISH -> BILINGUAL: `menu.ts` carries no
- * 中文 (its `chineseName` field is declared but populated on zero items), so
- * the 中文 comes from menu-overrides.ts, which is also where vegetarian and
- * chef's-special markers are layered on. `spicy` is NOT layered here — the
- * printed menu's 🌶 set lives in menu.ts and nowhere else.
+ * 中文 comes straight from the catalogue now: every item in `menu.ts` carries
+ * its own `chineseName`, transcribed from the printed-menu document beside its
+ * price. menu-overrides.ts is left with what is NOT a dish name — the
+ * vegetarian / chef's-special markers, and the category, size and modifier
+ * vocabulary. `spicy` is layered from neither: the printed menu's 🌶 set lives
+ * in menu.ts and nowhere else.
  */
 
 /**
@@ -108,14 +109,13 @@ export function catalogMenu(): Menu {
 
   const categories: MenuCategory[] = catalog.map((category, index) => {
     const items: MenuItem[] = category.items.map((item) => {
-      const override = resolveItemOverride(item.id, item.name);
+      const override = resolveItemOverride(item.id);
 
       return {
         id: item.id,
         nameEn: override?.nameEn ?? item.name,
-        // menu.ts's own chineseName wins if it is ever populated; today the
-        // override map is the only source of 中文.
-        nameZh: item.chineseName ?? override?.nameZh ?? null,
+        // The catalogue's own name, and the only source of dish 中文.
+        nameZh: item.chineseName ?? null,
         description: item.description ?? override?.description ?? null,
         priceCents: item.priceCents,
         sizes: sizesFor(item),

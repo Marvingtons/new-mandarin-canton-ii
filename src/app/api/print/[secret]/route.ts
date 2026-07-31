@@ -6,6 +6,7 @@ import {
   printRenderCap,
   publicTenant,
   ticketCopies,
+  ticketCopyRoles,
 } from "@/config/tenant.server";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
@@ -281,7 +282,7 @@ async function publishJobBody(
   try {
     const ticket = await renderTicketJob(
       job,
-      { timezone: tenant.timezone, copies: ticketCopies() },
+      { timezone: tenant.timezone, copies: ticketCopies(), copyRoles: ticketCopyRoles() },
       {
         format: "starprnt",
         // Star's 512KB GET cap, expressed as rows. Applies to the R2 object
@@ -419,7 +420,7 @@ export async function GET(
       format === "starprnt" ? maxStarPrntRows(TICKET_WIDTH_PX) : limits.monoLen;
     const ticket = await renderTicketJob(
       job,
-      { timezone: tenant.timezone, copies: ticketCopies() },
+      { timezone: tenant.timezone, copies: ticketCopies(), copyRoles: ticketCopyRoles() },
       { format, maxHeight: ceiling, segment },
     );
 

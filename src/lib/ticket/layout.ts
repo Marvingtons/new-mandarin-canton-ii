@@ -38,6 +38,15 @@ export interface TextOptions {
   x?: number;
   /** Column width. Defaults to the canvas width minus `x`. */
   maxWidth?: number;
+  /**
+   * Narrower column for the FIRST line only.
+   *
+   * What lets an item name share its top row with a right-aligned line total:
+   * the first line stops short of the money column and the rest of the name
+   * uses the full width. Without it the whole name column would carry a gutter
+   * that only one row needs.
+   */
+  firstLineMaxWidth?: number;
   marginTop?: number;
   marginBottom?: number;
 }
@@ -152,13 +161,14 @@ export class Canvas {
       marginBottom = 0,
     } = options;
     const column = options.maxWidth ?? this.width - x;
+    const firstColumn = options.firstLineMaxWidth ?? column;
 
     this.cursor += marginTop;
     const start = this.cursor;
 
     for (const cp of this.metrics.missingIn(content, weight)) this.missing.add(cp);
 
-    const lines = this.metrics.wrap(content, size, weight, column);
+    const lines = this.metrics.wrap(content, size, weight, column, firstColumn);
     const lineBox = size * lineHeight;
     // Half-leading: centre the font's ascent+descent inside the line box, the
     // same vertical model CSS uses, so switching off satori did not move type.
@@ -166,18 +176,22 @@ export class Canvas {
     const baselineInBox =
       (lineBox - glyphHeight) / 2 + this.metrics.ascent * size;
 
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       const w = this.metrics.measure(line, size, weight);
+      // The column this particular line was wrapped into — the first one may
+      // be narrower. Recorded per line so the overflow assertion checks each
+      // against the width it actually had to respect.
+      const lineColumn = index === 0 ? firstColumn : column;
       let lineX = x;
-      if (align === "right") lineX = x + column - w;
-      else if (align === "center") lineX = x + (column - w) / 2;
+      if (align === "right") lineX = x + lineColumn - w;
+      else if (align === "center") lineX = x + (lineColumn - w) / 2;
 
       this.placed.push({
         text: line,
         x: this.originX + lineX,
         width: w,
         size,
-        column,
+        column: lineColumn,
       });
       this.ops.push(
         `<text x="${r(lineX)}" y="${r(this.cursor + baselineInBox)}" ` +

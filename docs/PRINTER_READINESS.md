@@ -352,7 +352,16 @@ listen. If silent, check firmware from the C2 self-test, then try `buzzer`.
 Nothing in this list stops paper coming out. All of it changes what the paper
 says.
 
-### D1. 中文 coverage — **34 of 138 items (24.6%)**
+### D1. 中文 coverage — ~~34 of 138 items (24.6%)~~ **CLOSED: 143 of 143 (100%)**
+
+> **Superseded.** The family's printed-menu document
+> ([`nmc-menu-prices-with-traditional-chinese.md`](./nmc-menu-prices-with-traditional-chinese.md))
+> supplied a Traditional Chinese name for every dish; they are now imported into
+> `src/data/menu.ts` as `chineseName`, one per item beside its price.
+> `npm run ticket:sample` reports 143/143. The `⚠ EN` marker described below no
+> longer exists — the ticket is English-primary with the 中文 underneath, and a
+> dish without 中文 simply prints one line. Everything from here to the end of
+> D1 is the record of the gap, not the current state.
 
 Measured by building the real catalogue via `catalogMenu()`, and independently
 confirmed by `npm run ticket:sample`, which reports the same figure.
@@ -381,19 +390,35 @@ actually emit via the app's own `collectTicketGlyphs()`, then parsed the **real
 cmap** out of both committed TTFs (formats 4 and 12) rather than trusting
 `ticket-font-coverage.json`.
 
+That one-off check is now a committed script — `npm run verify:ticket-glyphs` —
+and it does one thing the original did not: it enumerates the reachable strings
+**independently**, from `catalogMenu()`, instead of trusting
+`collectTicketGlyphs()`. Checking the font against the collector can only prove
+the subsetter obeyed; the failure that reaches paper is a string the collector
+never walked. That was real: the combo panels (lunch specials, family dinners
+and their entrée choices) were orderable while the collector read only the
+override maps, so 午市套餐 was one order away from printing □.
+
+Current, after the D1 import and a re-run of `build:ticket-font`:
+
 | | count |
 |---|---|
-| glyphs the ticket can emit | 215 |
-| cmap codepoints, `NotoSansTC-Ticket-Regular.ttf` | 215 |
-| cmap codepoints, `NotoSansTC-Ticket-Bold.ttf` | 215 |
-| codepoints in `ticket-font-coverage.json` | 215 |
+| reachable codepoints (independent walk of `catalogMenu()`) | 266 |
+| glyphs the ticket can emit (`collectTicketGlyphs()`) | 313 |
+| cmap codepoints, `NotoSansTC-Ticket-Regular.ttf` | 313 |
+| cmap codepoints, `NotoSansTC-Ticket-Bold.ttf` | 313 |
+| codepoints in `ticket-font-coverage.json` | 313 |
+| reachable but never collected | **0** |
 | **missing from either weight** | **0** |
 
-**No tofu (□) will print.** `build-ticket-font.ts` has been run since the last
-`nameZh` addition, and `subset-font` is installed, so it can be re-run.
+**No tofu (□) will print** for anything the menu can produce. Customer free text
+(special instructions) is the one exception no subset can cover: an unexpected
+character there renders as `.notdef` and is reported to the server log by
+`rasterizeTicket`.
 
-⚠️ **Re-run `npm run build:ticket-font` after any D1 work** — every new 中文
-name is a new glyph, and a missing one prints as tofu on real paper.
+⚠️ **Re-run `npm run build:ticket-font -- <NotoSansTC[wght].ttf>` after adding
+any 中文**, then `npm run verify:ticket-glyphs` — every new name is a new glyph,
+and a missing one prints as tofu on real paper.
 
 ### D3. Party-tray prices — **NOT VERIFIED, and the file says so**
 

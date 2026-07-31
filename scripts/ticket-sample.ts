@@ -4,21 +4,26 @@
  *
  *   npm run ticket:sample
  *
- * The fixtures deliberately cover the cases that break ticket layouts:
- *   - an item WITH 中文 (the happy path)
- *   - an item with NO 中文, which must print English plus a loud ⚠ EN marker
- *   - an item with four modifiers, one of which has no 中文
- *   - a three-line special instruction
+ * The fixtures live in scripts/fixtures/orders.ts, shared with
+ * `npm run ticket:heights`, and deliberately cover the cases that break ticket
+ * layouts:
+ *   - the baseline order: 中文 under every dish, a size chip, six modifiers,
+ *     and a three-line special instruction
+ *   - an off-menu item with NO 中文, which prints English alone and no marker
  *   - a TWELVE-LINE party-tray order, the long-ticket case
+ *   - a MIXED-SIZE order — one line per size tier the catalogue can produce,
+ *     which is the only way to prove an exception-based size chip
+ *   - a FULL-MENU-BREADTH order, one dish from every category including the
+ *     combos, which is where a missed 中文 import would print
  *   - a reprint header
- *   - a WRAPPING TORTURE order: a 40-char English name, a 20-char unbroken
+ *   - a WRAPPING TORTURE order: a 52-char English name, a 20-char unbroken
  *     token, and a mixed CJK/Latin modifier — the cases a hand-rolled wrapper
  *     gets wrong. Every laid-out line is asserted against its column, so an
  *     overflow fails the script instead of being noticed on paper.
  *
  * Lines are built through the real `resolveOrderLine` against the real
- * catalogue, so this exercises the same override lookup and integer-cent
- * arithmetic production uses — a missing translation shows up here first.
+ * catalogue, so this exercises the same lookup and integer-cent arithmetic
+ * production uses — a missing translation shows up here first.
  */
 
 import { writeFile } from "node:fs/promises";
@@ -27,7 +32,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveOrderLine } from "../src/lib/orders/lines";
 import {
   composeTicketSvg,
   rasterizeTicket,
@@ -42,303 +46,20 @@ import {
   thresholdToInk,
   MAX_JOB_BYTES,
 } from "../src/lib/ticket/starprnt";
-import type { MenuItem } from "../src/lib/menu/types";
-import type { Order, OrderLine } from "../src/lib/orders/types";
+import { formatCents } from "../src/lib/money";
+import type { Order } from "../src/lib/orders/types";
+import {
+  breadthOrder,
+  fixtureOrder,
+  longOrder,
+  malformedOrder,
+  mixedSizeOrder,
+  sqlShapedOrder,
+  tortureOrder,
+  typicalOrder,
+} from "./fixtures/orders";
 
 const TIMEZONE = "America/Los_Angeles";
-
-/** Minimal MenuItem builder — mirrors the seed menu's shape. */
-function fixtureItem(over: Partial<MenuItem> & Pick<MenuItem, "id" | "nameEn">): MenuItem {
-  return {
-    nameZh: null,
-    description: null,
-    priceCents: 1995,
-    categoryId: "fixtures",
-    modifierGroups: [],
-    spicy: false,
-    vegetarian: false,
-    chefSpecial: false,
-    available: true,
-    ...over,
-  };
-}
-
-/** An item carrying a long, realistic modifier group. */
-const kungPao = fixtureItem({
-  id: "kung-pao-chicken",
-  // Matches "Kung Pao Chicken" in menu-overrides -> 宮保雞丁
-  nameEn: "Kung Pao Chicken",
-  priceCents: 2250,
-  sizes: [
-    { id: "individual", label: "Individual", priceCents: 2250 },
-    { id: "party-tray", label: "Party Tray", priceCents: 9000 },
-  ],
-  modifierGroups: [
-    {
-      id: "heat",
-      nameEn: "Heat Level",
-      nameZh: null,
-      minRequired: 1,
-      maxAllowed: 1,
-      modifiers: [
-        { id: "mod-extra-spicy", nameEn: "Extra Spicy", nameZh: null, priceCents: 0 },
-        { id: "mod-mild", nameEn: "Mild Spicy", nameZh: null, priceCents: 0 },
-      ],
-    },
-    {
-      id: "adds",
-      nameEn: "Add-ons",
-      nameZh: null,
-      minRequired: 0,
-      maxAllowed: null,
-      modifiers: [
-        { id: "mod-no-peanuts", nameEn: "No Peanuts", nameZh: null, priceCents: 0 },
-        { id: "mod-no-msg", nameEn: "No MSG", nameZh: null, priceCents: 0 },
-        { id: "mod-sauce-side", nameEn: "Sauce on the Side", nameZh: null, priceCents: 0 },
-        { id: "mod-add-shrimp", nameEn: "Add Shrimp", nameZh: null, priceCents: 450 },
-        // No override exists for this one — it must print with the marker.
-        { id: "mod-wok-hei", nameEn: "Extra Wok Hei Char", nameZh: null, priceCents: 0 },
-      ],
-    },
-  ],
-});
-
-/** No override exists for this name — the missing-中文 case. */
-const orangeChicken = fixtureItem({
-  id: "orange-chicken",
-  nameEn: "Orange Flavored Chicken",
-  priceCents: 1995,
-});
-
-const mongolianBeef = fixtureItem({
-  id: "mongolian-beef",
-  // Matches "Mongolian Beef" -> 蒙古牛
-  nameEn: "Mongolian Beef",
-  priceCents: 2150,
-});
-
-function buildLines(): OrderLine[] {
-  return [
-    resolveOrderLine(
-      kungPao,
-      "party-tray",
-      [
-        "mod-extra-spicy",
-        "mod-no-peanuts",
-        "mod-no-msg",
-        "mod-sauce-side",
-        "mod-add-shrimp",
-        "mod-wok-hei",
-      ],
-      2,
-      // Three lines of instruction, the length that usually breaks a layout.
-      "Customer is severely allergic to peanuts — please use a clean wok and " +
-        "fresh oil. Pack the sauce separately in a lidded container. " +
-        "Ring the phone number on arrival, do not knock.",
-    ),
-    resolveOrderLine(orangeChicken, "regular", [], 1),
-    resolveOrderLine(mongolianBeef, "regular", [], 3),
-  ];
-}
-
-function fixtureOrder(): Order {
-  const lines = buildLines();
-  const subtotalCents = lines.reduce((n, l) => n + l.lineCents, 0);
-  const taxCents = Math.round((subtotalCents * 775) / 10000);
-
-  return {
-    id: 1,
-    tenantId: "fixture",
-    orderNumber: "A-017",
-    businessDate: "2026-07-27",
-    status: "QUEUED",
-    idempotencyKey: "fixture-key",
-    items: lines,
-    totals: { subtotalCents, taxCents, tipCents: 0, totalCents: subtotalCents + taxCents },
-    customer: { name: "Marvin W.", phone: "+16195550148" },
-    phoneVerifiedAt: new Date("2026-07-27T01:00:00.000Z").toISOString(),
-    pickupAt: new Date("2026-07-27T01:45:00.000Z").toISOString(),
-    readyFrom: new Date("2026-07-27T01:45:00.000Z").toISOString(),
-    readyTo: new Date("2026-07-27T01:50:00.000Z").toISOString(),
-    printAttempts: 0,
-    printedAt: null,
-    lastPrintError: null,
-    alertedAt: null,
-    createdAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
-    updatedAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
-  };
-}
-
-/**
- * A twelve-line party-tray order, built from the REAL catalogue.
- *
- * This is the fixture that catches layout problems the small one hides: a tall
- * ticket, a mix of translated and untranslated dishes, and every party tray
- * the tray map actually knows about.
- */
-async function longOrder(): Promise<Order> {
-  const { catalogMenu } = await import("../src/lib/menu/catalog");
-  const menu = catalogMenu();
-  const all = menu.categories.flatMap((c) => c.items);
-
-  // Prefer real tray items so the size line is exercised, then top up to 12.
-  const trays = all.filter((i) => (i.sizes?.length ?? 0) > 1).slice(0, 8);
-  const singles = all.filter((i) => (i.sizes?.length ?? 0) <= 1).slice(0, 12 - trays.length);
-  const chosen = [...trays, ...singles].slice(0, 12);
-
-  const lines = chosen.map((item, index) =>
-    resolveOrderLine(
-      item,
-      (item.sizes?.length ?? 0) > 1 ? "party-tray" : "regular",
-      [],
-      (index % 3) + 1,
-    ),
-  );
-
-  const subtotalCents = lines.reduce((n, l) => n + l.lineCents, 0);
-  const taxCents = Math.round((subtotalCents * 775) / 10000);
-
-  return {
-    ...fixtureOrder(),
-    orderNumber: "A-042",
-    items: lines,
-    totals: { subtotalCents, taxCents, tipCents: 0, totalCents: subtotalCents + taxCents },
-    customer: { name: "Party Of Twelve", phone: "+16195550188" },
-  };
-}
-
-/**
- * The wrapping torture fixture. Every string here is chosen to break a
- * hand-rolled wrapper in a different way:
- *   - a 40-character English item name, far past one line at 40px
- *   - a 20-character unbroken token, which cannot be split on a space and has
- *     to be shattered per character
- *   - a modifier that switches between CJK and Latin mid-string, where the
- *     break rule changes from per-character to per-word and back
- */
-const tortureItems = {
-  longName: fixtureItem({
-    id: "torture-long-name",
-    nameEn: "Twice Cooked Pork Belly With Preserved Mustard Greens",
-    priceCents: 2495,
-    modifierGroups: [
-      {
-        id: "torture-mods",
-        nameEn: "Preparation",
-        nameZh: null,
-        minRequired: 0,
-        maxAllowed: null,
-        modifiers: [
-          { id: "mod-unbroken", nameEn: "Supercalifragilistic", nameZh: null, priceCents: 0 },
-          { id: "mod-mixed", nameEn: "加辣 extra spicy 走花生 no peanuts 汁另上", nameZh: null, priceCents: 0 },
-        ],
-      },
-    ],
-  }),
-  unbroken: fixtureItem({
-    id: "torture-unbroken",
-    nameEn: "Pneumonoultramicroscopicsilicovolcanoconiosis",
-    priceCents: 995,
-  }),
-};
-
-function tortureOrder(): Order {
-  const lines = [
-    resolveOrderLine(
-      tortureItems.longName,
-      "regular",
-      ["mod-unbroken", "mod-mixed"],
-      1,
-      "Antidisestablishmentarianism — 請不要放味精 and absolutely no " +
-        "Worcestershiresauceonanything at all, thank you very much indeed.",
-    ),
-    resolveOrderLine(tortureItems.unbroken, "regular", [], 2),
-  ];
-  const subtotalCents = lines.reduce((n, l) => n + l.lineCents, 0);
-  const taxCents = Math.round((subtotalCents * 775) / 10000);
-  return {
-    ...fixtureOrder(),
-    orderNumber: "A-999",
-    items: lines,
-    totals: {
-      subtotalCents,
-      taxCents,
-      tipCents: 0,
-      totalCents: subtotalCents + taxCents,
-    },
-    customer: { name: "Bartholomew Featherstonehaugh", phone: "+16195550199" },
-  };
-}
-
-/**
- * A row as a hand-written INSERT leaves it: every NOT NULL column present,
- * every OPTIONAL field of the jsonb payloads absent.
- *
- * This is the shape that took production down. `mapOrder` casts the jsonb
- * columns straight through, so an operator writing `items` by hand during an
- * incident produces exactly this: name, qty, price, and none of the fields the
- * layout iterates. An item without `nameEn` put undefined into the measurer and
- * threw "text is not iterable" — "A11 is not iterable" once minified.
- *
- * Deliberately built with `as unknown as Order` rather than a typed literal:
- * the type system is what is ABSENT on this path, so a fixture that satisfies
- * it would test nothing.
- */
-function sqlShapedOrder(): Order {
-  return {
-    id: 996,
-    tenantId: "fixture",
-    orderNumber: "T-996",
-    businessDate: "2026-07-30",
-    status: "QUEUED",
-    idempotencyKey: "manual-t996",
-    // Only what a human types. No nameZh, no sizeLabelZh, no modifiers,
-    // no specialInstructions.
-    items: [
-      {
-        itemId: "kung-pao",
-        nameEn: "Kung Pao Chicken",
-        quantity: 2,
-        sizeId: "regular",
-        sizeLabel: "Regular",
-        unitCents: 1495,
-        lineCents: 2990,
-      },
-      // The worst case: an item with nothing but a price.
-      { itemId: "mystery", lineCents: 500 },
-    ],
-    totals: { subtotalCents: 3490, taxCents: 270, tipCents: 0, totalCents: 3760 },
-    customer: { name: "Walk In", phone: "+16195550100" },
-    phoneVerifiedAt: new Date("2026-07-30T01:00:00.000Z").toISOString(),
-    pickupAt: new Date("2026-07-30T01:45:00.000Z").toISOString(),
-    readyFrom: null,
-    readyTo: null,
-    printAttempts: 0,
-    printedAt: null,
-    lastPrintError: null,
-    alertedAt: null,
-    createdAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
-    updatedAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
-  } as unknown as Order;
-}
-
-/**
- * The same idea taken further: the jsonb columns hold the WRONG TYPE, not just
- * missing keys. A jsonb column can hold an object where an array belongs, and a
- * TEXT column holding JSON comes back as a string — which is iterable, so it
- * would render one ticket line per character rather than failing loudly.
- */
-function malformedOrder(): Order {
-  const base = sqlShapedOrder() as unknown as Record<string, unknown>;
-  return {
-    ...base,
-    orderNumber: "T-997",
-    // object where an array belongs
-    items: { 0: { itemId: "x", nameEn: "Object Not Array", quantity: 1, lineCents: 100 } },
-    customer: {},
-    totals: {},
-  } as unknown as Order;
-}
 
 /** Ticket padding, so the assertion can work in page coordinates. */
 const PAD = 20;
@@ -685,17 +406,99 @@ async function assertDecodable(out: string, info: PngInfo): Promise<void> {
   }
 }
 
+/**
+ * The ticket's arithmetic, checked against what it actually PRINTED.
+ *
+ * composeTicketSvg reports the money it drew, per copy — not the money the
+ * order carries — so this catches a renderer that shows one number and sums a
+ * different one. Two invariants, both of which a customer would notice:
+ *
+ *   1. the printed line totals sum EXACTLY to the printed subtotal
+ *   2. printed subtotal + tax + tip is EXACTLY the printed total
+ *
+ * Integer cents throughout, so "exactly" means ===. A ticket whose column does
+ * not add up is a dispute at the counter with the paper on the customer's side.
+ *
+ * The kitchen copy prints no money at all; it is checked for that instead.
+ */
+async function assertTotalsAddUp(
+  name: string,
+  order: Order,
+  copies: number,
+): Promise<void> {
+  const { money } = await composeTicketSvg(order, { timezone: TIMEZONE, copies });
+  if (money.length !== copies) {
+    throw new Error(`${name}: composed ${money.length} copies, expected ${copies}`);
+  }
+
+  const shown: string[] = [];
+  for (const copy of money) {
+    if (copy.totals === null) {
+      if (copy.lineCents.length > 0) {
+        throw new Error(
+          `${name} (${copy.role}): no totals block but ${copy.lineCents.length} line price(s) — ` +
+            "a copy that shows prices must show what they add up to",
+        );
+      }
+      shown.push(`${copy.role}: no money`);
+      continue;
+    }
+    const { subtotal, tax, tip, total } = copy.totals;
+    const sum = copy.lineCents.reduce((n, c) => n + c, 0);
+    if (sum !== subtotal) {
+      throw new Error(
+        `${name} (${copy.role}): line totals sum to ${sum}c but the printed subtotal is ` +
+          `${subtotal}c — the columns do not add up`,
+      );
+    }
+    if (subtotal + tax + tip !== total) {
+      throw new Error(
+        `${name} (${copy.role}): ${subtotal} + ${tax} + ${tip} != ${total} — ` +
+          "the printed total is not the sum of the printed parts",
+      );
+    }
+    shown.push(`${copy.role}: ${copy.lineCents.length} lines = ${formatCents(subtotal)} → ${formatCents(total)}`);
+  }
+  console.log(`  ${name.padEnd(24)} ${shown.join("   ")} ✓`);
+}
+
+/**
+ * Stored line totals really are qty × unit, in integer cents.
+ *
+ * The ticket prints `lineCents` — the number that was summed into the subtotal
+ * — and this is what proves that number is the multiplication the layout spec
+ * asks for rather than something that drifted. Catalogue-built orders only: a
+ * hand-written incident row carries whatever an operator typed, which is the
+ * whole point of those fixtures.
+ */
+function assertLinesAreQtyTimesUnit(name: string, order: Order): void {
+  for (const line of order.items) {
+    if (line.lineCents !== line.quantity * line.unitCents) {
+      throw new Error(
+        `${name}: "${line.nameEn}" stores ${line.lineCents}c but ` +
+          `${line.quantity} × ${line.unitCents}c is ${line.quantity * line.unitCents}c`,
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const order = fixtureOrder();
+  const typical = await typicalOrder();
   const long = await longOrder();
+  const mixed = await mixedSizeOrder();
+  const breadth = await breadthOrder();
   const torture = tortureOrder();
 
   const sqlShaped = sqlShapedOrder();
   const malformed = malformedOrder();
 
   await render("ticket-sample.png", order);
+  await render("ticket-sample-typical.png", typical);
   await render("ticket-sample-reprint.png", order, true);
   await render("ticket-sample-long.png", long);
+  await render("ticket-sample-mixed-sizes.png", mixed);
+  await render("ticket-sample-breadth.png", breadth);
   await render("ticket-sample-torture.png", torture);
   // Worst case in production: the 12-line tray at the tenant default of two
   // copies, stacked into one job body with a tear line between them.
@@ -710,12 +513,72 @@ async function main(): Promise<void> {
   // a layout engine used to provide.
   console.log("\nwrapping assertions:");
   await assertNoOverflow("ticket-sample", order);
+  await assertNoOverflow("ticket-sample-typical", typical);
   await assertNoOverflow("ticket-sample-reprint", order, true);
   await assertNoOverflow("ticket-sample-long", long);
+  await assertNoOverflow("ticket-sample-mixed-sizes", mixed);
+  await assertNoOverflow("ticket-sample-breadth", breadth);
   await assertNoOverflow("ticket-sample-torture", torture);
   await assertNoOverflow("ticket-sample-sql-shaped", sqlShaped);
   await assertNoOverflow("ticket-sample-malformed", malformed);
   console.log("  all lines within their columns and inside 576px ✓");
+
+  // THE COLUMNS ADD UP. Asserted against what the renderer printed, on every
+  // copy profile, for every fixture whose stored totals are coherent.
+  console.log("\ntotals integrity (3 copies: kitchen / bag / register):");
+  for (const [name, o] of [
+    ["baseline", order],
+    ["typical", typical],
+    ["12-line party tray", long],
+    ["mixed sizes", mixed],
+    ["full-menu breadth", breadth],
+    ["wrapping torture", torture],
+    ["sql-shaped", sqlShaped],
+  ] as [string, Order][]) {
+    await assertTotalsAddUp(name, o, 3);
+  }
+  for (const [name, o] of [
+    ["baseline", order],
+    ["typical", typical],
+    ["12-line party tray", long],
+    ["mixed sizes", mixed],
+    ["full-menu breadth", breadth],
+    ["wrapping torture", torture],
+  ] as [string, Order][]) {
+    assertLinesAreQtyTimesUnit(name, o);
+  }
+  console.log("  every printed line total is qty × unit, and every column sums ✓");
+  // The malformed fixture stores `totals: {}` on purpose, so its printed
+  // subtotal is 0 while its one line prints $1.00. That is faithful rendering
+  // of an incoherent row, not a renderer bug — the assertion above would
+  // (correctly) fail on it, so it is excluded and said so out loud.
+  console.log(
+    "  (malformed fixture excluded: its stored totals are empty by design, " +
+      "so no renderer could make its column add up)",
+  );
+
+  // The three copy profiles, side by side, from ONE order. This is the picture
+  // the layout change is about: the kitchen copy is the short one.
+  console.log("\ncopy profiles (same order, one job):");
+  for (let copy = 0; copy < 3; copy++) {
+    const { height, money } = await composeTicketSvg(order, {
+      timezone: TIMEZONE,
+      copies: 3,
+      copyIndex: copy,
+    });
+    const png = await renderTicket(order, {
+      timezone: TIMEZONE,
+      copies: 3,
+      copyIndex: copy,
+    });
+    const out = join(tmpdir(), `ticket-sample-copy-${copy + 1}-${money[0].role}.png`);
+    await writeFile(out, png);
+    console.log(
+      `  ${money[0].role.padEnd(9)} ${String(height).padStart(5)}px  ` +
+        `${money[0].lineCents.length ? "line prices" : "no line prices"}, ` +
+        `${money[0].totals ? "totals block" : "no totals block"}  ->  ${out}`,
+    );
+  }
 
   // Both job formats for every fixture, with the StarPRNT payload walked back
   // to pixels and diffed against the threshold that produced it.
@@ -723,6 +586,8 @@ async function main(): Promise<void> {
   await assertFormats("short ticket", order);
   await assertFormats("reprint", order);
   await assertFormats("12-line party tray", long);
+  await assertFormats("mixed sizes", mixed);
+  await assertFormats("full-menu breadth", breadth);
   await assertFormats("wrapping torture", torture);
   // Multi-copy is not checked here: a copies>1 starprnt job is now several
   // rasters with cuts between them, not one tall one, so it decodes to N
@@ -819,9 +684,9 @@ async function main(): Promise<void> {
     await assertSplitsCleanly(long, ceiling);
   }
 
-  // Report what the override lookup actually resolved, so a missing 中文 is
-  // visible in the build log too and not only on the paper.
-  console.log("\nresolved names (short ticket):");
+  // Report what the catalogue actually resolved, so a missing 中文 is visible
+  // in the build log too and not only on the paper.
+  console.log("\nresolved names (baseline ticket):");
   for (const line of order.items) {
     console.log(
       `  ${line.nameZh ?? "(no 中文)"} <- ${line.nameEn}` +
@@ -833,16 +698,20 @@ async function main(): Promise<void> {
     );
   }
 
-  // How much of the real catalogue can print in 中文 today? This is the
-  // translation backlog, stated as a number rather than left to be discovered
-  // one ticket at a time.
+  // How much of the real catalogue can print in 中文? Anything short of 100%
+  // is now a gap in the import rather than a translation backlog.
   const { catalogMenu } = await import("../src/lib/menu/catalog");
   const items = catalogMenu().categories.flatMap((c) => c.items);
-  const withZh = items.filter((i) => i.nameZh).length;
+  const withoutZh = items.filter((i) => !i.nameZh);
   console.log(
-    `\ncatalogue coverage: ${withZh}/${items.length} items have 中文 ` +
-      `(${Math.round((withZh / items.length) * 100)}%). The rest print English with ⚠ EN.`,
+    `\ncatalogue coverage: ${items.length - withoutZh.length}/${items.length} items have 中文 ` +
+      `(${Math.round(((items.length - withoutZh.length) / items.length) * 100)}%).`,
   );
+  if (withoutZh.length > 0) {
+    console.log(
+      `  missing: ${withoutZh.map((i) => i.id).join(", ")} — these print English alone.`,
+    );
+  }
 }
 
 main().catch((err: unknown) => {

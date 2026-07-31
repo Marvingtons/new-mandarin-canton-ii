@@ -44,8 +44,20 @@ export interface TicketMetrics {
    * Break `text` so no line exceeds `maxWidth`. CJK breaks per character;
    * Latin breaks on spaces, with a per-character fallback for tokens too long
    * to fit a line on their own.
+   *
+   * `firstLineWidth`, when given, applies to the FIRST line only. That is what
+   * lets a right-aligned line total share a row with the item name it belongs
+   * to: the name's first line stops short of the money column, and every line
+   * after it uses the full width. Without it the whole name column would have
+   * to be narrowed for a gutter only the first row uses.
    */
-  wrap(text: string, fontSize: number, weight: Weight, maxWidth: number): string[];
+  wrap(
+    text: string,
+    fontSize: number,
+    weight: Weight,
+    maxWidth: number,
+    firstLineWidth?: number,
+  ): string[];
   /** Codepoints in `text` that the subset cannot draw. */
   missingIn(text: string, weight: Weight): number[];
   /** Font ascent as a multiple of the font size. */
@@ -153,17 +165,40 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
     return em * fontSize;
   };
 
-  /** Split into atoms: one per CJK char, one per whitespace run, one per word. */
+  /**
+   * Split into atoms: one per CJK char, one per whitespace run, one per word.
+   *
+   * ONE EXCEPTION — a 【…】 chip is a single atom.
+   *
+   * The size markers the ticket prints are bracketed tokens like 【餐盤 TRAY】.
+   * Every character in one is individually breakable under the rule above —
+   * CJK breaks anywhere, and there is a space in the middle — so a chip landing
+   * at a line boundary would print as "【餐盤" on one line and "TRAY】" on the
+   * next. A chip is a badge, not a phrase; it moves whole or not at all.
+   */
   const atomize = (text: string): string[] => {
     const atoms: string[] = [];
     let word = "";
+    let inChip = false;
     const flush = () => {
       if (word) atoms.push(word);
       word = "";
     };
     for (const ch of text) {
       const cp = ch.codePointAt(0) ?? 0;
-      if (ch === " " || ch === "\t") {
+      if (inChip) {
+        word += ch;
+        if (ch === "】") {
+          inChip = false;
+          flush();
+        }
+        continue;
+      }
+      if (ch === "【") {
+        flush();
+        word = ch;
+        inChip = true;
+      } else if (ch === " " || ch === "\t") {
         flush();
         atoms.push(" ");
       } else if (breaksAnywhere(cp)) {
@@ -204,10 +239,19 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
     fontSize: number,
     weight: Weight,
     maxWidth: number,
+    firstLineWidth?: number,
   ): string[] => {
     // Honour hard newlines first; each is wrapped independently.
     const paragraphs = text.split("\n");
     const lines: string[] = [];
+
+    /**
+     * The column the line being built has to fit. Only the very first line of
+     * the whole block gets the narrowed width — a hard newline starts a new
+     * paragraph, not a new first row.
+     */
+    const limit = () =>
+      lines.length === 0 && firstLineWidth !== undefined ? firstLineWidth : maxWidth;
 
     for (const paragraph of paragraphs) {
       let line = "";
@@ -222,7 +266,7 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
         if (atom === " " && line === "") continue;
 
         const candidate = line + atom;
-        if (measure(candidate, fontSize, weight) <= maxWidth) {
+        if (measure(candidate, fontSize, weight) <= limit()) {
           line = candidate;
           continue;
         }
@@ -231,14 +275,20 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
         push();
         if (atom === " ") continue;
 
-        if (measure(atom, fontSize, weight) <= maxWidth) {
+        if (measure(atom, fontSize, weight) <= limit()) {
           line = atom;
         } else {
           // Single atom wider than the column — break it by character. Every
-          // chunk but the last is a finished line.
-          const chunks = shatter(atom, fontSize, weight, maxWidth);
-          for (let i = 0; i < chunks.length - 1; i++) lines.push(chunks[i]);
-          line = chunks[chunks.length - 1] ?? "";
+          // chunk but the last is a finished line, and closing one can widen
+          // the limit, so the chunks are taken one line at a time.
+          let rest = atom;
+          while (measure(rest, fontSize, weight) > limit()) {
+            const chunks = shatter(rest, fontSize, weight, limit());
+            if (chunks.length <= 1) break;
+            lines.push(chunks[0]);
+            rest = chunks.slice(1).join("");
+          }
+          line = rest;
         }
       }
       push();
@@ -254,7 +304,9 @@ export async function loadTicketMetrics(): Promise<TicketMetrics> {
     fontSize: number,
     weight: Weight,
     maxWidth: number,
-  ): string[] => wrapInner(str(raw), fontSize, weight, maxWidth);
+    firstLineWidth?: number,
+  ): string[] =>
+    wrapInner(str(raw), fontSize, weight, maxWidth, firstLineWidth);
 
   const missingIn = (raw: string, weight: Weight): number[] => {
     const text = str(raw);

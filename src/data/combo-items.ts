@@ -1,6 +1,6 @@
-import { combos } from "@/data/menu";
+import { combos, dishZh } from "@/data/menu";
 import type { LunchChoice } from "@/data/menu";
-import { resolveItemOverride, resolveModifierZh } from "@/data/menu-overrides";
+import { resolveModifierZh } from "@/data/menu-overrides";
 import type { MenuItem, MenuModifier, MenuSize } from "@/lib/menu/types";
 
 /**
@@ -65,16 +65,17 @@ function slug(value: string): string {
 /**
  * An entrée choice as a free modifier.
  *
- * 中文 is looked up through the SAME override map the à la carte items use, so
- * "Kung Pao Chicken" on a lunch special prints the same 宮保雞丁 it prints as
- * its own dish. No second translation to keep in sync.
+ * 中文 is read from the SAME catalogue row the à la carte item reads, so "Kung
+ * Pao Chicken" on a lunch special prints the same 宮保雞丁 it prints as its own
+ * dish. No second translation to keep in sync — `dishZh` also carries the
+ * aliases for the spellings this column of the printed menu abbreviates.
  */
 function choiceModifier(choice: LunchChoice): MenuModifier {
   const { name } = choice;
   return {
     id: slug(name),
     nameEn: name,
-    nameZh: resolveModifierZh(name) ?? resolveItemOverride(slug(name), name)?.nameZh ?? null,
+    nameZh: resolveModifierZh(name) ?? dishZh(name),
     // Zero, always: the tier price is the price of a lunch special.
     priceCents: 0,
     note: choice.noRiceSide ? NO_RICE_SIDE_NOTE : undefined,
@@ -105,6 +106,7 @@ function lunchItems(): MenuItem[] {
     // The printed menu titles these by price; "Lunch Special" reads better in
     // a cart, with the included sides as the subtitle.
     nameEn: "Lunch Special",
+    // TODO(confirm): descriptive translation, family to approve
     nameZh: "午市套餐",
     description: lunchSidesSentence(set.sides ?? []),
     priceCents: set.priceCents,
@@ -114,6 +116,7 @@ function lunchItems(): MenuItem[] {
           {
             id: `${set.id}-entree`,
             nameEn: "Choose your entrée",
+            // TODO(confirm): descriptive translation, family to approve
             nameZh: "選主菜",
             minRequired: 1,
             maxAllowed: 1,
@@ -159,6 +162,7 @@ function familyItems(): MenuItem[] {
     return {
       id: `combo-${set.id}`,
       nameEn: set.name,
+      // TODO(confirm): descriptive translation, family to approve
       nameZh: i === 0 ? "家庭套餐一" : "家庭套餐二",
       description: [courses, addOns].filter(Boolean).join(" — ") || null,
       // Base price is the two-person minimum; sizes carry the real tiers.
@@ -182,6 +186,7 @@ function bigFamilyItems(): MenuItem[] {
   return section.sets.map((set) => ({
     id: `combo-${set.id}`,
     nameEn: `Big Family Dinner — ${set.name}`,
+    // TODO(confirm): descriptive translation, family to approve
     nameZh: "大家庭套餐",
     description: (set.dishes ?? []).join(" · ") || null,
     priceCents: set.priceCents,

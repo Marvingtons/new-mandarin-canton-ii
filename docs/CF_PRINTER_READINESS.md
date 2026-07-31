@@ -78,7 +78,15 @@ initPromise ??= (async () => {
 Caching the promise (not a flag) is right: `initWasm`'s own guard is set after
 an internal await, so two cold-start requests would both pass a boolean check.
 
-### FINDING — combo 中文 can never print (`PARTIAL`, no tofu)
+### FINDING — combo 中文 can never print (~~`PARTIAL`~~ **FIXED**)
+
+> **Fixed.** `collectTicketGlyphs()` now walks `menu.ts` and `comboCategories()`
+> directly — item names both languages, size labels, modifier groups and every
+> entrée choice — so all five strings below are in the subset. And the circular
+> audit this finding called out is gone: `npm run verify:ticket-glyphs`
+> enumerates the reachable strings **independently**, from `catalogMenu()`, and
+> checks them against the real cmap. It reports `reachable but never collected:
+> 0`, which is the number this finding is about. Everything below is the record.
 
 `collectTicketGlyphs()` ([glyphs.ts:72-92](../src/lib/ticket/glyphs.ts#L72))
 reads only `itemOverridesById`, `itemOverridesByName`, `categoryZhByName`,
@@ -256,7 +264,7 @@ and uses an indexed read; anything new must do the same.
 | `DEPLOY_RUNBOOK.md:31,50` — `DATABASE_URL` must be **pooled 6543** | Vercel-era guidance. On Workers, Hyperdrive supplies the string and must be given the **direct 5432** string. The runbook never mentions Hyperdrive | **Runbook is stale.** Code wins |
 | `DEPLOY_RUNBOOK.md` curl smoke test targets a Vercel domain shape | Deploy target is now `*.workers.dev` / a Workers custom domain | Stale |
 | `PRINTER_READINESS.md` A1 — font tracing is "BLOCKING, production-only" | Disproven during the migration; `outputFileTracingIncludes` is gone entirely and irrelevant on Workers | Superseded |
-| `PRINTER_READINESS.md` D2 — "font subset is CURRENT, no tofu" | Still true for tofu, but **incomplete**: the collector never sees `combo-items.ts`, so 5 combo strings can never print | Partially wrong |
+| `PRINTER_READINESS.md` D2 — "font subset is CURRENT, no tofu" | ~~**incomplete**: the collector never sees `combo-items.ts`~~ — fixed; the collector walks the combos and `verify:ticket-glyphs` checks reachability independently | Resolved |
 | `GAP_REPORT.md:95` — "satori + @resvg/resvg-js DONE … externalized in next.config.ts:15" | Native resvg is gone; that line no longer exists | Stale (untracked doc) |
 | `env-inventory.md` — "nothing broken at baseline" | True at `c700a80`. Not true now on Workers | Point-in-time |
 

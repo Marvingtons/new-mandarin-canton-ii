@@ -14,18 +14,22 @@
  */
 
 import { resolveLinePrice } from "@/lib/cart/pricing";
-import {
-  resolveItemOverride,
-  resolveModifierZh,
-  resolveSizeZh,
-} from "@/data/menu-overrides";
+import { resolveModifierZh, resolveSizeZh } from "@/data/menu-overrides";
+import { dishZh } from "@/data/menu";
 import { itemSizes, type MenuItem } from "@/lib/menu/types";
 import type { OrderLine, OrderLineModifier } from "@/lib/orders/types";
 
-/** 中文 for an item: the menu's own, else the override map, else null. */
+/**
+ * 中文 for an item: the resolved menu item's own, else a catalogue lookup by
+ * name, else null.
+ *
+ * The name lookup is the safety net for items that did not come through
+ * `catalogMenu()` — a fixture, a combo assembled elsewhere — and it reads the
+ * SAME table the catalogue does, so it can never disagree with it.
+ */
 export function resolveItemZh(item: MenuItem): string | null {
   if (item.nameZh) return item.nameZh;
-  return resolveItemOverride(item.id, item.nameEn)?.nameZh ?? null;
+  return dishZh(item.nameEn);
 }
 
 /**

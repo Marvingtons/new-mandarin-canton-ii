@@ -24,7 +24,7 @@ import type { Order } from "@/lib/orders/types";
  */
 export const runtime = "nodejs";
 
-/** Mirrors scripts/ticket-sample.ts — a 中文 item, an English-only item. */
+/** Mirrors scripts/fixtures/orders.ts — a 中文 item, an English-only item. */
 function fixtureOrder(): Order {
   const items = [
     {
@@ -33,7 +33,7 @@ function fixtureOrder(): Order {
       nameZh: "宮保雞丁",
       sizeId: "party-tray",
       sizeLabel: "Party Tray",
-      sizeLabelZh: "大盤",
+      sizeLabelZh: "餐盤",
       modifiers: [
         { id: "m1", nameEn: "Extra Spicy", nameZh: "加辣", priceCents: 0 },
         { id: "m2", nameEn: "No Peanuts", nameZh: "走花生", priceCents: 0 },
@@ -45,10 +45,11 @@ function fixtureOrder(): Order {
         "Severe peanut allergy — clean wok and fresh oil, please.",
     },
     {
-      itemId: "orange-chicken",
-      // No override exists for this name, so the ticket must print the English
-      // with the ⚠ EN marker. Keeping it in the fixture keeps that visible.
-      nameEn: "Orange Flavored Chicken",
+      itemId: "off-menu-special",
+      // An off-menu dish, so it carries no 中文 at all. Keeping it in the
+      // fixture keeps the English-only row visible: it prints one line and no
+      // marker — a ⚠ on paper is a warning to someone who cannot act on it.
+      nameEn: "Off-Menu Chef Special",
       nameZh: null,
       sizeId: "regular",
       sizeLabel: "Regular",
