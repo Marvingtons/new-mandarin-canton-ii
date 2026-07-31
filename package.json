@@ -14,6 +14,7 @@
     "verify:ticket-glyphs": "tsx --conditions=react-server scripts/verify-ticket-glyphs.ts",
     "verify:orders": "tsx --conditions=react-server scripts/verify-orders.ts",
     "verify:print-codes": "tsx --conditions=react-server scripts/verify-print-codes.ts",
+    "verify:print-recurrence": "tsx --conditions=react-server scripts/verify-print-recurrence.ts",
     "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts",
     "build:cf": "opennextjs-cloudflare build",
     "preview:cf": "opennextjs-cloudflare preview",

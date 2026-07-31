@@ -1,13 +1,14 @@
 import {
   lateConfirmationGraceSeconds,
+  printConfirmFloorSeconds,
   printOfferCap,
-  printOfferCooldownSeconds,
-  printOffersBeforeCooldown,
   printRenderCap,
+  printSecondsPerCopy,
   publicTenant,
   ticketCopies,
   ticketCopyRoles,
 } from "@/config/tenant.server";
+import { decideOffer, entitledToOffer } from "@/lib/print/entitlement";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
   NO_JOB,
@@ -40,6 +41,7 @@ import {
   recordPrintJobKey,
   recordPrintSegments,
   recordRenderFailure,
+  revokePrintOffer,
 } from "@/lib/orders/repository";
 import {
   deletePrintJob,
@@ -137,39 +139,45 @@ export async function POST(
 
   try {
     // A job already handed over and not yet confirmed wins: re-offering the
-    // same ticket is correct, and handing out a second while the first is
-    // unaccounted for would double-print.
+    // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
+    // while the first is unaccounted for would double-print.
     let job = await currentPrintJob(tenant.tenantId);
 
-    // COOLDOWN — the thing that stops one missed confirmation becoming a roll
-    // of paper. A-008 printed six times because every poll re-offered a job
-    // the printer had already produced and the server had not recorded. After
-    // two hand-overs with no DELETE, the job goes quiet for a minute: a slow
-    // printer confirming late can no longer race a fresh copy out of the
-    // queue, and a genuine failure still recovers, just not sixty times.
+    // ENTITLEMENT — the thing that stops one order printing its copy-set over
+    // and over. The rule and its reasoning live in lib/print/entitlement.ts;
+    // this is only the plumbing. Every decision is logged verdict-style,
+    // because the previous two rounds of this bug were both diagnosed from
+    // paper rather than from logs that said what the server had decided.
     if (job) {
-      const held = coolingDown(job);
-      if (held !== null) {
-        console.warn(
-          `[cloudprnt] verdict=cooldown ${job.orderNumber} — ${job.printAttempts} ` +
-            `offers, no confirmation; holding ${held}s more before re-offering`,
-        );
-        return Response.json(NO_JOB);
-      }
-    }
+      const decision = decideOffer({
+        now: Date.now(),
+        offeredAt: job.offeredAt,
+        printAttempts: job.printAttempts,
+        copies: ticketCopies(),
+        floorSeconds: printConfirmFloorSeconds(),
+        perCopySeconds: printSecondsPerCopy(),
+        deliveryCap: printOfferCap(),
+      });
 
-    if (job) {
-      const attempts = await bumpPrintAttempt(tenant.tenantId, job.id);
-      if (attempts > printOfferCap()) {
+      const line =
+        `[cloudprnt] verdict=${decision.verdict} ${job.orderNumber} ` +
+        `attempts=${job.printAttempts} window=${decision.windowSeconds}s — ${decision.reason}`;
+      if (decision.verdict === "hold") console.info(line);
+      else console.warn(line);
+
+      if (decision.verdict === "hold") return Response.json(NO_JOB);
+
+      if (decision.verdict === "capped") {
         // Reachable but not printing. Stop retrying and make it loud.
         await recordPrintAttempt(tenant.tenantId, job.id, {
           ok: false,
-          error: `no print confirmation after ${attempts} offers`,
+          error: `no print confirmation after ${job.printAttempts} hand-overs`,
         });
-        console.warn(
-          `[cloudprnt] ${job.orderNumber} gave up after ${attempts} unconfirmed offers`,
-        );
         job = await claimNextPrintJob(tenant.tenantId);
+      } else if (entitledToOffer(decision)) {
+        // Counts the hand-over AND stamps print_offered_at in one statement,
+        // so the window starts the moment the body goes out.
+        await bumpPrintAttempt(tenant.tenantId, job.id);
       }
     } else {
       job = await claimNextPrintJob(tenant.tenantId);
@@ -218,23 +226,6 @@ export async function POST(
     // Never hand the printer something it might interpret as a job.
     return Response.json(NO_JOB);
   }
-}
-
-/**
- * Seconds still to wait before this job may be offered again, or null to offer.
- *
- * Reads the two columns the offer loop already maintains: `print_attempts`
- * counts hand-overs, and `updated_at` moves on every one of them, so "last
- * offered" needs no column of its own. Exported shape is deliberately a number
- * rather than a boolean so the log can say how much longer.
- */
-function coolingDown(job: Order): number | null {
-  const after = printOffersBeforeCooldown();
-  const window = printOfferCooldownSeconds();
-  if (window <= 0 || job.printAttempts < after) return null;
-  const since = (Date.now() - Date.parse(job.updatedAt)) / 1000;
-  if (!Number.isFinite(since)) return null;
-  return since >= window ? null : Math.ceil(window - since);
 }
 
 /**
@@ -563,6 +554,33 @@ async function confirmPrinted(url: URL): Promise<Response> {
       `status=${order.status} attempts=${order.printAttempts}`,
   );
 
+  // A CONFIRMATION ALWAYS CLOSES OUT WHAT THE PRINTER WAS HOLDING, whatever
+  // state the order reached and whatever happens to its status below.
+  //
+  // This is the half of the fix that does not depend on getting the timing
+  // right. Suppose the server re-offered a job and the printer's confirmation
+  // for the FIRST hand-over then arrived: without this, the duplicate offer is
+  // still outstanding, the next poll sees a body in flight, and another
+  // copy-set comes out. Clearing the stamp means the next poll finds nothing of
+  // ours outstanding for this order; deleting the R2 object means a printer
+  // holding the stale URL downloads a 404 rather than a second ticket. Neither
+  // depends on the status transition succeeding, which is why this happens here
+  // rather than inside markPrinted — an order staff already advanced past
+  // printing still has to stop being offered.
+  //
+  // Read before the revocation, which clears print_job_key.
+  const { segment, segments, jobKey } = await printSegmentState(
+    tenant.tenantId,
+    order.id,
+  );
+  await revokePrintOffer(tenant.tenantId, order.id);
+  if (jobKey) await deletePrintJob(jobKey);
+  console.info(
+    `[cloudprnt] verdict=revoked ${order.orderNumber} — confirmation received ` +
+      `(${confirmation.verdict}); any outstanding offer for this order is withdrawn` +
+      (jobKey ? ` and ${jobKey} deleted` : ""),
+  );
+
   if (confirmation.verdict === "failure") {
     console.warn(
       `[cloudprnt] ${order.orderNumber} reported result code ` +
@@ -606,15 +624,6 @@ async function confirmPrinted(url: URL): Promise<Response> {
   // ORDER when it completes the SEQUENCE; otherwise it advances the cursor and
   // the next poll hands over the next piece. Half a ticket must never read as
   // PRINTED — that is the one outcome the board and the alert exist to prevent.
-  const { segment, segments, jobKey } = await printSegmentState(
-    tenant.tenantId,
-    order.id,
-  );
-  // The paper is out; the published body has done its job. Removed here rather
-  // than left to the bucket's 24h rule, so a ticket carrying a customer's name
-  // and phone number is reachable for seconds rather than a day.
-  if (jobKey) await deletePrintJob(jobKey);
-
   if (segments > 1 && segment + 1 < segments) {
     const next = await advancePrintSegment(tenant.tenantId, order.id);
     console.info(

@@ -79,6 +79,7 @@ function fixtureOrder(): Order {
     readyFrom: new Date(now.getTime() + 25 * 60_000).toISOString(),
     readyTo: new Date(now.getTime() + 30 * 60_000).toISOString(),
     printAttempts: 0,
+    offeredAt: null,
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,

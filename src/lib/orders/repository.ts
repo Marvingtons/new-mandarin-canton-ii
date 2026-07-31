@@ -51,6 +51,7 @@ const ORDER_COLUMNS = `
   ready_from,
   ready_to,
   print_attempts,
+  print_offered_at,
   printed_at,
   last_print_error,
   alerted_at,
@@ -79,6 +80,13 @@ function mapOrder(row: QueryResultRow): Order {
     readyFrom: row.ready_from === null ? null : (row.ready_from as Date).toISOString(),
     readyTo: row.ready_to === null ? null : (row.ready_to as Date).toISOString(),
     printAttempts: Number(row.print_attempts),
+    // Nullish rather than a null check: a row selected before migration 006 ran
+    // has no such column at all, and `undefined` must read as "nothing in
+    // flight" rather than crash the poll that is trying to print it.
+    offeredAt:
+      row.print_offered_at == null
+        ? null
+        : (row.print_offered_at as Date).toISOString(),
     printedAt: row.printed_at === null ? null : (row.printed_at as Date).toISOString(),
     lastPrintError: row.last_print_error === null ? null : String(row.last_print_error),
     alertedAt: row.alerted_at === null ? null : (row.alerted_at as Date).toISOString(),
@@ -223,14 +231,22 @@ export async function createOrder(
  * NOTE the claim does NOT mark the order printed — it only counts an attempt.
  * A job handed over and never confirmed stays QUEUED so the unprinted-order
  * alert still catches it.
+ *
+ * `print_offered_at` is stamped in the SAME statement as the attempt counter,
+ * and that is deliberate rather than tidy. Every caller of this function goes
+ * on to answer the poll with jobReady:true, so counting an attempt and handing
+ * over a body are the same event — stamping them separately would leave a
+ * window (the R2 publish, ~100ms) in which a second poll saw attempts=1 with
+ * nothing in flight and handed the same body over again.
  */
 export async function claimNextPrintJob(
   tenantId: string,
 ): Promise<Order | null> {
   const { rows } = await ordersPool().query(
     `update orders
-        set print_attempts = print_attempts + 1,
-            updated_at     = now()
+        set print_attempts   = print_attempts + 1,
+            print_offered_at = now(),
+            updated_at       = now()
       where id = (
         select id from orders
          where tenant_id = $1
@@ -269,10 +285,14 @@ export async function currentPrintJob(tenantId: string): Promise<Order | null> {
 }
 
 /**
- * Count one more unconfirmed offer of a job already in flight.
+ * Count one more hand-over of a job already in flight, and stamp it.
  *
  * Separate from `claimNextPrintJob` because that one also selects; this only
- * ticks the counter that eventually trips PRINT_FAILED.
+ * ticks the counter that eventually trips PRINT_FAILED, and re-arms the
+ * confirmation window against the moment the body actually went out.
+ *
+ * Called ONLY when the poll is about to answer jobReady:true — see the note on
+ * claimNextPrintJob for why the counter and the stamp move together.
  */
 export async function bumpPrintAttempt(
   tenantId: string,
@@ -280,12 +300,44 @@ export async function bumpPrintAttempt(
 ): Promise<number> {
   const { rows } = await ordersPool().query(
     `update orders
-        set print_attempts = print_attempts + 1, updated_at = now()
+        set print_attempts   = print_attempts + 1,
+            print_offered_at = now(),
+            updated_at       = now()
       where tenant_id = $1 and id = $2
       returning print_attempts`,
     [tenantId, orderId],
   );
   return rows.length > 0 ? Number(rows[0].print_attempts) : 0;
+}
+
+/**
+ * REVOKE whatever the printer is holding for this order.
+ *
+ * Called on every success confirmation, before the status is touched and
+ * whatever the status turns out to be. It is what makes "a DELETE always wins"
+ * true in the one case that produces paper: the server re-offered a job, the
+ * printer's confirmation for the FIRST hand-over then arrived, and the
+ * duplicate is still in flight. Clearing the stamp and the key means the next
+ * poll finds nothing of ours outstanding, and the R2 object the duplicate URL
+ * points at is deleted alongside this by the caller — so even a printer holding
+ * a stale URL gets a 404 rather than a second copy-set.
+ *
+ * Deliberately does NOT touch `status`. markPrinted owns that, and it refuses
+ * to drag an order staff have already advanced backwards; revocation has to
+ * happen for those orders too.
+ */
+export async function revokePrintOffer(
+  tenantId: string,
+  orderId: number,
+): Promise<void> {
+  await ordersPool().query(
+    `update orders
+        set print_offered_at = null,
+            print_job_key    = null,
+            updated_at       = now()
+      where tenant_id = $1 and id = $2`,
+    [tenantId, orderId],
+  );
 }
 
 /* ------------------------------------------------- split-ticket sequence -- */
@@ -374,6 +426,11 @@ export async function advancePrintSegment(
             -- The published body was this piece's. The next poll publishes the
             -- next one; leaving the key would re-offer the piece just printed.
             print_job_key = null,
+            -- Nothing is in flight any more: the piece that was out has just
+            -- been confirmed. Clearing this re-arms the offer path so the NEXT
+            -- piece goes out on the next poll rather than waiting out a
+            -- confirmation window belonging to a piece that already printed.
+            print_offered_at = null,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning print_segment`,
@@ -396,6 +453,7 @@ export async function markPrinted(
             print_segment = 0,
             print_segments = 0,
             print_job_key = null,
+            print_offered_at = null,
             updated_at = now()
       where tenant_id = $1
         and id = $2
@@ -440,6 +498,9 @@ export async function requeueForPrint(
             print_segment = 0,
             print_segments = 0,
             print_job_key = null,
+            -- And nothing is in flight: staff pressing 重印 is a decision that
+            -- whatever the printer may still be holding is not going to arrive.
+            print_offered_at = null,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning ${ORDER_COLUMNS}`,

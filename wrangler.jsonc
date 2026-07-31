@@ -55,6 +55,23 @@
 			"fallthrough": true
 		}
 	],
+	// WORKERS LOGS — OPT-IN, AND IT WAS NOT ON.
+	//
+	// This block is the reason the last print incident could not be diagnosed
+	// from logs. The print path is deliberately loud — every poll verdict, every
+	// confirmation, every hand-over with its sha256 — but Workers Logs retains
+	// nothing unless the script asks for it, so all of that went to a console
+	// nobody could read after the fact. `wrangler tail` is live-only and the
+	// order had already printed.
+	//
+	// head_sampling_rate 1 keeps every invocation. This Worker serves a printer
+	// polling every ~3s plus a handful of human requests; that is a few thousand
+	// invocations a day, which is nowhere near a volume worth sampling, and the
+	// one invocation that matters is always the one that was dropped.
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	},
 	// Ticket rasterization is wasm and CPU-bound. The tall ticket is 576x2350.
 	// Paid plan default is 30s; this raises the ceiling without changing the
 	// common case (billing is on actual CPU used, not this limit).

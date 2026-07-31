@@ -61,6 +61,18 @@ create table if not exists orders (
   -- a ticket that already exists, and is how a confirmation knows which object
   -- to delete. Cleared with the segment counters whenever the sequence resets.
   print_job_key     text,
+  -- When a job body was last handed to the printer with jobReady:true.
+  --
+  -- Written by exactly one thing — an offer leaving the server — and cleared
+  -- whenever the printer stops holding a body for this order (confirmed,
+  -- revoked, or advanced to the next piece). NULL therefore means "the printer
+  -- has nothing of ours in flight", which is the only state in which offering
+  -- is free. Everything else waits out the confirmation window.
+  --
+  -- Deliberately NOT updated_at, which the offer path's own bookkeeping writes
+  -- move: measuring patience against that column is what let one order print
+  -- its copy-set several times over. See src/lib/print/entitlement.ts.
+  print_offered_at  timestamptz,
   -- Set ONLY by a CloudPRNT DELETE, i.e. the printer's own confirmation that
   -- paper came out. Never set optimistically when a job is handed over. On a
   -- split ticket this waits for the LAST piece, so a sequence that stalls

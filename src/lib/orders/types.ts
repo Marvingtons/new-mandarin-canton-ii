@@ -141,7 +141,19 @@ export interface Order {
    */
   readyFrom: string | null;
   readyTo: string | null;
+  /**
+   * Hand-overs of this job to the printer. NOT polls: a poll inside the
+   * confirmation window is refused without counting (see lib/print/entitlement).
+   */
   printAttempts: number;
+  /**
+   * When a job body was last handed over with jobReady:true, or null when the
+   * printer holds nothing of ours — never offered, confirmed, revoked, or
+   * advanced to the next piece. This is the clock the offer path measures
+   * patience against; `updatedAt` is not, because the offer path's own
+   * bookkeeping moves that one.
+   */
+  offeredAt: string | null;
   /** Set only by a CloudPRNT DELETE — the printer's own confirmation. */
   printedAt: string | null;
   lastPrintError: string | null;

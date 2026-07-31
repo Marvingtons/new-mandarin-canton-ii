@@ -146,6 +146,7 @@ export function fixtureOrder(): Order {
     readyFrom: new Date("2026-07-27T01:45:00.000Z").toISOString(),
     readyTo: new Date("2026-07-27T01:50:00.000Z").toISOString(),
     printAttempts: 0,
+    offeredAt: null,
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,

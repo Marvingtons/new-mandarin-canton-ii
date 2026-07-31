@@ -363,30 +363,72 @@ export function ticketCopyRoles(): TicketCopyRole[] {
 /* ------------------------------------------------------- print patience --- */
 
 /**
- * Unconfirmed offers of the SAME job before we stop offering it.
+ * HAND-OVERS of the same job before we stop offering it.
  *
- * This counts polls, not paper. Star documents no job lifetime and no required
- * polling interval that would give this a principled value, so the honest
- * justification is arithmetic against observed behaviour rather than a citation:
- * this printer polls roughly every 3 seconds, so the number is a patience in
- * seconds divided by three.
+ * ⚠️ THE UNIT CHANGED. This used to count POLLS, because every unconfirmed poll
+ * could produce another hand-over, and the default was 40 ≈ two minutes at a
+ * three-second poll interval. A poll can no longer produce a hand-over inside
+ * the confirmation window (see lib/print/entitlement.ts), so this now counts
+ * what it always claimed to: actual deliveries of paper.
  *
- * 40 ≈ two minutes. The old 10 was ≈ thirty seconds, which is less than one
- * slow thermal pass over a tall ticket plus the firmware's own cycle — we were
- * giving up while the paper was still moving, and an order died of impatience
- * with A-003's confirmation already in flight. Two minutes is long enough that
- * exhausting it means something is actually wrong (jam, cover open, out of
- * paper), which is when the kitchen board is the better answer than more
- * retries.
+ * Four, not forty. Each retry is now separated by a full confirmation window —
+ * 90s for the configured three copies — so four hand-overs is about four and a
+ * half minutes of trying, which is longer than the old forty polls bought.
+ * Beyond that the printer is not coming back on its own: jam, cover open, out
+ * of paper, offline. The kitchen board and the unprinted-order alert are the
+ * right answer then, not a fifth copy-set.
+ *
+ * ⚠️ IF PRINT_OFFER_CAP IS SET IN THE ENVIRONMENT, LOWER IT. A value tuned for
+ * the old poll-counting meaning (40) now means forty copy-sets over an hour.
  *
  * Split tickets are counted per PIECE, not per order: advancePrintSegment
  * resets the counter on every confirmed piece, so a five-piece job gets the
  * full allowance five times rather than sharing one.
  */
 export function printOfferCap(): number {
-  const n = intEnv("PRINT_OFFER_CAP", 40);
+  const n = intEnv("PRINT_OFFER_CAP", 4);
   // At least 1, or nothing would ever be offered twice.
-  return Number.isFinite(n) && n >= 1 ? n : 40;
+  return Number.isFinite(n) && n >= 1 ? n : 4;
+}
+
+/**
+ * FLOOR for the confirmation window — the minimum time a printer holding our
+ * job body gets before we will believe the print died.
+ *
+ * This is everything in a print cycle that is not paper: the printer's own poll
+ * interval before it even fetches the body, the download, the decode, and the
+ * fact that the confirming DELETE rides the NEXT poll after the last cut rather
+ * than the instant the paper stops moving. Sixty seconds is the value the
+ * previous round of this bug already established as adequate for a single-copy
+ * job; it is kept as the floor rather than re-derived.
+ */
+export function printConfirmFloorSeconds(): number {
+  const n = intEnv("PRINT_CONFIRM_FLOOR_SECONDS", 60);
+  // A zero floor would make a 1-copy job's window the per-copy value alone,
+  // which is legal but almost certainly a typo. Clamped, not honoured.
+  return Number.isFinite(n) && n >= 1 ? n : 60;
+}
+
+/**
+ * PER-COPY allowance added on top of the floor: window = max(floor, copies × this).
+ *
+ * The term the old flat sixty-second cooldown was missing. A three-copy job is
+ * three times the paper and three cutter cycles, and CloudPRNT confirms the
+ * whole job once — so the window has to scale with the job or it expires
+ * mid-print and buys the next copy-set. That is exactly what happened: three
+ * copies came out, the window expired, and the server offered again.
+ *
+ * Thirty seconds per copy is far more than the paper needs — a ~1500px copy is
+ * a couple of seconds of thermal head. It is sized against the failure being
+ * fixed rather than against the happy path, because the two errors are not
+ * symmetric: waiting too long on a dead print costs one delayed ticket that is
+ * on the kitchen board the whole time and covered by the unprinted-order alert,
+ * while waiting too little costs a duplicate copy-set and two cooks making the
+ * same order. At the configured three copies this gives a 90s window.
+ */
+export function printSecondsPerCopy(): number {
+  const n = intEnv("PRINT_SECONDS_PER_COPY", 30);
+  return Number.isFinite(n) && n >= 0 ? n : 30;
 }
 
 /**
@@ -396,31 +438,6 @@ export function printOfferCap(): number {
  * bug, and the point of retrying at all is only to survive a cold-start OOM or
  * a resource blip, not to grind against a template that cannot render.
  */
-/**
- * Quiet period after a job has been handed over twice without a confirmation.
- *
- * A-008 printed six times off one order. Every unconfirmed poll re-offered it
- * and the printer obeyed, so the bookkeeping gap turned into paper. Retrying is
- * still right — a job that genuinely did not print must be offered again — but
- * retrying every three seconds turns one missed DELETE into a roll of tickets.
- *
- * Two offers, then silence for a minute. Long enough that a slow printer
- * finishing a 2000px ticket and confirming late is never racing a fresh copy
- * out of the queue, short enough that a real failure still recovers while the
- * customer is waiting.
- */
-export function printOfferCooldownSeconds(): number {
-  const n = intEnv("PRINT_OFFER_COOLDOWN_SECONDS", 60);
-  // 0 disables the cooldown; the offer cap still applies.
-  return Number.isFinite(n) && n >= 0 ? n : 60;
-}
-
-/** Offers allowed back-to-back before the cooldown starts applying. */
-export function printOffersBeforeCooldown(): number {
-  const n = intEnv("PRINT_OFFERS_BEFORE_COOLDOWN", 2);
-  return Number.isFinite(n) && n >= 1 ? n : 2;
-}
-
 export function printRenderCap(): number {
   const n = intEnv("PRINT_RENDER_CAP", 3);
   return Number.isFinite(n) && n >= 1 ? n : 3;
