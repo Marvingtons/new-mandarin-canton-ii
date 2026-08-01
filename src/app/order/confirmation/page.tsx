@@ -117,8 +117,8 @@ export default function ConfirmationPage() {
         <p className="mt-1">{fullAddress}</p>
         <p className="mt-2 font-semibold text-lacquer">
           <PhoneLinks
-            prefix="Call "
-            separator=" or "
+            prefix={`${t("hero.call")} `}
+            separator={` ${t("ui.or")} `}
             className="underline underline-offset-2"
           />
         </p>

@@ -199,7 +199,7 @@ export default function OrderMenu({
               · {t("banner.allergyZh")}
             </span>{" "}
             <PhoneLinks
-              separator=" or "
+              separator={` ${t("ui.or")} `}
               className="font-semibold text-lacquer underline underline-offset-2"
             />
           </p>

@@ -219,7 +219,7 @@ export default async function PrivacyPage() {
         </p>
         <p className="font-semibold text-lacquer">
           <PhoneLinks
-            separator=" or "
+            separator={` ${t("ui.or")} `}
             className="underline underline-offset-2"
           />
         </p>

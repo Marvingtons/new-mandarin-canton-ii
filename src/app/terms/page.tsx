@@ -143,7 +143,7 @@ export default async function TermsPage() {
         <p>Call the restaurant and speak to someone.</p>
         <p className="font-semibold text-lacquer">
           <PhoneLinks
-            separator=" or "
+            separator={` ${t("ui.or")} `}
             className="underline underline-offset-2"
           />
         </p>

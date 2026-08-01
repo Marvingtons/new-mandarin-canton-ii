@@ -53,7 +53,7 @@ export default async function NotFound() {
       <p className="mt-8 text-sm text-ink/60">
         {t("notFound.orCall")}{" "}
         <PhoneLinks
-          separator=" or "
+          separator={` ${t("ui.or")} `}
           className="font-semibold text-lacquer underline underline-offset-2"
         />
       </p>

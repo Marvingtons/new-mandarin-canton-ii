@@ -218,6 +218,11 @@ export const en = {
      the middle of a Spanish clause. A fragment is not a great thing to
      translate in isolation, but it is far better than that. */
   "ui.and": "and",
+  /* Joins the two phone numbers wherever PhoneLinks renders them. It was a
+     hardcoded " or " passed in at six call sites, which put an English
+     conjunction between two numbers on the Spanish menu, checkout, 404,
+     privacy and terms — the same problem `ui.and` above exists to solve. */
+  "ui.or": "or",
   "menu.spicy": "Spicy",
   "hero.tagline": "Mandarin, Szechuan & Cantonese cuisine in Chula Vista",
   "cart.closeCart": "Close cart",
@@ -436,6 +441,7 @@ export const es: Record<TranslationKey, string> = {
 
   /* ---- fragments spliced into other sentences ---- */
   "ui.and": "y",
+  "ui.or": "o",
   "menu.spicy": "Picante",
   "hero.tagline": "Cocina mandarina, sichuanesa y cantonesa en Chula Vista",
   "cart.closeCart": "Cerrar el carrito",
