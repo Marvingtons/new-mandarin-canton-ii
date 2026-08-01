@@ -404,7 +404,13 @@ export default function OrderMenu({
                           : formatCents(from)}
                       </span>
                       {!disabled && (
-                        <span className="mt-0.5 block text-xs uppercase tracking-[0.12em] text-ink/45">
+                        /* ink/60, not ink/45. This is the affordance label on
+                           every one of 137 rows — the thing that says a dish
+                           is tappable — and at /45 it measured 2.91:1 on
+                           cream, well under the 4.5:1 a 12px label needs.
+                           /60 clears it and is the same value the row's own
+                           description text already uses. */
+                        <span className="mt-0.5 block text-xs uppercase tracking-[0.12em] text-ink/60">
                           {t("menu.addPlus")}
                         </span>
                       )}
