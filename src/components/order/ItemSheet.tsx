@@ -5,6 +5,7 @@ import type { MenuItem } from "@/lib/menu/types";
 import { itemSizes } from "@/lib/menu/types";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { useCart } from "@/lib/cart/CartContext";
+import { useT } from "@/lib/i18n/LocaleContext";
 import { formatCents } from "@/lib/money";
 
 const MAX_INSTRUCTIONS = 200;
@@ -36,6 +37,7 @@ function ItemSheetInner({
   onClose: () => void;
 }) {
   const { addItem } = useCart();
+  const t = useT();
   const sizes = itemSizes(item);
 
   const [sizeId, setSizeId] = useState<string>(sizes[0]?.id ?? "");
@@ -104,6 +106,14 @@ function ItemSheetInner({
   // Every group's min/max must be satisfied to enable Add.
   const groupsValid = unmetGroups.length === 0;
 
+  /**
+   * The unmet-group notice keeps its emphasised group names, so the
+   * sentence is split on its {groups} placeholder rather than
+   * interpolated — Spanish does not put the clause where English does,
+   * and the two halves have to follow the translation, not the markup.
+   */
+  const [chooseBefore, chooseAfter] = t("sheet.chooseToAdd").split("{groups}");
+
   function toggleModifier(groupId: string, modId: string, maxAllowed: number | null) {
     setSelected((prev) => {
       const current = prev[groupId] ?? [];
@@ -136,7 +146,7 @@ function ItemSheetInner({
       aria-label={item.nameEn}
     >
       <button
-        aria-label="Close"
+        aria-label={t("sheet.close")}
         className="absolute inset-0 bg-ink/60"
         onClick={onClose}
       />
@@ -150,7 +160,7 @@ function ItemSheetInner({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("sheet.close")}
             className="shrink-0 rounded-full px-2 text-2xl leading-none text-ink/60 hover:text-ink"
           >
             ×
@@ -162,7 +172,7 @@ function ItemSheetInner({
           {sizes.length > 1 && (
             <fieldset className="mb-5">
               <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-ink/55">
-                Size
+                {t("sheet.size")}
               </legend>
               <div className="grid gap-2">
                 {sizes.map((s) => (
@@ -206,7 +216,9 @@ function ItemSheetInner({
               <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-ink/55">
                 {g.nameEn}
                 {g.minRequired > 0 && (
-                  <span className="ml-1 text-lacquer">· required</span>
+                  <span className="ml-1 text-lacquer">
+                    · {t("sheet.required")}
+                  </span>
                 )}
               </legend>
               <div className="grid gap-2">
@@ -273,7 +285,7 @@ function ItemSheetInner({
               htmlFor="special-instructions"
               className="mb-2 block text-xs font-semibold uppercase tracking-[0.15em] text-ink/55"
             >
-              Special instructions
+              {t("sheet.specialInstructions")}
             </label>
             <textarea
               id="special-instructions"
@@ -286,7 +298,7 @@ function ItemSheetInner({
               // report an allergy — and the placeholder in the very box
               // it is talking about was suggesting they use it for
               // exactly that. An example is an instruction.
-              placeholder="e.g. extra spicy, sauce on the side"
+              placeholder={t("sheet.instructionsPlaceholder")}
               className="w-full resize-none rounded-sm border border-gold/40 bg-ivory px-3 py-2 text-sm text-ink outline-none focus:border-lacquer"
             />
             <p className="mt-1 text-right text-xs text-ink/45">
@@ -297,12 +309,12 @@ function ItemSheetInner({
                 them not to rely on. */}
             <p className="mt-1 text-xs leading-relaxed text-ink/60">
               <span className="font-semibold text-lacquer">
-                Allergies: please call us instead
+                {t("sheet.allergyCall")}
               </span>{" "}
               <span lang="zh-Hant" className="font-chinese">
-                · 過敏請致電
+                · {t("sheet.allergyCallZh")}
               </span>
-              . This note only reaches the kitchen when your ticket prints.
+              . {t("sheet.allergyNote")}
             </p>
           </div>
         </div>
@@ -317,11 +329,13 @@ function ItemSheetInner({
             role="status"
             className="border-t border-gold/30 bg-gold/5 px-5 py-2.5 text-sm text-ink/75"
           >
-            Please choose{" "}
+            {chooseBefore}
             <span className="font-semibold text-lacquer">
-              {unmetGroups.map((g) => g.nameEn.toLowerCase()).join(" and ")}
-            </span>{" "}
-            to add this to your cart.
+              {unmetGroups
+                .map((g) => g.nameEn.toLowerCase())
+                .join(` ${t("ui.and")} `)}
+            </span>
+            {chooseAfter}
           </p>
         )}
         <div className="flex items-center gap-3 border-t border-gold/30 px-5 py-4">
@@ -330,7 +344,7 @@ function ItemSheetInner({
           <div className="flex items-center rounded-sm border border-gold/50">
             <button
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              aria-label="Decrease quantity"
+              aria-label={t("sheet.decreaseQty")}
               className="min-h-11 w-11 rounded-l-sm text-xl text-ink hover:bg-gold/10"
             >
               −
@@ -340,7 +354,7 @@ function ItemSheetInner({
             </span>
             <button
               onClick={() => setQuantity((q) => q + 1)}
-              aria-label="Increase quantity"
+              aria-label={t("sheet.increaseQty")}
               className="min-h-11 w-11 rounded-r-sm text-xl text-ink hover:bg-gold/10"
             >
               +
@@ -351,7 +365,7 @@ function ItemSheetInner({
             disabled={!groupsValid}
             className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span>Add to Cart</span>
+            <span>{t("sheet.addToCart")}</span>
             <span aria-hidden="true">·</span>
             <span>{formatCents(priceCents)}</span>
           </button>

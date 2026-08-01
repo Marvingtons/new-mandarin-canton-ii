@@ -4,6 +4,7 @@ import {
   mapEmbedUrl,
   restaurant,
 } from "@/data/restaurant";
+import { getT } from "@/lib/i18n/server";
 
 interface LocationMapProps {
   /** Aspect ratio of the framed map. */
@@ -28,12 +29,13 @@ interface LocationMapProps {
  * Server component: the iframe is lazy, so nothing loads until it is
  * near the viewport.
  */
-export default function LocationMap({
+export default async function LocationMap({
   aspect = "16/9",
   tone = "dark",
   showDirections = true,
   className = "",
 }: LocationMapProps) {
+  const t = await getT();
   const link =
     tone === "dark"
       ? "text-gold-light hover:text-gold"
@@ -65,7 +67,7 @@ export default function LocationMap({
           rel="noopener"
           className={`arrow-link token-colors mt-3 inline-block text-sm font-semibold underline decoration-gold/60 underline-offset-4 ${link}`}
         >
-          Get Directions <span className="arrow">→</span>
+          {t("footer.getDirections")} <span className="arrow">→</span>
         </a>
       )}
     </div>

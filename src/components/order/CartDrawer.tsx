@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PARTY_TRAY_PREP_NOTE } from "@/data/party-trays";
 import { useEffect } from "react";
 import { useCart } from "@/lib/cart/CartContext";
+import { useT } from "@/lib/i18n/LocaleContext";
 import { formatCents, taxCents } from "@/lib/money";
 
 /**
@@ -23,6 +24,7 @@ export default function CartDrawer({
 }) {
   const { detailedLines, subtotalCents, itemCount, updateQuantity, remove } =
     useCart();
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -50,7 +52,7 @@ export default function CartDrawer({
         />
       )}
       <aside
-        aria-label="Your pickup order"
+        aria-label={t("cart.title")}
         aria-hidden={!open}
         className={`fixed inset-y-0 right-0 z-[65] flex w-full max-w-md flex-col rounded-l-lg bg-cream shadow-xl transition-transform duration-300 ${
           open ? "translate-x-0" : "translate-x-full"
@@ -58,7 +60,7 @@ export default function CartDrawer({
       >
         <div className="flex items-center justify-between border-b border-gold/30 px-5 py-4">
           <h2 className="font-display text-2xl text-ink">
-            Your Pickup Order
+            {t("cart.title")}
           </h2>
           <button
             onClick={onClose}
@@ -71,10 +73,8 @@ export default function CartDrawer({
 
         {detailedLines.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-            <p className="font-display text-xl text-ink/70">Your cart is empty</p>
-            <p className="text-sm text-ink/55">
-              Add a few dishes to start your pickup order.
-            </p>
+            <p className="font-display text-xl text-ink/70">{t("cart.empty")}</p>
+            <p className="text-sm text-ink/55">{t("cart.emptyHint")}</p>
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto px-5 py-4" data-lenis-prevent>
@@ -134,7 +134,7 @@ export default function CartDrawer({
                       onClick={() => remove(line.lineId)}
                       className="text-sm text-ink/55 underline underline-offset-2 hover:text-lacquer"
                     >
-                      Remove
+                      {t("cart.remove")}
                     </button>
                   </div>
                 </li>
@@ -152,7 +152,7 @@ export default function CartDrawer({
               {PARTY_TRAY_PREP_NOTE}
             </span>
             <span className="mt-0.5 block text-xs text-ink/60">
-              Everything else is 15–20 minutes.
+              {t("cart.everythingElse")}
             </span>
           </div>
         )}
@@ -161,22 +161,22 @@ export default function CartDrawer({
           <div className="border-t border-gold/30 px-5 py-4">
             <dl className="space-y-1 text-sm">
               <div className="flex justify-between">
-                <dt className="text-ink/70">Subtotal</dt>
+                <dt className="text-ink/70">{t("cart.subtotal")}</dt>
                 <dd className="text-ink">{formatCents(subtotalCents)}</dd>
               </div>
               {tax != null ? (
                 <div className="flex justify-between">
-                  <dt className="text-ink/70">Tax</dt>
+                  <dt className="text-ink/70">{t("cart.tax")}</dt>
                   <dd className="text-ink">{formatCents(tax)}</dd>
                 </div>
               ) : (
                 <div className="flex justify-between">
-                  <dt className="text-ink/70">Tax</dt>
-                  <dd className="text-ink/55">calculated at checkout</dd>
+                  <dt className="text-ink/70">{t("cart.tax")}</dt>
+                  <dd className="text-ink/55">{t("cart.taxAtCheckout")}</dd>
                 </div>
               )}
               <div className="flex justify-between border-t border-gold/20 pt-1 text-base font-semibold">
-                <dt className="text-ink">Total</dt>
+                <dt className="text-ink">{t("cart.total")}</dt>
                 <dd className="text-lacquer">{formatCents(total)}</dd>
               </div>
             </dl>
@@ -185,10 +185,11 @@ export default function CartDrawer({
               onClick={onClose}
               className="mt-4 flex min-h-12 items-center justify-center rounded-lg bg-gold px-5 font-semibold text-ink transition-colors hover:bg-gold-light"
             >
-              Checkout · {itemCount} {itemCount === 1 ? "item" : "items"}
+              {t("cart.checkout")} · {itemCount}{" "}
+              {itemCount === 1 ? t("cart.item") : t("cart.items")}
             </Link>
             <p className="mt-2 text-center text-xs uppercase tracking-[0.15em] text-ink/50">
-              Pickup only · no delivery
+              {t("cart.pickupOnly")}
             </p>
           </div>
         )}

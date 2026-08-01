@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
+import { LocaleProvider } from "@/lib/i18n/LocaleContext";
+import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BackToTop from "@/components/BackToTop";
@@ -37,11 +40,34 @@ export const metadata: Metadata = {
     "Mandarin & Cantonese restaurant in Chula Vista, CA. Takeout pickup only, no delivery. Open 7 days at 543 Telegraph Canyon Rd. Call (619) 656-6888 or (619) 656-6787.",
 };
 
-export default function RootLayout({
+/**
+ * ⚠️ READING THE LOCALE COOKIE HERE MAKES EVERY ROUTE DYNAMIC, and that
+ * is a deliberate, costed trade rather than an oversight.
+ *
+ * `cookies()` in a layout opts the route into dynamic rendering, and
+ * every route inherits this one. Before this, seven pages were
+ * prerendered to static HTML — /, /about, /contact, /privacy, /terms and
+ * the two error shells — and are now a Worker invocation per request.
+ * /menu, /order and the order flow were already dynamic (the segment
+ * layouts read the test-mode cookie), so nothing is lost there.
+ *
+ * The alternative was reading the cookie in a client component and
+ * swapping the strings after hydration. That is cheaper and worse: the
+ * first paint of every page would be English, and a Spanish speaker
+ * would watch the site change language under them on every navigation.
+ * `lang` on <html> would also be wrong until JavaScript ran, which is
+ * the attribute a screen reader picks its voice from.
+ *
+ * If the static pages need to come back, the answer is `cacheComponents`
+ * plus its caching model, not moving this read deeper — Header and
+ * Footer both live in this layout and both need the locale.
+ */
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = toLocale((await cookies()).get(LOCALE_COOKIE)?.value);
   // No `h-full` on <html>: pinning the root to the viewport height freezes its
   // box, so the ResizeObserver Lenis keeps on <html> never fires when a route's
   // content grows — Lenis then holds the previous page's scroll limit and the
@@ -49,21 +75,23 @@ export default function RootLayout({
   // instead (min-h-dvh), which the sticky footer needs.
   return (
     <html
-      lang="en"
+      lang={htmlLang(locale)}
       className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
     >
       <body className="flex min-h-dvh flex-col font-body">
-        <SmoothScroll />
-        <LoadingOverlay />
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
-        {/* Clearance so the fixed mobile bar never covers page footers. */}
-        <div aria-hidden="true" className="h-14 sm:hidden" />
-        <StickyOrderBar />
-        {/* Bottom-right, opposite TestModeBadge. It opts itself out of the
-            kitchen board by looking for [data-kitchen-surface]. */}
-        <BackToTop />
+        <LocaleProvider locale={locale}>
+          <SmoothScroll />
+          <LoadingOverlay />
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+          {/* Clearance so the fixed mobile bar never covers page footers. */}
+          <div aria-hidden="true" className="h-14 sm:hidden" />
+          <StickyOrderBar />
+          {/* Bottom-right, opposite TestModeBadge. It opts itself out of the
+              kitchen board by looking for [data-kitchen-surface]. */}
+          <BackToTop />
+        </LocaleProvider>
       </body>
     </html>
   );

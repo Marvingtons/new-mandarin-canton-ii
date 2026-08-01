@@ -13,6 +13,7 @@ import {
   sharedLastOnlineOrder,
   weeklyOpeningSummary,
 } from "@/data/restaurant";
+import { getT } from "@/lib/i18n/server";
 
 /** The band frames text, not a photo, so its mount stays transparent. */
 const BAND_FILL = { "--frame-fill": "transparent" } as CSSProperties;
@@ -30,7 +31,9 @@ const BAND_FILL = { "--frame-fill": "transparent" } as CSSProperties;
  * The band lives here rather than on the homepage so the page ends the
  * same way everywhere, and so the status pill has exactly one home.
  */
-export default function Footer() {
+export default async function Footer() {
+  const t = await getT();
+
   return (
     <footer className="mt-auto border-t-4 border-double border-gold/60 bg-ink text-ivory">
       {/* ---- CONTACT BAND: status, address, both numbers, directions.
@@ -71,7 +74,7 @@ export default function Footer() {
                   rel="noopener"
                   className="arrow-link token-colors inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-lg border border-gold/60 px-6 py-3 text-sm font-semibold text-gold-light hover:border-gold hover:bg-gold hover:text-ink"
                 >
-                  Get Directions <span className="arrow">→</span>
+                  {t("footer.getDirections")} <span className="arrow">→</span>
                 </a>
               </div>
             </div>
@@ -102,7 +105,7 @@ export default function Footer() {
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            Hours
+            {t("footer.hours")}
           </h2>
           {/* Summary and table are the same data at two resolutions, which
               is worth keeping — but the table is the answer, so the line
@@ -118,14 +121,13 @@ export default function Footer() {
               number standing in for two. */}
           {sharedLastOnlineOrder && (
             <p className="mt-3 text-xs leading-relaxed text-ivory/50">
-              Last online order {sharedLastOnlineOrder}. The dining room stays
-              open past it, so please call to order after that.
+              {t("footer.lastOnlineOrder", { time: sharedLastOnlineOrder })}
             </p>
           )}
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            Find Us
+            {t("footer.findUs")}
           </h2>
           {/* Directions off: the band above carries that link, and is the
               tappable copy of the address. This one is context for the map,
@@ -145,8 +147,7 @@ export default function Footer() {
             would be the first half-translated label on the page. The kitchen
             ticket, which IS Chinese-primary, already prints 取餐. */}
         <p className="text-ivory/60">
-          Takeout pickup only · no delivery · Questions about allergies? Call
-          us.
+          {t("footer.pickupOnly")} · {t("footer.allergyQuestions")}
         </p>
         <p className="mt-2.5">
           © {new Date().getFullYear()} {restaurant.name}
@@ -161,7 +162,7 @@ export default function Footer() {
             href="/privacy"
             className="text-ivory/40 transition-colors hover:text-ivory/60"
           >
-            Privacy
+            {t("footer.privacy")}
           </Link>
           <span aria-hidden="true" className="text-ivory/25">
             ·
@@ -170,7 +171,7 @@ export default function Footer() {
             href="/terms"
             className="text-ivory/40 transition-colors hover:text-ivory/60"
           >
-            Terms
+            {t("footer.terms")}
           </Link>
           <span aria-hidden="true" className="text-ivory/25">
             ·

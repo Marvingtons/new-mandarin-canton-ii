@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
+import { useT } from "@/lib/i18n/LocaleContext";
 import { getLenis } from "@/lib/lenisRef";
 
 /** How far down the page the button earns its place. */
@@ -60,6 +61,7 @@ function getServerSnapshot() {
  * button's own transition.
  */
 export default function BackToTop() {
+  const t = useT();
   const visible = useSyncExternalStore(
     subscribe,
     getSnapshot,
@@ -82,11 +84,12 @@ export default function BackToTop() {
     <button
       type="button"
       onClick={toTop}
-      // English for the accessible name; the bilingual pairing rides in
-      // the tooltip, where a mixed-script string is read by eyes rather
-      // than announced letter-by-letter by a screen reader.
-      aria-label="Back to top"
-      title="Back to top · 回到頂部"
+      // One language for the accessible name; the bilingual pairing rides
+      // in the tooltip, where a mixed-script string is read by eyes rather
+      // than announced letter-by-letter by a screen reader. The 回到頂部
+      // half is carried by the dictionary in both locales.
+      aria-label={t("backToTop.aria")}
+      title={t("backToTop.title")}
       // bottom-16 on mobile clears the sticky order bar, exactly as
       // TestModeBadge does on the other side; sm:bottom-3 once that bar
       // is gone. `.btt` owns the transition, the hidden state, the

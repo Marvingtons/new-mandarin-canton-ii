@@ -1,6 +1,7 @@
 import Link from "next/link";
 import HorizonMark from "@/components/motifs/HorizonMark";
 import PhoneLinks from "@/components/PhoneLinks";
+import { getT } from "@/lib/i18n/server";
 
 /**
  * 404. There wasn't one before this — an unmatched URL fell through to
@@ -19,7 +20,9 @@ import PhoneLinks from "@/components/PhoneLinks";
  * two lines, and the two ways out that matter for a restaurant — the menu,
  * and the phone.
  */
-export default function NotFound() {
+export default async function NotFound() {
+  const t = await getT();
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center px-4 py-20 text-center sm:py-28">
       {/* h-auto so the sm: width step scales the mark instead of squashing
@@ -28,32 +31,28 @@ export default function NotFound() {
       <HorizonMark width={220} className="h-auto w-[180px] sm:w-[220px]" />
 
       <h1 className="mt-10 font-display text-4xl text-lacquer sm:text-5xl">
-        Page not found
+        {t("notFound.title")}
       </h1>
-      <p className="mt-4 leading-relaxed text-ink/75">
-        That link has wandered off. The menu and the hours are all still
-        here. The kitchen never moved.
-      </p>
+      <p className="mt-4 leading-relaxed text-ink/75">{t("notFound.body")}</p>
 
       <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <Link
           href="/menu"
           className="token-colors inline-flex min-h-12 items-center justify-center rounded-lg bg-gold px-7 font-semibold text-ink hover:bg-gold-light"
         >
-          View the menu
+          {t("notFound.viewMenu")}
         </Link>
         <Link
           href="/"
           className="arrow-link token-colors inline-flex min-h-12 items-center justify-center rounded-lg border border-gold/60 px-7 font-semibold text-lacquer hover:border-gold hover:bg-gold/10"
         >
-          Back home <span className="arrow">→</span>
+          {t("notFound.backHome")} <span className="arrow">→</span>
         </Link>
       </div>
 
       <p className="mt-8 text-sm text-ink/60">
-        Or just{" "}
+        {t("notFound.orCall")}{" "}
         <PhoneLinks
-          prefix="call "
           separator=" or "
           className="font-semibold text-lacquer underline underline-offset-2"
         />

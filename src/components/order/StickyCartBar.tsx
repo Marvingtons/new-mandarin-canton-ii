@@ -1,6 +1,7 @@
 "use client";
 
 import { useCart } from "@/lib/cart/CartContext";
+import { useT } from "@/lib/i18n/LocaleContext";
 import { formatCents } from "@/lib/money";
 
 /**
@@ -13,6 +14,8 @@ import { formatCents } from "@/lib/money";
  */
 export default function StickyCartBar({ onView }: { onView: () => void }) {
   const { itemCount, subtotalCents, hydrated } = useCart();
+  // Before the early return: hooks cannot sit behind a condition.
+  const t = useT();
   if (!hydrated || itemCount === 0) return null;
 
   return (
@@ -25,7 +28,7 @@ export default function StickyCartBar({ onView }: { onView: () => void }) {
           <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-ink px-1.5 text-sm text-ivory">
             {itemCount}
           </span>
-          View Cart
+          {t("cart.viewCart")}
         </span>
         <span>{formatCents(subtotalCents)}</span>
       </button>

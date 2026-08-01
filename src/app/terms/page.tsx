@@ -3,6 +3,7 @@ import LegalSection from "@/components/LegalSection";
 import PhoneLinks from "@/components/PhoneLinks";
 import SectionHeading from "@/components/SectionHeading";
 import { fullAddress, restaurant } from "@/data/restaurant";
+import { getT } from "@/lib/i18n/server";
 
 /**
  * ⚠️ TEMPLATE DRAFTED FROM ACTUAL DATA PRACTICES. NOT LEGAL ADVICE. The
@@ -28,12 +29,14 @@ export const metadata: Metadata = {
 /** Update by hand when the terms actually change. Never a live date. */
 const LAST_UPDATED = "31 July 2026";
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const t = await getT();
+
   return (
     <div className="mx-auto max-w-3xl px-4 pb-20 pt-8">
-      <SectionHeading as="h1" en="Terms" />
+      <SectionHeading as="h1" en={t("legal.terms")} />
       <p className="mt-5 text-xs uppercase tracking-[0.18em] text-ink/50">
-        Last updated {LAST_UPDATED}
+        {t("legal.lastUpdated", { date: LAST_UPDATED })}
       </p>
 
       <p className="mt-8 leading-relaxed text-ink/80">

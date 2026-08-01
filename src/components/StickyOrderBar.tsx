@@ -1,5 +1,6 @@
 import OrderTakeout from "@/components/OrderTakeout";
 import { telHref } from "@/data/restaurant";
+import { getT } from "@/lib/i18n/server";
 
 /**
  * Mobile-only sticky action bar pinned to the bottom of the viewport:
@@ -15,17 +16,19 @@ import { telHref } from "@/data/restaurant";
  * single gold line instead of a focus indicator. Nothing is clipped; the
  * one child that could poke through carries its own corner.
  */
-export default function StickyOrderBar() {
+export default async function StickyOrderBar() {
+  const t = await getT();
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 flex rounded-t-lg border-t border-gold/50 bg-ink text-center sm:hidden">
       <OrderTakeout className="flex-1 rounded-tl-lg bg-gold py-3.5 font-semibold text-ink transition-colors active:bg-gold-light">
-        Order Takeout
+        {t("hero.orderTakeout")}
       </OrderTakeout>
       <a
         href={telHref}
         className="flex-1 border-l border-gold/40 py-3.5 font-semibold text-ivory transition-colors active:text-gold-light"
       >
-        Call
+        {t("hero.call")}
       </a>
     </div>
   );

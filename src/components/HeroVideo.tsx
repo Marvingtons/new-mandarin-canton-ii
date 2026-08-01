@@ -6,6 +6,7 @@ import IncenseSmoke from "@/components/IncenseSmoke";
 import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
 import PhoneLinks from "@/components/PhoneLinks";
+import { useT } from "@/lib/i18n/LocaleContext";
 import { onIntroLifted } from "@/lib/introSignal";
 import { restaurant } from "@/data/restaurant";
 import { ORDER_DIRECT_NOTE } from "@/data/order";
@@ -40,6 +41,7 @@ const CROSSFADE_S = 0.6;
  * in only after the intro overlay lifts (or immediately without one).
  */
 export default function HeroVideo() {
+  const t = useT();
   /** True the moment the intro overlay lifts (or at once without one). */
   const [unveiled, setUnveiled] = useState(false);
   const [ready, setReady] = useState(false);
@@ -258,13 +260,13 @@ export default function HeroVideo() {
             style={{ transitionDelay: "360ms" }}
           >
             <OrderTakeout className="inline-flex min-h-12 items-center justify-center rounded-lg bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light">
-              Order Takeout
+              {t("hero.orderTakeout")}
             </OrderTakeout>
             <Link
               href="/menu"
               className="hero-cta-ghost inline-flex min-h-12 items-center justify-center rounded-lg border border-ivory/60 px-7 py-3 font-semibold text-ivory"
             >
-              View Menu
+              {t("hero.viewMenu")}
             </Link>
           </div>
           <p
@@ -273,7 +275,7 @@ export default function HeroVideo() {
           >
             {ORDER_DIRECT_NOTE} ·{" "}
             <PhoneLinks
-              prefix="Call "
+              prefix={`${t("hero.call")} `}
               separator=" · "
               className="whitespace-nowrap font-semibold text-gold-light underline decoration-gold/60 underline-offset-2 hover:text-gold"
             />

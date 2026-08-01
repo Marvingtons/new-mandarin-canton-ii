@@ -4,15 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import Seal from "@/components/Seal";
+import LocaleToggle from "@/components/LocaleToggle";
 import { restaurant } from "@/data/restaurant";
 import { getHeaderSolid, subscribeHeaderSolid } from "@/lib/headerState";
+import { useT } from "@/lib/i18n/LocaleContext";
+import type { TranslationKey } from "@/lib/i18n/dictionary";
 
 const links = [
-  { href: "/", label: "Home" },
-  { href: "/menu", label: "Menu" },
-  { href: "/about", label: "About" },
-  { href: "/contact", label: "Contact" },
-] as const;
+  { href: "/", key: "nav.home" },
+  { href: "/menu", key: "nav.menu" },
+  { href: "/about", key: "nav.about" },
+  { href: "/contact", key: "nav.contact" },
+] as const satisfies readonly { href: string; key: TranslationKey }[];
 
 const subscribeScroll = (cb: () => void): (() => void) => {
   window.addEventListener("scroll", cb, { passive: true });
@@ -33,6 +36,7 @@ function useScrolledPastHero(): boolean {
 }
 
 export default function Header() {
+  const t = useT();
   const pathname = usePathname();
   const isHome = pathname === "/";
   const scrolledPast = useScrolledPastHero();
@@ -81,28 +85,31 @@ export default function Header() {
             )}
           </span>
         </Link>
-        <nav aria-label="Main">
-          <ul className="flex gap-5 text-xs uppercase tracking-[0.15em] sm:gap-6 sm:text-sm">
-            {links.map(({ href, label }) => {
-              const active = pathname === href;
-              return (
-                <li key={href}>
-                  <Link
-                    href={href}
-                    aria-current={active ? "page" : undefined}
-                    className={`nav-link token-colors ${
-                      active
-                        ? "nav-link-active text-gold-light"
-                        : "hover:text-gold-light"
-                    }`}
-                  >
-                    {label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        <div className="flex items-center gap-5 sm:gap-6">
+          <nav aria-label={t("nav.aria")}>
+            <ul className="flex gap-5 text-xs uppercase tracking-[0.15em] sm:gap-6 sm:text-sm">
+              {links.map(({ href, key }) => {
+                const active = pathname === href;
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      aria-current={active ? "page" : undefined}
+                      className={`nav-link token-colors ${
+                        active
+                          ? "nav-link-active text-gold-light"
+                          : "hover:text-gold-light"
+                      }`}
+                    >
+                      {t(key)}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+          <LocaleToggle />
+        </div>
       </div>
     </header>
   );

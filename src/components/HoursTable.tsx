@@ -1,6 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useT } from "@/lib/i18n/LocaleContext";
+import type { TranslationKey } from "@/lib/i18n/dictionary";
 import { restaurant } from "@/data/restaurant";
 import type { DayOfWeek } from "@/data/restaurant";
 
@@ -25,14 +27,14 @@ const byJsDay: DayOfWeek[] = [
   "saturday",
 ];
 
-const label: Record<DayOfWeek, string> = {
-  monday: "Monday",
-  tuesday: "Tuesday",
-  wednesday: "Wednesday",
-  thursday: "Thursday",
-  friday: "Friday",
-  saturday: "Saturday",
-  sunday: "Sunday",
+const label: Record<DayOfWeek, TranslationKey> = {
+  monday: "day.monday",
+  tuesday: "day.tuesday",
+  wednesday: "day.wednesday",
+  thursday: "day.thursday",
+  friday: "day.friday",
+  saturday: "day.saturday",
+  sunday: "day.sunday",
 };
 
 const emptySubscribe = (): (() => void) => () => {};
@@ -66,6 +68,7 @@ export default function HoursTable({
   dense = false,
   className = "",
 }: HoursTableProps) {
+  const t = useT();
   const today = useToday();
   const dark = tone === "dark";
   const pad = dense ? "py-1.5" : "py-2.5";
@@ -75,7 +78,7 @@ export default function HoursTable({
 
   return (
     <table className={`w-full border-collapse text-sm ${className}`}>
-      <caption className="sr-only">Weekly opening hours</caption>
+      <caption className="sr-only">{t("hours.caption")}</caption>
       <tbody>
         {week.map((day) => {
           const h = restaurant.hours[day];
@@ -99,17 +102,17 @@ export default function HoursTable({
                       : "text-ink"
                 }`}
               >
-                {dense ? label[day].slice(0, 3) : label[day]}
+                {dense ? t(label[day]).slice(0, 3) : t(label[day])}
                 {isToday && !dense && (
                   <span className="ml-2 rounded-sm border border-gold px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-lacquer">
-                    Today
+                    {t("footer.today")}
                   </span>
                 )}
               </th>
               <td
                 className={`${pad} whitespace-nowrap pr-2 text-right tabular-nums ${dark ? "text-ivory/80" : "text-ink/80"}`}
               >
-                {h.closed ? "Closed" : `${h.open} – ${h.close}`}
+                {h.closed ? t("footer.closed") : `${h.open} – ${h.close}`}
               </td>
             </tr>
           );

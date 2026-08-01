@@ -12,6 +12,8 @@ import { useCart } from "@/lib/cart/CartContext";
 import { isLunchService } from "@/lib/order/gates";
 import { restaurant, sharedLastOnlineOrder } from "@/data/restaurant";
 import { formatCents } from "@/lib/money";
+import { useLocale } from "@/lib/i18n/LocaleContext";
+import { describeItem } from "@/data/menu-descriptions-es";
 import PhoneLinks from "@/components/PhoneLinks";
 import { SpicyMark } from "@/components/MenuSection";
 import ItemSheet from "@/components/order/ItemSheet";
@@ -40,6 +42,7 @@ export default function OrderMenu({
   /** Decided on the server so the first paint has lunch in the right place. */
   lunchOpenInitial: boolean;
 }) {
+  const { t, locale } = useLocale();
   const { itemCount, hydrated } = useCart();
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
@@ -141,12 +144,12 @@ export default function OrderMenu({
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="font-display text-4xl text-lacquer sm:text-5xl">
-              Menu
+              {t("menu.title")}
             </h1>
             <p className="mt-3 max-w-2xl leading-relaxed text-ink/75">
-              Order straight from the family, not a delivery app.{" "}
+              {t("menu.intro")}{" "}
               <span className="font-semibold text-ink">
-                Pickup only at {restaurant.address.street}.
+                {t("menu.pickupOnlyAt", { street: restaurant.address.street })}
               </span>
             </p>
           </div>
@@ -155,7 +158,8 @@ export default function OrderMenu({
             className="hidden items-center gap-2 rounded-lg border border-gold/60 px-4 py-2.5 font-semibold text-lacquer transition-colors hover:border-gold hover:bg-gold/10 sm:inline-flex"
           >
             <span aria-hidden="true">🛒</span>
-            Cart{hydrated && itemCount > 0 ? ` · ${itemCount}` : ""}
+            {t("menu.cart")}
+            {hydrated && itemCount > 0 ? ` · ${itemCount}` : ""}
           </button>
         </div>
 
@@ -169,10 +173,9 @@ export default function OrderMenu({
         <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 px-4 py-2 text-sm text-ink/70">
           <p>
             <span className="font-semibold text-ink">
-              Pickup only · ready in 15–20 minutes.
+              {t("banner.pickupReady")}
             </span>{" "}
-            Party trays and family dinners take 20–30. Pay at the counter when
-            you collect. We don&apos;t take payment online.
+            {t("banner.longPrep")}
           </p>
           {/* The website stops taking orders before the doors shut, so this
               belongs beside the wait time rather than only in the refusal a
@@ -180,20 +183,20 @@ export default function OrderMenu({
           {sharedLastOnlineOrder && (
             <p className="mt-1.5 border-t border-gold/25 pt-1.5">
               <span className="font-semibold text-ink">
-                Online orders until {sharedLastOnlineOrder}
+                {t("banner.onlineUntil", { time: sharedLastOnlineOrder })}
               </span>{" "}
               <span lang="zh-Hant" className="font-chinese text-ink/75">
-                · 網上訂餐至晚上8:30
+                · {t("banner.onlineUntilZh")}
               </span>
-              . The kitchen is open later, so please call after that.
+              . {t("banner.callAfter")}
             </p>
           )}
           <p className="mt-1.5 border-t border-gold/25 pt-1.5">
             <span className="font-semibold text-ink">
-              Food allergies? Please call us before ordering
+              {t("banner.allergy")}
             </span>{" "}
             <span lang="zh-Hant" className="font-chinese text-ink/75">
-              · 食物過敏請先致電
+              · {t("banner.allergyZh")}
             </span>{" "}
             <PhoneLinks
               separator=" or "
@@ -216,7 +219,7 @@ export default function OrderMenu({
               id="fav-strip"
               className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/55"
             >
-              House favourites
+              {t("menu.favourites")}
             </h2>
             <ul
               data-lenis-prevent
@@ -245,18 +248,18 @@ export default function OrderMenu({
             and keeps the swipe bar below it, which is the behaviour the
             mobile scrollspy was built around. */}
         <nav
-          aria-label="Menu categories"
+          aria-label={t("menu.categoriesAria")}
           className="sticky top-0 z-40 -mx-4 mt-6 border-y border-gold/40 bg-ivory/95 px-4 py-3 backdrop-blur"
         >
           <div className="flex flex-col gap-2 lg:flex-row-reverse lg:items-start lg:gap-4">
             <div className="flex shrink-0 items-center gap-2">
               <label className="relative flex-1 lg:w-56 lg:flex-none">
-                <span className="sr-only">Search the menu</span>
+                <span className="sr-only">{t("menu.searchLabel")}</span>
                 <input
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search dishes…"
+                  placeholder={t("menu.search")}
                   className="w-full rounded-sm border border-gold/50 bg-cream px-3 py-1.5 text-sm text-ink outline-none focus:border-lacquer"
                 />
               </label>
@@ -270,7 +273,7 @@ export default function OrderMenu({
                     : "border-gold/50 text-lacquer hover:border-gold hover:bg-gold/10"
                 }`}
               >
-                <span aria-hidden="true">🌶</span> Spicy only
+                <span aria-hidden="true">🌶</span> {t("menu.spicyOnly")}
               </button>
             </div>
 
@@ -303,10 +306,10 @@ export default function OrderMenu({
             className="mt-10 rounded-md border border-gold/40 bg-gold/5 px-4 py-6 text-center leading-relaxed text-ink/75"
           >
             <span className="font-semibold text-ink">
-              No matches, try the category list
+              {t("menu.noMatches")}
             </span>{" "}
             <span lang="zh-Hant" className="font-chinese text-ink/75">
-              · 沒有符合的項目，請用分類選單
+              · {t("menu.noMatchesZh")}
             </span>
             <button
               onClick={() => {
@@ -315,7 +318,7 @@ export default function OrderMenu({
               }}
               className="mt-3 block w-full text-sm text-lacquer underline underline-offset-2"
             >
-              Clear the filter
+              {t("menu.clearFilter")}
             </button>
           </p>
         )}
@@ -338,13 +341,13 @@ export default function OrderMenu({
                 >
                   {lunchOpen ? (
                     <>
-                      until 3:00 PM{" "}
+                      {t("menu.lunchUntil")}{" "}
                       <span lang="zh-Hant" className="font-chinese">
-                        · 至下午三時
+                        · {t("menu.lunchUntilZh")}
                       </span>
                     </>
                   ) : (
-                    "11 AM–3 PM only"
+                    t("menu.lunchWindowOnly")
                   )}
                 </span>
               )}
@@ -370,30 +373,39 @@ export default function OrderMenu({
                         </span>
                         {item.spicy && <SpicyMark />}
                       </span>
-                      {item.description && (
+                      {/* The blurb translates; the NAME never does. A dish
+                          name is a proper noun here — it is what the ticket
+                          prints and what a customer points at on the
+                          printed menu — but "what is in it" is exactly
+                          what a Spanish reader needs. Untranslated dishes
+                          fall back to their English blurb rather than to
+                          nothing. */}
+                      {describeItem(item.id, item.description, locale) && (
                         <span className="mt-1 block text-sm text-ink/65">
-                          {item.description}
+                          {describeItem(item.id, item.description, locale)}
                         </span>
                       )}
                       {outsideLunch ? (
                         <span className="mt-1 block text-sm text-ink/50">
-                          Lunch specials are served 11:00 AM – 3:00 PM
+                          {t("menu.lunchOnly")}
                         </span>
                       ) : (
                         disabled && (
                           <span className="mt-1 block text-sm text-ink/50">
-                            Currently unavailable
+                            {t("menu.unavailable")}
                           </span>
                         )
                       )}
                     </span>
                     <span className="shrink-0 text-right">
                       <span className="font-semibold text-lacquer">
-                        {hasChoice ? `from ${formatCents(from)}` : formatCents(from)}
+                        {hasChoice
+                          ? t("menu.from", { price: formatCents(from) })
+                          : formatCents(from)}
                       </span>
                       {!disabled && (
                         <span className="mt-0.5 block text-xs uppercase tracking-[0.12em] text-ink/45">
-                          Add +
+                          {t("menu.addPlus")}
                         </span>
                       )}
                     </span>

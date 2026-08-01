@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/lib/cart/CartContext";
+import { useT } from "@/lib/i18n/LocaleContext";
 import PhoneLinks from "@/components/PhoneLinks";
 import { restaurant } from "@/data/restaurant";
 import { formatCents, taxCents } from "@/lib/money";
@@ -77,6 +78,7 @@ export default function Checkout({
   testMode = false,
 }: CheckoutProps) {
   const router = useRouter();
+  const t = useT();
   const { detailedLines, lines, subtotalCents, hydrated, clear } = useCart();
   const idempotencyKeyRef = useRef<string>("");
 
@@ -229,17 +231,17 @@ export default function Checkout({
         | { ok: false; error: string };
 
       if (!res.ok || !data.ok) {
-        setError("error" in data ? data.error : "We couldn't send a code.");
+        setError("error" in data ? data.error : t("err.codeNotSent"));
         setVerify("idle");
         return;
       }
-      setNotice(`Code sent to ••••${data.last4}. It expires in 10 minutes.`);
+      setNotice(t("otp.codeSent", { last4: data.last4 }));
       setVerify("sent");
     } catch {
-      setError("We couldn't reach the server. Please try again. · 無法連線，請重試。");
+      setError(`${t("err.noReachServer")} · ${t("err.noReachServerZh")}`);
       setVerify("idle");
     }
-  }, [phone, phoneCheck]);
+  }, [phone, phoneCheck, t]);
 
   const submitCode = useCallback(async () => {
     setError(null);
@@ -255,17 +257,17 @@ export default function Checkout({
         | { ok: false; error: string };
 
       if (!res.ok || !data.ok) {
-        setError("error" in data ? data.error : "That code isn't right.");
+        setError("error" in data ? data.error : t("err.codeWrong"));
         setVerify("sent");
         return;
       }
       setVerifiedPhone(phoneCheck.e164 ?? null);
       setNotice(null);
     } catch {
-      setError("We couldn't reach the server. Please try again. · 無法連線，請重試。");
+      setError(`${t("err.noReachServer")} · ${t("err.noReachServerZh")}`);
       setVerify("sent");
     }
-  }, [phone, code, phoneCheck]);
+  }, [phone, code, phoneCheck, t]);
 
   const canSubmit =
     hydrated &&
@@ -281,12 +283,12 @@ export default function Checkout({
     if (submitting) return; // hard double-submit guard
     setError(null);
 
-    if (!name.trim()) return setError("Please enter your name.");
+    if (!name.trim()) return setError(t("err.enterName"));
     if (!isVerified) {
-      return setError("Please verify your phone number first. · 請先驗證電話號碼。");
+      return setError(`${t("err.verifyFirst")} · ${t("err.verifyFirstZh")}`);
     }
     if (!time || slots.length === 0) {
-      return setError("Please choose a pickup time.");
+      return setError(t("err.choosePickup"));
     }
 
     setSubmitting(true);
@@ -335,10 +337,7 @@ export default function Checkout({
           setVerify("idle");
           setCode("");
         }
-        setError(
-          ("error" in data && data.error) ||
-            "We couldn't place your order. Please try again.",
-        );
+        setError(("error" in data && data.error) || t("err.noPlaceOrder"));
         setSubmitting(false);
         return;
       }
@@ -360,7 +359,7 @@ export default function Checkout({
       clear();
       router.push("/order/confirmation");
     } catch {
-      setError("We couldn't place your order. Please try again. · 無法送出訂單，請重試。");
+      setError(`${t("err.noPlaceOrder")} · ${t("err.noPlaceOrderZh")}`);
       setSubmitting(false);
     }
   }
@@ -368,13 +367,13 @@ export default function Checkout({
   if (hydrated && detailedLines.length === 0) {
     return (
       <div className="container-wide flex flex-col items-center gap-3 py-24 text-center">
-        <h1 className="font-display text-3xl text-lacquer">Your cart is empty</h1>
-        <p className="text-ink/70">Add a few dishes to start a pickup order.</p>
+        <h1 className="font-display text-3xl text-lacquer">{t("checkout.emptyTitle")}</h1>
+        <p className="text-ink/70">{t("checkout.emptyHint")}</p>
         <Link
           href="/menu#order"
           className="mt-2 inline-flex min-h-12 items-center rounded-lg bg-gold px-6 font-semibold text-ink hover:bg-gold-light"
         >
-          Back to menu
+          {t("checkout.backToMenu")}
         </Link>
       </div>
     );
@@ -384,24 +383,24 @@ export default function Checkout({
     <div className="container-wide grid gap-10 py-10 lg:grid-cols-[1fr_360px]">
       {/* Left: forms */}
       <form onSubmit={handleSubmit} className="order-2 lg:order-1">
-        <h1 className="font-display text-4xl text-lacquer">Checkout</h1>
+        <h1 className="font-display text-4xl text-lacquer">{t("checkout.title")}</h1>
         <p className="mt-2 text-sm uppercase tracking-[0.15em] text-ink/55">
-          Pickup only · {restaurant.address.street}
+          {t("checkout.pickupOnlyAt", { street: restaurant.address.street })}
         </p>
         <p className="mt-3 rounded-md border border-gold/40 bg-gold/5 px-4 py-3 text-sm text-ink/80">
-          <span className="font-semibold text-ink">Pay when you pick up.</span>{" "}
-          We don&apos;t take payment online. Cash or card at the counter.
+          <span className="font-semibold text-ink">{t("checkout.payAtCounter")}</span>{" "}
+          {t("checkout.noOnlinePayment")}
         </p>
 
         {/* Pickup details */}
         <fieldset className="mt-8">
           <legend className="font-display text-2xl text-ink">
-            Pickup details
+            {t("checkout.pickupDetails")}
           </legend>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
-                Name
+                {t("checkout.name")}
               </span>
               <input
                 value={name}
@@ -413,7 +412,7 @@ export default function Checkout({
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
-                Mobile number
+                {t("checkout.mobile")}
               </span>
               <input
                 ref={phoneRef}
@@ -431,7 +430,7 @@ export default function Checkout({
           </div>
           <label className="mt-4 block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
-              Pickup time
+              {t("checkout.pickupTime")}
             </span>
             {slots.length > 0 ? (
               <select
@@ -459,8 +458,7 @@ export default function Checkout({
               </p>
             ) : (
               <p className="rounded-md border border-lacquer/40 bg-lacquer/5 px-3 py-3 text-sm leading-relaxed text-lacquer">
-                {closedNote ??
-                  "We're closed for online orders right now. Please call us."}
+                {closedNote ?? t("checkout.closedFallback")}
               </p>
             )}
             {testMode && slots.length > 0 && (
@@ -474,17 +472,16 @@ export default function Checkout({
         {/* Phone verification */}
         <fieldset className="mt-8">
           <legend className="font-display text-2xl text-ink">
-            Verify your number
+            {t("checkout.verifyLegend")}
           </legend>
           <p className="mb-3 mt-1 text-sm text-ink/60">
-            We text you a code so the kitchen knows the order is real, and so
-            we can reach you when it&apos;s ready.
+            {t("checkout.verifyWhy")}
           </p>
 
           {isVerified ? (
             <p className="flex items-center gap-2 rounded-md border border-gold bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">
               <span aria-hidden="true">✓</span>
-              Number verified. · 號碼已驗證。
+              {t("checkout.verified")} · {t("checkout.verifiedZh")}
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -495,17 +492,17 @@ export default function Checkout({
                 className="min-h-12 self-start rounded-lg border-2 border-lacquer px-5 font-semibold text-lacquer transition-colors hover:bg-lacquer hover:text-ivory disabled:opacity-50"
               >
                 {verify === "sending"
-                  ? "Sending…"
+                  ? t("checkout.sending")
                   : verify === "sent"
-                    ? "Resend code"
-                    : "Text me a code"}
+                    ? t("checkout.resendCode")
+                    : t("checkout.textMeCode")}
               </button>
 
               {verify !== "idle" && (
                 <div className="flex flex-wrap items-end gap-3">
                   <label className="block">
                     <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
-                      6-digit code
+                      {t("checkout.codeLabel")}
                     </span>
                     <input
                       value={code}
@@ -523,7 +520,7 @@ export default function Checkout({
                     disabled={code.length < 4 || verify === "checking"}
                     className="min-h-12 rounded-lg bg-lacquer px-5 font-semibold text-ivory transition-colors hover:bg-lacquer-dark disabled:opacity-50"
                   >
-                    {verify === "checking" ? "Checking…" : "Verify"}
+                    {verify === "checking" ? t("checkout.checking") : t("checkout.verify")}
                   </button>
                 </div>
               )}
@@ -564,10 +561,10 @@ export default function Checkout({
             they have already been heard. */}
         <p className="mt-6 rounded-md border border-lacquer/40 bg-lacquer/5 px-4 py-3 text-sm text-ink/80">
           <span className="font-semibold text-lacquer">
-            Please call for allergy questions, do not rely on order notes
+            {t("checkout.allergyWarn")}
           </span>{" "}
           <span lang="zh-Hant" className="font-chinese text-ink/75">
-            · 過敏問題請致電，請勿只依賴備註
+            · {t("checkout.allergyWarnZh")}
           </span>{" "}
           <PhoneLinks
             separator=" or "
@@ -581,17 +578,17 @@ export default function Checkout({
           className="mt-4 flex min-h-12 w-full items-center justify-center rounded-lg bg-gold px-6 font-semibold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting
-            ? "Placing pickup order…"
-            : `Place pickup order · ${formatCents(total)} at pickup`}
+            ? t("checkout.placing")
+            : t("checkout.placeOrder", { total: formatCents(total) })}
         </button>
         <p className="mt-2 text-center text-xs uppercase tracking-[0.15em] text-ink/50">
-          Pickup only · pay at the counter
+          {t("checkout.payAtCounterShort")}
         </p>
       </form>
 
       {/* Right: order summary */}
       <aside className="order-1 h-max rounded-md border border-gold/40 bg-cream px-5 py-5 lg:order-2 lg:sticky lg:top-6">
-        <h2 className="font-display text-2xl text-ink">Your order</h2>
+        <h2 className="font-display text-2xl text-ink">{t("checkout.yourOrder")}</h2>
         <ul className="mt-4 divide-y divide-gold/20">
           {detailedLines.map((line) => (
             <li key={line.lineId} className="flex justify-between gap-3 py-3 text-sm">
@@ -616,17 +613,17 @@ export default function Checkout({
         </ul>
         <dl className="mt-4 space-y-1 border-t border-gold/20 pt-3 text-sm">
           <div className="flex justify-between">
-            <dt className="text-ink/70">Subtotal</dt>
+            <dt className="text-ink/70">{t("cart.subtotal")}</dt>
             <dd className="text-ink">{formatCents(subtotalCents)}</dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-ink/70">Tax</dt>
+            <dt className="text-ink/70">{t("cart.tax")}</dt>
             <dd className="text-ink">
-              {taxRateBps != null ? formatCents(tax) : "added at pickup"}
+              {taxRateBps != null ? formatCents(tax) : t("checkout.taxAtPickup")}
             </dd>
           </div>
           <div className="flex justify-between border-t border-gold/20 pt-1 text-base font-semibold">
-            <dt className="text-ink">Due at pickup</dt>
+            <dt className="text-ink">{t("checkout.dueAtPickup")}</dt>
             <dd className="text-lacquer">{formatCents(total)}</dd>
           </div>
         </dl>
@@ -634,7 +631,7 @@ export default function Checkout({
           href="/menu#order"
           className="mt-4 inline-block text-sm text-ink/60 underline underline-offset-2 hover:text-lacquer"
         >
-          ← Edit order
+          ← {t("checkout.editOrder")}
         </Link>
       </aside>
     </div>
