@@ -38,7 +38,18 @@ type Action =
   | { type: "remove"; lineId: string }
   | { type: "clear" };
 
-const STORAGE_KEY = "nmc-cart-v1";
+/**
+ * BUMPED v1 -> v2 when rice became a required choice on most of the menu.
+ *
+ * A cart is JSON in sessionStorage and is rehydrated without revalidation
+ * against the current menu, so a tab left open across the deploy would
+ * hold lines built before the rice group existed. Those lines carry no
+ * rice id, and the server now refuses them (lib/orders/modifierRules) —
+ * correct, but the customer would meet that refusal at the Place Order
+ * button with no idea why. Changing the key drops the stale cart at the
+ * door instead, which is the cheaper of the two disappointments.
+ */
+const STORAGE_KEY = "nmc-cart-v2";
 
 /** Stable signature for merging identical configurations. */
 function lineSignature(

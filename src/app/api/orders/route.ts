@@ -18,6 +18,7 @@ import {
 import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass";
 import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
+import { checkModifierGroups } from "@/lib/orders/modifierRules";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import {
@@ -238,6 +239,24 @@ export async function POST(request: Request): Promise<Response> {
     }
     const size = itemSizes(item).find((s) => s.id === line.sizeId);
     if (!size) return bad(`A size is no longer available for "${item.nameEn}".`);
+
+    /* REQUIRED CHOICES ARE ENFORCED HERE, and were not enforced anywhere
+       before this. minRequired and maxAllowed were read only by the item
+       sheet — the server took whatever modifierIds arrived, priced them,
+       stored them and printed them. A line that simply omitted the field
+       defaulted to [] and sailed through.
+
+       That was survivable while the only required group was the lunch
+       entrée choice, which the sheet always supplied. It is not
+       survivable now that most of the menu has a required rice: the cart
+       lives in sessionStorage, so a customer holding a tab open from
+       before this shipped would submit rice-less lines that priced and
+       printed as if nothing were missing, and the kitchen would get a
+       ticket that does not say which rice. The storage key is bumped for
+       that case too (see lib/cart/CartContext), but a client-side key is
+       a courtesy and this is the guarantee. */
+    const groupError = checkModifierGroups(item, line.modifierIds);
+    if (groupError) return bad(groupError);
 
     let resolved: OrderLine;
     try {

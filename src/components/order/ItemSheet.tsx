@@ -39,7 +39,31 @@ function ItemSheetInner({
   const sizes = itemSizes(item);
 
   const [sizeId, setSizeId] = useState<string>(sizes[0]?.id ?? "");
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
+  /**
+   * Single-choice REQUIRED groups open on their first option.
+   *
+   * Sizes have always defaulted to the first tier; modifier groups never
+   * did, which was invisible while the only required group was the lunch
+   * entrée choice — a genuine decision, where a default would be the
+   * kitchen picking your lunch. Rice is not that. It is on most of the
+   * menu, steamed is what the counter gives you if you say nothing, and
+   * an undefaulted required group means every dish opens with a dead Add
+   * to Cart button and no visible reason.
+   *
+   * Only `maxAllowed === 1` groups: defaulting one option of a
+   * multi-select would be choosing on the customer's behalf, not saving
+   * them a tap. A lazy initializer, so it costs one evaluation at mount
+   * and needs no effect.
+   */
+  const [selected, setSelected] = useState<Record<string, string[]>>(() => {
+    const initial: Record<string, string[]> = {};
+    for (const g of item.modifierGroups) {
+      if (g.minRequired >= 1 && g.maxAllowed === 1 && g.modifiers[0]) {
+        initial[g.id] = [g.modifiers[0].id];
+      }
+    }
+    return initial;
+  });
   const [quantity, setQuantity] = useState(1);
   const [instructions, setInstructions] = useState("");
 
@@ -66,14 +90,19 @@ function ItemSheetInner({
     }
   }, [item, sizeId, modifierIds, quantity]);
 
+  /** Groups that are not yet satisfied, so the footer can name them. */
+  const unmetGroups = useMemo(
+    () =>
+      item.modifierGroups.filter((g) => {
+        const count = (selected[g.id] ?? []).length;
+        const maxOk = g.maxAllowed == null || count <= g.maxAllowed;
+        return !(count >= g.minRequired && maxOk);
+      }),
+    [item, selected],
+  );
+
   // Every group's min/max must be satisfied to enable Add.
-  const groupsValid = useMemo(() => {
-    return item.modifierGroups.every((g) => {
-      const count = (selected[g.id] ?? []).length;
-      const maxOk = g.maxAllowed == null || count <= g.maxAllowed;
-      return count >= g.minRequired && maxOk;
-    });
-  }, [item, selected]);
+  const groupsValid = unmetGroups.length === 0;
 
   function toggleModifier(groupId: string, modId: string, maxAllowed: number | null) {
     setSelected((prev) => {
@@ -204,6 +233,21 @@ function ItemSheetInner({
                         />
                         <span className="text-ink">
                           {m.nameEn}
+                          {/* 中文 beside the English on every option that
+                              has it. The rice choice is the reason —
+                              "Steamed Rice 白飯" is how the menu says it
+                              and how the ticket prints it — and the lunch
+                              entrée choices get the same treatment for
+                              free, which is the right answer on a site
+                              whose identity is Chinese-forward. */}
+                          {m.nameZh && (
+                            <span
+                              lang="zh-Hant"
+                              className="ml-1.5 font-chinese text-sm text-ink/60"
+                            >
+                              {m.nameZh}
+                            </span>
+                          )}
                           {m.note && (
                             <span className="ml-1 text-sm text-ink/55">
                               · {m.note}
@@ -263,7 +307,23 @@ function ItemSheetInner({
           </div>
         </div>
 
-        {/* Footer: quantity + add */}
+        {/* Footer: quantity + add.
+            A disabled Add to Cart used to be its own explanation, which it
+            never was. Now that most of the menu carries a required group,
+            an unmet one is named here rather than leaving a dead button at
+            the bottom of a sheet whose fieldsets have scrolled away. */}
+        {!groupsValid && (
+          <p
+            role="status"
+            className="border-t border-gold/30 bg-gold/5 px-5 py-2.5 text-sm text-ink/75"
+          >
+            Please choose{" "}
+            <span className="font-semibold text-lacquer">
+              {unmetGroups.map((g) => g.nameEn.toLowerCase()).join(" and ")}
+            </span>{" "}
+            to add this to your cart.
+          </p>
+        )}
         <div className="flex items-center gap-3 border-t border-gold/30 px-5 py-4">
           {/* Corners on the buttons, not a clip on the wrapper — see the
               same stepper in CartDrawer for why. */}

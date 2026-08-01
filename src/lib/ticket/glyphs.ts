@@ -43,6 +43,7 @@ import {
   itemOverridesById,
 } from "@/data/menu-overrides";
 import { restaurant } from "@/data/restaurant";
+import { riceGlyphStrings } from "@/lib/menu/rice";
 
 /**
  * Every fixed string the ticket renders. render.ts must use these constants
@@ -97,6 +98,13 @@ export function collectTicketGlyphs(): string {
 
   if (restaurant.chineseName) parts.push(restaurant.chineseName);
   parts.push(restaurant.name);
+
+  // The rice group is injected in catalog.ts, AFTER the raw catalogue this
+  // loop walks — so 白飯 and 炒飯 would be invisible here for every à la
+  // carte dish and the printer would draw .notdef boxes on ~130 items.
+  // Combo items would have been covered (their groups are walked below),
+  // which is exactly the kind of half-coverage that ships.
+  parts.push(...riceGlyphStrings());
 
   // À la carte: the catalogue is now the only source of dish 中文.
   for (const category of menu) {

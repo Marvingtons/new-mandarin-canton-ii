@@ -1,6 +1,7 @@
 import { combos, dishZh } from "@/data/menu";
 import type { LunchChoice } from "@/data/menu";
 import { resolveModifierZh } from "@/data/menu-overrides";
+import { riceGroup } from "@/lib/menu/rice";
 import type { MenuItem, MenuModifier, MenuSize } from "@/lib/menu/types";
 
 /**
@@ -90,7 +91,15 @@ function choiceModifier(choice: LunchChoice): MenuModifier {
  * Listing it and then retracting it is how a customer ends up expecting soup.
  */
 function lunchSidesSentence(sides: string[]): string {
-  const travelling = sides.filter((s) => !/soup/i.test(s));
+  const travelling = sides
+    .filter((s) => !/soup/i.test(s))
+    // The rice is a CHOICE now, not a listed side. The printed menu writes
+    // it as "Fried Rice or Steamed Rice" in the sides list, which was fine
+    // when the customer picked at the counter and useless online: it
+    // described an option nobody could exercise. It is now the required
+    // rice group, so listing it here as well would state the same thing
+    // twice and make the sentence argue with the selector under it.
+    .filter((s) => !/\brice\b/i.test(s));
   const included = travelling.length
     ? `Includes ${travelling.join(", ")}. `
     : "";
@@ -111,19 +120,27 @@ function lunchItems(): MenuItem[] {
     description: lunchSidesSentence(set.sides ?? []),
     priceCents: set.priceCents,
     categoryId: LUNCH_CATEGORY,
-    modifierGroups: (set.choices ?? []).length
-      ? [
-          {
-            id: `${set.id}-entree`,
-            nameEn: "Choose your entrée",
-            // TODO(confirm): descriptive translation, family to approve
-            nameZh: "選主菜",
-            minRequired: 1,
-            maxAllowed: 1,
-            modifiers: (set.choices ?? []).map(choiceModifier),
-          },
-        ]
-      : [],
+    modifierGroups: [
+      ...((set.choices ?? []).length
+        ? [
+            {
+              id: `${set.id}-entree`,
+              nameEn: "Choose your entrée",
+              // TODO(confirm): descriptive translation, family to approve
+              nameZh: "選主菜",
+              minRequired: 1,
+              maxAllowed: 1,
+              modifiers: (set.choices ?? []).map(choiceModifier),
+            },
+          ]
+        : []),
+      // The lunch tiers include rice, so they get the same two-option
+      // choice the à la carte entrées get. Two options, not three: a
+      // one-person lunch cannot be half and half. The tier's other
+      // included sides are untouched, and the no-soup-to-go rule above
+      // still says what it always said.
+      riceGroup(false),
+    ],
     spicy: false,
     vegetarian: false,
     chefSpecial: false,
@@ -169,7 +186,9 @@ function familyItems(): MenuItem[] {
       priceCents: set.priceCents * FAMILY_MIN_PEOPLE,
       sizes: familySizes(set.priceCents),
       categoryId: FAMILY_CATEGORY,
-      modifierGroups: [],
+      // Three options here: these sets feed 2+ people, so the table can
+      // genuinely split the rice. See riceGroup().
+      modifierGroups: [riceGroup(true)],
       spicy: false,
       vegetarian: false,
       chefSpecial: false,
@@ -191,7 +210,8 @@ function bigFamilyItems(): MenuItem[] {
     description: (set.dishes ?? []).join(" · ") || null,
     priceCents: set.priceCents,
     categoryId: BIG_FAMILY_CATEGORY,
-    modifierGroups: [],
+    // Three options, same reason as the family dinners: these feed a table.
+    modifierGroups: [riceGroup(true)],
     spicy: false,
     vegetarian: false,
     chefSpecial: false,

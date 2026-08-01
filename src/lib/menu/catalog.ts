@@ -10,6 +10,7 @@ import {
   resolveItemOverride,
   resolveModifierZh,
 } from "@/data/menu-overrides";
+import { riceGroupForCategory } from "@/lib/menu/rice";
 import type {
   Menu,
   MenuCategory,
@@ -77,10 +78,20 @@ function sizesFor(item: CatalogItem): MenuSize[] | undefined {
  * optional multi-select group. Priced from the catalogue, so the +$3.00 the
  * customer sees and the +300 the server charges are the same number.
  */
-function modifierGroupsFor(item: CatalogItem): MenuModifierGroup[] {
-  if (!item.modifiers?.length) return [];
-  return [
-    {
+function modifierGroupsFor(
+  item: CatalogItem,
+  categoryId: string,
+): MenuModifierGroup[] {
+  const groups: MenuModifierGroup[] = [];
+
+  // Rice FIRST, because it is the required one. The sheet renders groups
+  // in order, and a customer scrolling to a disabled Add button should
+  // meet the thing blocking it before the optional extras.
+  const rice = riceGroupForCategory(categoryId);
+  if (rice) groups.push(rice);
+
+  if (item.modifiers?.length) {
+    groups.push({
       id: `${item.id}-extras`,
       nameEn: "Extras",
       nameZh: null,
@@ -92,8 +103,10 @@ function modifierGroupsFor(item: CatalogItem): MenuModifierGroup[] {
         nameZh: resolveModifierZh(m.name),
         priceCents: m.priceCents,
       })),
-    },
-  ];
+    });
+  }
+
+  return groups;
 }
 
 let cached: Menu | null = null;
@@ -120,7 +133,7 @@ export function catalogMenu(): Menu {
         priceCents: item.priceCents,
         sizes: sizesFor(item),
         categoryId: category.id,
-        modifierGroups: modifierGroupsFor(item),
+        modifierGroups: modifierGroupsFor(item, category.id),
         // The printed menu's 🌶 set, straight from the catalogue. No override
         // fallback: a second source for this flag is how it drifts.
         spicy: item.spicy === true,
