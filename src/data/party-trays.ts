@@ -28,6 +28,11 @@ export const PARTY_TRAY_SERVES = {
   short: "feeds 15–20",
 } as const;
 
-/** Prep-time warning shown before submit when a tray is in the cart. */
-export const PARTY_TRAY_PREP_NOTE =
-  "Party trays: ready in 20–30 minutes";
+/* The prep-time warning that used to live here as PARTY_TRAY_PREP_NOTE is now
+   `cart.longPrep` in lib/i18n/dictionary.ts.
+   Two reasons it had to move. It was English on the Spanish cart; and it named
+   only trays while the condition that shows it (`item.longPrep === true ||
+   size.id === "party-tray"`, see CartDrawer) also fires for family dinners, so
+   a customer with a family dinner and no tray was warned about trays. The
+   confirmation screen already said "Party trays & family dinners"; the cart
+   now says the same thing one screen earlier. */

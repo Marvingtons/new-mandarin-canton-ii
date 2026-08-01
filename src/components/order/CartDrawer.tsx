@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { PARTY_TRAY_PREP_NOTE } from "@/data/party-trays";
 import { useEffect } from "react";
 import { useCart } from "@/lib/cart/CartContext";
 import { useT } from "@/lib/i18n/LocaleContext";
@@ -153,7 +152,7 @@ export default function CartDrawer({
         {hasLongPrep && (
           <div className="border-t border-gold/30 bg-gold/5 px-5 py-3 text-sm text-ink/75">
             <span className="font-semibold text-ink">
-              {PARTY_TRAY_PREP_NOTE}
+              {t("cart.longPrep")}
             </span>
             <span className="mt-0.5 block text-xs text-ink/60">
               {t("cart.everythingElse")}

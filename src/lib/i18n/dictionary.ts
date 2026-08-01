@@ -106,6 +106,13 @@ export const en = {
   "cart.pickupOnly": "Pickup only · no delivery",
   "cart.viewCart": "View Cart",
   "cart.everythingElse": "Everything else is 15–20 minutes.",
+  /* Shown when anything in the cart pushes the whole order to 20–30. The
+     condition is `item.longPrep || size.id === "party-tray"`, so a family
+     dinner with no tray in it triggers it — and the string it used to show
+     was PARTY_TRAY_PREP_NOTE, "Party trays: ready in 20–30 minutes", which
+     told that customer about food they had not ordered. Named for what the
+     condition actually covers, the way conf.longPrepNote already is. */
+  "cart.longPrep": "Party trays & family dinners: ready in 20–30 minutes",
 
   /* ---- checkout ---- */
   "checkout.title": "Checkout",
@@ -328,6 +335,8 @@ export const es: Record<TranslationKey, string> = {
   "cart.pickupOnly": "Solo para recoger · sin entrega a domicilio",
   "cart.viewCart": "Ver carrito",
   "cart.everythingElse": "Todo lo demás está listo en 15–20 minutos.",
+  "cart.longPrep":
+    "Charolas para fiesta y cenas familiares: listas en 20–30 minutos",
 
   /* ---- checkout ---- */
   "checkout.title": "Pagar",
