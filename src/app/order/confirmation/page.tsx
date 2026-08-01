@@ -106,7 +106,7 @@ export default function ConfirmationPage() {
             {t("conf.allergyHeading")}
           </span>{" "}
           <span lang="zh-Hant" className="font-chinese text-ink/75">
-            · 過敏問題請致電
+            · {t("conf.allergyHeadingZh")}
           </span>{" "}
           {t("conf.allergyBody")}
         </p>

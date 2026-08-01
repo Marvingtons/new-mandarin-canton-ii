@@ -178,6 +178,12 @@ export const en = {
   "conf.noOrderHint": "Start a new pickup order from the menu.",
   "conf.orderPickup": "Order pickup",
   "conf.allergyHeading": "You mentioned something we should hear about by phone.",
+  /* The 中文 half of the two-part line. It was written inline in the JSX —
+     the one place on the site that hardcoded Chinese instead of reading it
+     from here — so it was also the one place a 中文 correction would not be
+     found by searching this file. Same characters as checkout.allergyWarnZh,
+     which is the same sentence one screen earlier. */
+  "conf.allergyHeadingZh": "過敏問題請致電",
   "conf.allergyBody":
     "An order note reaches the kitchen only when your ticket prints, so please call and tell us directly.",
 
@@ -406,6 +412,7 @@ export const es: Record<TranslationKey, string> = {
   "conf.noOrderHint": "Empiece una orden nueva desde el menú.",
   "conf.orderPickup": "Ordenar para recoger",
   "conf.allergyHeading": "Mencionó algo que necesitamos escuchar por teléfono.",
+  "conf.allergyHeadingZh": "過敏問題請致電",
   "conf.allergyBody":
     "Una nota en la orden llega a la cocina solo cuando se imprime su ticket, así que por favor llámenos y díganos directamente.",
 
