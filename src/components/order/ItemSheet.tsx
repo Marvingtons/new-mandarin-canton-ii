@@ -145,8 +145,15 @@ function ItemSheetInner({
       aria-modal="true"
       aria-label={item.nameEn}
     >
+      {/* THE SCRIM IS NOT ANNOUNCED. It is a full-screen button, so with an
+          accessible name it put a second control called "Close" in the
+          dialog — one of them invisible and the size of the viewport — and a
+          screen reader offered both. Tapping outside still closes; Escape
+          and the × below are the ways a keyboard or screen-reader user does
+          it, and they are enough. */}
       <button
-        aria-label={t("sheet.close")}
+        aria-hidden="true"
+        tabIndex={-1}
         className="absolute inset-0 bg-ink/60"
         onClick={onClose}
       />

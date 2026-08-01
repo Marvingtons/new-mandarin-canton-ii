@@ -43,9 +43,13 @@ export default function CartDrawer({
 
   return (
     <>
+      {/* Same as the item sheet's scrim: not announced. A viewport-sized
+          button called "Close cart" beside the drawer's own × is two
+          controls with one job, and only one of them can be seen. */}
       {open && (
         <button
-          aria-label="Close cart"
+          aria-hidden="true"
+          tabIndex={-1}
           className="fixed inset-0 z-[60] bg-ink/50"
           onClick={onClose}
         />
