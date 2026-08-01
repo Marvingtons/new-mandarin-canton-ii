@@ -54,9 +54,21 @@ export default function CartDrawer({
           onClick={onClose}
         />
       )}
+      {/* `inert` alongside `aria-hidden`, and it is the load-bearing one.
+          The drawer is always in the DOM — it slides, so it cannot unmount —
+          which meant that with a populated cart, aria-hidden="true" was
+          sitting on a subtree containing the close button and every quantity
+          and Remove control, all still reachable by Tab. Focusable content
+          inside aria-hidden is the one thing that attribute must never
+          contain: a keyboard user tabs into a panel that is off-screen and
+          announced as not there.
+          `inert` takes the whole subtree out of the tab order and out of hit
+          testing for exactly as long as it is closed, which is what
+          aria-hidden was trying and failing to express on its own. */}
       <aside
         aria-label={t("cart.title")}
         aria-hidden={!open}
+        inert={!open}
         className={`fixed inset-y-0 right-0 z-[65] flex w-full max-w-md flex-col rounded-l-lg bg-cream shadow-xl transition-transform duration-300 ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
