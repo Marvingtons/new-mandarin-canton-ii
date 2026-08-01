@@ -25,17 +25,18 @@ async function main(): Promise<void> {
   const fixtures = await fixtureOrders();
   const copies = 3;
 
-  /* THE CEILING IS REAL AND IT THROWS. A StarPRNT job is capped at 512 KB,
-     which at this width is maxStarPrntRows() rows for ALL copies together.
-     renderCutCopies() refuses an over-ceiling job outright ("reduce
-     TICKET_COPIES") — unlike the single-copy path, which splits cleanly —
-     so an order over the line does not print at all. It stays QUEUED and
-     surfaces through the unprinted-order alert.
+  /* THE CEILING NO LONGER FAILS ANYTHING. A StarPRNT job is capped at
+     512 KB, which at this width is maxStarPrntRows() rows — but that is a
+     cap per JOB, and renderCutCopies() now sends a copy set too tall to
+     travel at once as consecutive jobs instead of refusing it. There is no
+     order this printer cannot be sent; verify:print-split asserts that,
+     including a synthetic 40-line order at copies=3.
 
-     This script used to only console.log, which meant the one number that
-     answers "will this still print" was measured and then not checked.
-     Anything at or above WARN_AT is reported; anything over the ceiling
-     fails the run. */
+     So the number here has changed meaning. It is no longer "will this
+     print" — it is "how much paper, and how many jobs". Over the ceiling
+     is a plan with more than one segment, which is a cost worth seeing and
+     not a failure. The warning threshold stays because crossing it is
+     still the moment a single job becomes two. */
   const ceiling = maxStarPrntRows(TICKET_WIDTH_PX);
   const WARN_AT = 0.85;
 
@@ -57,7 +58,7 @@ async function main(): Promise<void> {
     }
     const total = heights.reduce((a, b) => a + b, 0);
     const pct = total / ceiling;
-    const flag = pct > 1 ? "  ✗ OVER CEILING" : pct >= WARN_AT ? "  ⚠ near ceiling" : "";
+    const flag = pct > 1 ? "  → splits into multiple jobs" : pct >= WARN_AT ? "  ⚠ near one-job ceiling" : "";
     if (pct > 1) over.push(`${name} (${total}px, ${Math.round(pct * 100)}%)`);
     else if (pct >= WARN_AT) near.push(`${name} (${Math.round(pct * 100)}%)`);
     console.log(
@@ -72,14 +73,14 @@ async function main(): Promise<void> {
     console.log(`\n⚠ within ${Math.round((1 - WARN_AT) * 100)}% of the ceiling: ${near.join(", ")}`);
   }
   if (over.length > 0) {
-    console.error(
-      `\n✗ ${over.length} fixture(s) exceed the ${ceiling}px StarPRNT ceiling and would NOT print:\n` +
+    console.log(
+      `\n${over.length} fixture(s) exceed what one ${ceiling}px job can carry and are sent ` +
+        `as consecutive jobs:\n` +
         over.map((o) => `    ${o}`).join("\n") +
-        `\n\n  Levers, in order of cheapness:\n` +
-        `    1. TICKET_COPIES is ${copies} (wrangler.jsonc). Dropping to 2 buys ~33%.\n` +
-        `    2. Make renderCutCopies() split like the single-copy path already does.\n`,
+        `\n\n  This is normal. Run \`npm run verify:print-split\` for the segment plans.\n` +
+        `  Dropping TICKET_COPIES (currently ${copies}) would reduce the job count,\n` +
+        `  but is a paper decision now rather than a printing one.\n`,
     );
-    process.exit(1);
   }
 }
 

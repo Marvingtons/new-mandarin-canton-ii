@@ -74,6 +74,19 @@ export interface EntitlementInput {
   perCopySeconds: number;
   /** Hand-overs allowed before the order is condemned to PRINT_FAILED. */
   deliveryCap: number;
+  /**
+   * Pieces this order is being sent as. 1 (or 0, meaning "not yet
+   * rendered") is the ordinary whole-ticket case.
+   *
+   * A split job hands over one PIECE at a time, so the window must budget
+   * the paper in that piece rather than the whole copy set: a 3-copy order
+   * sent as three pieces was previously given the full 3-copy window three
+   * times over, which turned a 6-minute worst case into 15 and let one
+   * stuck order block the whole tenant queue for that long.
+   */
+  segments?: number;
+  /** Which piece is in flight. Pieces after the first start at attempt 1. */
+  segmentIndex?: number;
 }
 
 /**
@@ -91,11 +104,30 @@ export function confirmationWindowSeconds(
   copies: number,
   floorSeconds: number,
   perCopySeconds: number,
+  segments = 1,
 ): number {
   const n = Number.isFinite(copies) && copies > 0 ? Math.floor(copies) : 1;
+  const pieces = Number.isFinite(segments) && segments > 1 ? Math.floor(segments) : 1;
+  // Copies carried by the piece actually in flight, rounded up so the
+  // fattest piece of an uneven split is still fully covered.
+  const perPiece = Math.max(1, Math.ceil(n / pieces));
   const floor = Math.max(0, floorSeconds);
   const perCopy = Math.max(0, perCopySeconds);
-  return Math.max(floor, n * perCopy);
+  return Math.max(floor, perPiece * perCopy);
+}
+
+/**
+ * Hand-overs this PIECE is entitled to.
+ *
+ * advancePrintSegment leaves print_attempts at 1 rather than 0, so the row
+ * keeps matching currentPrintJob and the next poll offers the next piece
+ * instead of some other order. The side effect was that piece 1 got the
+ * full cap of hand-overs and every later piece got one fewer, which is a
+ * silent inequality nobody would find from the outside. One extra for the
+ * continuation pieces restores it.
+ */
+export function pieceDeliveryCap(deliveryCap: number, segmentIndex: number): number {
+  return segmentIndex > 0 ? deliveryCap + 1 : deliveryCap;
 }
 
 /**
@@ -111,7 +143,11 @@ export function decideOffer(input: EntitlementInput): EntitlementDecision {
     input.copies,
     input.floorSeconds,
     input.perCopySeconds,
+    input.segments,
   );
+  // Every piece gets the same number of hand-overs, which it did not before
+  // — see pieceDeliveryCap.
+  const cap = pieceDeliveryCap(input.deliveryCap, input.segmentIndex ?? 0);
 
   const offeredMs = input.offeredAt === null ? NaN : Date.parse(input.offeredAt);
   const inFlight = Number.isFinite(offeredMs);
@@ -149,12 +185,12 @@ export function decideOffer(input: EntitlementInput): EntitlementDecision {
     };
   }
 
-  if (input.printAttempts >= input.deliveryCap) {
+  if (input.printAttempts >= cap) {
     return {
       verdict: "capped",
       reason:
         `${input.printAttempts} hand-over(s) and the ${windowSeconds}s window has ` +
-        `expired again with no confirmation — at the ${input.deliveryCap} cap, ` +
+        `expired again with no confirmation — at the ${cap} cap, ` +
         "condemning rather than printing a fifth copy-set",
       holdSeconds: 0,
       windowSeconds,

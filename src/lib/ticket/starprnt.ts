@@ -117,6 +117,37 @@ function framingBytes(rows: number, bandRows: number): number {
 }
 
 /**
+ * EXACT size of the job `encodeStarPrntCopies` would produce for these
+ * parts. Not an estimate — it counts the same bytes the encoder writes.
+ *
+ * `framingBytes` above models ONE init and ONE cut, which is correct for
+ * a single raster and undercounts every multi-part job: the encoder emits
+ * a cut after EVERY part (starprnt.ts, encodeStarPrntCopies) and each
+ * part carries its own band headers. Three parts of 2426 rows measure
+ * 524,297 bytes against a 524,288 cap — over by nine, while a row-count
+ * check on the identical 7278 total says it fits.
+ *
+ * That nine bytes is the difference between a ticket and a 521, so the
+ * segment planner sizes jobs with this and never with rows.
+ */
+export function starPrntJobBytes(
+  heights: readonly number[],
+  width: number,
+  bandRows: number = DEFAULT_BAND_ROWS,
+): number {
+  const rowBytes = (width + 7) >> 3;
+  const band = Math.max(1, bandRows);
+  // ESC @ once for the whole job.
+  let total = ESC_INIT.length;
+  for (const h of heights) {
+    const bands = Math.ceil(h / band);
+    // Per band: the ESC GS S header (9) + its row data. Per part: one cut.
+    total += bands * 9 + h * rowBytes + ESC_CUT.length + 1;
+  }
+  return total;
+}
+
+/**
  * The tallest raster that still fits in a single job at this width.
  *
  * Command data is not compressed, so unlike the PNG path the size is exactly
@@ -226,10 +257,21 @@ export function starPrntCut(): Uint8Array {
  *
  *   [ESC @] copy1 [ESC d 2] copy2 [ESC d 2] copy3 [ESC d 2]
  *
- * One body, not N jobs. The claim, the confirmation and the state machine all
- * stay per-ORDER; how many pieces of paper that produces is a property of the
- * bytes, which is the only place it belongs — N queue entries would mean N
- * chances to half-print an order.
+ * ONE BODY PER JOB — but no longer necessarily one job per order. This used
+ * to say "one body, not N jobs", on the reasoning that N queue entries mean
+ * N chances to half-print an order. That reasoning was right about the risk
+ * and wrong about the alternative: the 512KB cap is per download, so a copy
+ * set over it was not sent as one job, it was not sent AT ALL. A ten-line
+ * family order stayed QUEUED until the unprinted-order alert fired.
+ *
+ * The order is still ONE logical print. What carries it is the segment
+ * cursor (print_segment / print_segments) and a DELETE that only marks
+ * PRINTED when it confirms the LAST piece — the machinery the tall-ticket
+ * path already used. The half-print risk is answered by the cursor's
+ * compare-and-swap in advancePrintSegment, not by refusing to split.
+ *
+ * Every call emits its own ESC @, so a body produced here is independently
+ * valid and carries nothing the next one needs.
  *
  * Cut after the LAST copy too, so the final ticket is separated from the roll
  * and staff take three loose tickets rather than two and a tail.

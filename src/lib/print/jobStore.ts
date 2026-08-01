@@ -90,12 +90,25 @@ export function printJobStoreReady(): boolean {
 }
 
 /** `print-jobs/<token>-<sha256>.bin` */
-export function printJobKeyFor(token: string, sha256: string): string {
+export function printJobKeyFor(
+  token: string,
+  sha256: string,
+  segment = 0,
+): string {
   // The token is an order number we generate (A-017); the hash is hex. Neither
   // can contain a path separator, but the token is still sanitised because a
   // key is a URL path segment and this is the only place that is enforced.
   const safeToken = token.replace(/[^A-Za-z0-9._-]/g, "");
-  return `${KEY_PREFIX}${safeToken}-${sha256}.bin`;
+  /* THE SEGMENT IS IN THE KEY because the hash alone is not unique per
+     piece. The key is content-addressed, and under the default copy roles
+     every copy's bar text differs so every piece hashes differently — but
+     a configured TICKET_COPY_ROLES with a repeated role (kitchen,kitchen,
+     bag) makes two pieces byte-identical. They would then share a key, and
+     the "delete the object so a stale URL 404s" defence in the DELETE
+     handler would delete an object the NEXT piece is about to re-create at
+     the same address, handing a printer holding the old URL a live body
+     again. Cheap to make impossible. */
+  return `${KEY_PREFIX}${safeToken}-s${segment}-${sha256}.bin`;
 }
 
 /** The URL the printer will fetch, or null when the store is not configured. */

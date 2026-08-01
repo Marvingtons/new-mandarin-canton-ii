@@ -417,7 +417,8 @@ export async function recordPrintSegments(
 export async function advancePrintSegment(
   tenantId: string,
   orderId: number,
-): Promise<number> {
+  expectedSegment: number,
+): Promise<number | null> {
   const { rows } = await ordersPool().query(
     `update orders
         set print_segment = print_segment + 1,
@@ -433,10 +434,24 @@ export async function advancePrintSegment(
             print_offered_at = null,
             updated_at = now()
       where tenant_id = $1 and id = $2
+        -- COMPARE-AND-SWAP, and it is the whole reason a duplicate
+        -- confirmation is survivable. CloudPRNT firmware retries a
+        -- confirmation it cannot get acknowledged, and this route answers
+        -- 200 to every DELETE precisely so it will — so the same piece IS
+        -- confirmed twice in the field. Without this clause the cursor
+        -- advanced once per confirmation rather than once per piece: on a
+        -- 3-piece job a doubled confirmation for piece 1 skipped piece 2
+        -- entirely, and on a 2-piece job it fell through to markPrinted
+        -- with half the order on paper and no way back, because
+        -- currentPrintJob only ever matches QUEUED.
+        and print_segment = $3
       returning print_segment`,
-    [tenantId, orderId],
+    [tenantId, orderId, expectedSegment],
   );
-  return rows.length > 0 ? Number(rows[0].print_segment) : 0;
+  // Null means the cursor had already moved: somebody else advanced it, so
+  // this confirmation is a replay and the caller must not treat it as
+  // completing anything.
+  return rows.length > 0 ? Number(rows[0].print_segment) : null;
 }
 
 /**

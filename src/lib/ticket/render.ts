@@ -4,7 +4,8 @@ import { Resvg, ensureResvg } from "@/lib/ticket/resvg";
 import { isPrintable, loadTicketFonts } from "@/lib/ticket/font";
 import { loadTicketMetrics } from "@/lib/ticket/measure";
 import { encodeMonochromePng, findSegmentCuts } from "@/lib/ticket/png";
-import { encodeStarPrntCopies } from "@/lib/ticket/starprnt";
+import { JOB_BUDGET_BYTES, jobBytesFor, planSegments } from "@/lib/ticket/segments";
+import { encodeStarPrntCopies, maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { copyProfile } from "@/lib/ticket/copies";
@@ -653,10 +654,14 @@ export type TicketFormat = "starprnt" | "png";
  * held together is ~10MB, and this runs in an isolate that also holds a wasm
  * renderer. Each raster is freed before the next is made.
  *
- * `maxHeight` gates the WHOLE body, because the 512KB cap is on the download,
- * not on any one copy. If N copies would exceed it the caller gets an error
- * rather than a job the printer answers 521 to — splitting mid-stack would
- * separate a ticket from its own cut.
+ * The 512KB cap is on the DOWNLOAD, i.e. per job — so a copy set too tall
+ * to travel at once goes as consecutive jobs rather than being refused.
+ * This used to throw ("reduce TICKET_COPIES"), which meant a ten-line
+ * family order simply never printed. Splitting at COPY boundaries is what
+ * makes that safe: a copy is a whole ticket with its own cut, so a split
+ * job tears exactly where an unsplit one would have. See lib/ticket/
+ * segments.ts for the plan and verify:print-split for the proof that no
+ * order can reach a throw.
  */
 async function renderCutCopies(
   order: Order,
@@ -665,41 +670,134 @@ async function renderCutCopies(
   maxHeight: number | null,
   segment: number,
 ): Promise<TicketJob> {
-  if (segment !== 0) {
-    throw new Error(`a ${copies}-copy job has one segment; ${segment} was asked for`);
+  const width = TICKET_WIDTH_PX;
+
+  /* THE PLAN IS DERIVED FROM COMPOSED HEIGHTS, NOT FROM RASTERS.
+     composeTicketSvg reports the height it laid out without going near
+     resvg, and at fitTo width == the SVG's own width the scale is exactly
+     1, so composed height IS raster height. That matters twice over: the
+     plan costs no rasters, and this function now rasterizes only the
+     copies belonging to the segment it was asked for. The old loop
+     rendered all three copies on every poll and then threw them away —
+     a three-piece sequence would have cost nine rasters. */
+  const heights: number[] = [];
+  for (let copy = 0; copy < copies; copy++) {
+    const composed = await composeTicketSvg(order, { ...options, copies, copyIndex: copy });
+    heights.push(composed.height);
   }
+
+  // null means "no ceiling": the preview and ticket:sample rely on getting
+  // one job carrying every copy, and a cap invented here would be
+  // indistinguishable from one the printer asked for.
+  const budget = maxHeight === null ? 0 : JOB_BUDGET_BYTES;
+
+  /* Slicing INSIDE a copy needs the raster, because a cut may only land on
+     a row that is entirely paper (findSegmentCuts). Hoisted into a cache so
+     the planner can ask for a slice count without this running twice, and
+     so it runs at all only for a copy that does not fit alone — which needs
+     roughly 35 lines on ONE ticket and has never been produced by any
+     fixture. */
+  const sliceCache = new Map<number, number[]>();
+  const cutsForCopy = async (copyIndex: number): Promise<number[]> => {
+    const hit = sliceCache.get(copyIndex);
+    if (hit) return hit;
+    const raster = await rasterizeTicket(order, { ...options, copies, copyIndex });
+    try {
+      const rowCeiling = maxStarPrntRows(width);
+      const cuts = findSegmentCuts(raster.pixels, raster.width, raster.height, rowCeiling);
+      sliceCache.set(copyIndex, cuts);
+      return cuts;
+    } finally {
+      raster.free();
+    }
+  };
+
+  // Pre-warm the cache for any copy that cannot fit alone, so the planner
+  // itself stays synchronous and pure.
+  for (let copy = 0; copy < copies; copy++) {
+    if (budget > 0 && jobBytesFor([heights[copy]], width) > budget) {
+      await cutsForCopy(copy);
+    }
+  }
+
+  const plan = planSegments(heights, width, budget, (copyIndex) => {
+    const cuts = sliceCache.get(copyIndex) ?? [];
+    return cuts.length + 1;
+  });
+
+  if (segment < 0 || segment >= plan.length) {
+    throw new Error(
+      `segment ${segment} requested of a ${plan.length}-segment ${copies}-copy job`,
+    );
+  }
+
+  const spec = plan[segment];
+  const totalHeight = heights.reduce((n, h) => n + h, 0);
   const parts: { pixels: Uint8Array; width: number; height: number }[] = [];
-  let perCopyHeight = 0;
+
   try {
-    for (let copy = 0; copy < copies; copy++) {
-      const raster = await rasterizeTicket(order, { ...options, copies, copyIndex: copy });
+    if (spec.kind === "copies") {
+      for (const copyIndex of spec.copyIndices) {
+        const raster = await rasterizeTicket(order, { ...options, copies, copyIndex });
+        try {
+          // Copied out of the wasm buffer so it survives free().
+          parts.push({
+            pixels: new Uint8Array(raster.pixels),
+            width: raster.width,
+            height: raster.height,
+          });
+        } finally {
+          raster.free();
+        }
+      }
+    } else {
+      // One slice of one oversized copy. The cut rows come from
+      // findSegmentCuts, which only ever cuts on a row that is entirely
+      // paper, so a slice never tears through a line of type.
+      const raster = await rasterizeTicket(order, {
+        ...options,
+        copies,
+        copyIndex: spec.copyIndex,
+      });
       try {
-        // Copied out of the wasm buffer so it survives free().
+        const cuts = sliceCache.get(spec.copyIndex) ?? [];
+        const bounds = [0, ...cuts, raster.height];
+        const from = bounds[spec.sliceIndex];
+        const rows = bounds[spec.sliceIndex + 1] - from;
         parts.push({
-          pixels: new Uint8Array(raster.pixels),
+          pixels: new Uint8Array(
+            raster.pixels.subarray(from * raster.width * 4, (from + rows) * raster.width * 4),
+          ),
           width: raster.width,
-          height: raster.height,
+          height: rows,
         });
-        perCopyHeight = raster.height;
       } finally {
         raster.free();
       }
     }
 
     const body = Buffer.from(encodeStarPrntCopies(parts));
-    const totalHeight = parts.reduce((n, p) => n + p.height, 0);
-    if (maxHeight !== null && totalHeight > maxHeight) {
+
+    /* LAST LINE OF DEFENCE, and it must never fire. The plan is sized with
+       the byte-exact encoder model, so this is here to catch the model
+       drifting from the encoder rather than to catch a tall ticket. It
+       throws because a job over the cap is a 521 the printer cannot use —
+       but unlike the error this replaces, reaching it is a bug in this
+       file, not a property of the order. */
+    if (budget > 0 && body.length > budget) {
       throw new Error(
-        `${copies} copies total ${totalHeight}px, over the ${maxHeight}px ceiling ` +
-          `the 512KB job cap allows — reduce TICKET_COPIES`,
+        `segment ${segment + 1}/${plan.length} encoded to ${body.length} bytes, over the ` +
+          `${budget}-byte cap the plan sized it against — planSegments and ` +
+          `starPrntJobBytes have drifted from encodeStarPrntCopies`,
       );
     }
+
     return {
       body,
       format: "starprnt",
-      segment: 0,
-      segments: 1,
-      height: perCopyHeight,
+      segment,
+      segments: plan.length,
+      height: parts.reduce((n, p) => n + p.height, 0),
       totalHeight,
     };
   } finally {

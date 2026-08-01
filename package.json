@@ -28,7 +28,8 @@
     "verify:otp": "tsx --conditions=react-server scripts/verify-otp-cookie.ts",
     "verify:allergy-hint": "tsx scripts/verify-allergy-hint.ts",
     "verify:order-cutoff": "tsx scripts/verify-order-cutoff.ts",
-    "verify:rice": "tsx --conditions=react-server scripts/verify-rice.ts"
+    "verify:rice": "tsx --conditions=react-server scripts/verify-rice.ts",
+    "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

@@ -260,6 +260,11 @@ export async function POST(
     // because the previous two rounds of this bug were both diagnosed from
     // paper rather than from logs that said what the server had decided.
     if (job) {
+      // The piece in flight, so the window budgets the paper in THAT piece
+      // rather than the whole copy set, and so every piece gets the same
+      // number of hand-overs. Read before the decision because both terms
+      // depend on it.
+      const inFlight = await printSegmentState(tenant.tenantId, job.id);
       const decision = decideOffer({
         now: Date.now(),
         offeredAt: job.offeredAt,
@@ -268,6 +273,8 @@ export async function POST(
         floorSeconds: printConfirmFloorSeconds(),
         perCopySeconds: printSecondsPerCopy(),
         deliveryCap: printOfferCap(),
+        segments: inFlight.segments,
+        segmentIndex: inFlight.segment,
       });
 
       const line =
@@ -394,13 +401,18 @@ async function publishJobBody(
       },
     );
 
-    if (ticket.segments > 1) {
-      // Read by DELETE to know whether the piece it confirms was the last.
-      await recordPrintSegments(tenant.tenantId, job.id, ticket.segments);
-    }
+    /* UNCONDITIONAL, including segments === 1. This used to be guarded on
+       "> 1", which made print_segments a one-way latch: it could record 2
+       and never record 1 again. If a plan shrank between polls — a deploy
+       that changed the layout, TICKET_COPIES coming down — the column
+       still said 2, so DELETE advanced a cursor the new plan had no piece
+       for, and the order either reprinted a copy or burned its render
+       budget asking for a segment that did not exist. The column must
+       always describe the render it came from. */
+    await recordPrintSegments(tenant.tenantId, job.id, ticket.segments);
 
     const sha256 = await payloadHash(ticket.body);
-    const key = printJobKeyFor(job.orderNumber, sha256);
+    const key = printJobKeyFor(job.orderNumber, sha256, ticket.segment);
     const stored = await putPrintJob(key, ticket.body);
     if (!stored) return null;
 
@@ -526,9 +538,9 @@ export async function GET(
       { format, maxHeight: ceiling, segment },
     );
 
-    if (ticket.segments > 1) {
-      // Recorded on every piece, not just the first: it is what DELETE reads
-      // to know whether the piece it is confirming was the last one.
+    {
+      // Recorded on every piece, and for a one-piece render too — see the
+      // POST site for why the "> 1" guard was a latch rather than a saving.
       await recordPrintSegments(tenant.tenantId, job.id, ticket.segments);
       console.info(
         `[cloudprnt] ${job.orderNumber} is ${ticket.totalHeight}px against a ` +
@@ -736,7 +748,19 @@ async function confirmPrinted(url: URL): Promise<Response> {
   // the next poll hands over the next piece. Half a ticket must never read as
   // PRINTED — that is the one outcome the board and the alert exist to prevent.
   if (segments > 1 && segment + 1 < segments) {
-    const next = await advancePrintSegment(tenant.tenantId, order.id);
+    const next = await advancePrintSegment(tenant.tenantId, order.id, segment);
+    if (next === null) {
+      // The cursor had already moved past this piece, so this is a repeat
+      // confirmation for one we already counted. Acknowledged and dropped:
+      // advancing again would skip the piece that is genuinely next, and
+      // on a two-piece job it would fall through to markPrinted with half
+      // the order on paper.
+      console.warn(
+        `[cloudprnt] ${order.orderNumber} duplicate confirmation for piece ` +
+          `${segment + 1}/${segments} — cursor already moved on, ignoring`,
+      );
+      return acknowledged();
+    }
     console.info(
       `[cloudprnt] ${order.orderNumber} piece ${segment + 1}/${segments} printed; ` +
         `${next + 1}/${segments} next`,
