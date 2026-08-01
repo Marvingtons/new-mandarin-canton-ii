@@ -15,7 +15,7 @@ import { formatCents } from "@/lib/money";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { describeItem } from "@/data/menu-descriptions-es";
 import PhoneLinks from "@/components/PhoneLinks";
-import { SpicyMark } from "@/components/MenuSection";
+import { SpicyMark } from "@/components/SpicyMark";
 import ItemSheet from "@/components/order/ItemSheet";
 import CartDrawer from "@/components/order/CartDrawer";
 import StickyCartBar from "@/components/order/StickyCartBar";

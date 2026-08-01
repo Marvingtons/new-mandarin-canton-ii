@@ -1,20 +1,7 @@
 import SectionHeading from "@/components/SectionHeading";
+import { SpicyMark } from "@/components/SpicyMark";
 import type { MenuCategory, MenuItem } from "@/data/menu";
 import { formatCents } from "@/lib/money";
-
-/**
- * Spicy indicator. Deliberately NOT the 辣 character it used to be:
- * a heat warning is functional UI, and a guest who can't read it gets
- * no warning at all. The menu is English-only by design — 富源 (the
- * seal) is the site's only Chinese text.
- */
-export function SpicyMark() {
-  return (
-    <span className="inline-flex shrink-0 items-center self-center rounded-full border border-lacquer/40 px-1 text-xs uppercase leading-4 tracking-[0.12em] text-lacquer">
-      Spicy
-    </span>
-  );
-}
 
 /**
  * The right-hand price. One figure for most dishes; the printed menu's own

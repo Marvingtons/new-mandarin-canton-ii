@@ -253,7 +253,7 @@ export default function HeroVideo() {
             className="hero-item -mt-1 max-w-xl text-sm uppercase leading-relaxed tracking-[0.12em] text-ivory/85"
             style={{ transitionDelay: "240ms" }}
           >
-            Mandarin, Szechuan &amp; Cantonese cuisine in Chula Vista
+            {t("hero.tagline")}
           </p>
           <div
             className="hero-item mt-3 flex flex-wrap justify-center gap-4 sm:justify-start"

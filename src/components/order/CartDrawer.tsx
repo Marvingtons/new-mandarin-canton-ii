@@ -64,7 +64,7 @@ export default function CartDrawer({
           </h2>
           <button
             onClick={onClose}
-            aria-label="Close cart"
+            aria-label={t("cart.closeCart")}
             className="rounded-full px-2 text-2xl leading-none text-ink/60 hover:text-ink"
           >
             ×
@@ -112,7 +112,9 @@ export default function CartDrawer({
                         onClick={() =>
                           updateQuantity(line.lineId, line.quantity - 1)
                         }
-                        aria-label={`Decrease ${line.item.nameEn}`}
+                        aria-label={t("cart.decreaseItem", {
+                          name: line.item.nameEn,
+                        })}
                         className="min-h-9 w-9 rounded-l-sm text-lg text-ink hover:bg-gold/10"
                       >
                         −
@@ -124,7 +126,9 @@ export default function CartDrawer({
                         onClick={() =>
                           updateQuantity(line.lineId, line.quantity + 1)
                         }
-                        aria-label={`Increase ${line.item.nameEn}`}
+                        aria-label={t("cart.increaseItem", {
+                          name: line.item.nameEn,
+                        })}
                         className="min-h-9 w-9 rounded-r-sm text-lg text-ink hover:bg-gold/10"
                       >
                         +

@@ -227,6 +227,7 @@ export const en = {
   "fav.seeFullMenu": "See the full menu",
   "fav.previousDish": "Previous dish",
   "fav.nextDish": "Next dish",
+  "fav.bringToSpotlight": "{name}, bring to spotlight",
 } as const;
 
 /** Every key the UI can ask for. Derived from `en`, never written by hand. */
@@ -444,6 +445,7 @@ export const es: Record<TranslationKey, string> = {
   "fav.seeFullMenu": "Ver el menú completo",
   "fav.previousDish": "Platillo anterior",
   "fav.nextDish": "Platillo siguiente",
+  "fav.bringToSpotlight": "{name}, mostrar en grande",
 };
 
 const TABLES: Record<Locale, Record<TranslationKey, string>> = {

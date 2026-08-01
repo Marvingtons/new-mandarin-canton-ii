@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { SpicyMark } from "@/components/MenuSection";
+import { SpicyMark } from "@/components/SpicyMark";
+import { useT } from "@/lib/i18n/LocaleContext";
+import type { Translate } from "@/lib/i18n/dictionary";
 import PhotoPlaceholder from "@/components/PhotoPlaceholder";
 import SectionHeading from "@/components/SectionHeading";
 import { photos } from "@/data/images";
@@ -58,28 +60,46 @@ const COUNT = items.length;
 
 /* Rendered through SectionHeading so "House Favorites" and "The Room" are
    the same object: same size, same gold rule, same gap. The .spt-head
-   class is only the cap-trim/nowrap hook the rail alignment needs. */
+   class is only the cap-trim/nowrap hook the rail alignment needs.
+   Stays hoisted AND stays English: SplitText replaces this element's text
+   node with per-character spans after mount, so it must never be rebuilt,
+   and a section heading is marketing prose rather than functional UI (see
+   the long-form Spanish note in docs/SITE_REVIEW_2.md). */
 const railHead = <SectionHeading en="House Favorites" className="spt-head" />;
 
-const railIntro = (
-  <p
-    data-spt-rail-item
-    className="spt-intro max-w-[24ch] font-display text-lg italic leading-snug text-ink/75"
-  >
-    The dishes our regulars come back for.
-  </p>
-);
+/* The other two rail pieces DO translate, so they cannot be module-scope
+   constants any more. They are memoised on `t` instead, which is memoised on
+   the locale in LocaleProvider — so their element identity is just as stable
+   across re-renders as a hoisted constant was, and the subtrees still bail. */
+function useRailPieces(t: Translate) {
+  const railIntro = useMemo(
+    () => (
+      <p
+        data-spt-rail-item
+        className="spt-intro max-w-[24ch] font-display text-lg italic leading-snug text-ink/75"
+      >
+        {t("fav.intro")}
+      </p>
+    ),
+    [t],
+  );
 
-const railLink = (
-  <p data-spt-rail-item className="spt-link-row">
-    <Link
-      href="/menu#specials"
-      className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
-    >
-      See the full menu <span className="arrow">→</span>
-    </Link>
-  </p>
-);
+  const railLink = useMemo(
+    () => (
+      <p data-spt-rail-item className="spt-link-row">
+        <Link
+          href="/menu#specials"
+          className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
+        >
+          {t("fav.seeFullMenu")} <span className="arrow">→</span>
+        </Link>
+      </p>
+    ),
+    [t],
+  );
+
+  return { railIntro, railLink };
+}
 
 /**
  * Photo or placeholder, filling its positioned parent.
@@ -118,6 +138,8 @@ function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean })
  * their content mid-wipe, and the base commits when the wipe ends.
  */
 export default function FavoritesSpotlight() {
+  const t = useT();
+  const { railIntro, railLink } = useRailPieces(t);
   /** Committed photo in the base layer. */
   const [baseIdx, setBaseIdx] = useState(0);
   /** What the plate, counter, and small cards currently show. */
@@ -188,7 +210,7 @@ export default function FavoritesSpotlight() {
         <div data-spt-rail-item className="spt-controls flex items-center gap-3">
           <button
             type="button"
-            aria-label="Previous dish"
+            aria-label={t("fav.previousDish")}
             className="spt-btn spt-btn-prev"
             onClick={() => step(-1)}
           >
@@ -198,7 +220,7 @@ export default function FavoritesSpotlight() {
           </button>
           <button
             type="button"
-            aria-label="Next dish"
+            aria-label={t("fav.nextDish")}
             className="spt-btn spt-btn-next"
             onClick={() => step(1)}
           >
@@ -314,7 +336,7 @@ export default function FavoritesSpotlight() {
               type="button"
               data-spt-small
               className={`spt-small ${swapping ? "is-dim" : ""}`}
-              aria-label={`${dish.name}, bring to spotlight`}
+              aria-label={t("fav.bringToSpotlight", { name: dish.name })}
               onClick={() => advance(faceIdx + n, 1)}
             >
               {/* one framed object, same anatomy as the featured card:
