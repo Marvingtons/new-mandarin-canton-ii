@@ -11,6 +11,9 @@
   /* Deep lacquer red — primary surfaces: header, hero, primary buttons */
   --lacquer: #96261c;
   --lacquer-dark: #842119;
+  /* --lacquer-dark as raw channels, for the hero's top ramp (see
+     .hero-scrim) — the header's own red, carried down over the footage */
+  --lacquer-dark-rgb: 132, 33, 25;
   /* Imperial gold — accents only: rules, ghost calligraphy, labels */
   --gold: #cfa52e;
   --gold-light: #e8c660;
@@ -1065,39 +1068,88 @@ body {
     transform: scale(1.08);
   }
 }
-/* Three stacked scrim layers (one element, three backgrounds): a short
-   top ramp under the header, an eased bottom ramp for the text block, and
-   a left vignette where the text column lives — all tuned against the
-   footage's brightest frames.
+/* TWO scrim layers (one element, two backgrounds), tuned by measuring the
+   footage rather than by eye: a top ramp in the header's red, and a
+   bottom ramp in ink for the text block. There is no third layer. The
+   left vignette that used to live here was cut with the footage it was
+   drawn for — it darkened the whole left half of the frame at 0.65, and
+   over food that is the scrim eating the subject.
 
-   The top ramp is what makes the header's transparent state legible. The
-   header floats over this with an ivory lockup and a gold seal, and the
-   footage's brightest frames are a wok flame filling the top of the
-   frame — without the ramp the lockup washes out for a second or two per
-   loop. It is short and eased, so it reads as the top of the footage
-   falling into shadow rather than as a bar. */
+   MEASURED (signalstats YAVG per half-second of the 10s loop):
+     top band, y 0-15%              32 -> 118   (the wok flare)
+     text zone, x 0-50% y 55-100%   64 -> 117, YMAX 250
+   So neither end is safe to leave bare: the top goes bright enough to
+   wash the ivory lockup, and the plate rim under the copy has genuine
+   specular white in it.
+
+   Both ramps were then tuned by compositing them over every frame of the
+   loop and reading WCAG contrast under the real text boxes, not by eye.
+   These are the shallowest values that clear AA on the hero copy — going
+   deeper only buys margin the text does not need, and it is paid for in
+   the one currency this hero cannot spend, which is the food:
+
+                 headline   tagline   order line
+     1440           5.17      4.65         5.13
+      390           4.63      4.56         5.61
+   (worst frame of the loop, 99th-percentile-brightest backdrop pixel
+   inside each text box. AA wants 3 for the headline at 60px and 4.5 for
+   the rest.) The two gold-light runs — the hero's 富源 and the header's
+   中文 subline — do NOT clear 4.5 here and cannot: gold-light is L=0.59,
+   so 4.5 needs a backdrop under L=0.09, which is most of a black frame.
+   They cleared it on the old footage only because a 0.65 left vignette
+   was burying that corner. Fixing them is a text change (a shadow, or
+   ivory instead of gold), not a scrim change, and the scrim is what this
+   pass owns.
+
+   The top ramp is lacquer-dark, not ink. The header floats transparent
+   over the hero and turns solid lacquer past it; ramping the same red
+   down over the footage is what makes those two states read as one
+   surface instead of a seam. Short (gone by 15%) and eased, so it reads
+   as the top of the frame falling into shadow rather than as a bar. */
 .hero-scrim {
   background:
     linear-gradient(
       to bottom,
-      rgba(var(--ink-rgb), 0.5) 0%,
-      rgba(var(--ink-rgb), 0.16) 11%,
-      rgba(var(--ink-rgb), 0) 20%
+      rgba(var(--lacquer-dark-rgb), 0.82) 0%,
+      rgba(var(--lacquer-dark-rgb), 0.46) 6%,
+      rgba(var(--lacquer-dark-rgb), 0.14) 11%,
+      rgba(var(--lacquer-dark-rgb), 0) 15%
     ),
     linear-gradient(
       to bottom,
-      rgba(var(--ink-rgb), 0) 0%,
-      rgba(var(--ink-rgb), 0) 40%,
-      rgba(var(--ink-rgb), 0.45) 60%,
-      rgba(var(--ink-rgb), 0.7) 80%,
-      rgba(var(--ink-rgb), 0.85) 100%
-    ),
-    linear-gradient(
-      100deg,
-      rgba(var(--ink-rgb), 0.65) 0%,
-      rgba(var(--ink-rgb), 0.3) 40%,
-      rgba(var(--ink-rgb), 0) 70%
+      rgba(var(--ink-rgb), 0) 42%,
+      rgba(var(--ink-rgb), 0.48) 58%,
+      rgba(var(--ink-rgb), 0.73) 78%,
+      rgba(var(--ink-rgb), 0.88) 100%
     );
+}
+
+/* Full-frame tint. The footage is warm amber food on dark kitchen
+   backgrounds; the site is deep lacquer red, cream and gold. 8% of
+   --lacquer on multiply pulls the ambers a few degrees toward the
+   lacquer without reading as a colour cast — enough that the hero and
+   the header below it look lit by the same room. Multiply rather than a
+   flat overlay so it deepens the darks and leaves the highlights on the
+   food nearly alone. It sits inside the media wrapper, under the scrim,
+   so it tints the footage and never the copy. */
+.hero-tint {
+  background: var(--lacquer);
+  opacity: 0.08;
+  mix-blend-mode: multiply;
+}
+
+/* The hem — where the footage hands off to the first cream section.
+   Same curve grammar as the divider rules ([[ArcRule]] in
+   GoldDivider.tsx): a shallow cubic with a HORIZONTAL TANGENT AT BOTH
+   ENDS, so it meets the page edge flat and meets itself flat at the
+   centre with no kink. Cream is deepest at the two edges and runs out to
+   nothing at the middle, which keeps it clear of the copy: measured at
+   1440, the lowest hero element (the open-now chip) bottoms out 48px up
+   and the hem is 33px deep beneath it, so they clear by 15px. The centre,
+   where the hem would be tallest if the curve ran the other way, is
+   exactly where it is nothing. */
+.hero-hem {
+  height: clamp(18px, 2.4vw, 34px);
 }
 /* Loop-seam crossfade between the two stacked hero videos */
 .hero-video {

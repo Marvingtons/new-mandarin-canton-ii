@@ -11,18 +11,30 @@ import { onIntroLifted } from "@/lib/introSignal";
 import { restaurant } from "@/data/restaurant";
 
 /**
- * Hero footage, served from R2 rather than /public: 10s muted loop,
- * 1920x1080 h264, 3,680,241 bytes, faststart. Keeping 3.7 MB of video
- * out of the Worker bundle is the point — it was in `public/` until
- * this moved.
+ * Hero footage, served from R2 rather than /public: 10.04s muted loop,
+ * 1920x1080 h264 24fps, 5,525,614 bytes. Keeping 5.5 MB of video out of
+ * the Worker bundle is the point — it was in `public/` until this moved.
  *
- * /public/hero-poster.jpg is frame 0 of THIS file (verified: same
- * 1920x1080, same wok-flame frame), so the poster-to-video handoff is
- * seamless and nothing shifts when the video arrives. Set to null to
- * fall back to the poster-only hero without requesting the file.
+ * The loop is one dish being made: floured wings lifted from the bowl,
+ * a wok flare, then ~2s holding the plated salt-and-pepper wings on the
+ * blue-and-white plate. Set to null to fall back to the poster-only hero
+ * without requesting the file.
+ *
+ * POSTER IS NOT FRAME 0. /public/hero-poster-plate.jpg is t=9.8 — the
+ * held plate. The previous file used frame 0 so the poster-to-video
+ * handoff was invisible; that is deliberately given up here, because the
+ * poster is what a prefers-reduced-motion visitor keeps FOREVER, and
+ * frame 0 of this loop is raw chicken in flour. A still hero should be
+ * the finished dish. The handoff is nearly always hidden anyway: the
+ * preloader covers it, and this copy is preload="auto" so it is buffered
+ * before the overlay lifts. The two files are both 1920x1080, so the
+ * swap costs no layout shift either way.
  */
 const HERO_VIDEO_SRC: string | null =
-  "https://pub-364f647b29874b09922e1889f267c323.r2.dev/newmandarincanton-hero.mp4";
+  "https://pub-364f647b29874b09922e1889f267c323.r2.dev/newmandarin-hero.mp4";
+
+/** The held-plate still: poster, reduced-motion hero, and load fallback. */
+const HERO_POSTER = "/hero-poster-plate.jpg";
 
 /**
  * After the preloader lifts, the footage plays full-bleed with no text
@@ -161,7 +173,7 @@ export default function HeroVideo() {
       <div aria-hidden="true" className="absolute inset-0">
         <div
           className="hero-kenburns absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/hero-poster.jpg')" }}
+          style={{ backgroundImage: `url('${HERO_POSTER}')` }}
         />
       </div>
 
@@ -177,7 +189,7 @@ export default function HeroVideo() {
             ref={videoARef}
             className="hero-video absolute inset-0 h-full w-full object-cover"
             src={HERO_VIDEO_SRC}
-            poster="/hero-poster.jpg"
+            poster={HERO_POSTER}
             muted
             loop
             autoPlay
@@ -188,7 +200,7 @@ export default function HeroVideo() {
           {/* Standby copy for the loop-seam crossfade; absolute, so
               mounting it causes no layout shift. Not needed until the
               first seam ~9.4s in, so it only takes metadata up front —
-              one 3.7 MB fetch on load, not two. No autoPlay: this copy
+              one 5.5 MB fetch on load, not two. No autoPlay: this copy
               is played by the crossfade, and playing it on mount would
               run both videos at once. */}
           <video
@@ -205,6 +217,15 @@ export default function HeroVideo() {
           />
         </>
       )}
+
+      {/* Brand tint, last inside the media wrapper so it multiplies with
+          the poster and the footage and nothing else. z-[3] is load
+          bearing: being last in the DOM is not enough, because the
+          crossfade hands the two videos z-index 1 and 2, and a positioned
+          element with a z-index paints over one with `auto` whatever the
+          source order. At `auto` the tint would work until the first loop
+          seam and then silently stop. */}
+      <div aria-hidden="true" className="hero-tint absolute inset-0 z-[3]" />
       </div>
 
       {/* Incense, barely there — the altar's blessing reaching the front
@@ -227,6 +248,22 @@ export default function HeroVideo() {
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 z-[12] bg-ink opacity-0"
       />
+
+      {/* The hem into the cream section below. Outside the media wrapper
+          on purpose: this is a page boundary, so it must not ride along
+          with the hero-exit scrub that pushes the footage. Above the
+          darkening layer (z-12) so it stays cream through the scrub. */}
+      <svg
+        aria-hidden="true"
+        className="hero-hem pointer-events-none absolute inset-x-0 bottom-0 z-[13] w-full"
+        viewBox="0 0 100 10"
+        preserveAspectRatio="none"
+      >
+        <path
+          d="M0 0C25 0 25 10 50 10C75 10 75 0 100 0L100 10L0 10Z"
+          fill="var(--cream)"
+        />
+      </svg>
 
       {/* Content — z-20, always above videos and scrim */}
       <div

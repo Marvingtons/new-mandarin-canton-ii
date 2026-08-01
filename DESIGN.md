@@ -41,11 +41,25 @@ small-caps labels, and at most one filled button per page.
 
 ## Per-page layout
 
-**Home** — full-bleed 100svh video hero (`HeroVideo.tsx`): newmandarincanton-hero.mp4, served from R2
-when footage exists (src flag currently null), today a lacquer-to-black
-poster still (`/hero-poster.jpg`) with a 30s Ken Burns drift and a
-giant 富源 watermark at 5% ivory. Ink scrim (0 → 0.62) keeps bottom
-text legible over any footage. Text (富源, name, tagline, View Menu +
+**Home** — full-bleed 100svh video hero (`HeroVideo.tsx`): newmandarin-hero.mp4,
+served from R2 — a 10s loop of one dish being made, ending on the plated
+salt-and-pepper wings. Two stacked copies crossfade over the loop seam.
+The poster (`/hero-poster-plate.jpg`) is that closing plate frame, not
+frame 0; it is also what a reduced-motion visitor keeps, under a 30s Ken
+Burns drift, and no video is mounted for them at all.
+
+Three overlay layers marry the amber footage to the deep-red/cream/gold
+palette, all tuned by compositing them over every frame and reading WCAG
+contrast under the real text boxes (see `.hero-scrim` in globals.css for
+the measurements): an 8% `--lacquer` multiply tint over the whole frame;
+a short `--lacquer-dark` top ramp (0.82 → 0 by 15%) that carries the
+header's own red down over the footage so the transparent-header state
+has no seam; and an ink bottom ramp (0 at 42% → 0.88) that guarantees
+the copy its contrast. The hero then hands off to the first cream
+section through a shallow arc hem sharing the divider rules' curve
+grammar — deepest at the two page edges, nothing at the centre.
+
+Text (富源, name, tagline, View Menu +
 Call CTAs) staggers in 80ms apart only after the loading overlay lifts
 (coordinated via `src/lib/introSignal.ts`). Header floats transparent
 over the hero and turns solid lacquer on scroll past it (home only).
