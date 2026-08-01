@@ -39,6 +39,11 @@ export const en = {
   "hero.orderTakeout": "Order Takeout",
   "hero.viewMenu": "View Menu",
   "hero.call": "Call",
+  /* The value line under the hero CTAs. It used to be ORDER_DIRECT_NOTE in
+     data/order.ts, which meant a Spanish hero read "ORDER DIRECT · NO
+     DELIVERY-APP FEES · LLAMAR (619) …" — half the line translated and half
+     not, inside one sentence. */
+  "hero.orderDirect": "Order direct · no delivery-app fees",
 
   /* ---- menu page ---- */
   "menu.title": "Menu",
@@ -259,6 +264,7 @@ export const es: Record<TranslationKey, string> = {
   "hero.orderTakeout": "Ordenar para llevar",
   "hero.viewMenu": "Ver el menú",
   "hero.call": "Llamar",
+  "hero.orderDirect": "Ordene directo · sin cargos de apps de entrega",
 
   /* ---- menu page ---- */
   "menu.title": "Menú",

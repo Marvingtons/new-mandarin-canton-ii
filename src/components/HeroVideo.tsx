@@ -9,7 +9,6 @@ import PhoneLinks from "@/components/PhoneLinks";
 import { useT } from "@/lib/i18n/LocaleContext";
 import { onIntroLifted } from "@/lib/introSignal";
 import { restaurant } from "@/data/restaurant";
-import { ORDER_DIRECT_NOTE } from "@/data/order";
 
 /**
  * Hero footage, served from R2 rather than /public: 10s muted loop,
@@ -273,7 +272,7 @@ export default function HeroVideo() {
             className="hero-item text-xs uppercase tracking-[0.12em] text-ivory/75"
             style={{ transitionDelay: "420ms" }}
           >
-            {ORDER_DIRECT_NOTE} ·{" "}
+            {t("hero.orderDirect")} ·{" "}
             <PhoneLinks
               prefix={`${t("hero.call")} `}
               separator=" · "

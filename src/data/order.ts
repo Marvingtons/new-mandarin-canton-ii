@@ -22,5 +22,8 @@ export function orderTarget(): OrderTarget {
   return { kind: "internal", href: "/menu#order" };
 }
 
-/** Value line shown beside ordering CTAs. */
-export const ORDER_DIRECT_NOTE = "Order direct · no delivery-app fees";
+/* The value line that used to live here as ORDER_DIRECT_NOTE is now
+   `hero.orderDirect` in lib/i18n/dictionary.ts. It sits inside a sentence
+   that ends in a translated "Call", so keeping it out here meant a Spanish
+   hero rendered half of one line in English. Anything a customer READS
+   belongs in the dictionary; this file decides where a CTA goes. */
