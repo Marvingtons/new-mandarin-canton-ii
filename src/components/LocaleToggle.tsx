@@ -9,12 +9,32 @@ import {
 } from "@/lib/i18n/locale";
 
 /**
- * EN | ES, in the header.
+ * EN / ES, in the header — a SEGMENTED PILL, not two more nav links.
  *
  * Two buttons rather than a select or a globe icon: there are exactly two
  * languages, both fit, and a customer should be able to see which one is
  * active without opening anything. The inactive one is the tap target;
  * the active one is a state, marked `aria-current` and not clickable.
+ *
+ * IT USED TO READ AS ITEMS FIVE AND SIX OF THE NAV. Measured on /about at
+ * 1440, the four links sat 24px apart and the toggle sat 24px after
+ * CONTACT — the same interval — set in the same uppercase tracking, with
+ * only a 2px type-size difference and a hairline `|` between the halves.
+ * Nothing about that says "control" rather than "destination".
+ *
+ * Three things separate it now, and none of them is a new colour:
+ *   SHAPE     one --radius-full track with the active half filled. A
+ *             filled segment is not a link; nothing else in the nav has
+ *             a background at all.
+ *   INTERVAL  the gap to CONTACT is widened in Header.tsx to 40px against
+ *             the nav's own 24px, so the pill sits outside the rhythm
+ *             instead of extending it.
+ *   SIZE      11px against the links' 14px.
+ *
+ * One treatment serves both header states rather than two: the track is
+ * ink at 30% with a gold hairline, which is legible on the solid lacquer
+ * and over the footage alike, and the active half is a gold fill with ink
+ * on it — the same gold/ink pairing as the hero's primary CTA.
  *
  * Writes the cookie and calls router.refresh(). The cookie is what the
  * ROOT LAYOUT reads to pick the strings and the <html lang>, so the
@@ -28,7 +48,8 @@ import {
  *
  * There is no mobile drawer to put this in — the header's nav is always
  * visible and simply wraps at small widths — so the toggle sits beside
- * the nav at every size.
+ * the nav at every size, in the same order, and the pill needs no
+ * separate small-screen variant.
  */
 /**
  * Module scope, not inline in the handler.
@@ -60,49 +81,48 @@ export default function LocaleToggle({
 
   return (
     <div
-      className={`flex items-center gap-1 text-xs uppercase tracking-[0.15em] ${className}`}
+      className={`lang-pill inline-flex items-center rounded-full border border-gold/40 bg-ink/30 p-0.5 text-[11px] uppercase tracking-[0.12em] ${className}`}
       role="group"
       aria-label={t("lang.label")}
     >
-      {(["en", "es"] as const).map((code, i) => {
+      {(["en", "es"] as const).map((code) => {
         const active = locale === code;
         return (
-          <span key={code} className="flex items-center">
-            {i > 0 && (
-              <span aria-hidden="true" className="px-1 text-ivory/35">
-                |
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => choose(code)}
-              aria-current={active ? "true" : undefined}
-              // The active one is not a control. Announcing a button that
-              // does nothing is how a screen reader user ends up tapping
-              // it to find out.
-              disabled={active}
-              lang={code}
-              // ivory/85 on the inactive one, not /70. The INACTIVE button is
-              // the only tap target in the pair — the active one is a
-              // disabled state — and at /70 on lacquer it measured 4.24:1,
-              // just under what a 12px control needs. /85 is 5.6:1 and still
-              // sits visibly behind the gold-light active label.
-              className={
-                active
-                  ? "font-semibold text-gold-light"
-                  : "token-colors text-ivory/85 underline-offset-4 hover:text-gold-light hover:underline"
-              }
-              title={
-                active
-                  ? undefined
-                  : code === "es"
-                    ? t("lang.switchToEs")
-                    : t("lang.switchToEn")
-              }
-            >
-              {code === "en" ? t("lang.en") : t("lang.es")}
-            </button>
-          </span>
+          <button
+            key={code}
+            type="button"
+            onClick={() => choose(code)}
+            aria-current={active ? "true" : undefined}
+            // The active one is not a control. Announcing a button that
+            // does nothing is how a screen reader user ends up tapping
+            // it to find out.
+            disabled={active}
+            lang={code}
+            // The filled half is the whole point of the shape, so it
+            // carries the weight; the empty half stays a label until you
+            // reach for it. Measured on the track this now sits on —
+            // ink/30 over lacquer, and ink/30 over the footage's brightest
+            // header frame:
+            //   ink on gold (active)        7.76
+            //   ivory/85, solid lacquer     7.22
+            //   ivory/85, over the hero     4.78
+            // The track is why the inactive half improved: it was 5.6 on
+            // bare lacquer before, because there was nothing under it.
+            className={`rounded-full px-2 py-0.5 leading-none ${
+              active
+                ? "bg-gold font-semibold text-ink"
+                : "token-colors text-ivory/85 hover:bg-ivory/10 hover:text-gold-light"
+            }`}
+            title={
+              active
+                ? undefined
+                : code === "es"
+                  ? t("lang.switchToEs")
+                  : t("lang.switchToEn")
+            }
+          >
+            {code === "en" ? t("lang.en") : t("lang.es")}
+          </button>
         );
       })}
     </div>

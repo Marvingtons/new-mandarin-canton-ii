@@ -677,7 +677,17 @@ body {
 .spt-small:focus-visible .spt-sm-name {
   color: var(--lacquer);
 }
-/* Nav links: gold underline slides in from the left */
+/* Nav links: gold underline slides in from the left.
+   Hover and the active page are the SAME rule deliberately — the
+   underline is the site's gold-rule language, and a link you are pointing
+   at and the page you are on are both "this one".
+
+   right: 0.15em, not 0. The <ul> sets tracking-[0.15em], which puts a
+   trailing letter-space after the last glyph of every label, inside the
+   box. An underline drawn to the box edge therefore overhung the word by
+   2.1px on the right at 14px and looked mis-centred under it — most
+   visibly on HOME, which wears it all the time. If that tracking value
+   changes, this changes with it. */
 .nav-link {
   position: relative;
   padding-bottom: 4px;
@@ -686,7 +696,7 @@ body {
   content: "";
   position: absolute;
   left: 0;
-  right: 0;
+  right: 0.15em;
   bottom: 0;
   height: 1px;
   background: var(--gold-light);
@@ -819,11 +829,31 @@ body {
 }
 
 /* Header seal: hover tilts to the intro's -2deg resting angle */
+/* The brand lockup answers the pointer as ONE object: the seal presses
+   over and both lines of type shift toward gold together. Before this the
+   seal was the only part that moved, so a link that is a seal plus two
+   lines of text behaved like a control with two labels loosely parked
+   beside it. The 富源 line is already gold-light, so its share of the
+   shift is the deeper --gold — the pair still moves as one gesture
+   without the sub-line having to change colour family to do it. */
 .brand-seal {
   transition: transform var(--t-med) var(--ease-stamp);
 }
-.brand-link:hover .brand-seal {
+.brand-link:hover .brand-seal,
+.brand-link:focus-visible .brand-seal {
   transform: rotate(-2deg);
+}
+.brand-name,
+.brand-zh {
+  transition: color var(--t-fast) var(--ease-out-soft);
+}
+.brand-link:hover .brand-name,
+.brand-link:focus-visible .brand-name {
+  color: var(--gold-light);
+}
+.brand-link:hover .brand-zh,
+.brand-link:focus-visible .brand-zh {
+  color: var(--gold);
 }
 /* Arrow links: the arrow nudges right */
 .arrow-link .arrow {

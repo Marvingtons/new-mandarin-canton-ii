@@ -69,23 +69,43 @@ export default function Header() {
       } ${overHero ? "border-transparent bg-transparent" : "border-gold/60 bg-lacquer"}`}
     >
       <div className="container-wide flex flex-col items-center gap-3 py-4 sm:flex-row sm:justify-between">
+        {/* ONE link, ONE hover. It was already a single <Link>, but the
+            only thing that answered the pointer was the seal's rotate, so
+            the name and the 富源 under it read as inert text that happened
+            to sit next to a control. Both lines now shift toward gold with
+            it (see .brand-link in globals.css), which is what makes the
+            three pieces read as one target.
+
+            The stack is explicit — flex column, both lines' leading
+            declared — so the pair cannot drift apart the way an inherited
+            leading can. Measured before touching it: the seal's centre and
+            the text block's centre were both y=42, and both lines already
+            began at x=92.2, so the alignment was not what was wrong here.
+            Heights are unchanged (30 + 2 + 20 = 52px) on purpose: the
+            header is 86px in both states and the hero, the scroll-past
+            threshold and the menu page's sticky offsets are all measured
+            against that. */}
         <Link href="/" className="brand-link flex items-center gap-3">
           <Seal size={40} className="brand-seal shrink-0" />
-          <span className="text-left">
-            <span className="block font-display text-2xl leading-tight">
+          <span className="flex flex-col justify-center text-left">
+            <span className="brand-name font-display text-2xl leading-[30px]">
               {restaurant.name}
             </span>
             {restaurant.chineseName && (
               <span
                 lang="zh-Hant"
-                className="mt-0.5 block font-chinese text-sm tracking-[0.4em] text-gold-light"
+                className="brand-zh mt-0.5 font-chinese text-sm leading-[20px] tracking-[0.4em] text-gold-light"
               >
                 {restaurant.chineseName}
               </span>
             )}
           </span>
         </Link>
-        <div className="flex items-center gap-5 sm:gap-6">
+        {/* gap-8/10 here against the nav's own gap-5/6: the language pill
+            sat exactly 24px after CONTACT, the same interval the four
+            links use between themselves, which is most of why it read as
+            items five and six. 40px at sm puts it outside the rhythm. */}
+        <div className="flex items-center gap-8 sm:gap-10">
           <nav aria-label={t("nav.aria")}>
             <ul className="flex gap-5 text-xs uppercase tracking-[0.15em] sm:gap-6 sm:text-sm">
               {links.map(({ href, key }) => {
