@@ -47,13 +47,20 @@ export const en = {
 
   /* ---- menu page ---- */
   "menu.title": "Menu",
-  "menu.intro": "Order straight from the family, not a delivery app.",
+  /* Half of a one-line tagline joined by a middot: "{intro} · {pickupOnlyAt}".
+     It used to end "…, not a delivery app." and wrap to two lines at 1440.
+     The no-delivery-app claim still leads the homepage hero
+     (hero.orderDirect) and "no delivery" is in the footer of every page. */
+  "menu.intro": "Order straight from the family",
   "menu.pickupOnlyAt": "Pickup only at {street}.",
   "menu.cart": "Cart",
   "menu.search": "Search dishes…",
   "menu.searchLabel": "Search the menu",
   "menu.spicyOnly": "Spicy only",
-  "menu.favourites": "House favourites",
+  /* "Favorites", US spelling, matching the homepage's "House Favorites".
+     The two surfaces show the same six dishes from the same list and used
+     to spell the label two different ways. */
+  "menu.favourites": "House Favorites",
   "menu.categoriesAria": "Menu categories",
   "menu.noMatches": "No matches, try the category list",
   "menu.noMatchesZh": "沒有符合的項目，請用分類選單",
@@ -66,14 +73,17 @@ export const en = {
   "menu.lunchUntilZh": "至下午三時",
   "menu.lunchWindowOnly": "11 AM–3 PM only",
 
-  /* ---- the pickup / wait / cutoff / allergy banner ---- */
-  "banner.pickupReady": "Pickup only · ready in 15–20 minutes.",
-  "banner.longPrep":
-    "Party trays and family dinners take 20–30. Pay at the counter when you collect. We don't take payment online.",
+  /* ---- the ONE notice card on the menu page: two lines, no internal rules.
+     Line 1 is logistics, line 2 is the clock and the allergy line.
+     Middots separate TOPICS inside a line; a 中文 half follows its English
+     directly, set in font-chinese and muted, which is what distinguishes it.
+     Only the two lead fragments are bold. ---- */
+  "banner.pickupLead": "Pickup only",
+  "banner.logistics":
+    "ready in 15–20 min · party trays & family dinners 20–30 · pay at the counter",
   "banner.onlineUntil": "Online orders until {time}",
   "banner.onlineUntilZh": "網上訂餐至晚上8:30",
-  "banner.callAfter": "The kitchen is open later, so please call after that.",
-  "banner.allergy": "Food allergies? Please call us before ordering",
+  "banner.allergy": "Allergies? Call us first",
   "banner.allergyZh": "食物過敏請先致電",
 
   /* ---- item sheet ---- */
@@ -291,12 +301,13 @@ export const es: Record<TranslationKey, string> = {
 
   /* ---- menu page ---- */
   "menu.title": "Menú",
-  "menu.intro": "Ordene directamente con la familia, no con una app de entregas.",
+  "menu.intro": "Ordene directamente con la familia",
   "menu.pickupOnlyAt": "Solo para recoger en {street}.",
   "menu.cart": "Carrito",
   "menu.search": "Buscar platillos…",
   "menu.searchLabel": "Buscar en el menú",
   "menu.spicyOnly": "Solo picante",
+  // Unchanged: Spanish was already spelling this one way.
   "menu.favourites": "Favoritos de la casa",
   "menu.categoriesAria": "Categorías del menú",
   "menu.noMatches": "No hay resultados, use la lista de categorías",
@@ -310,15 +321,13 @@ export const es: Record<TranslationKey, string> = {
   "menu.lunchUntilZh": "至下午三時",
   "menu.lunchWindowOnly": "solo de 11 AM a 3 PM",
 
-  /* ---- the pickup / wait / cutoff / allergy banner ---- */
-  "banner.pickupReady": "Solo para recoger · listo en 15–20 minutos.",
-  "banner.longPrep":
-    "Las charolas para fiesta y las cenas familiares tardan de 20 a 30. Pague en el mostrador al recoger. No aceptamos pagos en línea.",
+  /* ---- the menu page's one notice card ---- */
+  "banner.pickupLead": "Solo para recoger",
+  "banner.logistics":
+    "listo en 15–20 min · charolas y cenas familiares 20–30 · pague en el mostrador",
   "banner.onlineUntil": "Órdenes en línea hasta las {time}",
   "banner.onlineUntilZh": "網上訂餐至晚上8:30",
-  "banner.callAfter":
-    "La cocina sigue abierta después de esa hora, así que por favor llame.",
-  "banner.allergy": "¿Alergias a algún alimento? Llámenos antes de ordenar",
+  "banner.allergy": "¿Alergias? Llámenos primero",
   "banner.allergyZh": "食物過敏請先致電",
 
   /* ---- item sheet ---- */

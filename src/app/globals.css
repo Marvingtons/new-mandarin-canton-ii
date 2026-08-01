@@ -703,8 +703,11 @@ body {
 .cat-link::after {
   content: "";
   position: absolute;
-  left: 12px;
-  right: 12px;
+  /* Matches the pill's own horizontal padding, so the rule sits under the
+     label rather than under the label plus a sliver of its box. Tracks
+     px-2.5 in OrderMenu — if that changes, this changes. */
+  left: 10px;
+  right: 10px;
   bottom: 1px;
   height: 1px;
   background: var(--gold);
