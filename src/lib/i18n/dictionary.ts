@@ -200,6 +200,16 @@ export const en = {
   "footer.today": "Today",
   "footer.closed": "Closed",
 
+  /* ---- contact page ----
+     Its three section labels reuse footer.findUs / hero.call / footer.hours
+     rather than adding near-duplicates: they are the same three words about
+     the same three things, and the footer had already had them translated.
+     Only what is unique to this page is new. */
+  "contact.title": "Visit Us",
+  "contact.callNumber": "Call {phone}",
+  "contact.phoneWelcome": "Takeout orders welcome by phone.",
+  "contact.open7": "Open 7 days a week.",
+
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacy",
   "legal.terms": "Terms",
@@ -431,6 +441,12 @@ export const es: Record<TranslationKey, string> = {
   "footer.terms": "Términos",
   "footer.today": "Hoy",
   "footer.closed": "Cerrado",
+
+  /* ---- contact page ---- */
+  "contact.title": "Visítenos",
+  "contact.callNumber": "Llamar al {phone}",
+  "contact.phoneWelcome": "También tomamos órdenes para llevar por teléfono.",
+  "contact.open7": "Abierto los 7 días de la semana.",
 
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacidad",

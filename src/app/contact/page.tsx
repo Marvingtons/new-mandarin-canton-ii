@@ -6,15 +6,29 @@ import OpenNowChip from "@/components/OpenNowChip";
 import PhotoFrame from "@/components/PhotoFrame";
 import { photos } from "@/data/images";
 import { phoneLinks, restaurant } from "@/data/restaurant";
+import { getT } from "@/lib/i18n/server";
 
 export const metadata: Metadata = {
   title: "Contact",
 };
 
-export default function ContactPage() {
+/**
+ * ⚠️ THE HOURS TABLE AND THE OPEN/CLOSED CHIP ON THIS PAGE WERE ALREADY
+ * TRANSLATED and everything around them was not, which made this the worst
+ * mixed-language surface on the site: "Visit Us / FIND US / CALL / Takeout
+ * orders welcome by phone. / HOURS" in English, wrapped around "Lunes …
+ * SábadoHOY" and "ABIERTO · HASTA LAS 9:30 PM" in Spanish.
+ *
+ * The three section labels reuse footer.findUs / hero.call / footer.hours
+ * rather than adding near-duplicate keys — same three words, same three
+ * things, already translated for the footer.
+ */
+export default async function ContactPage() {
+  const t = await getT();
+
   return (
     <div className="mx-auto max-w-5xl px-4 pb-20 pt-8">
-      <SectionHeading as="h1" en="Visit Us" />
+      <SectionHeading as="h1" en={t("contact.title")} />
 
       {/* The three small-caps labels below are text-lacquer, not text-gold.
           The identical treatment in the Footer sits on bg-ink and measures
@@ -25,7 +39,7 @@ export default function ContactPage() {
       <div className="mt-10 grid gap-12 md:grid-cols-2">
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
-            Find Us
+            {t("footer.findUs")}
           </h2>
           <p className="mt-4 text-lg leading-relaxed">
             {restaurant.address.street}
@@ -35,7 +49,7 @@ export default function ContactPage() {
           </p>
 
           <h2 className="mt-9 text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
-            Call
+            {t("hero.call")}
           </h2>
           {/* Large tap targets — both lines are staffed */}
           <div className="mt-4 flex flex-col gap-2 sm:items-start">
@@ -45,12 +59,12 @@ export default function ContactPage() {
                 href={href}
                 className="block rounded-lg bg-lacquer px-8 py-4 text-center font-display text-xl text-ivory transition-colors hover:bg-lacquer-dark sm:inline-block"
               >
-                Call {phone}
+                {t("contact.callNumber", { phone })}
               </a>
             ))}
           </div>
           <p className="mt-3 text-sm italic text-ink/60">
-            Takeout orders welcome by phone.
+            {t("contact.phoneWelcome")}
           </p>
 
           {/* What to look for from the road. Its caption in the manifest is
@@ -66,14 +80,14 @@ export default function ContactPage() {
 
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
-            Hours
+            {t("footer.hours")}
           </h2>
           <div className="mt-4">
             <HoursTable />
           </div>
           <OpenNowChip tone="light" className="mt-4" />
           <p className="mt-3 text-sm italic text-ink/60">
-            Open 7 days a week.
+            {t("contact.open7")}
           </p>
         </div>
       </div>
