@@ -15,6 +15,7 @@ import {
 } from "@/lib/phone";
 import { pickupSlots, type PickupOptions, type PickupSlot } from "@/lib/order/pickup";
 import { mentionsAllergy } from "@/lib/order/allergyHint";
+import { closedMessage } from "@/lib/order/gates";
 
 /** Payload handed to the confirmation screen via sessionStorage. */
 export interface LastOrder {
@@ -89,6 +90,8 @@ export default function Checkout({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Why no slots are offerable, in the server's own words. Null when open. */
+  const [closedNote, setClosedNote] = useState<string | null>(null);
 
   const pickupOpts = useMemo<PickupOptions>(
     () => ({ timezone, leadMinutes, intervalMinutes }),
@@ -97,10 +100,21 @@ export default function Checkout({
 
   // Compute pickup slots on the client (needs "now"). Refresh each minute so a
   // slot that just passed drops out.
+  //
+  // The refusal line is computed in the SAME tick, from the same clock, by
+  // the same function the server refuses with (closedMessage). It used to
+  // be a hardcoded "We're closed right now. Please order during store
+  // hours." — which was survivable while the cutoff was a flat 20 minutes,
+  // and became a lie the moment it went per-day: on a Saturday the doors
+  // are open until 9:30 but the site stops at 8:30, so for a full hour
+  // that string told people the restaurant was shut while the lights were
+  // on. closedMessage already knows the difference and says so bilingually.
   useEffect(() => {
     const compute = () => {
-      const next = pickupSlots(new Date(), pickupOpts, { asIfOpen: testMode });
+      const at = new Date();
+      const next = pickupSlots(at, pickupOpts, { asIfOpen: testMode });
       setSlots(next);
+      setClosedNote(next.length === 0 ? closedMessage(at, pickupOpts) : null);
       setTime((t) => (t && next.some((s) => s.value === t) ? t : next[0]?.value ?? ""));
     };
     compute();
@@ -444,8 +458,9 @@ export default function Checkout({
                 today.
               </p>
             ) : (
-              <p className="rounded-md border border-lacquer/40 bg-lacquer/5 px-3 py-3 text-sm text-lacquer">
-                We&apos;re closed right now. Please order during store hours.
+              <p className="rounded-md border border-lacquer/40 bg-lacquer/5 px-3 py-3 text-sm leading-relaxed text-lacquer">
+                {closedNote ??
+                  "We're closed for online orders right now. Please call us."}
               </p>
             )}
             {testMode && slots.length > 0 && (

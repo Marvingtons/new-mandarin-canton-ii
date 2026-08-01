@@ -15,6 +15,24 @@ export interface DailyHours {
   open: string;
   close: string;
   closed?: boolean;
+  /**
+   * The last time an ONLINE order may be placed today, 12-hour like the
+   * others. The dining room stays open until `close`; this is only about
+   * the website's Place Order button.
+   *
+   * PER DAY, and living here rather than in an env var on purpose. The
+   * weekly hours table renders through the footer, which is in the root
+   * layout, so these strings are baked into every prerendered page at
+   * build time. An env-sourced cutoff would change the API gate the
+   * moment it was set while the marketing pages kept advertising the old
+   * time until the next deploy. Keeping it in this file means the gate
+   * and the printed promise can only ever move together.
+   *
+   * Required, not optional: a day without one would silently fall back to
+   * some default, and "which days have a cutoff" is exactly the question
+   * nobody should have to answer by reading code.
+   */
+  lastOnlineOrder: string;
 }
 
 export interface RestaurantFeatures {
@@ -93,14 +111,31 @@ export const restaurant: RestaurantInfo = {
   },
   phones: ["(619) 656-6888", "(619) 656-6787"],
   timezone: "America/Los_Angeles",
+  /*
+   * `close` is when the DOORS shut. `lastOnlineOrder` is when the website
+   * stops taking orders, and it is 8:30 PM every day per the owner.
+   *
+   * ⚠️ TODO(confirm): SATURDAY. The doors are open until 9:30 PM, so an
+   * 8:30 cutoff gives up a full hour of online ordering — the widest gap
+   * of the week, on the busiest night. Implemented as instructed; the
+   * owner may want 9:00 PM here.
+   *
+   * ⚠️ SUNDAY IS THE ZERO-BUFFER DAY. The doors shut at 8:30 PM and the
+   * cutoff is also 8:30 PM, so an order may be placed right up to the
+   * minute the restaurant closes. That is safe, but only because
+   * readyWindow() caps both ends of the quoted window at closing time
+   * (see lib/order/readyWindow.ts) — an 8:29 PM order quotes "8:30 PM",
+   * not the 8:44 the prep range would otherwise produce. If that cap is
+   * ever removed, Sunday starts promising pickups after close.
+   */
   hours: {
-    monday: { open: "11:00 AM", close: "9:00 PM" },
-    tuesday: { open: "11:00 AM", close: "9:00 PM" },
-    wednesday: { open: "11:00 AM", close: "9:00 PM" },
-    thursday: { open: "11:00 AM", close: "9:00 PM" },
-    friday: { open: "11:00 AM", close: "9:00 PM" },
-    saturday: { open: "11:00 AM", close: "9:30 PM" },
-    sunday: { open: "11:00 AM", close: "8:30 PM" },
+    monday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
+    tuesday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
+    wednesday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
+    thursday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
+    friday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
+    saturday: { open: "11:00 AM", close: "9:30 PM", lastOnlineOrder: "8:30 PM" },
+    sunday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
   },
   // All null = unconfirmed. Fill in each real value and the matching
   // trust-strip chip lights up automatically — no component changes.
@@ -176,6 +211,22 @@ export const weeklyOpeningSummary: string = (() => {
       : `Open ${open.length} days a week`;
   const sameOpening = open.every((h) => h.open === open[0].open);
   return sameOpening ? `${days} from ${open[0].open}` : days;
+})();
+
+/**
+ * "8:30 PM" when every open day agrees, otherwise null.
+ *
+ * Same discipline as weeklyOpeningSummary above: it states a single time
+ * only when a single time is true. The moment the owner gives Saturday a
+ * 9:00 PM cutoff (see the TODO on `hours`) this returns null and the
+ * surfaces that quote it fall back to naming today's cutoff rather than
+ * printing one number over a week that has two.
+ */
+export const sharedLastOnlineOrder: string | null = (() => {
+  const open = Object.values(restaurant.hours).filter((h) => !h.closed);
+  if (open.length === 0) return null;
+  const first = open[0].lastOnlineOrder;
+  return open.every((h) => h.lastOnlineOrder === first) ? first : null;
 })();
 
 /** "Est. 1995", or null while the founding year is unconfirmed. */

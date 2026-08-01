@@ -5,7 +5,7 @@ import type { Menu, MenuItem } from "@/lib/menu/types";
 import { isAvailable, itemSizes } from "@/lib/menu/types";
 import { useCart } from "@/lib/cart/CartContext";
 import { isLunchService } from "@/lib/order/gates";
-import { restaurant } from "@/data/restaurant";
+import { restaurant, sharedLastOnlineOrder } from "@/data/restaurant";
 import { formatCents } from "@/lib/money";
 import PhoneLinks from "@/components/PhoneLinks";
 import { SpicyMark } from "@/components/MenuSection";
@@ -106,6 +106,20 @@ export default function OrderMenu({
             Party trays and family dinners take 20–30. Pay at the counter when
             you collect. We don&apos;t take payment online.
           </p>
+          {/* The website stops taking orders before the doors shut, so this
+              belongs beside the wait time rather than only in the refusal a
+              customer sees after they have built a cart. */}
+          {sharedLastOnlineOrder && (
+            <p className="mt-1.5 border-t border-gold/25 pt-1.5">
+              <span className="font-semibold text-ink">
+                Online orders until {sharedLastOnlineOrder}
+              </span>{" "}
+              <span lang="zh-Hant" className="font-chinese text-ink/75">
+                · 網上訂餐至晚上8:30
+              </span>
+              . The kitchen is open later, so please call after that.
+            </p>
+          )}
           <p className="mt-1.5 border-t border-gold/25 pt-1.5">
             <span className="font-semibold text-ink">
               Food allergies? Please call us before ordering

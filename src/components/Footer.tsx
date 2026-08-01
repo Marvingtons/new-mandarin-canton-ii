@@ -10,6 +10,7 @@ import {
   fullAddress,
   phoneLinks,
   restaurant,
+  sharedLastOnlineOrder,
   weeklyOpeningSummary,
 } from "@/data/restaurant";
 
@@ -110,6 +111,17 @@ export default function Footer() {
             {weeklyOpeningSummary}
           </p>
           <HoursTable tone="dark" dense className="mt-4" />
+          {/* The doors and the website close at different times, so the
+              table above is not the whole answer. Stated once, quietly,
+              under the hours it qualifies. Derived: if the days ever stop
+              agreeing on a cutoff this renders nothing rather than one
+              number standing in for two. */}
+          {sharedLastOnlineOrder && (
+            <p className="mt-3 text-xs leading-relaxed text-ivory/50">
+              Last online order {sharedLastOnlineOrder}. The dining room stays
+              open past it, so please call to order after that.
+            </p>
+          )}
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">

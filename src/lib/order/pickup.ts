@@ -77,29 +77,54 @@ function hhmm(mins: number): string {
 }
 
 /**
- * How long before closing the kitchen stops accepting online orders.
+ * Today's window: when the doors are open, and when the website stops
+ * taking orders.
  *
- * The dining room is open until close, but an order placed at 8:55 cannot be
- * cooked, bagged, and collected by 9:00 — accepting it books a customer for a
- * pickup that will not happen. This is the gate that makes the Task-3 window
- * cap (never past closing) a rare edge rather than the normal case.
+ * `lastOrder` USED TO BE `close - ORDER_CUTOFF_MINUTES`, a flat 20 minutes
+ * for every day. It is now a per-day clock time read from restaurant.ts,
+ * because "how long before close does the kitchen need" is not actually a
+ * constant — it is a decision the owner makes per night. Everything that
+ * needs the cutoff reads it from HERE, so there is exactly one answer:
+ * this function, isAcceptingOrders, both branches of closedMessage, and
+ * the copy on the menu banner and in the footer all resolve the same
+ * number.
+ *
+ * Clamped to the door hours. A lastOnlineOrder later than closing would
+ * let the site take an order it cannot fill; earlier than opening would
+ * close ordering before it started. Sunday is the deliberate equality
+ * case — cutoff EQUALS close — and is allowed.
  */
-export const ORDER_CUTOFF_MINUTES = 20;
-
-function todaysWindow(day: DayOfWeek): { open: number; close: number } | null {
+function todaysWindow(
+  day: DayOfWeek,
+): { open: number; close: number; lastOrder: number } | null {
   const h = restaurant.hours[day];
   if (h.closed) return null;
   const open = parse12h(h.open);
   const close = parse12h(h.close);
   if (open === null || close === null) return null;
-  return { open, close };
+  const configured = parse12h(h.lastOnlineOrder);
+  const lastOrder =
+    configured === null ? close : Math.min(Math.max(configured, open), close);
+  return { open, close, lastOrder };
 }
 
-/** Today's open/close in restaurant-local minutes past midnight. */
+/** Today's open/close/last-order in restaurant-local minutes past midnight. */
 export function hoursForDay(
   day: DayOfWeek,
-): { open: number; close: number } | null {
+): { open: number; close: number; lastOrder: number } | null {
   return todaysWindow(day);
+}
+
+/**
+ * The last minute an online order may be placed today, or null when the
+ * restaurant is closed. The one reader for every surface that quotes it.
+ */
+export function lastOrderMinutes(
+  now: Date,
+  opts: PickupOptions,
+): number | null {
+  const { day } = localNow(opts.timezone, now);
+  return todaysWindow(day)?.lastOrder ?? null;
 }
 
 /** Is the DINING ROOM open right now? (Ignores the ordering cutoff.) */
@@ -112,16 +137,18 @@ export function isOpenNow(now: Date, opts: PickupOptions): boolean {
 /**
  * Is the store accepting ONLINE ORDERS right now?
  *
- * Open, and at least ORDER_CUTOFF_MINUTES before close. This is the gate the
+ * Open, and not yet past today's last-order time. This is the gate the
  * submit path enforces; `isOpenNow` remains the answer to "are the doors
  * open", which is a different question and still the right one for the
- * hours chip.
+ * hours chip. On most days the two now diverge for a stretch — Saturday
+ * has a full hour where the doors are open and the website is not — which
+ * is exactly why the refusal copy must never say "we're closed".
  */
 export function isAcceptingOrders(now: Date, opts: PickupOptions): boolean {
   const { day, minutes } = localNow(opts.timezone, now);
   const w = todaysWindow(day);
   if (!w) return false;
-  return minutes >= w.open && minutes < w.close - ORDER_CUTOFF_MINUTES;
+  return minutes >= w.open && minutes < w.lastOrder;
 }
 
 /** Today's hours as a 12-hour label, e.g. "11:00 AM – 9:00 PM". Null if closed. */

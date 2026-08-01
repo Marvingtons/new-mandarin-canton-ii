@@ -1,6 +1,5 @@
 import { phonesSentence } from "@/data/restaurant";
 import {
-  ORDER_CUTOFF_MINUTES,
   clockLabel,
   hoursForDay,
   isAcceptingOrders,
@@ -34,12 +33,17 @@ export function closedMessage(now: Date, opts: PickupOptions): string {
 
   const openLabel = clockLabel(window.open);
   const closeLabel = clockLabel(window.close);
-  const lastOrder = clockLabel(window.close - ORDER_CUTOFF_MINUTES);
+  const lastOrder = clockLabel(window.lastOrder);
   const mins = minutesNow(now, opts);
 
   // Past the cutoff but before close: the doors are open, so "we're closed"
   // would read as a lie to someone standing outside looking at the lights.
-  if (mins < window.close && mins >= window.close - ORDER_CUTOFF_MINUTES) {
+  //
+  // This branch used to cover a fixed 20 minutes. With a per-day cutoff it
+  // can be an hour wide (Saturday: 8:30 PM cutoff, 9:30 PM close) and on
+  // Sunday it is unreachable by construction, because the cutoff IS the
+  // closing time and there is no minute that satisfies both halves.
+  if (mins < window.close && mins >= window.lastOrder) {
     return (
       `Online orders for today closed at ${lastOrder} so the kitchen can finish by ${closeLabel}. ` +
       `Please call ${phonesSentence}. · ` +
