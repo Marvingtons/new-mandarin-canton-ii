@@ -16,9 +16,15 @@ export default function ContactPage() {
     <div className="mx-auto max-w-5xl px-4 pb-20 pt-8">
       <SectionHeading as="h1" en="Visit Us" />
 
+      {/* The three small-caps labels below are text-lacquer, not text-gold.
+          The identical treatment in the Footer sits on bg-ink and measures
+          7.76:1; here it sits on ivory and measured 2.02:1 — the same label,
+          failing only on the light ground. Lacquer on ivory is 7.08:1 and is
+          already this site's heading colour on a light page, so the label
+          rejoins the scale rather than inventing a colour. */}
       <div className="mt-10 grid gap-12 md:grid-cols-2">
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
             Find Us
           </h2>
           <p className="mt-4 text-lg leading-relaxed">
@@ -28,7 +34,7 @@ export default function ContactPage() {
             {restaurant.address.zip}
           </p>
 
-          <h2 className="mt-9 text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+          <h2 className="mt-9 text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
             Call
           </h2>
           {/* Large tap targets — both lines are staffed */}
@@ -59,7 +65,7 @@ export default function ContactPage() {
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
             Hours
           </h2>
           <div className="mt-4">
