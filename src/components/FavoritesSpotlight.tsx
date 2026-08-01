@@ -8,11 +8,10 @@ import PhotoPlaceholder from "@/components/PhotoPlaceholder";
 import SectionHeading from "@/components/SectionHeading";
 import { photos } from "@/data/images";
 import type { SitePhoto } from "@/data/images";
-import { menu } from "@/data/menu";
+import { favoriteCatalogItems } from "@/data/favorites";
 import type { MenuItem } from "@/data/menu";
 import { formatCents } from "@/lib/money";
 
-const COUNT = 6;
 /** Curtain-wipe duration — the transaction commits when it ends. */
 const WIPE_MS = 620;
 /** Plate/counter/smalls swap their content at this point of the wipe. */
@@ -45,9 +44,14 @@ const dishPhotoByItemId: Record<string, SitePhoto> = {
   "upside-down-pan-fried-noodles": photos.dishPanFriedNoodles,
 };
 
-const items: MenuItem[] = (
-  menu.find((c) => c.id === "specials")?.items ?? []
-).slice(0, COUNT);
+/* The set now comes from data/favorites.ts, so the menu page's favourites
+   strip shows the same six dishes without a second list to keep in step.
+   Same items, same order, same render as the positional slice this
+   replaces. COUNT follows the list rather than the other way round —
+   advance() does modular arithmetic on it, so a hardcoded 6 against a
+   shorter list would index past the end and crash on `face.name`. */
+const items: MenuItem[] = favoriteCatalogItems();
+const COUNT = items.length;
 
 /* ---- static rail pieces, hoisted so re-renders bail out of their
    subtrees (SplitText owns the heading's DOM after mount) ---- */

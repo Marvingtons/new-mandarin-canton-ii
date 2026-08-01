@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Menu, MenuItem } from "@/lib/menu/types";
 import { isAvailable, itemSizes } from "@/lib/menu/types";
+import { itemMatches, queryTerms } from "@/lib/menu/search";
+import { favoriteItemIds } from "@/data/favorites";
+
+/** The one category whose position on the page depends on the clock. */
+const LUNCH_CATEGORY_ID = "lunch-specials";
 import { useCart } from "@/lib/cart/CartContext";
 import { isLunchService } from "@/lib/order/gates";
 import { restaurant, sharedLastOnlineOrder } from "@/data/restaurant";
@@ -27,14 +32,19 @@ export default function OrderMenu({
   menu,
   taxRateBps,
   timezone,
+  lunchOpenInitial,
 }: {
   menu: Menu;
   taxRateBps: number | null;
   timezone: string;
+  /** Decided on the server so the first paint has lunch in the right place. */
+  lunchOpenInitial: boolean;
 }) {
   const { itemCount, hydrated } = useCart();
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [spicyOnly, setSpicyOnly] = useState(false);
 
   /* ARRIVING VIA "ORDER TAKEOUT" (/menu#order, and /order redirects to it) is
      handled by the browser: the hash scrolls past the header copy and onto the
@@ -54,9 +64,11 @@ export default function OrderMenu({
   // re-checks against the server clock (lib/order/gates.ts), so a browser with
   // a wrong clock gets a clear refusal rather than a bad order.
   //
-  // Null until mounted, so the server render and the first client render agree
-  // and there is no hydration flash.
-  const [lunchOpen, setLunchOpen] = useState<boolean | null>(null);
+  // Seeded from the server (see menu/page.tsx) rather than starting null, so
+  // there is no hydration flash AND no post-mount reshuffle of the whole
+  // page when lunch is running. The interval only catches 3:00 PM passing
+  // under a page somebody left open.
+  const [lunchOpen, setLunchOpen] = useState<boolean>(lunchOpenInitial);
   useEffect(() => {
     const opts = { timezone, leadMinutes: 0, intervalMinutes: 15 };
     const tick = () => setLunchOpen(isLunchService(new Date(), opts));
@@ -65,7 +77,63 @@ export default function OrderMenu({
     return () => clearInterval(t);
   }, [timezone]);
 
-  const categories = menu.categories.filter((c) => c.items.length > 0);
+  /**
+   * ONE ordering, used by both the jump nav and the sections.
+   *
+   * During service Lunch Specials leads the page: it is an 11-to-3
+   * product, so for those four hours it is the most likely reason someone
+   * opened the menu, and it sits fourteenth in printed-menu order. Outside
+   * the window it drops back to where the printed menu puts it, still
+   * visible and still visibly unorderable.
+   *
+   * Derived once and shared, because a category bar whose order disagrees
+   * with the page is worse than no category bar.
+   */
+  const categories = useMemo(() => {
+    const withItems = menu.categories.filter((c) => c.items.length > 0);
+    if (!lunchOpen) return withItems;
+    const lunch = withItems.filter((c) => c.id === LUNCH_CATEGORY_ID);
+    const rest = withItems.filter((c) => c.id !== LUNCH_CATEGORY_ID);
+    return [...lunch, ...rest];
+  }, [menu.categories, lunchOpen]);
+
+  /* ---- search + spicy filter ---------------------------------------
+     Both narrow the SAME list, so they compose: "beef" with the spicy
+     chip on gives spicy beef. Categories left with nothing drop out
+     entirely rather than rendering an empty heading. */
+  const terms = useMemo(() => queryTerms(query), [query]);
+  const filtering = terms.length > 0 || spicyOnly;
+
+  const visible = useMemo(() => {
+    if (!filtering) return categories;
+    return categories
+      .map((cat) => ({
+        ...cat,
+        items: cat.items.filter(
+          (item) =>
+            (!spicyOnly || item.spicy) &&
+            // The category name joins the haystack, so "soup" finds the
+            // Soup section's dishes even when no dish is called soup.
+            itemMatches(item, terms, cat.nameEn),
+        ),
+      }))
+      .filter((cat) => cat.items.length > 0);
+  }, [categories, terms, spicyOnly, filtering]);
+
+  const resultCount = useMemo(
+    () => visible.reduce((n, c) => n + c.items.length, 0),
+    [visible],
+  );
+
+  /** The favourites, resolved against the ORDERABLE menu, in listed order. */
+  const favorites = useMemo(() => {
+    const byId = new Map(
+      menu.categories.flatMap((c) => c.items).map((i) => [i.id, i]),
+    );
+    return favoriteItemIds
+      .map((id) => byId.get(id))
+      .filter((i): i is MenuItem => i !== undefined);
+  }, [menu.categories]);
 
   return (
     <>
@@ -134,43 +202,159 @@ export default function OrderMenu({
           </p>
         </div>
 
-        {/* Category jump nav */}
+        {/* HOUSE FAVOURITES — the same six the homepage carousel shows,
+            from the one list in data/favorites.ts. Tapping opens the dish,
+            which is the whole point: on the homepage they are a display,
+            here they are a way to order in two taps.
+
+            Hidden while a filter is active. A curated shortcut is help
+            when you do not know what you want and noise the moment you
+            have told us. */}
+        {!filtering && favorites.length > 0 && (
+          <section aria-labelledby="fav-strip" className="mt-6">
+            <h2
+              id="fav-strip"
+              className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/55"
+            >
+              House favourites
+            </h2>
+            <ul
+              data-lenis-prevent
+              className="mt-2 flex gap-2 overflow-x-auto pb-1"
+            >
+              {favorites.map((item) => (
+                <li key={item.id} className="shrink-0">
+                  <button
+                    onClick={() => setActiveItem(item)}
+                    className="token-colors flex items-center gap-2 whitespace-nowrap rounded-full border border-gold/50 bg-cream px-3.5 py-1.5 text-sm font-semibold text-ink hover:border-gold hover:bg-gold/10"
+                  >
+                    {item.nameEn}
+                    {item.spicy && <SpicyMark />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Category jump nav + search.
+            STICKY, and the search rides with it: a filter you cannot reach
+            without scrolling back to the top is a filter people use once.
+
+            The pill row WRAPS from lg up (two rows, no horizontal scroll)
+            and keeps the swipe bar below it, which is the behaviour the
+            mobile scrollspy was built around. */}
         <nav
           aria-label="Menu categories"
-          className="sticky top-0 z-40 -mx-4 mt-6 border-y border-gold/40 bg-ivory/95 px-4 backdrop-blur"
+          className="sticky top-0 z-40 -mx-4 mt-6 border-y border-gold/40 bg-ivory/95 px-4 py-3 backdrop-blur"
         >
-          <ul
-            data-lenis-prevent
-            className="flex gap-1 overflow-x-auto py-3 text-sm"
-          >
-            {categories.map((cat) => (
-              <li key={cat.id}>
-                <a
-                  href={`#cat-${cat.id}`}
-                  className="cat-link token-colors whitespace-nowrap rounded-full border border-transparent px-3 py-1 font-semibold text-lacquer hover:border-gold/60"
-                >
-                  {cat.nameEn}
-                </a>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-2 lg:flex-row-reverse lg:items-start lg:gap-4">
+            <div className="flex shrink-0 items-center gap-2">
+              <label className="relative flex-1 lg:w-56 lg:flex-none">
+                <span className="sr-only">Search the menu</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search dishes…"
+                  className="w-full rounded-sm border border-gold/50 bg-cream px-3 py-1.5 text-sm text-ink outline-none focus:border-lacquer"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setSpicyOnly((v) => !v)}
+                aria-pressed={spicyOnly}
+                className={`token-colors shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold ${
+                  spicyOnly
+                    ? "border-lacquer bg-lacquer text-ivory"
+                    : "border-gold/50 text-lacquer hover:border-gold hover:bg-gold/10"
+                }`}
+              >
+                <span aria-hidden="true">🌶</span> Spicy only
+              </button>
+            </div>
+
+            <ul
+              data-lenis-prevent
+              className="flex gap-1 overflow-x-auto text-sm lg:flex-wrap lg:overflow-x-visible"
+            >
+              {categories.map((cat) => (
+                <li key={cat.id}>
+                  <a
+                    href={`#cat-${cat.id}`}
+                    className="cat-link token-colors whitespace-nowrap rounded-full border border-transparent px-3 py-1 font-semibold text-lacquer hover:border-gold/60"
+                  >
+                    {cat.nameEn}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
         </nav>
 
         {/* Where "Order Takeout" lands: the first dish you can actually add. */}
         <div id="order" className="scroll-mt-20" />
 
-        {categories.map((cat) => (
+        {/* Nothing matched. Named categories are the way out, because the
+            list is 137 dishes and "try a different word" is not advice. */}
+        {filtering && resultCount === 0 && (
+          <p
+            role="status"
+            className="mt-10 rounded-md border border-gold/40 bg-gold/5 px-4 py-6 text-center leading-relaxed text-ink/75"
+          >
+            <span className="font-semibold text-ink">
+              No matches, try the category list
+            </span>{" "}
+            <span lang="zh-Hant" className="font-chinese text-ink/75">
+              · 沒有符合的項目，請用分類選單
+            </span>
+            <button
+              onClick={() => {
+                setQuery("");
+                setSpicyOnly(false);
+              }}
+              className="mt-3 block w-full text-sm text-lacquer underline underline-offset-2"
+            >
+              Clear the filter
+            </button>
+          </p>
+        )}
+
+        {visible.map((cat) => (
           <section key={cat.id} id={`cat-${cat.id}`} className="scroll-mt-20 pt-10">
-            <h2 className="font-display text-3xl text-lacquer">{cat.nameEn}</h2>
+            <h2 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-display text-3xl text-lacquer">
+              {cat.nameEn}
+              {/* The lunch window, stated on the section itself. During
+                  service this section leads the page, so the chip answers
+                  "why is this first"; outside it, the same chip is the
+                  reason the rows below are unorderable. */}
+              {cat.id === LUNCH_CATEGORY_ID && (
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 font-body text-xs font-semibold uppercase tracking-[0.1em] ${
+                    lunchOpen
+                      ? "border-gold bg-gold/15 text-ink"
+                      : "border-ink/25 text-ink/55"
+                  }`}
+                >
+                  {lunchOpen ? (
+                    <>
+                      until 3:00 PM{" "}
+                      <span lang="zh-Hant" className="font-chinese">
+                        · 至下午三時
+                      </span>
+                    </>
+                  ) : (
+                    "11 AM–3 PM only"
+                  )}
+                </span>
+              )}
+            </h2>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {cat.items.map((item) => {
                 const sizes = itemSizes(item);
                 const from = Math.min(...sizes.map((s) => s.priceCents));
                 const hasChoice = sizes.length > 1;
-                // lunchOpen === null means "not mounted yet" — don't disable
-                // on the server render, or the grid flickers on hydration.
-                const outsideLunch =
-                  item.lunchSpecial === true && lunchOpen === false;
+                const outsideLunch = item.lunchSpecial === true && !lunchOpen;
                 const disabled = !isAvailable(item) || outsideLunch;
                 return (
                   <button
