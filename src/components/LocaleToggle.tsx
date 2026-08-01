@@ -82,10 +82,15 @@ export default function LocaleToggle({
               // it to find out.
               disabled={active}
               lang={code}
+              // ivory/85 on the inactive one, not /70. The INACTIVE button is
+              // the only tap target in the pair — the active one is a
+              // disabled state — and at /70 on lacquer it measured 4.24:1,
+              // just under what a 12px control needs. /85 is 5.6:1 and still
+              // sits visibly behind the gold-light active label.
               className={
                 active
                   ? "font-semibold text-gold-light"
-                  : "token-colors text-ivory/70 underline-offset-4 hover:text-gold-light hover:underline"
+                  : "token-colors text-ivory/85 underline-offset-4 hover:text-gold-light hover:underline"
               }
               title={
                 active
