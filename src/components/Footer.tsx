@@ -156,11 +156,18 @@ export default async function Footer() {
             Muted on purpose: these have to be FINDABLE, not prominent —
             somebody deciding whether to hand over a phone number needs to
             be able to reach the privacy page without hunting, and nobody
-            else should have to look at it. */}
+            else should have to look at it.
+
+            ivory/60, not ivory/40. At /40 these measured 3.5:1 on ink,
+            which is under the 4.5:1 a 12px link needs — so "findable" was
+            not actually true for anyone whose eyes are not perfect, and
+            the privacy link is the one on this row that has to be. /60 is
+            6.25:1 and still reads quiet, because it is three short links at
+            12px on their own row rather than a full-width statement. */}
         <p className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1">
           <Link
             href="/privacy"
-            className="text-ivory/40 transition-colors hover:text-ivory/60"
+            className="text-ivory/60 transition-colors hover:text-ivory/85"
           >
             {t("footer.privacy")}
           </Link>
@@ -169,7 +176,7 @@ export default async function Footer() {
           </span>
           <Link
             href="/terms"
-            className="text-ivory/40 transition-colors hover:text-ivory/60"
+            className="text-ivory/60 transition-colors hover:text-ivory/85"
           >
             {t("footer.terms")}
           </Link>
@@ -180,7 +187,7 @@ export default async function Footer() {
             href="https://norvix.ai"
             target="_blank"
             rel="noopener"
-            className="text-ivory/40 transition-colors hover:text-ivory/60"
+            className="text-ivory/60 transition-colors hover:text-ivory/85"
           >
             Website by Norvix
           </a>
