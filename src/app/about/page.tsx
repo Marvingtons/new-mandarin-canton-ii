@@ -27,7 +27,9 @@ export default function AboutPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 pb-20 pt-8">
       <SectionHeading as="h1" en="About Us" />
-      <Established withTenure className="mt-5" />
+      {/* ground="light": this page is ivory, where the footer's gold
+          treatment measures 2.17:1. See Established. */}
+      <Established withTenure ground="light" className="mt-5" />
 
       {/* Pull-quote opening line — drawn from the story below, not from
           any quoted speech. Nobody here is putting words in the family's

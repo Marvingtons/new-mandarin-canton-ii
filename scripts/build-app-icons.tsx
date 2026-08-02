@@ -17,7 +17,8 @@
  * generated here, committed, and served by Next's static metadata conventions
  * (app/icon.png, app/apple-icon.png, app/opengraph-image.png).
  *
- * Re-run this when public/brand/fu-yuan-seal.svg or public/bg-red.jpg changes.
+ * Re-run this when public/brand/fu-yuan-seal.svg, public/fu-yuan-logo.svg or
+ * the palette in globals.css changes.
  * Nothing runs it automatically: these outputs are checked in, and a generator
  * wired into `build` would rewrite committed bytes on every CI run.
  */
@@ -29,10 +30,14 @@ import { ImageResponse } from "next/og";
 const ROOT = process.cwd();
 const APP = join(ROOT, "src", "app");
 
-/** Lacquer. Keep in sync with --lacquer in globals.css. */
-const LACQUER = "#96261c";
-/** The OG field's base colour, under the texture. */
-const OG_FIELD = "#a5160f";
+/**
+ * Lacquer. Keep in sync with --lacquer in globals.css — these outputs are
+ * committed bytes, so a token change here is only real once this script is
+ * re-run and the PNGs are re-committed.
+ */
+const LACQUER = "#77151a";
+/** Ink. Keep in sync with --ink in globals.css. */
+const INK = "#1e1510";
 
 /**
  * base64 via Buffer, not a plain data URI: the SVG carries 富源 in a comment,
@@ -50,8 +55,9 @@ async function write(name: string, response: ImageResponse): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // bg-red.jpg used to texture the OG card's red field. The card is the
+  // full lockup on flat ink now, so nothing reads that file here any more.
   const sealSvg = await readFile(join(ROOT, "public/brand/fu-yuan-seal.svg"), "utf8");
-  const texture = await readFile(join(ROOT, "public/bg-red.jpg"));
 
   console.log("rendering app icons:");
 
@@ -109,7 +115,21 @@ async function main(): Promise<void> {
   );
 
   // ---- opengraph-image.png — 1200x630 social card ----
-  // Purely graphic, no text, so no font loading is needed in the render.
+  //
+  // THE FULL LOCKUP ON INK, not the mark on red. A share card that
+  // carries no name is a nice graphic and a bad link preview, and the
+  // wordmark does not have to be typeset to fix that: the official
+  // artwork already contains it, as vector paths under the frame
+  // (cls-4, "NEW MANDARIN CANTON II", plus the three hairlines that
+  // flank it). Using fu-yuan-logo.svg rather than the fu-yuan-seal.svg
+  // crop therefore gets the brand-board lockup for free and keeps this
+  // render text-free, so no font has to be loaded into Satori.
+  //
+  // Ink ground, not lacquer: it is the same field the preloader presses
+  // onto and the same one the footer sits on, and gold-on-ink is the
+  // pairing this palette is strongest at (7.75:1 for the wordmark's
+  // #DA9F52, 10.22:1 for the characters' #EABD62).
+  const logoSvg = await readFile(join(ROOT, "public/fu-yuan-logo.svg"), "utf8");
   await write(
     "opengraph-image.png",
     new ImageResponse(
@@ -121,13 +141,11 @@ async function main(): Promise<void> {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: OG_FIELD,
-            backgroundImage: `url(${dataUri(texture, "image/jpeg")})`,
-            backgroundSize: "1200px 675px",
+            backgroundColor: INK,
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- Satori element, not DOM */}
-          <img src={dataUri(sealSvg, "image/svg+xml")} width={289} height={512} alt="" />
+          <img src={dataUri(logoSvg, "image/svg+xml")} width={378} height={510} alt="" />
         </div>
       ),
       { width: 1200, height: 630 },

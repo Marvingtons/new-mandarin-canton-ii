@@ -18,19 +18,40 @@ and reused on all four pages so the device stays consistent.
 
 ## Palette (tokens in globals.css)
 
+**The palette is the seal's.** These are reconciled to the official
+artwork (`public/fu-yuan-logo.svg`) rather than chosen — the mark is
+printed and on the door, so every near-miss around it read as a second
+brand. One red, two golds by ROLE, one ink, one cream family.
+
 | Token          | Value     | Use                                              |
 | -------------- | --------- | ------------------------------------------------ |
-| `lacquer`      | `#8e1f1f` | Primary surfaces: header, hero, primary buttons  |
-| `lacquer-dark` | `#6b1414` | Hover states, vignette edges                     |
-| `gold`         | `#c9a227` | Accents ONLY: rules, ghost text, small-caps labels, one button |
-| `gold-light`   | `#e2c568` | Gold hover, Chinese name in header/footer        |
-| `ink`          | `#1c1512` | Body text, footer, info placard                  |
-| `ivory`        | `#f6efe0` | Page background                                  |
-| `cream`        | `#fcf8ee` | Cards on paper surfaces                          |
-| `paper`        | `#ede1c8` | NEW — aged-paper neutral for cards & alternating sections |
+| `lacquer`      | `#77151a` | Primary surfaces: header, hero, primary buttons. The seal's own red |
+| `lacquer-dark` | `#5e1015` | Hovers, the hero's top ramp. That red darkened — not a second red |
+| `gold`         | `#da9f52` | STRUCTURE: rules, borders, dividers, quiet accents. Never text on light |
+| `gold-light`   | `#eabd62` | EMPHASIS: text on dark, active states, filled controls |
+| `ink`          | `#1e1510` | Body text, footer, info placard, the preloader's ground |
+| `ivory`        | `#f8f1e3` | Page background                                  |
+| `cream`        | `#fcf7ec` | Cards on paper surfaces                          |
+| `paper`        | `#eedfc0` | Aged-paper neutral for alternating sections      |
 
 Gold restraint rule: gold appears as thin rules, ghost characters,
 small-caps labels, and at most one filled button per page.
+
+**Gold on a light ground is not available.** Every gold in the palette
+measures ~2.1:1 on cream, ivory and paper, so a label that has to sit on
+a light surface uses `lacquer` (7.08:1) — see the note in
+`contact/page.tsx` and the `ground` prop on `Established`. Gold's home is
+ink (7.75:1) and lacquer (6.27:1). This is why `:focus-visible` carries
+an ink halo outside its gold ring: one of the two always clears 3:1.
+
+## The seal's sanctioned appearances
+
+Six, and there is no seventh: the header lockup, the footer lockup, the
+preloader's stamp, the confirmation page's signature, the favicon /
+apple-icon, and the OG card. Two further appearances are deliberate and
+protected rather than exceptions — the divider ornament (`GoldDivider`,
+budgeted at two per page) and the `PhotoPlaceholder` watermark at 6%,
+which `docs/SITE_REVIEW_2.md` §4.9 explicitly protects.
 
 ## Typography
 

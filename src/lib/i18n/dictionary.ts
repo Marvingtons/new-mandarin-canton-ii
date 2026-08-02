@@ -198,6 +198,10 @@ export const en = {
     "An order note reaches the kitchen only when your ticket prints, so please call and tell us directly.",
 
   /* ---- footer ---- */
+  /* The brand board's cuisine line, under the footer lockup's gold rule.
+     Middots, per the site's separator convention. The founding year is
+     NOT here — <Established /> states it two lines below. */
+  "footer.cuisineLine": "Mandarin · Szechuan · Cantonese",
   "footer.hours": "Hours",
   "footer.findUs": "Find Us",
   "footer.getDirections": "Get Directions",
@@ -436,6 +440,8 @@ export const es: Record<TranslationKey, string> = {
     "Una nota en la orden llega a la cocina solo cuando se imprime su ticket, así que por favor llámenos y díganos directamente.",
 
   /* ---- footer ---- */
+  // Cuisine names are the same three words in Spanish; only the accent moves.
+  "footer.cuisineLine": "Mandarín · Szechuan · Cantonés",
   "footer.hours": "Horario",
   // Two distinct things: the heading over the map, and the button that
   // opens Google Maps. They were the same Spanish string, which made the

@@ -85,6 +85,11 @@ export default async function Footer() {
       {/* ---- FOOTER: brand, the per-day table, the map ---- */}
       <div className="mx-auto grid max-w-5xl gap-x-16 gap-y-12 px-4 py-14 sm:grid-cols-3">
         <div>
+          {/* THE LOCKUP, same order as the header and the brand board:
+              seal, then the name, then 富源. The header stacks them
+              horizontally because it is 86px tall; here they stack down
+              the column. Same three pieces, same sequence, so the two
+              read as one identity seen twice rather than as two. */}
           <Seal size={44} />
           <p className="mt-3 font-display text-xl">{restaurant.name}</p>
           {restaurant.chineseName && (
@@ -95,10 +100,25 @@ export default async function Footer() {
               {restaurant.chineseName}
             </p>
           )}
+          {/* The brand board's rule-and-cuisine line. --gold, not
+              --gold-light: this is STRUCTURE (a rule and the quiet line
+              under it), which is the deep gold's whole job in the two-gold
+              split. It reads 7.75:1 on ink.
+
+              "· EST. 1995" is deliberately NOT in this line even though
+              the brand board carries it there, because <Established />
+              two lines below already states it and a footer that says the
+              founding year twice in four lines reads as a mistake. The
+              flag on that fact lives with the fact, in restaurant.ts. */}
+          <div className="mt-5 border-t border-gold/45 pt-3">
+            <p className="text-[0.7rem] uppercase tracking-[0.28em] text-gold">
+              {t("footer.cuisineLine")}
+            </p>
+          </div>
           {/* The site's ONE heritage beat, sitting with the seal so the two
               read as a single lockup. Year and tenure both come from
               restaurant.features.foundingYear. */}
-          <Established withTenure className="mt-5" />
+          <Established withTenure className="mt-4" />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-ivory/70">
             {restaurant.tagline}
           </p>

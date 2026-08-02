@@ -5,25 +5,66 @@
  * See DESIGN.md for the full design plan.
  */
 :root {
-  /* Warmth pass: whole palette shifted +2-4° toward orange — ambers in
-     the lights, vermillion in the reds, browner darks. Change colors
-     HERE only; components inherit. */
+  /*
+   * ---- THE PALETTE IS THE SEAL'S ------------------------------------
+   *
+   * These were the output of a "warmth pass" that shifted everything a
+   * few degrees toward orange by eye. They are now reconciled to the
+   * official artwork (public/fu-yuan-logo.svg), because the mark is the
+   * one thing on this site that cannot be re-tinted to taste — it is
+   * printed, it is on the door, and every near-miss around it read as a
+   * second brand rather than as the same one.
+   *
+   * Converged, with the worst-case pairing each move had to clear:
+   *   red        #96261c -> #77151A   ivory on it 7.08 -> 9.80
+   *   gold       #cfa52e -> #DA9F52   ink on it  7.76 -> 7.75
+   *   gold-light #e8c660 -> #EABD62   ink on it 10.84 -> 10.22
+   *   ink        #1e150f -> #1E1510   body on ivory 15.68 -> 15.97
+   *   ivory      #f8efd9 -> #F8F1E3   body on it    15.68 -> 15.97
+   * Every pairing the site actually renders improved or held; not one
+   * dropped below AA. The red is the big move and it moves the right
+   * way — a darker ground is more contrast, not less.
+   *
+   * WHAT DID NOT CONVERGE, and why:
+   *   --lacquer-dark  the artwork has ONE red. This is not a second one,
+   *                   it is that red darkened for the hover and the
+   *                   hero's top ramp, and it is derived from it.
+   *   --cream/--paper the artwork has no light neutral at all. These are
+   *                   ROLES, not hues: ivory is the page, cream is a
+   *                   card on the page, paper is the alternating band.
+   *                   Collapsing them to "one cream" would delete the
+   *                   section rhythm, which is a layout change.
+   *
+   * TWO GOLDS, BY ROLE, AND NO THIRD:
+   *   --gold        #DA9F52  STRUCTURE — rules, borders, dividers, the
+   *                          quiet accents. Never text on a light ground.
+   *   --gold-light  #EABD62  EMPHASIS — text on dark, active states,
+   *                          the filled control.
+   * Gold on cream is 2.17:1 at ANY gold and cannot be fixed by choosing
+   * a different one; a label that needs to sit on a light ground uses
+   * --lacquer (7.08:1). See the note in contact/page.tsx, which is where
+   * this rule was first written down.
+   *
+   * Change colors HERE only; components inherit.
+   */
   /* Deep lacquer red — primary surfaces: header, hero, primary buttons */
-  --lacquer: #96261c;
-  --lacquer-dark: #842119;
+  --lacquer: #77151a;
+  /* The same red, darkened — hovers and the hero's top ramp. Not a second red. */
+  --lacquer-dark: #5e1015;
   /* --lacquer-dark as raw channels, for the hero's top ramp (see
      .hero-scrim) — the header's own red, carried down over the footage */
-  --lacquer-dark-rgb: 132, 33, 25;
-  /* Imperial gold — accents only: rules, ghost calligraphy, labels */
-  --gold: #cfa52e;
-  --gold-light: #e8c660;
+  --lacquer-dark-rgb: 94, 16, 21;
+  /* Imperial gold — STRUCTURE: rules, borders, quiet accents */
+  --gold: #da9f52;
+  /* Bright gold — EMPHASIS: text on dark, active states, filled controls */
+  --gold-light: #eabd62;
   /* Ink black — body text, footer, info placard */
-  --ink: #1e150f;
+  --ink: #1e1510;
   /* --ink as raw channels, for token-derived rgba() overlays/scrims */
-  --ink-rgb: 30, 21, 15;
+  --ink-rgb: 30, 21, 16;
   /* Warm ivory / cream — page background, cards */
-  --ivory: #f8efd9;
-  --cream: #fcf5e6;
+  --ivory: #f8f1e3;
+  --cream: #fcf7ec;
   /* Aged paper — supporting neutral for cards & alternating sections */
   --paper: #eedfc0;
 
@@ -107,10 +148,33 @@ body {
   color: var(--foreground);
 }
 
-/* Visible keyboard focus everywhere */
+/*
+ * Visible keyboard focus everywhere — TWO rings, because one gold ring
+ * cannot serve both grounds.
+ *
+ * A focus indicator needs 3:1 against what surrounds it. Gold does that
+ * comfortably on ink (7.75:1) and fails on every light surface this site
+ * has: 2.17:1 on cream, 2.06:1 on ivory, 1.76:1 on paper. Picking a
+ * different gold does not help — they all land within 0.05 of each other
+ * there — and picking lacquer instead would just move the failure onto
+ * the dark surfaces.
+ *
+ * So the ring carries its own contrast with it: gold, then an ink halo
+ * outside it. On a light ground the halo is the visible edge (15.97:1);
+ * on ink the gold is (7.75:1). One of the two always reads, and on gold
+ * itself — the primary CTA — the ink halo does the work again. The
+ * box-shadow is outside layout, so nothing moves.
+ */
 :focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(var(--ink-rgb), 0.45);
+}
+/* On the ink surfaces the halo has nothing to say — drop it rather than
+   stack an invisible shadow under every focused control down there. */
+.bg-ink :focus-visible,
+footer :focus-visible {
+  box-shadow: none;
 }
 
 ::selection {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatCents } from "@/lib/money";
 import PhoneLinks from "@/components/PhoneLinks";
+import Seal from "@/components/Seal";
 import { fullAddress } from "@/data/restaurant";
 import { useT } from "@/lib/i18n/LocaleContext";
 import type { LastOrder } from "@/components/order/Checkout";
@@ -54,12 +55,14 @@ export default function ConfirmationPage() {
 
   return (
     <div className="container-wide flex flex-col items-center py-16 text-center">
-      <span
-        aria-hidden="true"
-        className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-gold text-3xl text-gold"
-      >
-        ✓
-      </span>
+      {/* THE CHOP ON THE RECEIPT. This was a ✓ in a gold ring, which was
+          both the wrong mark and an unreadable one: gold glyph on ivory
+          measured 2.17:1, and a tick is the vocabulary of every checkout
+          on the internet rather than of this restaurant. The seal is the
+          signature the transaction ends with — one of its six sanctioned
+          homes — and at tone="chop" it is lacquer on ivory, 7.08:1. No
+          animation beyond the page's own reveal. */}
+      <Seal size={72} tone="chop" className="opacity-90" />
       <h1 className="mt-6 font-display text-4xl text-lacquer">
         {t("conf.title")}
       </h1>
