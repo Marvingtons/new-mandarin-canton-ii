@@ -39,6 +39,14 @@ export const en = {
   "hero.orderTakeout": "Order Takeout",
   "hero.viewMenu": "View Menu",
   "hero.call": "Call",
+  /* The hero's THIRD and last decision, and the reason it is a phrase
+     rather than the bare "Call" the sticky bar uses: it is one row of
+     small text under two large buttons, so it has to say what it is
+     before it says the number. Rendered "Call us · (619) 656-6888" —
+     middot separating the label from the number, the site's own
+     convention. The hero shows ONE number; the second is on /contact and
+     in the footer band, both of which list every line. */
+  "hero.callUs": "Call us",
   /* The value line under the hero CTAs. It used to be ORDER_DIRECT_NOTE in
      data/order.ts, which meant a Spanish hero read "ORDER DIRECT · NO
      DELIVERY-APP FEES · LLAMAR (619) …" — half the line translated and half
@@ -461,6 +469,9 @@ export const es: Record<TranslationKey, string> = {
   "hero.orderTakeout": "Ordenar para llevar",
   "hero.viewMenu": "Ver el menú",
   "hero.call": "Llamar",
+  /* Usted-neutral, like the rest of the register. "Llámenos", not
+     "llámanos". */
+  "hero.callUs": "Llámenos",
   "hero.orderDirect": "Ordene directo · sin cargos de apps de entrega",
 
   /* ---- menu page ---- */

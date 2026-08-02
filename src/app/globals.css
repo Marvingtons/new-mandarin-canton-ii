@@ -944,6 +944,47 @@ footer :focus-visible {
   }
 }
 
+/*
+ * ---- STICKY ORDER BAR (see StickyOrderBar.tsx) ----------------------
+ *
+ * Same three-property device as .btt, and for the same two reasons:
+ * `visibility` is in the transition so the resting state is genuinely
+ * hidden rather than merely transparent — a bar the visitor cannot see
+ * must not be two stops in the tab order — and owning the whole
+ * `transition` here is what lets reduced motion switch it off in one
+ * line, which a utility class cannot do against unlayered CSS.
+ *
+ * It also slides 8px rather than only fading, because this one arrives
+ * mid-scroll on the home page: a bar that materialises at full opacity
+ * under the thumb reads as a misfire, and a short rise from the edge it
+ * is docked to reads as the bar coming up to meet you. Nothing else
+ * moves — the bar is `fixed`, so this can never shift the page.
+ */
+.sob {
+  transition:
+    opacity 200ms var(--ease-out-soft),
+    transform 200ms var(--ease-out-soft),
+    visibility 200ms var(--ease-out-soft);
+}
+.sob-hidden {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sob {
+    transition: none;
+  }
+  .sob-hidden {
+    transform: none;
+  }
+}
+@media print {
+  .sob {
+    display: none;
+  }
+}
+
 /* Token-driven color transitions for CTAs/links */
 .token-colors {
   transition:

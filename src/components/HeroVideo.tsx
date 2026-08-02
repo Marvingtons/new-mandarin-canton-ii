@@ -5,11 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import IncenseSmoke from "@/components/IncenseSmoke";
 import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
-import PhoneLinks from "@/components/PhoneLinks";
 import { ARC_VIEWBOX, HEM_D } from "@/lib/brand/arc";
 import { useT } from "@/lib/i18n/LocaleContext";
 import { introWillPlay, onIntroLifted } from "@/lib/introSignal";
-import { restaurant } from "@/data/restaurant";
+import { primaryPhone, restaurant, telHref } from "@/data/restaurant";
 
 /**
  * Hero footage, served from R2 rather than /public: 10.04s muted loop,
@@ -268,12 +267,34 @@ export default function HeroVideo() {
         <path d={HEM_D} fill="var(--cream)" />
       </svg>
 
-      {/* Content — z-20, always above videos and scrim */}
+      {/* Content — z-20, always above videos and scrim.
+
+          THREE BLOCKS, READ TOP TO BOTTOM: say → act → details. On a 390px
+          phone this stack used to present eight competing tap targets in
+          one viewport (two CTAs side by side, two inline phone numbers, a
+          status pill, and the sticky order bar's own Order + Call sitting
+          on top of the whole thing). It now presents three decisions —
+          order, see the menu, call — and everything else recedes into one
+          caption.
+
+          The spacing is a ladder with two rungs and no third: 12px inside
+          a block, 28px between blocks. The container's old `gap-4` is gone
+          for exactly that reason — a single gap cannot say "these three
+          lines are one thing and that button is another".
+
+          The rungs are OPTICAL, which is why the caption block's top
+          margin reads 16px in the markup: its first row is a 44px tap
+          target around 16px of text, so the target contributes 14px of
+          its own space above the glyphs and 16 + 14 lands that text on
+          the same ~28px interval every other block boundary uses. Set to
+          a literal 28 it measured 42 and the caption fell off the page's
+          rhythm. */}
       <div
         data-hero-text
         className={`absolute inset-x-0 bottom-0 z-20 ${ready ? "hero-ready" : ""}`}
       >
-        <div className="container-wide flex flex-col items-center gap-4 pb-16 text-center sm:items-start sm:text-left">
+        <div className="container-wide flex flex-col items-center pb-16 text-center sm:items-start sm:text-left">
+          {/* ---- SAY ---- */}
           {restaurant.chineseName && (
             <span
               lang="zh-Hant"
@@ -283,44 +304,75 @@ export default function HeroVideo() {
             </span>
           )}
           <h1
-            className="hero-item font-display text-4xl leading-tight sm:text-6xl"
+            className="hero-item mt-3 font-display text-4xl leading-tight sm:text-6xl"
             style={{ transitionDelay: "120ms" }}
           >
             {restaurant.name}
           </h1>
           <p
-            className="hero-item -mt-1 max-w-xl text-sm uppercase leading-relaxed tracking-[0.12em] text-ivory/85"
+            className="hero-item mt-3 max-w-xl text-sm uppercase leading-relaxed tracking-[0.12em] text-ivory/85"
             style={{ transitionDelay: "240ms" }}
           >
             {t("hero.tagline")}
           </p>
+
+          {/* ---- ACT — the two primary decisions, one rhythm.
+                  Full-width and stacked on a phone: side by side they came
+                  out 167px and 143px, so the two most important controls
+                  on the site were both under half the screen, unequal, and
+                  neither of them was where a thumb rests. From `sm` up they
+                  go back to a content-width row, which is the desktop hero
+                  unchanged. Same min-height and the same --radius-lg on
+                  both, so the pair reads as one control group. ---- */}
           <div
-            className="hero-item mt-3 flex flex-wrap justify-center gap-4 sm:justify-start"
+            className="hero-item mt-7 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-start sm:gap-4"
             style={{ transitionDelay: "360ms" }}
           >
-            <OrderTakeout className="inline-flex min-h-12 items-center justify-center rounded-lg bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light">
+            {/* border-transparent is not decoration — the ghost button
+                below carries a 1px hairline, so without a border here the
+                two "consistent height" CTAs measured 48px and 50px. */}
+            <OrderTakeout className="inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-transparent bg-gold px-7 py-3 font-semibold text-ink transition-colors hover:bg-gold-light sm:w-auto">
               {t("hero.orderTakeout")}
             </OrderTakeout>
             <Link
               href="/menu"
-              className="hero-cta-ghost inline-flex min-h-12 items-center justify-center rounded-lg border border-ivory/60 px-7 py-3 font-semibold text-ivory"
+              className="hero-cta-ghost inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-ivory/60 px-7 py-3 font-semibold text-ivory sm:w-auto"
             >
               {t("hero.viewMenu")}
             </Link>
           </div>
-          <p
-            className="hero-item text-xs uppercase tracking-[0.12em] text-ivory/75"
+
+          {/* ---- DETAILS — ONE caption, not three bands.
+
+                  The call row is the hero's third decision and its
+                  quietest: a single tel: link, one number, sized as text
+                  rather than as a button. It carries min-h-11 so the tap
+                  target clears 44px without the visual growing to match —
+                  the two 16px-tall phone numbers it replaces were the
+                  smallest targets on the page.
+
+                  ONE number here is deliberate and costs nothing: both
+                  lines are still listed, tappable, on /contact and in the
+                  footer contact band of every page, which is where a
+                  caller who cannot get through looks next.
+
+                  The value line and the status pill then sit in the same
+                  block on the same 12px rhythm, so the pill is part of the
+                  caption instead of a floating island under it. ---- */}
+          <div
+            className="hero-item mt-4 flex flex-col items-center gap-3 sm:items-start"
             style={{ transitionDelay: "420ms" }}
           >
-            {t("hero.orderDirect")} ·{" "}
-            <PhoneLinks
-              prefix={`${t("hero.call")} `}
-              separator=" · "
-              className="whitespace-nowrap font-semibold text-gold-light underline decoration-gold/60 underline-offset-2 hover:text-gold"
-            />
-          </p>
-          <div className="hero-item" style={{ transitionDelay: "480ms" }}>
-            <OpenNowChip />
+            <a
+              href={telHref}
+              className="token-colors inline-flex min-h-11 items-center text-sm font-semibold uppercase tracking-[0.12em] text-gold-light underline decoration-gold/60 underline-offset-4 hover:text-gold"
+            >
+              {t("hero.callUs")} · {primaryPhone}
+            </a>
+            <p className="text-xs uppercase tracking-[0.12em] text-ivory/75">
+              {t("hero.orderDirect")}
+            </p>
+            <OpenNowChip compactOnMobile />
           </div>
         </div>
       </div>

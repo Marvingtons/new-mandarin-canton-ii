@@ -1,12 +1,34 @@
+"use client";
+
+import { usePathname } from "next/navigation";
 import OrderTakeout from "@/components/OrderTakeout";
 import { telHref } from "@/data/restaurant";
-import { getT } from "@/lib/i18n/server";
+import { usePastHero } from "@/lib/headerState";
+import { useT } from "@/lib/i18n/LocaleContext";
 
 /**
  * Mobile-only sticky action bar pinned to the bottom of the viewport:
  * the primary Order Takeout CTA beside a one-tap Call. Hidden from `sm`
  * up, where the hero and header already carry these actions. A matching
  * spacer in the layout keeps page content clear of the fixed bar.
+ *
+ * ⚠️ NOT OVER THE HOME HERO, and this is the whole reason the file is a
+ * client component now. The hero's own first viewport already offers
+ * Order Takeout and a call row; this bar sat on top of them, so a 390px
+ * phone opened on two Order Takeout buttons and two ways to call, 106px
+ * apart, one of them covering the hero's status pill. The hero gets to
+ * make its case, and the bar arrives the moment the hero's CTAs leave —
+ * on the same signal that turns the header solid (usePastHero), so the
+ * two never disagree about where the hero ended.
+ *
+ * Everywhere else it renders immediately: no other page has a competing
+ * primary CTA in its first screen, and on /menu it is the only order
+ * control above the fold.
+ *
+ * `hidden` rather than unmounted, because mounting a fixed bar mid-scroll
+ * would pop it in with no transition and briefly hand the browser a new
+ * paint layer over the footage; `.sob` in globals.css owns the fade and
+ * switches it off under prefers-reduced-motion.
  *
  * The top corners lift on the BAR, and the gold segment matches on the
  * one corner it actually touches. `overflow-hidden` would have been the
@@ -16,11 +38,23 @@ import { getT } from "@/lib/i18n/server";
  * single gold line instead of a focus indicator. Nothing is clipped; the
  * one child that could poke through carries its own corner.
  */
-export default async function StickyOrderBar() {
-  const t = await getT();
+export default function StickyOrderBar() {
+  const t = useT();
+  const pathname = usePathname();
+  const pastHero = usePastHero();
+  const shown = pathname !== "/" || pastHero;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex rounded-t-lg border-t border-gold/50 bg-ink text-center sm:hidden">
+    <div
+      // aria-hidden with it: while the hero owns the CTAs, a screen
+      // reader should not find a second Order Takeout in the tab order
+      // either. `visibility` in the transition takes it out of that
+      // order without the layout ever moving (same device as .btt).
+      aria-hidden={shown ? undefined : "true"}
+      className={`sob fixed inset-x-0 bottom-0 z-50 flex rounded-t-lg border-t border-gold/50 bg-ink text-center sm:hidden ${
+        shown ? "" : "sob-hidden"
+      }`}
+    >
       <OrderTakeout className="flex-1 rounded-tl-lg bg-gold py-3.5 font-semibold text-ink transition-colors active:bg-gold-light">
         {t("hero.orderTakeout")}
       </OrderTakeout>

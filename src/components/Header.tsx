@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSyncExternalStore } from "react";
 import Seal from "@/components/Seal";
 import LocaleToggle from "@/components/LocaleToggle";
 import { restaurant } from "@/data/restaurant";
-import { getHeaderSolid, subscribeHeaderSolid } from "@/lib/headerState";
+import { usePastHero } from "@/lib/headerState";
 import { useT } from "@/lib/i18n/LocaleContext";
 import type { TranslationKey } from "@/lib/i18n/dictionary";
 
@@ -17,37 +16,15 @@ const links = [
   { href: "/contact", key: "nav.contact" },
 ] as const satisfies readonly { href: string; key: TranslationKey }[];
 
-const subscribeScroll = (cb: () => void): (() => void) => {
-  window.addEventListener("scroll", cb, { passive: true });
-  window.addEventListener("resize", cb);
-  return () => {
-    window.removeEventListener("scroll", cb);
-    window.removeEventListener("resize", cb);
-  };
-};
-
-/** True once the viewport has scrolled past (most of) the 100svh hero. */
-function useScrolledPastHero(): boolean {
-  return useSyncExternalStore(
-    subscribeScroll,
-    () => window.scrollY > window.innerHeight - 96,
-    () => false,
-  );
-}
-
 export default function Header() {
   const t = useT();
   const pathname = usePathname();
   const isHome = pathname === "/";
-  const scrolledPast = useScrolledPastHero();
-  // Primary signal: the hero-exit ScrollTrigger (see HomeChoreography).
-  // The plain scroll threshold stays as the reduced-motion fallback,
-  // where no triggers run; the two are OR'd and always agree.
-  const triggerSolid = useSyncExternalStore(
-    subscribeHeaderSolid,
-    getHeaderSolid,
-    () => false,
-  );
+  // Primary signal: the hero-exit ScrollTrigger (see HomeChoreography),
+  // OR'd with a plain scroll threshold as the reduced-motion fallback.
+  // Lives in lib/headerState so the mobile StickyOrderBar — which appears
+  // at the same moment — cannot end up reading a different threshold.
+  const pastHero = usePastHero();
   // ONE behaviour, two states: transparent while it floats over the hero,
   // solid lacquer with a gold hairline everywhere else — scrolled past the
   // hero, or on any subpage, which is the same state reached two ways.
@@ -60,7 +37,7 @@ export default function Header() {
   // page, where the 100svh hero is meant to run under it, and static
   // elsewhere, where a fixed header would sit on top of the menu page's
   // own sticky category nav.
-  const overHero = isHome && !scrolledPast && !triggerSolid;
+  const overHero = isHome && !pastHero;
 
   return (
     <header

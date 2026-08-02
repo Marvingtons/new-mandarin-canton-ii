@@ -8,6 +8,19 @@ import type { OpenStatus } from "@/lib/hours";
 interface OpenNowChipProps {
   /** "dark" for lacquer/ink surfaces, "light" for paper/cream. */
   tone?: "dark" | "light";
+  /**
+   * One size step down BELOW `sm` only, for the hero's mobile caption
+   * block — where the chip is the quietest thing in a stack that also
+   * holds two full-width buttons and a call row, and at full size read
+   * as a fourth control rather than as the note it is.
+   *
+   * The step is box-first: padding, gap and tracking come in, and the
+   * type goes 12px → 11px, which is the site's existing micro-caps floor
+   * (the language pill in the header is 11px). It is not a new size.
+   * From `sm` up this is byte-for-byte the default chip, so the footer
+   * band and /contact are untouched.
+   */
+  compactOnMobile?: boolean;
   className?: string;
 }
 
@@ -19,6 +32,7 @@ interface OpenNowChipProps {
  */
 export default function OpenNowChip({
   tone = "dark",
+  compactOnMobile = false,
   className = "",
 }: OpenNowChipProps) {
   const t = useT();
@@ -58,9 +72,17 @@ export default function OpenNowChip({
     ? t(status.open ? "chip.openUntil" : "chip.closedOpensAt", { time })
     : status.label;
 
+  // Two whole strings rather than one string plus overrides: conflicting
+  // Tailwind utilities on the same element resolve by their order in the
+  // generated sheet, not by their order here, so `px-3 … px-2.5` is a
+  // coin flip. Only one of these ever reaches the element.
+  const box = compactOnMobile
+    ? "gap-1.5 px-2.5 py-1 text-[11px] tracking-[0.12em] sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs sm:tracking-[0.15em]"
+    : "gap-2 px-3 py-1.5 text-xs tracking-[0.15em]";
+
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-[0.15em] ${surface} ${className}`}
+      className={`inline-flex items-center rounded-full border uppercase ${box} ${surface} ${className}`}
     >
       <span aria-hidden="true" className={`chip-dot h-1.5 w-1.5 rounded-full ${dot}`} />
       {text}
