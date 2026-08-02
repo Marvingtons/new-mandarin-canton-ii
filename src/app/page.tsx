@@ -123,12 +123,11 @@ export default function HomePage() {
           </div>
 
           {/* The heritage beat, inside a lattice-cornered plaque. The line
-              used to end "…since 1995"; the year came out with the rest of
-              the unsourced founding-date copy (see the TODO(confirm) in
-              restaurant.ts). What is left is only what the room shows.
-
-              The Est./tenure lockup that used to sit under it now appears
-              once, in the footer. */}
+              used to end "…since 1995" and does not any more, but no
+              longer because the year was unsourced — it is confirmed now,
+              in the family's own history. It stays out because this
+              plaque is about what the room shows, and the year has one
+              home: the Est./tenure lockup in the footer. */}
           <div
             data-rise
             className="relative mx-auto mt-20 max-w-2xl px-8 text-center sm:mt-24"

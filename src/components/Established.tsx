@@ -1,4 +1,5 @@
-import { establishedLabel, tenureLine } from "@/data/restaurant";
+import { establishedLabel, tenureDecades, yearsOpen } from "@/data/restaurant";
+import { getT } from "@/lib/i18n/server";
 
 interface EstablishedProps {
   /** Also print the heritage line beneath the mark. */
@@ -31,13 +32,31 @@ interface EstablishedProps {
  * That rule was first written down in contact/page.tsx for exactly the
  * same label at exactly the same size; this is it applied where it was
  * missed.
+ *
+ * SERVER-ONLY, and async since the heritage line got its Spanish. Both
+ * call sites (Footer, About) are async server components already, so
+ * this costs nothing; a client component that needs it should render it
+ * as a child rather than importing it.
  */
-export default function Established({
+export default async function Established({
   withTenure = false,
   ground = "dark",
   className = "",
 }: EstablishedProps) {
-  const tenure = withTenure ? tenureLine() : null;
+  const t = await getT();
+
+  /* The three-way branch that used to be `tenureLine()`'s body. It reads
+     out here rather than in the data file because each arm is now a
+     dictionary key: the arithmetic is data, the sentence is copy. */
+  const decades = tenureDecades();
+  const tenure = !withTenure
+    ? null
+    : decades != null
+      ? t("established.tenure", { decades })
+      : yearsOpen() != null
+        ? t("established.tenureShort")
+        : t("established.tenureNoYear");
+
   if (!establishedLabel && !tenure) return null;
   const onLight = ground === "light";
 

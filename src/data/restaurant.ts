@@ -2,6 +2,8 @@
  * Restaurant info for New Mandarin Canton II.
  */
 
+import { yearsSince } from "@/lib/years";
+
 export type DayOfWeek =
   | "monday"
   | "tuesday"
@@ -38,13 +40,19 @@ export interface DailyHours {
 export interface RestaurantFeatures {
   /**
    * Year the family first opened here. Drives the "Est. YYYY" heritage
-   * mark; null drops the mark entirely and falls the heritage line back
-   * to a phrasing that asserts no date, rather than printing a guess.
+   * mark and the counted years in the About story; null drops the mark
+   * entirely and falls the heritage line back to a phrasing that asserts
+   * no date, rather than printing a guess.
    *
    * Set this ONLY against something checkable — a permit, a sign, a
    * dated menu, the owner on the record. A wrong founding year on a
    * family restaurant's own website is a trust cost, and it is the one
    * fact here that no customer can correct for us.
+   *
+   * CONFIRMED. The family's own written history opens "我们的餐厅创立于
+   * 1995年" / "Our restaurant opened its doors in 1995" — the owner on
+   * the record, in writing, which is the strongest source this field has
+   * ever had. See app/about/page.tsx, which prints that sentence.
    */
   foundingYear: number | null;
   /**
@@ -100,7 +108,8 @@ export interface RestaurantInfo {
 export const restaurant: RestaurantInfo = {
   name: "New Mandarin Canton II",
   chineseName: "富源", // verified — the name on the restaurant's seal
-  // No date here: see the TODO(confirm) on features.foundingYear.
+  // No date in the tagline: <Established /> states it, and the footer
+  // renders both within four lines of each other.
   tagline: "Mandarin, Szechuan & Cantonese cuisine · Chula Vista.",
   cuisines: ["Mandarin", "Szechuan", "Cantonese"], // published everywhere on the site
   address: {
@@ -140,10 +149,8 @@ export const restaurant: RestaurantInfo = {
   // All null = unconfirmed. Fill in each real value and the matching
   // trust-strip chip lights up automatically — no component changes.
   features: {
-    // 1995. Artifact: the restaurant's previous website displayed this
-    // year, and the family confirmed it when the About page was written.
-    // A prior pass cleared this to null because the repo recorded no
-    // source for it — that gap is what this comment closes.
+    // 1995, and no longer on an artifact's word. The family's written
+    // history states it themselves; see the field's doc comment above.
     foundingYear: 1995,
     healthScore: null, // ⚠️ CONFIRM SD County score → "Health Score N/100"
     beerWine: null, // ⚠️ CONFIRM
@@ -235,20 +242,41 @@ export const establishedLabel = restaurant.features.foundingYear
   : null;
 
 /**
- * The heritage line, always safe to print.
+ * WHOLE YEARS OPEN — the single source for every year figure the site
+ * states, and null while the founding year is unconfirmed.
  *
- * With a confirmed founding year it is precise, bucketed DOWN to a round
- * decade ("30+ years on Telegraph Canyon") so the claim stays true every
- * day of the year without a yearly edit.
+ * Everything that counts years goes through here: the About story's
+ * "Thirty-one years have passed…", and `tenureLine` below. Before this
+ * there was one count, inline in `tenureLine`, and the About page's
+ * years were prose — so the page and the footer could disagree and
+ * nothing would catch it.
  *
- * Without one it keeps the warmth and drops the number. This is the only
- * place on the site that phrasing is decided, so confirming the year
- * upgrades every surface at once.
+ * Takes `now` so a caller can pin the date; defaults to the real clock,
+ * which is what every render uses.
  */
-export function tenureLine(now: Date = new Date()): string {
+export function yearsOpen(now: Date = new Date()): number | null {
   const { foundingYear } = restaurant.features;
-  if (foundingYear == null) return "Family-run on Telegraph Canyon for decades";
-  const decades = Math.floor((now.getFullYear() - foundingYear) / 10) * 10;
-  if (decades < 10) return "Family-run on Telegraph Canyon";
-  return `${decades}+ years on Telegraph Canyon`;
+  return foundingYear == null ? null : yearsSince(foundingYear, now);
+}
+
+/**
+ * Whole decades open, rounded DOWN, or null under ten years and while
+ * the founding year is unconfirmed.
+ *
+ * ROUNDED ON PURPOSE, and deliberately not the About story's exact
+ * count. This feeds the heritage line in the footer of every page, which
+ * is a standing mark that has to stay true on every day of every year
+ * without an edit; the story's "thirty-one years" is one sentence the
+ * family wrote about a specific moment. Same utility underneath
+ * (`yearsOpen`), two different jobs.
+ *
+ * The PHRASING that wraps this lives in the dictionary, not here — see
+ * `established.tenure` — because it is copy, and copy on this site has
+ * to exist in Spanish too. This function is the arithmetic.
+ */
+export function tenureDecades(now: Date = new Date()): number | null {
+  const years = yearsOpen(now);
+  if (years == null) return null;
+  const decades = Math.floor(years / 10) * 10;
+  return decades < 10 ? null : decades;
 }

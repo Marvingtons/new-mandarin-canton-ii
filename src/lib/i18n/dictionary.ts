@@ -224,6 +224,70 @@ export const en = {
   "contact.phoneWelcome": "Takeout orders welcome by phone.",
   "contact.open7": "Open 7 days a week.",
 
+  /* ---- the heritage lockup (footer on every page, and About) ----
+     The phrasing moved here from a hardcoded English return in
+     data/restaurant.ts, which put an English line immediately above the
+     Spanish story on /about. `{decades}` is rounded down by
+     `tenureDecades()`, so this stays true without a yearly edit.
+     "Est. 1995" itself is not translated and does not need to be: it is
+     a year in a bracket. */
+  "established.tenure": "{decades}+ years on Telegraph Canyon",
+  /* Under ten years open. Unreachable today and kept anyway, because the
+     branch that picks it is cheaper than the bug if it is ever removed. */
+  "established.tenureShort": "Family-run on Telegraph Canyon",
+  /* No confirmed founding year: keep the warmth, drop the number. */
+  "established.tenureNoYear": "Family-run on Telegraph Canyon for decades",
+
+  /* ---- ABOUT PAGE: THE FAMILY'S STORY ----
+     ⚠️ AUTHORITATIVE COPY. These paragraphs are the family's own written
+     history, supplied by them in Chinese with an approved English
+     translation. They are not marketing copy and must not be "improved"
+     — a rewrite here is putting words in their mouth. Punctuation was
+     the only thing touched on integration: the approved English used em
+     dashes, and this site does not (see commit 2680106), so three of
+     them became commas.
+
+     The 中文 half is THEIR ORIGINAL, converted Simplified → Traditional
+     for display. The Simplified source-of-truth is preserved verbatim in
+     app/about/page.tsx.
+     ⚠️ TODO(confirm): Traditional conversion pending family review.
+
+     `{yearsCap}` / `{years}` are filled from data/restaurant.ts's
+     `yearsOpen()`, so the count never goes stale. English takes the
+     capitalised form because its sentence opens with it and Spanish's
+     does not. "More than thirty years" stays a static phrase in all
+     three languages: it is the family's own rounding and it stays true
+     without help. */
+  "about.title": "About Us",
+  /* The pull-quote over the story. Drawn from the story below, not from
+     any quoted speech — nobody here is putting words in the family's
+     mouth. */
+  "about.pullQuote": "The people have changed. The cooking hasn't.",
+  "about.storyP1":
+    "Our restaurant opened its doors in 1995. For more than thirty years, we've held to one belief: cook every dish with care, to the tastes our guests love most, and in doing so create a flavor that is entirely our own.",
+  "about.storyP1Zh":
+    "我們的餐廳創立於1995年。三十多年來，我們始終堅持一個信念：按照客人最喜愛的口味，用心烹製每一道菜，創造出屬於我們自己的獨一無二的美食風味。",
+  /* Its own key because it is the one sentence carrying a computed
+     value. Split out rather than duplicated, so an unconfirmed founding
+     year drops this sentence and the paragraph still reads. */
+  "about.storyP2Lead": "{yearsCap} years have passed since we first opened.",
+  "about.storyP2LeadZh": "從開業至今，我們已經走過了{years}年的歲月。",
+  "about.storyP2":
+    "Many of our guests came here as children, holding their parents' hands. Today they're grown, married, with families of their own, and they bring their children back to our tables. To walk beside a family through three generations is our greatest honor, and the treasure we hold most dear.",
+  "about.storyP2Zh":
+    "許多客人小時候跟著父母來到這裡用餐，如今長大成人、結婚成家，又帶著自己的孩子回到我們的餐廳。能夠陪伴一個家庭走過三代人的美好時光，是我們最大的榮幸，也是我們最珍惜的財富。",
+  "about.storyP3":
+    "Times have changed over thirty years. Our devotion to quality, to flavor, and to every guest who walks through our door has not. We'll keep cooking every dish the way we always have, and welcoming every guest the way we always have, so this familiar taste, and this warmth, carry on.",
+  "about.storyP3Zh":
+    "三十多年來，時代在變化，但我們對品質的堅持、對味道的執著、對每一位客人的用心從未改變。未來，我們也將繼續秉持初心，堅持做好每一道菜、服務好每一位客人，讓這份熟悉的味道和溫暖一直傳承下去。",
+  /* ⚠️ NOT the family's words. Drafted here before their history
+     arrived, kept because it may be true and theirs to decide.
+     TODO(confirm): family to choose — story alone, or story + memorial.
+     No 中文 half on purpose: inventing Chinese for unapproved English
+     would make it harder, not easier, for them to say no. */
+  "about.memorial":
+    "A restaurant open this long outlives some of the people who built it. When one of the original owners passed away, someone who had worked here since the early days became an owner and kept it open. The kitchen carried on as it was.",
+
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacy",
   "legal.terms": "Terms",
@@ -462,6 +526,40 @@ export const es: Record<TranslationKey, string> = {
   "contact.callNumber": "Llamar al {phone}",
   "contact.phoneWelcome": "También tomamos órdenes para llevar por teléfono.",
   "contact.open7": "Abierto los 7 días de la semana.",
+
+  /* ---- the heritage lockup ---- */
+  "established.tenure": "{decades}+ años en Telegraph Canyon",
+  "established.tenureShort": "Restaurante familiar en Telegraph Canyon",
+  "established.tenureNoYear":
+    "Restaurante familiar en Telegraph Canyon desde hace décadas",
+
+  /* ---- ABOUT PAGE: THE FAMILY'S STORY ----
+     A faithful translation of the approved English, in the same plain
+     first-person-plural register the family wrote in. Usted-neutral for
+     the guest ("cada cliente que cruza nuestra puerta"), nosotros for
+     the family, no marketing adjectives added.
+     ⚠️ Flagged for the native review like every string in this table.
+     The 中文 halves are identical to the English side's by design: the
+     Chinese never moves, only the half beside it does. */
+  "about.title": "Sobre nosotros",
+  "about.pullQuote": "La gente ha cambiado. La cocina no.",
+  "about.storyP1":
+    "Nuestro restaurante abrió sus puertas en 1995. Por más de treinta años nos hemos mantenido fieles a una sola idea: cocinar cada platillo con cuidado, al gusto que más quieren nuestros clientes, y crear así un sabor que es enteramente nuestro.",
+  "about.storyP1Zh":
+    "我們的餐廳創立於1995年。三十多年來，我們始終堅持一個信念：按照客人最喜愛的口味，用心烹製每一道菜，創造出屬於我們自己的獨一無二的美食風味。",
+  "about.storyP2Lead":
+    "Han pasado {years} años desde que abrimos por primera vez.",
+  "about.storyP2LeadZh": "從開業至今，我們已經走過了{years}年的歲月。",
+  "about.storyP2":
+    "Muchos de nuestros clientes llegaron aquí de niños, de la mano de sus papás. Hoy ya son grandes, casados, con sus propias familias, y traen a sus hijos de vuelta a nuestras mesas. Acompañar a una familia por tres generaciones es nuestro mayor honor, y el tesoro que más apreciamos.",
+  "about.storyP2Zh":
+    "許多客人小時候跟著父母來到這裡用餐，如今長大成人、結婚成家，又帶著自己的孩子回到我們的餐廳。能夠陪伴一個家庭走過三代人的美好時光，是我們最大的榮幸，也是我們最珍惜的財富。",
+  "about.storyP3":
+    "En treinta años los tiempos han cambiado. Nuestra entrega a la calidad, al sabor y a cada cliente que cruza nuestra puerta, no. Vamos a seguir cocinando cada platillo como siempre lo hemos hecho, y recibiendo a cada cliente como siempre lo hemos hecho, para que este sabor tan conocido, y esta calidez, perduren.",
+  "about.storyP3Zh":
+    "三十多年來，時代在變化，但我們對品質的堅持、對味道的執著、對每一位客人的用心從未改變。未來，我們也將繼續秉持初心，堅持做好每一道菜、服務好每一位客人，讓這份熟悉的味道和溫暖一直傳承下去。",
+  "about.memorial":
+    "Un restaurante abierto tanto tiempo sobrevive a algunas de las personas que lo levantaron. Cuando uno de los dueños originales falleció, alguien que trabajaba aquí desde los primeros años se hizo dueño y lo mantuvo abierto. La cocina siguió igual.",
 
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacidad",

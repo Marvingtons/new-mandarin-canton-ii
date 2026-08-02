@@ -109,7 +109,8 @@ export default async function Footer() {
               the brand board carries it there, because <Established />
               two lines below already states it and a footer that says the
               founding year twice in four lines reads as a mistake. The
-              flag on that fact lives with the fact, in restaurant.ts. */}
+              year itself is confirmed — the family's own written history
+              opens with it (see features.foundingYear). */}
           <div className="mt-5 border-t border-gold/45 pt-3">
             <p className="text-[0.7rem] uppercase tracking-[0.28em] text-gold">
               {t("footer.cuisineLine")}
