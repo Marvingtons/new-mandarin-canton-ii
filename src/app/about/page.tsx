@@ -11,6 +11,11 @@ import { spellYears, yearsInChinese } from "@/lib/years";
 
 export const metadata: Metadata = {
   title: "About",
+  /* 148 characters. This page had a title and no description at all, so
+     search engines were quoting whatever they scraped off the top of
+     it. Middle sentence is the story's own claim, compressed. */
+  description:
+    "We opened on Telegraph Canyon Road in 1995. Guests who came here as children now bring their own. New Mandarin Canton II, in the family's own words.",
 };
 
 /**
@@ -74,8 +79,22 @@ export default async function AboutPage() {
           treatment measures 2.17:1. See Established. */}
       <Established withTenure ground="light" className="mt-5" />
 
-      <blockquote className="mt-10 border-l-2 border-gold pl-6 font-display text-2xl italic leading-snug text-lacquer sm:text-3xl">
-        {t("about.pullQuote")}
+      {/* The signature line, second of its two sanctioned homes. Its
+          中文 half rides with it HERE and not on the homepage, because
+          this is the page where 中文 goes on to carry three paragraphs —
+          a line of it alone on a page with no other Chinese would be an
+          ornament. Same pairing as the story below, at the size of a
+          quote. */}
+      <blockquote className="mt-10 border-l-2 border-gold pl-6 text-lacquer">
+        <p className="font-display text-2xl italic leading-snug sm:text-3xl">
+          {t("about.pullQuote")}
+        </p>
+        <p
+          lang="zh-Hant"
+          className="mt-2 font-chinese text-base tracking-[0.08em] text-lacquer/60"
+        >
+          {t("story.threeGenerationsZh")}
+        </p>
       </blockquote>
 
       {/* The crane stands in the left margin beside the story, and it is the

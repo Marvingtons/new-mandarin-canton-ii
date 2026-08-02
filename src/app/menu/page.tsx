@@ -6,8 +6,11 @@ import { isLunchService } from "@/lib/order/gates";
 
 export const metadata: Metadata = {
   title: "Menu",
+  /* 158 characters. "Order pickup straight from the family" is the
+     menu page's own tagline (`menu.intro`), so the search result and
+     the page it opens now say the same thing in the same voice. */
   description:
-    "The full menu at New Mandarin Canton II in Chula Vista: Mandarin, Szechuan and Cantonese, cooked to order. Order pickup direct, no delivery-app fees.",
+    "The full menu at New Mandarin Canton II in Chula Vista: Mandarin, Szechuan and Cantonese, cooked to order. Order pickup straight from the family, no app fees.",
 };
 
 /**

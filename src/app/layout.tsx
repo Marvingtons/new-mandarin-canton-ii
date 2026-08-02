@@ -36,8 +36,20 @@ export const metadata: Metadata = {
     default: "New Mandarin Canton II | Chinese Restaurant in Chula Vista, CA",
     template: "%s | New Mandarin Canton II",
   },
+  /* 154 characters. The one it replaces was 163 — over the ~160 a
+     result snippet shows — and spent its last 44 on two phone numbers,
+     so the part that got cut was the part a search result exists to
+     carry. Same voice as the family's story now, and the facts are
+     theirs: 1995, family-run, Chula Vista, three cuisines, pickup only.
+
+     ⚠️ ENGLISH IN BOTH LOCALES, like every description on the site. Not
+     an oversight and not fixed here: `metadata` is a static export
+     evaluated outside the request, so making it locale-aware is
+     `generateMetadata` on every page, which is a change to how the site
+     renders rather than a change to its copy. Logged in
+     docs/SITE_REVIEW_2.md under P14. */
   description:
-    "Mandarin & Cantonese restaurant in Chula Vista, CA. Takeout pickup only, no delivery. Open 7 days at 543 Telegraph Canyon Rd. Call (619) 656-6888 or (619) 656-6787.",
+    "Family-run Chinese restaurant in Chula Vista since 1995. Mandarin, Szechuan and Cantonese, cooked to order. Takeout pickup only, no delivery. Open 7 days.",
 };
 
 /**

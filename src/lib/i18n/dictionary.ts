@@ -221,8 +221,53 @@ export const en = {
      Only what is unique to this page is new. */
   "contact.title": "Visit Us",
   "contact.callNumber": "Call {phone}",
-  "contact.phoneWelcome": "Takeout orders welcome by phone.",
+  /* Was "Takeout orders welcome by phone." — the passive "welcome by"
+     of a hotel sign, and the only sentence on the marketing pages with
+     nobody in it. The family speaks in the first person plural
+     throughout their history; so does this now. The Spanish already
+     said exactly this and did not change. */
+  "contact.phoneWelcome": "We take takeout orders by phone too.",
   "contact.open7": "Open 7 days a week.",
+
+  /* ---- THE SIGNATURE LINE ----
+     The one phrase the family's history gave the site, and the only
+     thing in here that is allowed to be a phrase rather than a
+     sentence. It appears in EXACTLY TWO PLACES — the homepage story
+     section and the About pull-quote — and that is the whole budget. It
+     is not in the hero (the hero has its line), not in the footer, and
+     not repeated down a page until it stops meaning anything. A
+     signature that appears everywhere is a slogan.
+
+     Both halves are the family's own: 三代人 is the phrase they used.
+     The 中文 half renders only on About, where the 中文 story follows it
+     — the homepage carries no other Chinese, and one floating line of it
+     there would be an ornament rather than a translation.
+     ⚠️ TODO(confirm): Traditional wording, with the rest of the 中文. */
+  "story.threeGenerations": "Three generations at our tables",
+  "story.threeGenerationsZh": "三代人，同一張餐桌",
+
+  /* ---- homepage prose ----
+     Hardcoded in app/page.tsx until now, which meant a Spanish reader
+     got the whole homepage in English. Moved here as part of the voice
+     pass, since the copy was being rewritten anyway. Closes the Home
+     half of P12 in docs/SITE_REVIEW_2.md alongside About.
+
+     The one string on this page that is still English by design is
+     House Favorites' heading: it is a module-scope constant that GSAP's
+     SplitText owns after mount (see FavoritesSpotlight). */
+  "home.storyTitle": "Our Story",
+  /* Was: "…cooked the way they have always been. No reinvention. Just
+     the food." That last pair is a copywriter's cadence, not the
+     family's — they say "we'll keep cooking every dish the way we always
+     have", in full sentences. Same claim, their rhythm, and the 1995
+     they confirmed now stands here too. */
+  "home.storyBody":
+    "New Mandarin Canton II is a family-run room on Telegraph Canyon Road: calligraphy on the walls, an altar by the door with incense and fresh tangerines. We opened in 1995, and we cook Mandarin, Szechuan and Cantonese dishes the way we always have.",
+  "home.readOurStory": "Read our story",
+  "home.roomTitle": "The Room",
+  "home.roomIntro": "Come in. The room is part of the meal.",
+  "home.altar":
+    "The altar by the door watches over the kitchen: oranges for fortune, incense for family.",
 
   /* ---- the heritage lockup (footer on every page, and About) ----
      The phrasing moved here from a hardcoded English return in
@@ -259,10 +304,13 @@ export const en = {
      three languages: it is the family's own rounding and it stays true
      without help. */
   "about.title": "About Us",
-  /* The pull-quote over the story. Drawn from the story below, not from
-     any quoted speech — nobody here is putting words in the family's
-     mouth. */
-  "about.pullQuote": "The people have changed. The cooking hasn't.",
+  /* The pull-quote over the story: the signature line (see
+     `story.threeGenerations`). It used to read "The people have changed.
+     The cooking hasn't." — written for the family before they had said
+     anything, and a good line about the wrong thing. What they actually
+     wrote about is the guests who came in holding a parent's hand and
+     come back now holding their own child's. */
+  "about.pullQuote": "Three generations at our tables",
   "about.storyP1":
     "Our restaurant opened its doors in 1995. For more than thirty years, we've held to one belief: cook every dish with care, to the tastes our guests love most, and in doing so create a flavor that is entirely our own.",
   "about.storyP1Zh":
@@ -527,6 +575,22 @@ export const es: Record<TranslationKey, string> = {
   "contact.phoneWelcome": "También tomamos órdenes para llevar por teléfono.",
   "contact.open7": "Abierto los 7 días de la semana.",
 
+  /* ---- the signature line ---- */
+  "story.threeGenerations": "Tres generaciones en nuestras mesas",
+  "story.threeGenerationsZh": "三代人，同一張餐桌",
+
+  /* ---- homepage prose ----
+     "El comedor", not "el salón": in Chula Vista the room with the
+     tables in it is the comedor. */
+  "home.storyTitle": "Nuestra historia",
+  "home.storyBody":
+    "New Mandarin Canton II es un comedor familiar en Telegraph Canyon Road: caligrafía en las paredes, un altar junto a la puerta con incienso y mandarinas frescas. Abrimos en 1995, y cocinamos comida mandarina, sichuanesa y cantonesa como siempre lo hemos hecho.",
+  "home.readOurStory": "Lea nuestra historia",
+  "home.roomTitle": "El comedor",
+  "home.roomIntro": "Pase. El comedor es parte de la comida.",
+  "home.altar":
+    "El altar junto a la puerta cuida la cocina: naranjas para la fortuna, incienso para la familia.",
+
   /* ---- the heritage lockup ---- */
   "established.tenure": "{decades}+ años en Telegraph Canyon",
   "established.tenureShort": "Restaurante familiar en Telegraph Canyon",
@@ -542,7 +606,7 @@ export const es: Record<TranslationKey, string> = {
      The 中文 halves are identical to the English side's by design: the
      Chinese never moves, only the half beside it does. */
   "about.title": "Sobre nosotros",
-  "about.pullQuote": "La gente ha cambiado. La cocina no.",
+  "about.pullQuote": "Tres generaciones en nuestras mesas",
   "about.storyP1":
     "Nuestro restaurante abrió sus puertas en 1995. Por más de treinta años nos hemos mantenido fieles a una sola idea: cocinar cada platillo con cuidado, al gusto que más quieren nuestros clientes, y crear así un sabor que es enteramente nuestro.",
   "about.storyP1Zh":

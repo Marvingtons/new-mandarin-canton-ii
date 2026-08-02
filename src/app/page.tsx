@@ -11,6 +11,7 @@ import MandarinCluster from "@/components/MandarinCluster";
 import Parallax from "@/components/Parallax";
 import PhotoFrame from "@/components/PhotoFrame";
 import { photos } from "@/data/images";
+import { getT } from "@/lib/i18n/server";
 
 /**
  * SECTION RHYTHM — cream → paper → cream → dark contact band → dark
@@ -27,7 +28,9 @@ import { photos } from "@/data/images";
  * still there too, guarded on a null lookup, so restoring the band is
  * putting the section back.
  */
-export default function HomePage() {
+export default async function HomePage() {
+  const t = await getT();
+
   return (
     <>
       <HomeChoreography />
@@ -50,23 +53,33 @@ export default function HomePage() {
         <div className="mx-auto max-w-5xl px-4 py-16">
           <div className="grid items-start gap-10 md:grid-cols-[3fr_2fr]">
             <div data-rise>
-              <SectionHeading en="Our Story" />
+              <SectionHeading en={t("home.storyTitle")} />
+              {/* THE SIGNATURE LINE, first of its two sanctioned homes
+                  (the other is the About pull-quote). It sits between
+                  the heading and the prose as a pull-line, in the same
+                  Playfair italic the About blockquote and the altar
+                  plaque use, so the site's three "said out loud" moments
+                  are one voice set three times rather than three
+                  treatments. See story.threeGenerations for why there is
+                  no third placement. */}
               <p
                 data-rise-item
-                className="mt-7 max-w-xl leading-relaxed text-ink/80"
+                className="mt-6 max-w-xl font-display text-2xl italic leading-snug text-lacquer sm:text-[1.75rem]"
               >
-                New Mandarin Canton II is a small, family-run room on
-                Telegraph Canyon Road: calligraphy on the walls, an altar by
-                the door with incense and fresh tangerines. Mandarin,
-                Szechuan and Cantonese dishes, cooked the way they have
-                always been. No reinvention. Just the food.
+                {t("story.threeGenerations")}
+              </p>
+              <p
+                data-rise-item
+                className="mt-5 max-w-xl leading-relaxed text-ink/80"
+              >
+                {t("home.storyBody")}
               </p>
               <p data-rise-item className="mt-6">
                 <Link
                   href="/about"
                   className="arrow-link token-colors font-semibold text-lacquer underline decoration-gold underline-offset-4 hover:text-lacquer-dark"
                 >
-                  Read our story <span className="arrow">→</span>
+                  {t("home.readOurStory")} <span className="arrow">→</span>
                 </Link>
               </p>
             </div>
@@ -105,9 +118,9 @@ export default function HomePage() {
         <IncenseSmoke count={3} intensity={0.5} on="light" />
 
         <div className="relative mx-auto max-w-5xl px-4">
-          <SectionHeading en="The Room" />
+          <SectionHeading en={t("home.roomTitle")} />
           <p data-rise className="mt-6 max-w-xl leading-relaxed text-ink/70">
-            Come in. The room is part of the meal.
+            {t("home.roomIntro")}
           </p>
           <div className="mt-10 grid gap-6 sm:grid-cols-3">
             <PhotoFrame photo={photos.altar} />
@@ -137,8 +150,7 @@ export default function HomePage() {
               data-rise-item
               className="font-display text-xl italic leading-relaxed text-ink/80 sm:text-2xl"
             >
-              The altar by the door watches over the kitchen: oranges for
-              fortune, incense for family.
+              {t("home.altar")}
             </p>
           </div>
         </div>
