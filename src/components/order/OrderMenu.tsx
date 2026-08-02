@@ -240,21 +240,41 @@ export default function OrderMenu({
                 <span className="font-semibold text-ink">
                   {t("banner.onlineUntil", { time: sharedLastOnlineOrder })}
                 </span>{" "}
-                <span lang="zh-Hant" className="font-chinese text-ink/60">
+                {/* nowrap: CJK breaks between any two characters, so at
+                    390 this was splitting as 網上訂餐至晚上 / 8:30 and
+                    stranding the time on the next line away from the
+                    sentence that names it. It is 8 characters; it fits on
+                    a line of its own. */}
+                <span
+                  lang="zh-Hant"
+                  className="whitespace-nowrap font-chinese text-ink/60"
+                >
                   {t("banner.onlineUntilZh")}
-                </span>{" "}
+                </span>
+                {/* NBSP before the middot, a normal space after. At 390
+                    this line wraps mid-sentence and the break was landing
+                    in front of the separator, so the allergy half started
+                    with a bullet-looking "· " at the left margin. A middot
+                    is a joiner; it belongs to the line it ends. */}
+                {" "}
                 <span aria-hidden="true" className="text-ink/35">
                   ·
                 </span>{" "}
               </>
             )}
             {t("banner.allergy")}{" "}
-            <span lang="zh-Hant" className="font-chinese text-ink/60">
+            {/* nowrap for the same reason as the cutoff's 中文 above: CJK
+                breaks anywhere, and 食物 / 過敏請先致電 across two lines is
+                a phrase cut in half. */}
+            <span
+              lang="zh-Hant"
+              className="whitespace-nowrap font-chinese text-ink/60"
+            >
               {t("banner.allergyZh")}
             </span>{" "}
             <a
               href={primaryPhone.href}
-              className="whitespace-nowrap font-semibold text-lacquer underline underline-offset-2"
+              className="tap whitespace-nowrap font-semibold text-lacquer underline underline-offset-2"
             >
               {primaryPhone.phone}
             </a>
@@ -276,7 +296,28 @@ export default function OrderMenu({
             that hairline: it is the sticky surface's edge, and it is what
             stops dishes appearing to float into the controls as they scroll
             under it. */}
-        <div className="sticky top-0 z-40 -mx-4 mt-5 border-b border-gold/40 bg-ivory/95 px-4 py-2.5 backdrop-blur">
+        {/* ⚠️ THIS BLOCK IS FOUR ROWS OF CONTROLS AND NOT ONE OF THEM WAS
+            A THUMB'S WORTH. Measured at 390: search field 34px tall,
+            spicy chip 34, favourite chips 30, category pills 28.
+
+            Two different fixes, because the two halves fail differently.
+            The command row grows for real (min-h-11), since a search
+            field that is taller is simply a better search field. The two
+            strips do NOT grow: their chips keep their drawn size and take
+            `.tap` instead, with the SCROLLER gaining the padding — a
+            pseudo element reaching past an overflow-x box is clipped out
+            of hit testing, so the room has to exist before the target can
+            use it. That also keeps .cat-link's sliding underline under
+            its label instead of 12px below it.
+
+            Everything here is scoped: min-h-11 is dropped from `sm`, the
+            strip padding from `lg`, so a mouse pointer at 1440 gets the
+            band exactly as it was drawn. The block's own paddings step
+            down one notch below `sm` to pay back some of the height.
+
+            Measured at 390: 134px before, 168px after. The `scroll-mt`
+            below tracks it and must stay ahead of it. */}
+        <div className="sticky top-0 z-40 -mx-4 mt-5 border-b border-gold/40 bg-ivory/95 px-4 py-2 backdrop-blur sm:py-2.5">
           {/* command row — one row at BOTH widths */}
           <div className="flex items-center gap-2">
             <label className="relative min-w-0 flex-1">
@@ -286,14 +327,14 @@ export default function OrderMenu({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t("menu.search")}
-                className="w-full rounded-sm border border-gold/50 bg-cream px-3 py-1.5 text-sm text-ink outline-none focus:border-lacquer"
+                className="min-h-11 w-full rounded-sm border border-gold/50 bg-cream px-3 py-1.5 text-sm text-ink outline-none focus:border-lacquer sm:min-h-0"
               />
             </label>
             <button
               type="button"
               onClick={() => setSpicyOnly((v) => !v)}
               aria-pressed={spicyOnly}
-              className={`token-colors shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold ${
+              className={`token-colors min-h-11 shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold sm:min-h-0 ${
                 spicyOnly
                   ? "border-lacquer bg-lacquer text-ivory"
                   : "border-gold/50 text-lacquer hover:border-gold hover:bg-gold/10"
@@ -304,7 +345,7 @@ export default function OrderMenu({
           </div>
 
           {/* browse band */}
-          <div className="mt-2.5 border-t border-gold/25 pt-2.5">
+          <div className="mt-2 border-t border-gold/25 pt-2 sm:mt-2.5 sm:pt-2.5">
             {/* HOUSE FAVORITES — the same six the homepage carousel shows,
                 from the one list in data/favorites.ts. Tapping opens the
                 dish: on the homepage they are a display, here they are a way
@@ -318,9 +359,13 @@ export default function OrderMenu({
                 help when you do not know what you want and noise the moment
                 you have told us. */}
             {!filtering && favorites.length > 0 && (
+              /* mb-0 below lg: both strips now carry py-2 of their own, so
+                 the chips and the pills are already 16px apart and this
+                 margin was a third gap on top of that. It comes back at lg,
+                 where the scroller padding goes away. */
               <section
                 aria-labelledby="fav-strip"
-                className="mb-2 flex items-center gap-3"
+                className="mb-0 flex items-center gap-3 lg:mb-2"
               >
                 <h2
                   id="fav-strip"
@@ -328,15 +373,22 @@ export default function OrderMenu({
                 >
                   {t("menu.favourites")}
                 </h2>
+                {/* py-2 below `lg` is the chips' touch target, not
+                    breathing room: the chips stay 30px and their `.tap`
+                    pseudo reaches 44, which an overflow-x scroller would
+                    CLIP out of hit testing if the box did not already
+                    have the 7px a side to hold it. Padding on the
+                    scroller rather than height on the chip is what keeps
+                    the pill the size the band was drawn at. */}
                 <ul
                   data-lenis-prevent
-                  className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto lg:flex-wrap lg:overflow-x-visible"
+                  className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-2 lg:flex-wrap lg:overflow-x-visible lg:py-0"
                 >
                   {favorites.map((item) => (
                     <li key={item.id} className="shrink-0">
                       <button
                         onClick={() => setActiveItem(item)}
-                        className="token-colors flex items-center gap-2 whitespace-nowrap rounded-full border border-gold/50 bg-cream px-3 py-1 text-sm font-semibold text-ink hover:border-gold hover:bg-gold/10"
+                        className="tap token-colors flex items-center gap-2 whitespace-nowrap rounded-full border border-gold/50 bg-cream px-3 py-1 text-sm font-semibold text-ink hover:border-gold hover:bg-gold/10"
                       >
                         {item.nameEn}
                         {item.spicy && <SpicyMark />}
@@ -351,9 +403,13 @@ export default function OrderMenu({
               {/* gap-y as well as gap-x: from lg this wraps to two rows, and
                   with only a column gap the second row sat hard against the
                   first and read as overflow rather than as a grid. */}
+              {/* py-2: the same clipping problem as the favourites strip
+                  above, and the same answer. The pills stay 28px so
+                  .cat-link's sliding underline still sits under the
+                  label rather than 12px below it. */}
               <ul
                 data-lenis-prevent
-                className="flex gap-x-1 gap-y-1.5 overflow-x-auto text-sm lg:flex-wrap lg:overflow-x-visible"
+                className="flex gap-x-1 gap-y-1.5 overflow-x-auto py-2 text-sm lg:flex-wrap lg:overflow-x-visible lg:py-0"
               >
                 {categories.map((cat) => (
                   <li key={cat.id}>
@@ -365,7 +421,15 @@ export default function OrderMenu({
                          two-row wrap. 4px off each pill is 56px back, and
                          the whole bar sits on one line. (.cat-link's
                          underline inset in globals.css tracks this.) */
-                      className="cat-link token-colors whitespace-nowrap rounded-full border border-transparent px-2.5 py-1 font-semibold text-lacquer hover:border-gold/60"
+                      /* inline-FLEX, not the inline default, and it is
+                         load-bearing for the target rather than cosmetic:
+                         an inline <a> contributes only its 20px line box
+                         to the <li>, so the strip measured 36px tall and
+                         clipped the 44px .tap pseudo down to 36. As a
+                         flex box it contributes its full 28px, the
+                         scroller's py-2 makes 44, and the target fits
+                         exactly. Nothing about the pill moves. */
+                      className="cat-link tap token-colors inline-flex whitespace-nowrap rounded-full border border-transparent px-2.5 py-1 font-semibold text-lacquer hover:border-gold/60"
                     >
                       {navLabel(cat.id, cat.nameEn)}
                     </a>
@@ -378,10 +442,15 @@ export default function OrderMenu({
 
         {/* Where "Order Takeout" lands: the first dish you can actually add.
             scroll-mt-36 (144px), not 20 (80px), and it is the same number the
-            sections below use: the sticky block now stands 127px at 1440 and
-            133px at 390, so an 80px scroll-margin dropped every jump target
-            underneath the controls that made the jump. */}
-        <div id="order" className="scroll-mt-36" />
+            sections below use: the sticky block stands 127px at 1440, so an
+            80px scroll-margin dropped every jump target underneath the
+            controls that made the jump.
+
+            scroll-mt-48 (192px) below `sm`, because the 44px touch targets
+            took the same block from 133px to 168px there and 144 stopped
+            clearing it. Two values for one measurement that now differs by
+            width; if either the band or these change, they change together. */}
+        <div id="order" className="scroll-mt-48 sm:scroll-mt-36" />
 
         {/* Nothing matched. Named categories are the way out, because the
             list is 137 dishes and "try a different word" is not advice. */}
@@ -409,7 +478,13 @@ export default function OrderMenu({
         )}
 
         {visible.map((cat) => (
-          <section key={cat.id} id={`cat-${cat.id}`} className="scroll-mt-36 pt-10">
+          <section
+            key={cat.id}
+            id={`cat-${cat.id}`}
+            /* Tracks the #order anchor above — same band, same two
+               numbers. */
+            className="scroll-mt-48 pt-10 sm:scroll-mt-36"
+          >
             <h2 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-display text-3xl text-lacquer">
               {cat.nameEn}
               {/* The lunch window, stated on the section itself. During

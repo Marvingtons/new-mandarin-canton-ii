@@ -77,10 +77,14 @@ export default function CartDrawer({
           <h2 className="font-display text-2xl text-ink">
             {t("cart.title")}
           </h2>
+          {/* h-11 w-11, not px-2: the × measured 29x24 and is the only
+              way out of a full-screen drawer on a phone that does not
+              involve guessing where the scrim starts. The glyph is
+              unchanged; the box around it is the fix. */}
           <button
             onClick={onClose}
             aria-label={t("cart.closeCart")}
-            className="rounded-full px-2 text-2xl leading-none text-ink/60 hover:text-ink"
+            className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-ink/60 hover:text-ink"
           >
             ×
           </button>
@@ -121,7 +125,13 @@ export default function CartDrawer({
                     {/* The two buttons carry the outer corners themselves
                         rather than the wrapper clipping them: they fill it
                         edge to edge, so overflow-hidden here would cut the
-                        focus ring off both of them. */}
+                        focus ring off both of them.
+
+                        11, not 9. These were 36x36 while the SAME stepper
+                        in ItemSheet was already min-h-11 w-11 — one control
+                        at two sizes in one order flow, and the smaller copy
+                        was the one that edits a cart you have already
+                        built. They match now. */}
                     <div className="flex items-center rounded-sm border border-gold/50">
                       <button
                         onClick={() =>
@@ -130,7 +140,7 @@ export default function CartDrawer({
                         aria-label={t("cart.decreaseItem", {
                           name: line.item.nameEn,
                         })}
-                        className="min-h-9 w-9 rounded-l-sm text-lg text-ink hover:bg-gold/10"
+                        className="min-h-11 w-11 rounded-l-sm text-lg text-ink hover:bg-gold/10"
                       >
                         −
                       </button>
@@ -144,14 +154,14 @@ export default function CartDrawer({
                         aria-label={t("cart.increaseItem", {
                           name: line.item.nameEn,
                         })}
-                        className="min-h-9 w-9 rounded-r-sm text-lg text-ink hover:bg-gold/10"
+                        className="min-h-11 w-11 rounded-r-sm text-lg text-ink hover:bg-gold/10"
                       >
                         +
                       </button>
                     </div>
                     <button
                       onClick={() => remove(line.lineId)}
-                      className="text-sm text-ink/55 underline underline-offset-2 hover:text-lacquer"
+                      className="tap text-sm text-ink/55 underline underline-offset-2 hover:text-lacquer"
                     >
                       {t("cart.remove")}
                     </button>
@@ -177,7 +187,12 @@ export default function CartDrawer({
         )}
 
         {detailedLines.length > 0 && (
-          <div className="border-t border-gold/30 px-5 py-4">
+          /* The drawer is inset-y-0, so this block ends at the physical
+             bottom of the phone — where iOS draws the home indicator over
+             whatever is there. env() adds that strip to the padding on the
+             hardware that has one and resolves to 0px everywhere else, so
+             Checkout is never under the swipe bar. */
+          <div className="border-t border-gold/30 px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
             <dl className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <dt className="text-ink/70">{t("cart.subtotal")}</dt>

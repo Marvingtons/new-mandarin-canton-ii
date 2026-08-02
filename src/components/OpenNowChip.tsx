@@ -26,9 +26,10 @@ interface OpenNowChipProps {
 
 /**
  * Live open/closed status, computed in the restaurant's timezone (see
- * lib/hours). Client-only: renders nothing on the server and pops in
- * after mount, so there is never a wrong-state hydration flash.
- * Refreshes each minute.
+ * lib/hours). Client-only: the server renders a same-height placeholder
+ * rather than the chip, so there is never a wrong-state hydration flash
+ * and never a layout shift when the real one arrives. Refreshes each
+ * minute.
  */
 export default function OpenNowChip({
   tone = "dark",
@@ -48,7 +49,45 @@ export default function OpenNowChip({
     };
   }, []);
 
-  if (!status) return null;
+  // Two whole strings rather than one string plus overrides: conflicting
+  // Tailwind utilities on the same element resolve by their order in the
+  // generated sheet, not by their order here, so `px-3 … px-2.5` is a
+  // coin flip. Only one of these ever reaches the element.
+  const box = compactOnMobile
+    ? "gap-1.5 px-2.5 py-1 text-[11px] tracking-[0.12em] sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs sm:tracking-[0.15em]"
+    : "gap-2 px-3 py-1.5 text-xs tracking-[0.15em]";
+
+  // NOT `null`, and this is a measured fix rather than tidiness.
+  //
+  // This chip is client-only, so the server renders nothing and the real
+  // chip appears a frame after mount. In the hero — a bottom-anchored
+  // absolute block — that insertion pushes EVERYTHING above it upward,
+  // and Lighthouse mobile attributed the homepage's entire CLS to that
+  // one shift: 0.019 with the old stacked hero, 0.029 once the CTAs went
+  // full-width and there was more block above the chip to move.
+  //
+  // A same-height placeholder holds the line open so nothing moves. Its
+  // width is still wrong until the status resolves, but a chip settling
+  // sideways is one 27px-tall element; the shift this replaces was 455px
+  // of hero copy. Transparent, empty, and aria-hidden: it is space, not
+  // a state, and it must never announce a status it does not have.
+  if (!status)
+    return (
+      <span
+        aria-hidden="true"
+        className={`inline-flex items-center rounded-full border border-transparent uppercase ${box} ${className}`}
+      >
+        {/* The dot's box, then a NON-BREAKING space — not a plain one.
+            A whitespace-only text run between flex items is not rendered
+            at all, so a plain space would build no line box and the
+            placeholder would come out ~10px short of the chip it stands
+            in for: a smaller shift, not no shift. U+00A0 is not
+            collapsible white space, so it becomes a real flex item one
+            line box tall, which is exactly what the label gives. */}
+        <span className="h-1.5 w-1.5" />
+        {" "}
+      </span>
+    );
 
   const surface =
     tone === "light"
@@ -71,14 +110,6 @@ export default function OpenNowChip({
   const text = time
     ? t(status.open ? "chip.openUntil" : "chip.closedOpensAt", { time })
     : status.label;
-
-  // Two whole strings rather than one string plus overrides: conflicting
-  // Tailwind utilities on the same element resolve by their order in the
-  // generated sheet, not by their order here, so `px-3 … px-2.5` is a
-  // coin flip. Only one of these ever reaches the element.
-  const box = compactOnMobile
-    ? "gap-1.5 px-2.5 py-1 text-[11px] tracking-[0.12em] sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs sm:tracking-[0.15em]"
-    : "gap-2 px-3 py-1.5 text-xs tracking-[0.15em]";
 
   return (
     <span

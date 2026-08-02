@@ -30,20 +30,61 @@ export default async function TestModeBadge() {
   if (!active) return null;
 
   return (
-    <div
-      // Fixed and above the sticky order bar, which is z-50. Bottom-left keeps
-      // it clear of that bar's buttons on mobile.
-      className="pointer-events-none fixed bottom-16 left-3 z-[60] sm:bottom-3"
-      role="status"
-      aria-live="polite"
-    >
-      <span className="inline-flex items-center gap-2 rounded-full border-2 border-lacquer bg-gold px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-ink shadow-lg">
+    <>
+      {/*
+       * ⚠️ TWO SHAPES, ONE STATE, AND ONLY ONE OF THEM IS EVER RENDERED.
+       *
+       * Below `sm` this is a 24px full-width ribbon at the TOP edge; from
+       * `sm` up it is the floating chip it has always been, bottom-left.
+       *
+       * The chip is wrong on a phone. It only mounts on /menu and /order,
+       * which are the two routes whose bottom-left corner already belongs
+       * to the order flow's own fixed bar — so a staff-only reminder was
+       * sitting on top of Order Takeout, or on the running cart total, at
+       * the exact moment somebody was tapping them. The top edge is the
+       * one strip of a phone that no control on this site occupies.
+       *
+       * The header is pushed down by exactly the ribbon's height rather
+       * than covered, via --test-ribbon-h. That variable is declared HERE,
+       * in markup that only exists when the cookie is valid, which keeps
+       * the whole mechanism inside the component that owns the state —
+       * globals.css defaults it to 0px and the header reads it always. A
+       * <style> element in a server component is the only way to say
+       * "this document is in test mode" without shipping a client
+       * component that could claim a state it cannot prove.
+       *
+       * `pointer-events-none` on both: it is not dismissible (see above)
+       * and it must never take a tap meant for what is underneath.
+       */}
+      <style>{`:root{--test-ribbon-h:24px}@media(min-width:640px){:root{--test-ribbon-h:0px}}`}</style>
+      <div
+        className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex h-6 items-center justify-center border-b-2 border-lacquer bg-gold text-[11px] font-semibold uppercase tracking-[0.15em] text-ink sm:hidden"
+        role="status"
+        aria-live="polite"
+      >
         <span
           aria-hidden="true"
-          className="inline-block h-2 w-2 rounded-full bg-lacquer"
+          className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-lacquer"
         />
         Test mode · gates off
-      </span>
-    </div>
+      </div>
+      <div
+        // Fixed and above the sticky order bar, which is z-50. The role is
+        // on BOTH copies rather than one: whichever is not at this width
+        // is `display: none`, which takes it out of the accessibility tree
+        // entirely, so exactly one live region ever exists.
+        className="pointer-events-none fixed bottom-3 left-3 z-[60] hidden sm:block"
+        role="status"
+        aria-live="polite"
+      >
+        <span className="inline-flex items-center gap-2 rounded-full border-2 border-lacquer bg-gold px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-ink shadow-lg">
+          <span
+            aria-hidden="true"
+            className="inline-block h-2 w-2 rounded-full bg-lacquer"
+          />
+          Test mode · gates off
+        </span>
+      </div>
+    </>
   );
 }

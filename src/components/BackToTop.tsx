@@ -90,12 +90,24 @@ export default function BackToTop() {
       // half is carried by the dictionary in both locales.
       aria-label={t("backToTop.aria")}
       title={t("backToTop.title")}
-      // bottom-16 on mobile clears the sticky order bar, exactly as
-      // TestModeBadge does on the other side; sm:bottom-3 once that bar
-      // is gone. `.btt` owns the transition, the hidden state, the
-      // reduced-motion switch and the print rule — see globals.css for
-      // why that cannot be done with utility classes here.
-      className={`btt fixed bottom-16 right-3 z-[55] flex h-11 w-11 items-center justify-center rounded-full border border-gold/60 bg-ink text-gold-light shadow-lg hover:border-gold hover:bg-gold hover:text-ink sm:bottom-3 ${
+      // 5.5rem, measured against the TALLER of the two bars that can hold
+      // this edge: the order bar is 53px, but StickyCartBar is 73px, and
+      // at the old bottom-16 (64px) this button overlapped the cart bar's
+      // total by 9px — z-55 meant it painted over the price. 88px clears
+      // 73 by 15. sm:bottom-3 once neither bar exists.
+      //
+      // The env() rides along because BOTH bars grow by the same inset —
+      // without it the button would sink into whichever one is up by
+      // exactly the height of the home indicator, and 0px elsewhere.
+      //
+      // It is also the only floating control in this corner, which is the
+      // rule: TestModeBadge is a top ribbon on mobile now, and the two
+      // bottom bars are full-width, not cornered.
+      //
+      // `.btt` owns the transition, the hidden state, the reduced-motion
+      // switch and the print rule — see globals.css for why that cannot be
+      // done with utility classes here.
+      className={`btt fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-3 z-[55] flex h-11 w-11 items-center justify-center rounded-full border border-gold/60 bg-ink text-gold-light shadow-lg hover:border-gold hover:bg-gold hover:text-ink sm:bottom-3 ${
         visible ? "" : "btt-hidden"
       }`}
     >

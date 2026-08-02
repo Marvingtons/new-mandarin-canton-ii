@@ -627,9 +627,12 @@ export default function Checkout({
             <dd className="text-lacquer">{formatCents(total)}</dd>
           </div>
         </dl>
+        {/* 158x21 at 390 — the only way back into the cart from this page,
+            and shorter than a thumb. `tap` takes the target to 44 without
+            moving the summary card's last line. */}
         <Link
           href="/menu#order"
-          className="mt-4 inline-block text-sm text-ink/60 underline underline-offset-2 hover:text-lacquer"
+          className="tap mt-4 inline-block text-sm text-ink/60 underline underline-offset-2 hover:text-lacquer"
         >
           ← {t("checkout.editOrder")}
         </Link>

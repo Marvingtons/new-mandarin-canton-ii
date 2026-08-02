@@ -165,10 +165,12 @@ function ItemSheetInner({
               <p className="mt-1 text-sm text-ink/70">{item.description}</p>
             )}
           </div>
+          {/* h-11 w-11 — see the identical × in CartDrawer. -mr-2 keeps
+              the glyph on the optical margin the px-2 version sat on. */}
           <button
             onClick={onClose}
             aria-label={t("sheet.close")}
-            className="shrink-0 rounded-full px-2 text-2xl leading-none text-ink/60 hover:text-ink"
+            className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-ink/60 hover:text-ink"
           >
             ×
           </button>
@@ -345,7 +347,10 @@ function ItemSheetInner({
             {chooseAfter}
           </p>
         )}
-        <div className="flex items-center gap-3 border-t border-gold/30 px-5 py-4">
+        {/* On a phone this sheet is `items-end`, so the Add bar ends at the
+            physical bottom edge and iOS draws the home indicator across
+            it. env() adds that strip and is 0px on hardware without one. */}
+        <div className="flex items-center gap-3 border-t border-gold/30 px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
           {/* Corners on the buttons, not a clip on the wrapper — see the
               same stepper in CartDrawer for why. */}
           <div className="flex items-center rounded-sm border border-gold/50">

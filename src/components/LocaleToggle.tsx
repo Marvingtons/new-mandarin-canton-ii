@@ -108,10 +108,24 @@ export default function LocaleToggle({
             //   ivory/85, over the hero     4.78
             // The track is why the inactive half improved: it was 5.6 on
             // bare lacquer before, because there was nothing under it.
+            // `tap` on the INACTIVE half only, and that is what makes it
+            // safe: the halves are flush against each other, so a 44px
+            // target around each would have them overlapping by 12px and
+            // the wrong language would win in the middle. The active half
+            // is `disabled` — it has no target to steal — so exactly one
+            // of the two ever carries this, and it may grow into its
+            // neighbour freely. Measured 32x15 at 390 before.
+            //
+            // tap-LEFT because this pill is the last thing on the header
+            // row: centred, the target reached 376.9px in a 375px viewport
+            // and put a 2px horizontal scroll on every page of the site.
+            // Growing leftward is also the direction with room in it —
+            // into the disabled half when EN is active, into the 36px gap
+            // after CONTACT when ES is.
             className={`rounded-full px-2 py-0.5 leading-none ${
               active
                 ? "bg-gold font-semibold text-ink"
-                : "token-colors text-ivory/85 hover:bg-ivory/10 hover:text-gold-light"
+                : "tap tap-left token-colors text-ivory/85 hover:bg-ivory/10 hover:text-gold-light"
             }`}
             title={
               active

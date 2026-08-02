@@ -143,9 +143,31 @@
   --font-chinese: var(--font-noto-tc), serif; /* bilingual headings, dish names */
 }
 
+/*
+ * ---- TEST MODE'S TOP RIBBON (see TestModeBadge.tsx) ------------------
+ *
+ * 0px here and 24px only inside the <style> that TestModeBadge renders,
+ * which exists only when the httpOnly cookie validates. Everything that
+ * has to move for the ribbon reads this ONE variable, so a document not
+ * in test mode is arithmetically identical to one that never heard of it.
+ *
+ * The ribbon is `fixed`, so it must be paid for twice: `body` padding for
+ * the static header on /menu and /order (the two routes the badge mounts
+ * on), and `top` on the home page's fixed header, which ignores body
+ * padding. The second is defensive — the badge is not mounted on the home
+ * route — but the pair is the complete statement and costs nothing.
+ */
+:root {
+  --test-ribbon-h: 0px;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
+  padding-top: var(--test-ribbon-h);
+}
+[data-site-header] {
+  top: var(--test-ribbon-h);
 }
 
 /*
@@ -983,6 +1005,65 @@ footer :focus-visible {
   .sob {
     display: none;
   }
+}
+
+/*
+ * ---- .tap — A 44px TOUCH TARGET AROUND TEXT-SIZED CONTROLS ----------
+ *
+ * A 390px audit found thirty-two controls under 44px, and most of them
+ * are text: the four nav links (44x20), the language pill's halves
+ * (32x15), the phone numbers inside prose (109x21), the footer's legal
+ * row (35x20). Every one of them is the size it is on purpose — the nav
+ * is 14px small-caps because that is the header's voice, and growing the
+ * type or the padding to reach 44 would grow the header with it.
+ *
+ * So the TARGET grows and the CONTROL does not. A transparent pseudo
+ * element, centred on the control, at least 44px in both directions:
+ * no box changes size, no line reflows, nothing moves by a pixel, and a
+ * thumb lands on the link. `width: 100%` with `min-width: 44px` means a
+ * control already wider than 44 keeps its own width and only gains
+ * height — which is what stops two links on one line from swallowing
+ * each other.
+ *
+ * ⚠️ NOT FOR TWO CONTROLS THAT CAN STACK IN THE SAME PARAGRAPH. Two
+ * .tap links on consecutive lines of 26px leading would overlap by 18px
+ * and the top one would eat taps meant for the bottom one. Every use
+ * here is either a single control on its line, or a row of controls
+ * side by side (checked: PhoneLinks renders its pair on one line at
+ * 390). Where controls genuinely stack, use real padding instead — see
+ * the menu's category pills, which take min-h-11 below `sm`.
+ *
+ * It is a pseudo element rather than `padding` + a negative margin
+ * because a negative margin is still layout: it would let neighbouring
+ * boxes overlap, which is the same collision by another route.
+ */
+.tap {
+  position: relative;
+}
+.tap::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  min-width: 44px;
+  height: 100%;
+  min-height: 44px;
+}
+/*
+ * Same target, anchored to the control's RIGHT edge so it can only grow
+ * leftward. For a control narrower than 44px that sits at the end of a
+ * row: the centred version measured 376.9px right at a 375px viewport —
+ * a real 2px horizontal scroll on the whole document, caught by the
+ * overflow sweep on /order/checkout and present on every page, because
+ * an absolutely positioned pseudo element still contributes scrollable
+ * overflow even though nothing is drawn in it.
+ */
+.tap-left::before {
+  left: auto;
+  right: 0;
+  transform: translateY(-50%);
 }
 
 /* Token-driven color transitions for CTAs/links */

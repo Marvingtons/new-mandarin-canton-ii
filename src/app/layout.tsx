@@ -119,8 +119,13 @@ export default async function RootLayout({
           <Header />
           <main className="flex-1">{children}</main>
           <Footer />
-          {/* Clearance so the fixed mobile bar never covers page footers. */}
-          <div aria-hidden="true" className="h-14 sm:hidden" />
+          {/* Clearance so the fixed mobile bar never covers page footers.
+              It grows with the home-indicator inset for the same reason
+              the bar does — the bar is 3.5rem plus that inset. */}
+          <div
+            aria-hidden="true"
+            className="h-[calc(3.5rem+env(safe-area-inset-bottom))] sm:hidden"
+          />
           <StickyOrderBar />
           {/* Bottom-right, opposite TestModeBadge. It opts itself out of the
               kitchen board by looking for [data-kitchen-surface]. */}

@@ -65,7 +65,10 @@ export default async function LocationMap({
           href={directionsUrl}
           target="_blank"
           rel="noopener"
-          className={`arrow-link token-colors mt-3 inline-block text-sm font-semibold underline decoration-gold/60 underline-offset-4 ${link}`}
+          /* 117x20 under the map on /contact — the last sub-44px control
+             on the marketing pages. `tap` takes the target to 44 and
+             leaves the line where it is. */
+          className={`arrow-link tap token-colors mt-3 inline-block text-sm font-semibold underline decoration-gold/60 underline-offset-4 ${link}`}
         >
           {t("footer.getDirections")} <span className="arrow">→</span>
         </a>

@@ -41,6 +41,10 @@ export default function Header() {
 
   return (
     <header
+      // The attribute is the hook globals.css uses to offset the fixed
+      // state by --test-ribbon-h; `top-0` stays as the value that variable
+      // resolves to when nothing is in test mode.
+      data-site-header=""
       className={`border-b-2 text-ivory transition-colors duration-300 ${
         isHome ? "fixed inset-x-0 top-0 z-50" : ""
       } ${overHero ? "border-transparent bg-transparent" : "border-gold/60 bg-lacquer"}`}
@@ -92,7 +96,11 @@ export default function Header() {
                     <Link
                       href={href}
                       aria-current={active ? "page" : undefined}
-                      className={`nav-link token-colors ${
+                      // `tap` extends the target to 44px without moving
+                      // the label: these measured 44x20 at 390, and
+                      // padding that reached 44 would add 24px to the
+                      // header on every page. See globals.css.
+                      className={`nav-link tap token-colors ${
                         active
                           ? "nav-link-active text-gold-light"
                           : "hover:text-gold-light"

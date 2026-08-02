@@ -1,8 +1,14 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import OrderTakeout from "@/components/OrderTakeout";
 import { telHref } from "@/data/restaurant";
+import {
+  getBottomBarClaimed,
+  getBottomBarClaimedServer,
+  subscribeBottomBar,
+} from "@/lib/bottomBarSlot";
 import { usePastHero } from "@/lib/headerState";
 import { useT } from "@/lib/i18n/LocaleContext";
 
@@ -38,11 +44,34 @@ import { useT } from "@/lib/i18n/LocaleContext";
  * single gold line instead of a focus indicator. Nothing is clipped; the
  * one child that could poke through carries its own corner.
  */
+/**
+ * Pages where this bar is not chrome but an interruption: the customer is
+ * inside the order they came to place, and "Order Takeout" would take them
+ * back to the menu they have already finished with. A fixed bar across the
+ * bottom of a form is also the thing that ends up between a phone keyboard
+ * and the field it is covering.
+ *
+ * /menu is deliberately NOT here — there it is the only order control above
+ * the fold, and StickyCartBar takes the same corner from it the moment the
+ * cart is not empty.
+ */
+const ORDER_FLOW = ["/order/checkout", "/order/confirmation"];
+
 export default function StickyOrderBar() {
   const t = useT();
   const pathname = usePathname();
   const pastHero = usePastHero();
-  const shown = pathname !== "/" || pastHero;
+  // StickyCartBar takes this corner the moment the cart is not empty:
+  // a running total and the way to checkout beat a link back to the menu.
+  const cartBarUp = useSyncExternalStore(
+    subscribeBottomBar,
+    getBottomBarClaimed,
+    getBottomBarClaimedServer,
+  );
+  const shown =
+    !cartBarUp &&
+    !ORDER_FLOW.includes(pathname) &&
+    (pathname !== "/" || pastHero);
 
   return (
     <div
@@ -55,12 +84,17 @@ export default function StickyOrderBar() {
         shown ? "" : "sob-hidden"
       }`}
     >
-      <OrderTakeout className="flex-1 rounded-tl-lg bg-gold py-3.5 font-semibold text-ink transition-colors active:bg-gold-light">
+      {/* env() goes on the two SEGMENTS, not the bar: each carries its own
+          background edge to edge, so padding the bar would leave an ink
+          strip under the gold half. Both extend their own colour into the
+          home-indicator zone instead, and env() is 0px where there is no
+          indicator. */}
+      <OrderTakeout className="flex-1 rounded-tl-lg bg-gold py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] font-semibold text-ink transition-colors active:bg-gold-light">
         {t("hero.orderTakeout")}
       </OrderTakeout>
       <a
         href={telHref}
-        className="flex-1 border-l border-gold/40 py-3.5 font-semibold text-ivory transition-colors active:text-gold-light"
+        className="flex-1 border-l border-gold/40 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] font-semibold text-ivory transition-colors active:text-gold-light"
       >
         {t("hero.call")}
       </a>

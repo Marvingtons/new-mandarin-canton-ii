@@ -130,8 +130,16 @@ export default async function Footer() {
           </h2>
           {/* Summary and table are the same data at two resolutions, which
               is worth keeping — but the table is the answer, so the line
-              above it is set quieter than the rows it introduces. */}
-          <p className="mt-3 text-xs leading-relaxed text-ivory/50">
+              above it is set quieter than the rows it introduces.
+
+              text-sm, not text-xs. The 390 pass found the footer holding
+              every remaining sub-14px sentence on the site — this line,
+              the cutoff note below, the pickup line and the copyright —
+              and unlike the small-caps labels around them, none of them
+              is a label. They are sentences, and 12px running text on a
+              phone is where "quieter" turns into "not read". Quiet is
+              still carried by the opacity, which is what it was for. */}
+          <p className="mt-3 text-sm leading-relaxed text-ivory/50">
             {weeklyOpeningSummary}
           </p>
           <HoursTable tone="dark" dense className="mt-4" />
@@ -141,7 +149,7 @@ export default async function Footer() {
               agreeing on a cutoff this renders nothing rather than one
               number standing in for two. */}
           {sharedLastOnlineOrder && (
-            <p className="mt-3 text-xs leading-relaxed text-ivory/50">
+            <p className="mt-3 text-sm leading-relaxed text-ivory/50">
               {t("footer.lastOnlineOrder", { time: sharedLastOnlineOrder })}
             </p>
           )}
@@ -160,7 +168,7 @@ export default async function Footer() {
         </div>
       </div>
 
-      <div className="border-t border-ivory/10 px-4 py-7 text-center text-xs leading-relaxed text-ivory/50">
+      <div className="border-t border-ivory/10 px-4 py-7 text-center text-sm leading-relaxed text-ivory/50">
         {/* Stated sitewide: we never deliver, and a customer should never have
             to reach the cart to find that out.
             English only, deliberately. The customer-facing site carries no
@@ -180,15 +188,22 @@ export default async function Footer() {
             else should have to look at it.
 
             ivory/60, not ivory/40. At /40 these measured 3.5:1 on ink,
-            which is under the 4.5:1 a 12px link needs — so "findable" was
-            not actually true for anyone whose eyes are not perfect, and
-            the privacy link is the one on this row that has to be. /60 is
-            6.25:1 and still reads quiet, because it is three short links at
-            12px on their own row rather than a full-width statement. */}
+            which is under the 4.5:1 they need — so "findable" was not
+            actually true for anyone whose eyes are not perfect, and the
+            privacy link is the one on this row that has to be. /60 is
+            6.25:1 and still reads quiet, because it is three short links
+            on their own row rather than a full-width statement.
+
+            They were also 41x20, 35x20 and 102x20 at 390 — the smallest
+            targets in the footer, on the row a customer reaches for
+            precisely when they are being careful. `tap` takes each to 44px
+            without moving the row; the 10px gaps plus the middots leave
+            24px between neighbours, so the extended targets clear each
+            other by 14. */}
         <p className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1">
           <Link
             href="/privacy"
-            className="text-ivory/60 transition-colors hover:text-ivory/85"
+            className="tap text-ivory/60 transition-colors hover:text-ivory/85"
           >
             {t("footer.privacy")}
           </Link>
@@ -197,7 +212,7 @@ export default async function Footer() {
           </span>
           <Link
             href="/terms"
-            className="text-ivory/60 transition-colors hover:text-ivory/85"
+            className="tap text-ivory/60 transition-colors hover:text-ivory/85"
           >
             {t("footer.terms")}
           </Link>
@@ -208,7 +223,7 @@ export default async function Footer() {
             href="https://norvix.ai"
             target="_blank"
             rel="noopener"
-            className="text-ivory/60 transition-colors hover:text-ivory/85"
+            className="tap text-ivory/60 transition-colors hover:text-ivory/85"
           >
             Website by Norvix
           </a>
