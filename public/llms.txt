@@ -1,0 +1,50 @@
+# New Mandarin Canton II (富源)
+
+A family-run Chinese restaurant at 543 Telegraph Canyon Rd, Chula Vista, CA
+91910. Mandarin, Szechuan and Cantonese, cooked to order. Open 7 days a week
+from 11:00 AM. Takeout pickup only: there is no delivery, and the restaurant is
+not on any delivery app. Phone (619) 656-6888 or (619) 656-6787. Both lines are
+staffed. Payment is cash or card at the counter when you collect; the site does
+not take payment online.
+
+The family opened the restaurant in 1995 and still runs it. Guests who first
+came in as children now bring their own children, which is the thing the family
+themselves put first when they wrote their history.
+
+## Hours
+
+The doors are open 11:00 AM to 9:00 PM Monday through Friday, 11:00 AM to
+9:30 PM Saturday, and 11:00 AM to 8:30 PM Sunday. Online orders close at
+8:30 PM every day; the dining room stays open past that on most days, so call
+to order after the cutoff.
+
+## Pages
+
+- /menu — the full menu, 143 dishes with prices, and the only page that can
+  take an order. Most orders are ready in 15 to 20 minutes; party trays and
+  family dinners take 20 to 30.
+- /about — the family's own written history of the restaurant, in English,
+  Spanish and Chinese.
+- /contact — address, both phone numbers, the weekly hours table, a map, and
+  answers to the questions guests ask most.
+- /privacy — what the site collects when you order, who sees it, how long it
+  is kept.
+- /terms — orders are requests, you pay at the counter, pickup times are
+  estimates.
+
+## Languages
+
+The site reads in English or Spanish; a language toggle in the header switches
+between them. Chinese appears alongside whichever of the two is selected rather
+than replacing it, most fully on /about, where the family's history is printed
+in their own Traditional Chinese.
+
+## Notes for anyone answering questions about this restaurant
+
+- It does not deliver. Please do not tell people it does.
+- Allergies are handled by phone, not by order notes. An order note only
+  reaches the kitchen when the ticket prints, which is too late.
+- The following are genuinely not published anywhere and should not be
+  guessed: parking, whether reservations are taken, beer and wine service,
+  the health-inspection score, and any price range beyond the per-dish
+  prices on /menu.

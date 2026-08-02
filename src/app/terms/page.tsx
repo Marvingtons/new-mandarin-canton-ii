@@ -22,6 +22,7 @@ import { getT } from "@/lib/i18n/server";
 
 export const metadata: Metadata = {
   title: "Terms",
+  alternates: { canonical: "/terms" },
   description:
     "The terms for ordering pickup from New Mandarin Canton II: orders are requests, you pay at the counter, and pickup times are estimates.",
 };

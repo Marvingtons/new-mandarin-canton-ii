@@ -4,6 +4,9 @@ import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
 import Header from "@/components/Header";
+import JsonLd from "@/components/JsonLd";
+import { graph, restaurantNode, websiteNode } from "@/lib/schema";
+import { siteUrl } from "@/lib/siteUrl";
 import Footer from "@/components/Footer";
 import BackToTop from "@/components/BackToTop";
 import LoadingOverlay from "@/components/LoadingOverlay";
@@ -32,10 +35,21 @@ const notoSerifTC = Noto_Serif_TC({
 });
 
 export const metadata: Metadata = {
+  /* Every relative URL in every page's metadata resolves against this.
+     Without it, Next builds og:image off the REQUEST host — which is
+     correct in production by luck and wrong on any preview deployment,
+     and which made the local og:image read http://localhost:54185/…
+     Same env override as sitemap.ts and robots.ts, so the three files
+     cannot disagree about what this site's address is. */
+  metadataBase: new URL(siteUrl()),
   title: {
     default: "New Mandarin Canton II | Chinese Restaurant in Chula Vista, CA",
     template: "%s | New Mandarin Canton II",
   },
+  /* The homepage's canonical. Every other page sets its own; none of
+     them had one, so a crawler reaching /menu?utm_source=… had nothing
+     telling it that was the same page as /menu. */
+  alternates: { canonical: "/" },
   /* 154 characters. The one it replaces was 163 — over the ~160 a
      result snippet shows — and spent its last 44 on two phone numbers,
      so the part that got cut was the part a search result exists to
@@ -91,6 +105,14 @@ export default async function RootLayout({
       className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
     >
       <body className="flex min-h-dvh flex-col font-body">
+        {/* WHO THIS IS, on every page — the two nodes that never change.
+            In the root layout rather than per page so a crawler that
+            lands anywhere (a legal page, a 404) still resolves the
+            business. Pages that have more to say add their own block:
+            /menu the full menu graph, /contact the FAQ, each with its
+            own breadcrumb trail. They reference these two by @id rather
+            than restating them. */}
+        <JsonLd data={graph(restaurantNode(), websiteNode())} />
         <LocaleProvider locale={locale}>
           <SmoothScroll />
           <LoadingOverlay />

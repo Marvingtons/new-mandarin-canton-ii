@@ -262,7 +262,7 @@ export const en = {
      have", in full sentences. Same claim, their rhythm, and the 1995
      they confirmed now stands here too. */
   "home.storyBody":
-    "New Mandarin Canton II is a family-run room on Telegraph Canyon Road: calligraphy on the walls, an altar by the door with incense and fresh tangerines. We opened in 1995, and we cook Mandarin, Szechuan and Cantonese dishes the way we always have.",
+    "New Mandarin Canton II is a family-run Chinese restaurant on Telegraph Canyon Road: calligraphy on the walls, an altar by the door with incense and fresh tangerines. We opened in 1995, and we cook Mandarin, Szechuan and Cantonese dishes the way we always have.",
   "home.readOurStory": "Read our story",
   "home.roomTitle": "The Room",
   "home.roomIntro": "Come in. The room is part of the meal.",
@@ -335,6 +335,54 @@ export const en = {
      would make it harder, not easier, for them to say no. */
   "about.memorial":
     "A restaurant open this long outlives some of the people who built it. When one of the original owners passed away, someone who had worked here since the early days became an owner and kept it open. The kitchen carried on as it was.",
+
+  /* ---- FAQ (contact page) ----
+     ⚠️ EVERY ANSWER IS A FACT THIS REPO ALREADY HOLDS, and each one is
+     the same fact some other surface already states — the notice card,
+     the checkout, the footer, the hours table. Nothing here is new
+     information, which is the test a FAQ has to pass: it is the
+     questions people actually ask, answered where an answer engine can
+     read them, not a place to make claims that appear nowhere else.
+
+     WHAT IS DELIBERATELY NOT ASKED: parking, reservations, beer & wine,
+     high chairs, catering radius, health score. Every one of those is a
+     `null` in data/restaurant.ts, and a plausible-sounding answer to any
+     of them would be exactly the invented fact this codebase spends its
+     comments refusing to print. They are on the list for the family.
+
+     These strings are rendered visibly AND emitted as FAQPage schema
+     from the same keys — Google requires the two to match, and sharing
+     the key is the only way that stays true.
+
+     No 中文 halves: the answers restate lines that have them
+     (banner.allergy, banner.onlineUntil) and lines that do not, so a
+     half-Chinese FAQ would be worse than none. The 中文 belongs to the
+     notices these answers point back to. */
+  "faq.title": "Questions we get asked",
+  "faq.q.delivery": "Do you deliver?",
+  "faq.a.delivery":
+    "No. We are takeout pickup only, and we are not on any delivery app. You order here or by phone, then collect it at the counter.",
+  "faq.q.howLong": "How long does an order take?",
+  "faq.a.howLong":
+    "Most orders are ready in 15 to 20 minutes. Party trays and family dinners take 20 to 30.",
+  "faq.q.pay": "How do I pay?",
+  "faq.a.pay":
+    "At the counter when you pick up, by cash or card. We do not take payment online.",
+  "faq.q.phone": "Can I order by phone?",
+  "faq.a.phone":
+    "Yes. Call (619) 656-6888 or (619) 656-6787. Both lines are staffed.",
+  "faq.q.onlineCutoff": "How late can I order online?",
+  "faq.a.onlineCutoff":
+    "Online orders close at {time} every day. The dining room stays open past that, so please call to order after it.",
+  "faq.q.food": "What kind of food do you cook?",
+  "faq.a.food":
+    "Mandarin, Szechuan and Cantonese, cooked to order. The family has been cooking it here since 1995.",
+  "faq.q.where": "Where are you?",
+  "faq.a.where":
+    "543 Telegraph Canyon Rd, Chula Vista, CA 91910. We are open 7 days a week from 11:00 AM.",
+  "faq.q.allergies": "I have a food allergy. What should I do?",
+  "faq.a.allergies":
+    "Please call us before you order rather than leaving a note. An order note only reaches the kitchen when your ticket prints, and an allergy is not something we want to find out that late.",
 
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacy",
@@ -584,7 +632,7 @@ export const es: Record<TranslationKey, string> = {
      tables in it is the comedor. */
   "home.storyTitle": "Nuestra historia",
   "home.storyBody":
-    "New Mandarin Canton II es un comedor familiar en Telegraph Canyon Road: caligrafía en las paredes, un altar junto a la puerta con incienso y mandarinas frescas. Abrimos en 1995, y cocinamos comida mandarina, sichuanesa y cantonesa como siempre lo hemos hecho.",
+    "New Mandarin Canton II es un restaurante chino familiar en Telegraph Canyon Road: caligrafía en las paredes, un altar junto a la puerta con incienso y mandarinas frescas. Abrimos en 1995, y cocinamos comida mandarina, sichuanesa y cantonesa como siempre lo hemos hecho.",
   "home.readOurStory": "Lea nuestra historia",
   "home.roomTitle": "El comedor",
   "home.roomIntro": "Pase. El comedor es parte de la comida.",
@@ -624,6 +672,37 @@ export const es: Record<TranslationKey, string> = {
     "三十多年來，時代在變化，但我們對品質的堅持、對味道的執著、對每一位客人的用心從未改變。未來，我們也將繼續秉持初心，堅持做好每一道菜、服務好每一位客人，讓這份熟悉的味道和溫暖一直傳承下去。",
   "about.memorial":
     "Un restaurante abierto tanto tiempo sobrevive a algunas de las personas que lo levantaron. Cuando uno de los dueños originales falleció, alguien que trabajaba aquí desde los primeros años se hizo dueño y lo mantuvo abierto. La cocina siguió igual.",
+
+  /* ---- FAQ (contact page) ----
+     Same register as the rest: usted for the guest, nosotros for the
+     family. "Solo para recoger" and "pague en el mostrador" are the
+     exact phrases the cart and checkout already use, so a customer who
+     reads the FAQ and then orders sees the same words twice. */
+  "faq.title": "Preguntas que nos hacen",
+  "faq.q.delivery": "¿Hacen entregas a domicilio?",
+  "faq.a.delivery":
+    "No. Somos solo para recoger, y no estamos en ninguna app de entrega. Ordene aquí o por teléfono, y recoja en el mostrador.",
+  "faq.q.howLong": "¿Cuánto tarda una orden?",
+  "faq.a.howLong":
+    "La mayoría de las órdenes están listas en 15 a 20 minutos. Las charolas para fiesta y las cenas familiares tardan de 20 a 30.",
+  "faq.q.pay": "¿Cómo puedo pagar?",
+  "faq.a.pay":
+    "En el mostrador cuando recoja, con efectivo o tarjeta. No aceptamos pagos en línea.",
+  "faq.q.phone": "¿Puedo ordenar por teléfono?",
+  "faq.a.phone":
+    "Sí. Llame al (619) 656-6888 o al (619) 656-6787. Las dos líneas están atendidas.",
+  "faq.q.onlineCutoff": "¿Hasta qué hora puedo ordenar en línea?",
+  "faq.a.onlineCutoff":
+    "Las órdenes en línea cierran a las {time} todos los días. El restaurante sigue abierto después, así que por favor llame para ordenar.",
+  "faq.q.food": "¿Qué tipo de comida preparan?",
+  "faq.a.food":
+    "Comida mandarina, sichuanesa y cantonesa, hecha al momento. La familia lleva cocinándola aquí desde 1995.",
+  "faq.q.where": "¿Dónde están?",
+  "faq.a.where":
+    "543 Telegraph Canyon Rd, Chula Vista, CA 91910. Abrimos los 7 días de la semana desde las 11:00 AM.",
+  "faq.q.allergies": "Tengo una alergia alimentaria. ¿Qué hago?",
+  "faq.a.allergies":
+    "Por favor llámenos antes de ordenar, en lugar de dejar una nota. Una nota llega a la cocina solo cuando se imprime su ticket, y una alergia no es algo que queramos saber tan tarde.",
 
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacidad",

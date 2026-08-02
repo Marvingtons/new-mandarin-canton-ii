@@ -27,6 +27,7 @@ import { getT } from "@/lib/i18n/server";
 
 export const metadata: Metadata = {
   title: "Privacy",
+  alternates: { canonical: "/privacy" },
   description:
     "What New Mandarin Canton II collects when you order pickup online, who else sees it, and how long it is kept.",
 };

@@ -7,9 +7,19 @@ import PhotoFrame from "@/components/PhotoFrame";
 import { photos } from "@/data/images";
 import { phoneLinks, restaurant } from "@/data/restaurant";
 import { getT } from "@/lib/i18n/server";
+import FaqSection from "@/components/FaqSection";
+import JsonLd from "@/components/JsonLd";
+import { breadcrumbNode, graph } from "@/lib/schema";
 
 export const metadata: Metadata = {
   title: "Contact",
+  alternates: { canonical: "/contact" },
+  /* 152 characters. This page had no description at all, so it silently
+     inherited the homepage's — the same 154 characters about the whole
+     restaurant served as the summary of the page that answers "where
+     are they and when are they open". */
+  description:
+    "New Mandarin Canton II is at 543 Telegraph Canyon Rd, Chula Vista, open 7 days from 11 AM. Call (619) 656-6888 or (619) 656-6787 for takeout pickup.",
 };
 
 /**
@@ -28,6 +38,14 @@ export default async function ContactPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-20 pt-8">
+      <JsonLd
+        data={graph(
+          breadcrumbNode([
+            { name: "Home", path: "/" },
+            { name: "Contact", path: "/contact" },
+          ]),
+        )}
+      />
       <SectionHeading as="h1" en={t("contact.title")} />
 
       {/* The three small-caps labels below are text-lacquer, not text-gold.
@@ -93,6 +111,12 @@ export default async function ContactPage() {
       </div>
 
       <LocationMap aspect="16/7" tone="light" className="mt-14" />
+
+      {/* THE FAQ LIVES HERE and not on its own page. Every answer is
+          about visiting or ordering, which is this page's whole subject,
+          and a one-question-per-page FAQ site is how a five-page
+          restaurant site turns into thirty pages nobody links to. */}
+      <FaqSection className="mt-16" />
     </div>
   );
 }

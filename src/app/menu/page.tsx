@@ -3,9 +3,12 @@ import { getMenu } from "@/lib/menu/source";
 import { publicTenant } from "@/config/tenant.server";
 import OrderMenu from "@/components/order/OrderMenu";
 import { isLunchService } from "@/lib/order/gates";
+import JsonLd from "@/components/JsonLd";
+import { breadcrumbNode, graph, menuGraph } from "@/lib/schema";
 
 export const metadata: Metadata = {
   title: "Menu",
+  alternates: { canonical: "/menu" },
   /* 158 characters. "Order pickup straight from the family" is the
      menu page's own tagline (`menu.intro`), so the search result and
      the page it opens now say the same thing in the same voice. */
@@ -56,11 +59,33 @@ export default async function MenuPage() {
     intervalMinutes: tenant.pickupSlotIntervalMinutes,
   });
   return (
-    <OrderMenu
-      menu={menu}
-      taxRateBps={tenant.taxRateBps}
-      timezone={tenant.timezone}
-      lunchOpenInitial={lunchOpen}
-    />
+    <>
+      {/* THE MENU, FOR MACHINES. 143 dishes with their real prices,
+          generated from the same data/menu.ts the page below renders —
+          see lib/schema.ts. This is the one page on the site an answer
+          engine has a concrete reason to cite ("what does the kung pao
+          cost at New Mandarin Canton II"), and until now the only way to
+          get that answer was to parse the layout.
+
+          `menu` here is the NORMALIZED catalogue from getMenu(); the
+          graph reads the printed-menu source directly, because that is
+          the one with the party-tray prices and the printed size tiers
+          on it. */}
+      <JsonLd
+        data={graph(
+          menuGraph(),
+          breadcrumbNode([
+            { name: "Home", path: "/" },
+            { name: "Menu", path: "/menu" },
+          ]),
+        )}
+      />
+      <OrderMenu
+        menu={menu}
+        taxRateBps={tenant.taxRateBps}
+        timezone={tenant.timezone}
+        lunchOpenInitial={lunchOpen}
+      />
+    </>
   );
 }

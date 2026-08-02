@@ -8,9 +8,12 @@ import { yearsOpen } from "@/data/restaurant";
 import { translator } from "@/lib/i18n/dictionary";
 import { getLocale } from "@/lib/i18n/server";
 import { spellYears, yearsInChinese } from "@/lib/years";
+import JsonLd from "@/components/JsonLd";
+import { breadcrumbNode, graph } from "@/lib/schema";
 
 export const metadata: Metadata = {
   title: "About",
+  alternates: { canonical: "/about" },
   /* 148 characters. This page had a title and no description at all, so
      search engines were quoting whatever they scraped off the top of
      it. Middle sentence is the story's own claim, compressed. */
@@ -74,6 +77,14 @@ export default async function AboutPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-20 pt-8">
+      <JsonLd
+        data={graph(
+          breadcrumbNode([
+            { name: "Home", path: "/" },
+            { name: "About", path: "/about" },
+          ]),
+        )}
+      />
       <SectionHeading as="h1" en={t("about.title")} />
       {/* ground="light": this page is ivory, where the footer's gold
           treatment measures 2.17:1. See Established. */}
