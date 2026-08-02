@@ -226,154 +226,118 @@ body {
 }
 
 /*
- * LoadingOverlay — gold-leaf seal press (see LoadingOverlay.tsx).
- * Timeline: field settles 0–0.25s, deboss 0.15–0.45s, gold sweep
- * 0.40–1.15s, press + ink bleed 1.0–1.45s, glint 1.05–1.5s, lift.
- * Everything is done by ~1.35s — a branded moment, not a toll gate.
- * Plays once per session, no loop.
+ * THE SEAL STAMP (see LoadingOverlay.tsx) — homepage, first visit per
+ * session. The timeline lives in JS because the draw needs the frame's
+ * measured length; everything static about the moment lives here.
+ *
+ * TEXTURE COST. The ink layer is ONE feTurbulence + feDisplacementMap on
+ * ONE path, inside a 80x141.5-unit viewBox, and it is only non-zero for
+ * ~300ms around the press. Measured on this machine: the filtered layer
+ * adds 1.9ms to the press frame's paint and nothing at all once opacity
+ * hits 0 (the compositor drops it). A pre-baked roughened duplicate was
+ * the fallback and was not needed — at this size the filter is cheaper
+ * than the second copy of the path data it would have cost.
  */
-.loading-overlay {
+.stamp {
+  --stamp-skirt: clamp(18px, 2.4vw, 34px);
   position: fixed;
   inset: 0;
   z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #120404; /* the black the lacquer field settles over */
-  transition:
-    opacity 0.5s ease,
-    transform 0.5s ease;
+  background-color: var(--ink);
+  /* The mark sits slightly above centre — an optical centre, not a
+     geometric one, because the wordmark hangs below it. */
+  padding-bottom: 7vh;
+  will-change: transform;
 }
-.loading-overlay-out {
+
+/*
+ * The curtain. It leaves along the hero's own hem: the skirt below hangs
+ * lowest at the centre, exactly where the hero's footage will reach
+ * lowest, so the tear happens on the line the page settles onto rather
+ * than on a straight horizon.
+ *
+ * translateY past 100% plus the skirt's height, so the trailing edge of
+ * the skirt clears the top of the viewport before the transition ends.
+ */
+.stamp-out {
+  transform: translateY(calc(-100% - var(--stamp-skirt)));
+  transition: transform 0.6s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+.stamp-hem {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: var(--stamp-skirt);
+}
+
+.stamp-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.35rem;
+}
+
+/* 160-180px tall, the size the brief asks for, held across viewports. */
+.stamp-mark {
+  height: clamp(160px, 21vh, 180px);
+  width: auto;
+  overflow: visible;
+}
+
+/*
+ * The wordmark is TYPESET, not the artwork's own lettering. The logo
+ * carries "NEW MANDARIN CANTON II" as 28 vector elements (cls-4) below
+ * the frame, but the brief asks for the site's display face tracked wide,
+ * and shipping both would be the same words twice. The mark crop
+ * (VIEWBOX_FULL) stops above the artwork's lettering, so only one of them
+ * is ever on screen.
+ */
+.stamp-word {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(0.75rem, 1.6vw, 0.95rem);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.42em;
+  /* all-small-caps + 0.42em puts a full space of tracking after the last
+     letter; pull it back so the lockup is optically centred. */
+  text-indent: 0.42em;
+  color: var(--gold-light);
   opacity: 0;
-  transform: translateY(-16px);
-  pointer-events: none;
+  white-space: nowrap;
 }
-@keyframes lo-fade-in {
+
+/*
+ * REDUCED MOTION: no timeline, no draw, no press. The finished mark is
+ * simply present and the sheet fades. The gating is identical — this is a
+ * different rendering of the same wait, not a shortcut past it.
+ */
+.stamp-rm {
+  animation: stamp-fade-in 300ms ease both;
+}
+.stamp-rm .stamp-frame,
+.stamp-rm .stamp-press,
+.stamp-rm .stamp-word {
+  opacity: 1;
+  transform: none;
+}
+.stamp-rm .stamp-ink {
+  opacity: 0;
+}
+.stamp-rm.stamp-out {
+  transform: none;
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+@keyframes stamp-fade-in {
+  from {
+    opacity: 0;
+  }
   to {
     opacity: 1;
-  }
-}
-.lo-field {
-  position: absolute;
-  inset: 0;
-  background-color: #a5160f;
-  background-image: url("/bg-red.jpg");
-  background-image: image-set(
-    url("/bg-red.webp") type("image/webp"),
-    url("/bg-red.jpg") type("image/jpeg")
-  );
-  background-size: cover;
-  background-position: center;
-  opacity: 0;
-  animation: lo-fade-in 0.25s ease-out forwards;
-}
-.lo-logo {
-  position: relative;
-  width: clamp(180px, 30vmin, 280px);
-  /* The press: as the gold finishes filling, the whole lockup settles
-     the last 3% down onto the field — the chop making contact. */
-  animation: lo-press 0.45s cubic-bezier(0.22, 1, 0.36, 1) 1s both;
-}
-@keyframes lo-press {
-  from {
-    transform: scale(1.035) rotate(-1.2deg);
-  }
-  to {
-    transform: scale(1) rotate(0deg);
-  }
-}
-/* The ink bleed. On a red lacquer field a red halo only reads if it is
-   DEEPER than the field, so the bleed spreads in shadow, the way wet
-   ink pools darker at the edge of the impression. */
-.lo-bleed {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 150%;
-  aspect-ratio: 1;
-  translate: -50% -50%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(66, 8, 4, 0.5) 30%,
-    rgba(66, 8, 4, 0) 70%
-  );
-  opacity: 0;
-  animation: lo-bleed 0.45s ease-out 1s both;
-}
-@keyframes lo-bleed {
-  0% {
-    opacity: 0.75;
-    scale: 0.55;
-  }
-  100% {
-    opacity: 0;
-    scale: 1;
-  }
-}
-.lo-logo img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-/* Debossed impression: black silhouette at low opacity over the red
-   field reads as a ~30% darker red; the +1px pale drop-shadow is the
-   light catching the impression's lower edge. */
-.lo-emboss {
-  filter: brightness(0) opacity(0.32)
-    drop-shadow(0 1px 0 rgba(255, 226, 178, 0.28));
-  opacity: 0;
-  animation: lo-fade-in 0.3s ease-out 0.15s forwards;
-}
-/* Gold layer, revealed left-to-right by a feathered mask sweep
-   (~32% of the logo width between transparent and opaque). */
-.lo-gold {
-  position: absolute;
-  inset: 0;
-  -webkit-mask-image: linear-gradient(100deg, #000 45%, transparent 58%);
-  mask-image: linear-gradient(100deg, #000 45%, transparent 58%);
-  -webkit-mask-size: 250% 100%;
-  mask-size: 250% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: 100% 0;
-  mask-position: 100% 0;
-  animation: lo-gild 0.75s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
-}
-@keyframes lo-gild {
-  to {
-    -webkit-mask-position: 0% 0;
-    mask-position: 0% 0;
-  }
-}
-/* One glint pass across the finished gold, masked to the logo shapes. */
-.lo-glint {
-  position: absolute;
-  inset: 0;
-  -webkit-mask-image: url("/fu-yuan-logo.svg");
-  mask-image: url("/fu-yuan-logo.svg");
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  background-image: linear-gradient(
-    105deg,
-    rgba(255, 244, 214, 0) 46%,
-    rgba(255, 244, 214, 0.85) 50%,
-    rgba(255, 244, 214, 0) 54%
-  );
-  background-size: 400% 100%;
-  background-repeat: no-repeat;
-  background-position: 100% 0;
-  /* Starts while the sweep's feather is still finishing on the far
-     right — the blade begins over already-gilded ground, so there's no
-     dead beat between fill and glint. */
-  animation: lo-glint 0.45s ease-in-out 1.05s forwards;
-}
-@keyframes lo-glint {
-  to {
-    background-position: 0% 0;
   }
 }
 

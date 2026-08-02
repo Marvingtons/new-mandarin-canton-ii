@@ -1,5 +1,6 @@
 import KnotMark from "@/components/motifs/KnotMark";
 import Seal from "@/components/Seal";
+import { ARC_VIEWBOX, RULE_D } from "@/lib/brand/arc";
 
 interface GoldDividerProps {
   /**
@@ -79,20 +80,19 @@ export default function GoldDivider({
  * built — the rule is simply already drawn.
  */
 function ArcRule({ side }: { side: "left" | "right" }) {
-  const left = side === "left";
   return (
     <svg
       data-divider-rule
       data-divider-side={side}
       className="gd-rule"
-      viewBox="0 0 100 10"
+      viewBox={ARC_VIEWBOX}
       // The arc is a proportion of the box, not of the viewBox: stretched
       // to whatever width flex hands it and to the height the clamp sets.
       preserveAspectRatio="none"
       fill="none"
     >
       <path
-        d={left ? "M100 2C70 2 45 9 0 9" : "M0 2C30 2 55 9 100 9"}
+        d={RULE_D(side)}
         stroke="currentColor"
         strokeWidth="1"
         // Without this the 1px stroke is stretched by the same non-uniform

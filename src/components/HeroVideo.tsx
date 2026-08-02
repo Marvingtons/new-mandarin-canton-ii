@@ -6,8 +6,9 @@ import IncenseSmoke from "@/components/IncenseSmoke";
 import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
 import PhoneLinks from "@/components/PhoneLinks";
+import { ARC_VIEWBOX, HEM_D } from "@/lib/brand/arc";
 import { useT } from "@/lib/i18n/LocaleContext";
-import { onIntroLifted } from "@/lib/introSignal";
+import { introWillPlay, onIntroLifted } from "@/lib/introSignal";
 import { restaurant } from "@/data/restaurant";
 
 /**
@@ -65,7 +66,7 @@ export default function HeroVideo() {
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
     let unsubscribe: (() => void) | undefined;
-    if (document.querySelector(".loading-overlay")) {
+    if (introWillPlay()) {
       unsubscribe = onIntroLifted(() => setUnveiled(true));
       timers.push(setTimeout(() => setUnveiled(true), 12000));
     } else {
@@ -187,6 +188,11 @@ export default function HeroVideo() {
               (~1.35s), and "metadata" would stall the unveil. */}
           <video
             ref={videoARef}
+            // The preloader gates its wipe on THIS element's readyState —
+            // it is the copy that plays first, so it is the one whose
+            // buffering decides whether the reveal lands on motion. The
+            // attribute is the whole contract; see LoadingOverlay.
+            data-hero-primary=""
             className="hero-video absolute inset-0 h-full w-full object-cover"
             src={HERO_VIDEO_SRC}
             poster={HERO_POSTER}
@@ -256,13 +262,10 @@ export default function HeroVideo() {
       <svg
         aria-hidden="true"
         className="hero-hem pointer-events-none absolute inset-x-0 bottom-0 z-[13] w-full"
-        viewBox="0 0 100 10"
+        viewBox={ARC_VIEWBOX}
         preserveAspectRatio="none"
       >
-        <path
-          d="M0 0C25 0 25 10 50 10C75 10 75 0 100 0L100 10L0 10Z"
-          fill="var(--cream)"
-        />
+        <path d={HEM_D} fill="var(--cream)" />
       </svg>
 
       {/* Content — z-20, always above videos and scrim */}
