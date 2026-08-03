@@ -324,6 +324,21 @@ footer :focus-visible {
  * the fallback and was not needed — at this size the filter is cheaper
  * than the second copy of the path data it would have cost.
  */
+/*
+ * THE REPEAT-VISIT PATH, and it is CSS because it has to beat the paint.
+ *
+ * The overlay is server-rendered on `/` — that is what stops the hero
+ * showing for a frame before the curtain arrives — so a returning visitor
+ * receives its markup too. The inline gate in <body> (INTRO_GATE_SCRIPT)
+ * runs before the parser reaches that markup and stamps this attribute;
+ * `display: none` then means the element is never laid out, never
+ * painted, and never composited. React unmounts it a beat later, which is
+ * housekeeping rather than the mechanism.
+ */
+[data-intro-skip] .stamp {
+  display: none;
+}
+
 .stamp {
   --stamp-skirt: clamp(18px, 2.4vw, 34px);
   position: fixed;
@@ -400,23 +415,39 @@ footer :focus-visible {
  * REDUCED MOTION: no timeline, no draw, no press. The finished mark is
  * simply present and the sheet fades. The gating is identical — this is a
  * different rendering of the same wait, not a shortcut past it.
+ *
+ * A MEDIA QUERY, not the `.stamp-rm` class an effect used to add, and the
+ * fade moved from the SHEET to the MARK. Both are the same bug: the class
+ * arrived after hydration, and `animation: stamp-fade-in` on `.stamp`
+ * started the whole ink screen at opacity 0 — so a reduced-motion visitor
+ * got the curtain at full opacity on the first paint, then watched it
+ * restart from transparent with the hero showing through for 300ms. The
+ * one visitor who asked for less movement was the one who saw the flash.
+ *
+ * Now the ground is opaque from the first byte of paint with no
+ * JavaScript involved at all, and only the seal fades up, which is what
+ * "the finished mark is simply present" was always describing. The
+ * timeline is still skipped in LoadingOverlay by the same media query
+ * read in JS; this block is what the visitor sees while it does not run.
  */
-.stamp-rm {
-  animation: stamp-fade-in 300ms ease both;
-}
-.stamp-rm .stamp-frame,
-.stamp-rm .stamp-press,
-.stamp-rm .stamp-word {
-  opacity: 1;
-  transform: none;
-}
-.stamp-rm .stamp-ink {
-  opacity: 0;
-}
-.stamp-rm.stamp-out {
-  transform: none;
-  opacity: 0;
-  transition: opacity 300ms ease;
+@media (prefers-reduced-motion: reduce) {
+  .stamp-stack {
+    animation: stamp-fade-in 300ms ease both;
+  }
+  .stamp-frame,
+  .stamp-press,
+  .stamp-word {
+    opacity: 1;
+    transform: none;
+  }
+  .stamp-ink {
+    opacity: 0;
+  }
+  .stamp-out {
+    transform: none;
+    opacity: 0;
+    transition: opacity 300ms ease;
+  }
 }
 @keyframes stamp-fade-in {
   from {

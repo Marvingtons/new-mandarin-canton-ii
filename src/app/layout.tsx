@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
+import { INTRO_GATE_SCRIPT } from "@/lib/introSignal";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
 import Header from "@/components/Header";
@@ -105,6 +106,12 @@ export default async function RootLayout({
       className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
     >
       <body className="flex min-h-dvh flex-col font-body">
+        {/* FIRST CHILD OF <body>, AND THAT IS THE WHOLE MECHANISM. The
+            parser blocks on a classic inline script, so this runs before
+            it has parsed — let alone painted — the intro overlay a few
+            elements below, and decides whether that overlay exists. See
+            INTRO_GATE_SCRIPT for why this is not next/script. */}
+        <script dangerouslySetInnerHTML={{ __html: INTRO_GATE_SCRIPT }} />
         {/* WHO THIS IS, on every page — the two nodes that never change.
             In the root layout rather than per page so a crawler that
             lands anywhere (a legal page, a 404) still resolves the

@@ -54,6 +54,23 @@ import {
  * HOMEPAGE ONLY. This mounts from the root layout, so without the
  * pathname guard the first visit to /menu or an order route got gated
  * too. Ordering food is not a moment for ceremony.
+ *
+ * ⚠️ IT RENDERS ON THE SERVER, and that is the fix for the flash rather
+ * than a detail of it. This used to decide whether to exist by reading
+ * sessionStorage through useSyncExternalStore, whose server snapshot is
+ * `false` — so the server sent no overlay, the browser painted the HERO,
+ * and the curtain only arrived once hydration ran. On a throttled phone
+ * that is not one frame of the video, it is several hundred milliseconds
+ * of it. Nothing in the component could fix that, because by the time any
+ * component code runs the paint has happened.
+ *
+ * So the default inverted: the server renders the curtain on `/`, and the
+ * REPEAT-VISIT case is handled ahead of paint by an inline script that
+ * stamps [data-intro-skip] on <html> (see INTRO_GATE_SCRIPT and the rule
+ * in globals.css). The two halves of the old single decision now happen
+ * at the two different times each of them can actually be answered: "is
+ * this the homepage" on the server, "have they seen it this session" in
+ * the browser before the parser reaches this markup.
  */
 
 /** Hard cap. Reveal regardless — the poster covers whatever is missing. */
@@ -138,10 +155,29 @@ export default function LoadingOverlay() {
   // than at the next full load.
   const pathname = usePathname();
   const isHome = pathname === "/";
-  const play = useSyncExternalStore(emptySubscribe, introWillPlay, () => false);
+  /**
+   * `true` on the server, so the curtain is in the HTML and the first
+   * paint is ink rather than the hero. The browser then answers the half
+   * the server could not — introWillPlay() reads sessionStorage — and a
+   * repeat visitor's overlay is unmounted on the render right after
+   * hydration. Nothing flickers, because the inline gate has already hid
+   * it with CSS before this component's markup was even parsed.
+   */
+  const play = useSyncExternalStore(emptySubscribe, introWillPlay, () => true);
+  /**
+   * False for the server render AND for the hydration render that has to
+   * match it. Every effect below is gated on this, so nothing runs — no
+   * scroll lock, no session write, no GSAP import — on the one render
+   * where `play` is an assumption rather than an answer.
+   */
+  const hydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
   const [phase, setPhase] = useState<"in" | "out" | "gone">("in");
   const rootRef = useRef<HTMLDivElement>(null);
-  const active = isHome && play && phase !== "gone";
+  const active = isHome && play && hydrated && phase !== "gone";
 
   // Mark the session the moment we commit to showing it. Safe to write
   // here despite introWillPlay reading the same key: that answer is
@@ -193,9 +229,10 @@ export default function LoadingOverlay() {
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     // Reduced motion: no timeline at all. The finished mark is simply
-    // there, and the same gating decides when it leaves.
+    // there — put there by the media query in globals.css, not by a class
+    // added here, so it is true from the first paint rather than from
+    // hydration — and the same gating decides when it leaves.
     if (reduced) {
-      root.classList.add("stamp-rm");
       Promise.race([
         whenReady(),
         new Promise<void>((r) => timers.push(setTimeout(r, CAP_MS))),
