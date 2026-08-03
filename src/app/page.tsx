@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import SectionHeading from "@/components/SectionHeading";
 import CandleGlow from "@/components/CandleGlow";
@@ -84,10 +85,32 @@ export default async function HomePage() {
               </p>
             </div>
             {/* The offset. Same frame and caption plate as The Room's
-                photos, so the family reads as one of them. */}
+                photos, so the family reads as one of them — and now it is
+                the ink illustration that hangs here rather than a
+                placeholder.
+
+                THREE THINGS THE ILLUSTRATION NEEDS THAT A PHOTOGRAPH DOES
+                NOT, all of them about not cropping composed artwork:
+
+                --frame-fill is the artwork's OWN paper, #FCEFDC, measured
+                off the file. The mount would otherwise be --cream
+                (#FCF7EC) and the artwork is 8 levels down in green and 16
+                in blue from it — enough to read as a tone step where the
+                sheet meets the mount. Colouring the mount to the artwork
+                keeps the illustration on its own paper inside the gold
+                edge; recolouring the artwork to the site was the other
+                option and is the wrong one.
+
+                parallaxAmp 0 because a drawing that slides against its
+                frame reads as a mistake, and because the overhang the
+                slide needs would crop it (see PhotoFrame).
+
+                `aspect` is left to the manifest's 4/3 — its own shape. */}
             <Parallax className="md:mt-16">
               <PhotoFrame
                 photo={photos.family}
+                parallaxAmp={0}
+                style={{ "--frame-fill": "#FCEFDC" } as CSSProperties}
                 sizes="(min-width: 768px) 40vw, 100vw"
               />
             </Parallax>

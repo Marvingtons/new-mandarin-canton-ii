@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import PhotoPlaceholder from "@/components/PhotoPlaceholder";
 import type { SitePhoto } from "@/data/images";
 
@@ -23,6 +23,14 @@ interface PhotoFrameProps {
    * hangs rather than of the picture. Defaults to the photo's own aspect.
    */
   aspect?: SitePhoto["aspect"];
+  /**
+   * Inline style on the <figure>, which is the .frame element — so this is
+   * how a caller sets `--frame-fill` to something other than --cream. The
+   * homepage's ink illustration uses it to make the mount the artwork's own
+   * paper tone; the footer's contact band sets the same variable to
+   * `transparent` to frame text instead of a picture.
+   */
+  style?: CSSProperties;
   className?: string;
 }
 
@@ -56,6 +64,7 @@ export default function PhotoFrame({
   parallaxAmp = 8,
   sizes = "(min-width: 640px) 33vw, 100vw",
   aspect,
+  style,
   className = "",
 }: PhotoFrameProps) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -93,18 +102,33 @@ export default function PhotoFrame({
   }, [photo.src]);
 
   return (
-    <figure className={`frame flex flex-col ${className}`}>
+    <figure style={style} className={`frame flex flex-col ${className}`}>
       <div
         ref={boxRef}
         className={`relative overflow-hidden ${revealed ? "pf-revealed" : ""}`}
         style={{ aspectRatio: aspect ?? photo.aspect }}
       >
         {/* Inner surfaces sit in an over-tall wrapper so the scrubbed
-            parallax slides them within the mount without exposing edges */}
+            parallax slides them within the mount without exposing edges.
+
+            ⚠️ ONLY WHEN THERE IS PARALLAX TO SLIDE. The 14% overhang is
+            the room the slide needs, and it is not free: it makes the
+            wrapper 128% of the frame's height, so object-cover fits the
+            picture to a box 28% taller than the one you see and crops the
+            difference off the sides. With parallaxAmp 0 that bought
+            nothing and cost a fifth of the width — measured on the story
+            frame, a 4/3 illustration in a 4/3 box lost 11% off each edge,
+            which is the father at the wok on one side and the tables on
+            the other. Two callers pass 0 (the storefront on /contact and
+            the illustration on the homepage) and both were paying it. */}
         <div
           data-pf-inner
           data-pf-parallax={parallaxAmp}
-          className="absolute inset-x-0 -bottom-[14%] -top-[14%]"
+          className={
+            parallaxAmp === 0
+              ? "absolute inset-0"
+              : "absolute inset-x-0 -bottom-[14%] -top-[14%]"
+          }
         >
           {photo.src ? (
             <div

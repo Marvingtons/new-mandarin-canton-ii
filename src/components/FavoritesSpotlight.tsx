@@ -39,10 +39,34 @@ const blurbs: Record<string, string> = {
     "A crisp noodle pillow under stir-fried meats and vegetables.",
 };
 
+/**
+ * Dish id → photo slot. This is the site's ONLY dish-photo surface: the
+ * item sheet and the menu cards render no image, so a dish photograph that
+ * is not reachable from here is not on the site.
+ *
+ * KEYED ON MENU IDS, and only the ones in favoriteItemIds can actually
+ * render — DishPanel is only ever called with a favourite. The two entries
+ * whose dishes are not currently favourites are kept deliberately: they
+ * are correct mappings, they cost nothing, and they mean promoting a dish
+ * to the favourites list is a one-line edit in data/favorites.ts rather
+ * than an edit in two files.
+ *
+ * Coverage today, against the six in favoriteItemIds:
+ *   mandarin-special                     mapped, no photo yet
+ *   oceania                              unmapped, no photo
+ *   orange-flavored-chicken-special      unmapped, no photo
+ *   salted-pepper-chicken-wings-special  mapped, PHOTOGRAPHED ✓
+ *   kung-po-san-shein                    mapped, no photo yet
+ *   mongolian-beef-special               unmapped, no photo
+ */
 const dishPhotoByItemId: Record<string, SitePhoto> = {
+  // ---- the six favourites ----
   "mandarin-special": photos.dishMandarinSpecial,
+  "salted-pepper-chicken-wings-special": photos.dishSaltedPepperWings,
   "kung-po-san-shein": photos.dishKungPaoSanShein,
+  // ---- photographed, waiting on a favourites change to be seen ----
   "honey-walnut-shrimp": photos.dishHoneyWalnutShrimp,
+  "house-soft-noodle": photos.dishHouseSoftNoodle,
   "upside-down-pan-fried-noodles": photos.dishPanFriedNoodles,
 };
 
