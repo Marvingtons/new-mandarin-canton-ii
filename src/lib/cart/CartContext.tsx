@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { Menu, MenuItem, MenuModifier, MenuSize } from "@/lib/menu/types";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
+import { groupsForSize } from "@/lib/menu/rice";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 
 /**
@@ -179,9 +180,15 @@ export function CartProvider({
       if (!item || !isAvailable(item)) continue; // drop 86'd/removed items
       const size =
         itemSizes(item).find((s) => s.id === line.sizeId) ?? itemSizes(item)[0];
-      const modifiers = item.modifierGroups
-        .flatMap((g) => g.modifiers)
-        .filter((m) => line.modifierIds.includes(m.id));
+      // Size-filtered, so a tray line built before rice became
+      // individual-only does not sit in the cart promising a rice the
+      // kitchen will never bag. The order route strips the same ids from
+      // the payload (see lib/menu/rice); this is the half the customer can
+      // see, and the two read one rule.
+      const offered = groupsForSize(item, size.id).flatMap((g) => g.modifiers);
+      const modifiers = offered.filter((m) =>
+        line.modifierIds.includes(m.id),
+      );
       let priced;
       try {
         priced = resolveLinePrice(item, size.id, line.modifierIds, line.quantity);

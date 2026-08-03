@@ -19,6 +19,7 @@ import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass
 import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { checkModifierGroups } from "@/lib/orders/modifierRules";
+import { stripRiceForSize } from "@/lib/menu/rice";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import {
@@ -255,7 +256,29 @@ export async function POST(request: Request): Promise<Response> {
        ticket that does not say which rice. The storage key is bumped for
        that case too (see lib/cart/CartContext), but a client-side key is
        a courtesy and this is the guarantee. */
-    const groupError = checkModifierGroups(item, line.modifierIds);
+    /* RICE IS AN INDIVIDUAL-PORTION THING. A tray is the dish alone, so a
+       tray line arriving with a rice modifier is stripped here rather than
+       refused: it is not tampering and it is not the customer's mistake —
+       it is a cart built before this rule shipped, sitting in a
+       sessionStorage tab that has been open since yesterday. Refusing it
+       would turn a $0 modifier into a lost order.
+
+       Stripped BEFORE the group check, which reads the same size-filtered
+       groups, so the two cannot disagree about what a tray is allowed to
+       carry. Warn-logged with the item so the frequency is visible; when
+       it stops appearing, the stale carts have aged out. */
+    const { modifierIds, removed } = stripRiceForSize(
+      line.sizeId,
+      line.modifierIds,
+    );
+    if (removed.length > 0) {
+      console.warn(
+        `[orders] stripped rice from a "${size.label}" line of "${item.nameEn}": ` +
+          `${removed.join(", ")} — trays do not include rice (stale cart)`,
+      );
+    }
+
+    const groupError = checkModifierGroups(item, line.sizeId, modifierIds);
     if (groupError) return bad(groupError);
 
     let resolved: OrderLine;
@@ -263,7 +286,7 @@ export async function POST(request: Request): Promise<Response> {
       resolved = resolveOrderLine(
         item,
         line.sizeId,
-        line.modifierIds,
+        modifierIds,
         line.quantity,
         line.specialInstructions,
       );

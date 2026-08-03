@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MenuItem } from "@/lib/menu/types";
 import { itemSizes } from "@/lib/menu/types";
+import { groupsForSize } from "@/lib/menu/rice";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { useCart } from "@/lib/cart/CartContext";
 import { useT } from "@/lib/i18n/LocaleContext";
@@ -78,10 +79,31 @@ function ItemSheetInner({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const modifierIds = useMemo(
-    () => Object.values(selected).flat(),
-    [selected],
-  );
+  /**
+   * The groups this SIZE offers. A party tray has no rice group: rice
+   * comes with an individual portion, and a tray is the dish alone.
+   */
+  const groups = useMemo(() => groupsForSize(item, sizeId), [item, sizeId]);
+
+  /**
+   * The pending line's modifiers, filtered to what the current size
+   * actually offers.
+   *
+   * The filter is what implements "Individual → Tray drops the rice".
+   * `selected` is deliberately NOT cleared when the size changes — it
+   * keeps remembering, so Tray → Individual brings the selector back with
+   * the choice still on it (Steamed on a sheet nobody has touched, which
+   * is the initializer's default; whatever they picked if they did). A
+   * reset would punish toggling a size for a look at the price, and the
+   * thing that actually matters — that no rice can reach the cart on a
+   * tray line — is this filter, not the state.
+   */
+  const modifierIds = useMemo(() => {
+    const offered = new Set(groups.flatMap((g) => g.modifiers.map((m) => m.id)));
+    return Object.values(selected)
+      .flat()
+      .filter((id) => offered.has(id));
+  }, [selected, groups]);
 
   const priceCents = useMemo(() => {
     if (!sizeId) return 0;
@@ -95,12 +117,12 @@ function ItemSheetInner({
   /** Groups that are not yet satisfied, so the footer can name them. */
   const unmetGroups = useMemo(
     () =>
-      item.modifierGroups.filter((g) => {
+      groups.filter((g) => {
         const count = (selected[g.id] ?? []).length;
         const maxOk = g.maxAllowed == null || count <= g.maxAllowed;
         return !(count >= g.minRequired && maxOk);
       }),
-    [item, selected],
+    [groups, selected],
   );
 
   // Every group's min/max must be satisfied to enable Add.
@@ -219,8 +241,11 @@ function ItemSheetInner({
             </fieldset>
           )}
 
-          {/* Modifier groups */}
-          {item.modifierGroups.map((g) => (
+          {/* Modifier groups — the ones this SIZE offers. Choosing Party
+              Tray takes the rice selector off the sheet entirely; there is
+              no disabled state, because the choice does not exist for a
+              tray rather than being unavailable. */}
+          {groups.map((g) => (
             <fieldset key={g.id} className="mb-5">
               <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-ink/55">
                 {g.nameEn}

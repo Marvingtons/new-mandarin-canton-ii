@@ -1,3 +1,4 @@
+import { groupsForSize } from "@/lib/menu/rice";
 import type { MenuItem } from "@/lib/menu/types";
 
 /**
@@ -19,14 +20,21 @@ import type { MenuItem } from "@/lib/menu/types";
  * (unknown ids), which is a different situation with a different answer.
  * A missing rice choice is an ordinary stale-cart mistake and the
  * customer needs to be told what to fix.
+ *
+ * ⚠️ TAKES THE SIZE, and must. Groups are size-conditional now — a party
+ * tray has no rice group (see lib/menu/rice) — and the rice group is
+ * `minRequired: 1`. Checked against the unfiltered item, a tray line that
+ * correctly carries no rice would be refused with "please choose rice",
+ * i.e. the honest client would be the one that could not order.
  */
 export function checkModifierGroups(
   item: MenuItem,
+  sizeId: string,
   modifierIds: readonly string[],
 ): string | null {
   const chosen = new Set(modifierIds);
 
-  for (const group of item.modifierGroups) {
+  for (const group of groupsForSize(item, sizeId)) {
     const idsInGroup = group.modifiers.map((m) => m.id);
     const picked = idsInGroup.filter((id) => chosen.has(id)).length;
 
