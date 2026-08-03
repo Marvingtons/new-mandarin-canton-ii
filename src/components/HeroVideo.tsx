@@ -46,6 +46,49 @@ const TEXT_DELAY_MS = 1200;
 const CROSSFADE_S = 0.6;
 
 /**
+ * Everything an autoplay policy checks, applied as DOM PROPERTIES.
+ *
+ * `<video muted>` in JSX sets the muted PROPERTY and does not write the
+ * ATTRIBUTE — a React behaviour old enough to have its own folklore — and
+ * the property is set after the element exists. Chrome and Safari decide
+ * eligibility from the element's state at the moment play() is attempted,
+ * so the window is usually harmless and occasionally is not: an element
+ * the browser sampled before React got to it is an unmuted autoplaying
+ * video, which is exactly what the policy exists to refuse.
+ *
+ * `defaultMuted` is the property that writes the attribute, so this makes
+ * the markup honest as well as the object. playsInline is set both ways
+ * for the same reason — without it iOS takes the video fullscreen instead
+ * of refusing it, which is a louder failure than not playing.
+ *
+ * Called from a ref callback, i.e. the first moment the element exists,
+ * before any effect and before the browser's own autoplay attempt.
+ */
+function primeForAutoplay(el: HTMLVideoElement | null): void {
+  if (!el) return;
+  el.defaultMuted = true;
+  el.muted = true;
+  el.playsInline = true;
+  el.volume = 0;
+}
+
+/**
+ * Play, and say whether it took. Never throws — a refusal is a normal
+ * outcome here, not an error: iOS Low Power Mode blocks autoplay at the
+ * OS level and no amount of retrying changes that.
+ */
+async function tryPlay(el: HTMLVideoElement | null): Promise<boolean> {
+  if (!el) return false;
+  primeForAutoplay(el);
+  try {
+    await el.play();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Full-bleed video hero (100svh). While there is no video — if it fails to
  * load, or under prefers-reduced-motion, where one is never mounted — the
  * hero shows the poster still with a slow Ken Burns drift. Text staggers
@@ -59,6 +102,12 @@ export default function HeroVideo() {
   const [video, setVideo] = useState<"pending" | "on" | "failed">("pending");
   const videoARef = useRef<HTMLVideoElement>(null);
   const videoBRef = useRef<HTMLVideoElement>(null);
+  /**
+   * Whichever copy is on screen. The crossfade swaps the two, and the
+   * resume paths below must never restart the standby — it is paused on
+   * purpose, and playing it would run both at once.
+   */
+  const activeRef = useRef<HTMLVideoElement | null>(null);
 
   // Choreography step 1: detect the unveil. Safety timeout so a
   // stalled overlay can never strand the hero.
@@ -89,10 +138,9 @@ export default function HeroVideo() {
     const a = videoARef.current;
     const b = videoBRef.current;
     if (!a) return;
+    activeRef.current = a;
     a.currentTime = 0;
-    void a.play().catch(() => {
-      // autoplay refused — the poster frame stays, which is fine
-    });
+    void tryPlay(a);
     if (!b) return;
 
     let active = a;
@@ -121,6 +169,7 @@ export default function HeroVideo() {
               from.removeEventListener("timeupdate", onTime);
               active = to;
               standby = from;
+              activeRef.current = active;
               active.addEventListener("timeupdate", onTime);
               fading = false;
             },
@@ -137,6 +186,76 @@ export default function HeroVideo() {
       clearTimeout(swapTimer);
       a.removeEventListener("timeupdate", onTime);
       b.removeEventListener("timeupdate", onTime);
+    };
+  }, [unveiled, video]);
+
+  /**
+   * BELT AND BRACES: keep the footage moving.
+   *
+   * `autoPlay` on the element is the belt and the unveil effect is the
+   * braces, and both can still lose. A tab restored from the background
+   * comes back with the video paused; a first play() can be refused for
+   * reasons that stop applying a moment later; a bfcache restore lands on
+   * a paused element with no load event to hang anything off.
+   *
+   * So: try on mount, try whenever the page becomes visible again, and —
+   * only if a try has actually been REFUSED — try once more on the first
+   * touch or scroll, which is a user gesture and clears every policy
+   * there is. The listener is `once`, so it costs one call and then
+   * unregisters itself; arming it unconditionally would mean every
+   * visitor's first scroll called play() on a video already playing.
+   *
+   * NO MANUAL PLAY BUTTON, deliberately. iOS Low Power Mode refuses
+   * autoplay at the OS level and will refuse this too; when it does, the
+   * poster is the hero — it is the footage's own closing frame at the
+   * same 1920x1080 — and a play triangle over a restaurant's front page
+   * is an apology for something the visitor did not ask for.
+   */
+  useEffect(() => {
+    if (!unveiled || video !== "on") return;
+    let disposed = false;
+    let armed = false;
+
+    const onGesture = () => {
+      armed = false;
+      void tryPlay(activeRef.current);
+    };
+    const arm = () => {
+      if (armed || disposed) return;
+      armed = true;
+      window.addEventListener("touchstart", onGesture, {
+        once: true,
+        passive: true,
+      });
+      window.addEventListener("scroll", onGesture, {
+        once: true,
+        passive: true,
+      });
+    };
+
+    const resume = () => {
+      const el = activeRef.current ?? videoARef.current;
+      if (!el || disposed) return;
+      // Already running: nothing to do, and no gesture listener to arm.
+      if (!el.paused && !el.ended) return;
+      void tryPlay(el).then((ok) => {
+        if (!ok) arm();
+      });
+    };
+
+    resume();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") resume();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+      window.removeEventListener("touchstart", onGesture);
+      window.removeEventListener("scroll", onGesture);
     };
   }, [unveiled, video]);
 
@@ -186,7 +305,14 @@ export default function HeroVideo() {
               this copy must be buffered by the time the overlay lifts
               (~1.35s), and "metadata" would stall the unveil. */}
           <video
-            ref={videoARef}
+            ref={(el) => {
+              videoARef.current = el;
+              // Before any effect, before the browser's own autoplay
+              // attempt: muted/playsInline as PROPERTIES, not just the
+              // JSX attributes React may not have written yet.
+              primeForAutoplay(el);
+              if (el && !activeRef.current) activeRef.current = el;
+            }}
             // The preloader gates its wipe on THIS element's readyState —
             // it is the copy that plays first, so it is the one whose
             // buffering decides whether the reveal lands on motion. The
@@ -199,6 +325,13 @@ export default function HeroVideo() {
             loop
             autoPlay
             playsInline
+            // Nothing here is a broadcast. AirPlay/Cast on a background
+            // loop offers a route to a living-room television for footage
+            // with no sound and no controls, and on iOS the route picker
+            // draws itself over the poster.
+            disableRemotePlayback
+            x-webkit-airplay="deny"
+            disablePictureInPicture
             preload="auto"
             onError={() => setVideo("failed")}
           />
@@ -209,12 +342,18 @@ export default function HeroVideo() {
               is played by the crossfade, and playing it on mount would
               run both videos at once. */}
           <video
-            ref={videoBRef}
+            ref={(el) => {
+              videoBRef.current = el;
+              primeForAutoplay(el);
+            }}
             className="hero-video absolute inset-0 h-full w-full object-cover"
             src={HERO_VIDEO_SRC}
             muted
             loop
             playsInline
+            disableRemotePlayback
+            x-webkit-airplay="deny"
+            disablePictureInPicture
             preload="metadata"
             aria-hidden="true"
             tabIndex={-1}

@@ -104,6 +104,14 @@ export default async function RootLayout({
     <html
       lang={htmlLang(locale)}
       className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
+      // The intro gate writes data-intro-skip here before React loads —
+      // that is the whole point of it, and it is an attribute the server
+      // could not have rendered, so hydration reports it as a mismatch it
+      // "won't patch up". It is not a mismatch to patch up: the browser
+      // knows something the server does not. This suppresses the warning
+      // for THIS element's own attributes only (not its children), which
+      // is exactly the scope of the lie.
+      suppressHydrationWarning
     >
       <body className="flex min-h-dvh flex-col font-body">
         {/* FIRST CHILD OF <body>, AND THAT IS THE WHOLE MECHANISM. The
