@@ -7,7 +7,13 @@
  * that a primitive needs an option, not that the page needs a one-off.
  *
  *   revealRise   fade + rise, staggered — the workhorse
- *   maskWipe     clip-path uncover — headers and imagery
+ *   maskWipe     clip-path uncover — headers and imagery. NO CALLERS
+ *                today: its one use was the House Favorites
+ *                carousel's featured card, and that card is now one
+ *                of three peers that rise together. Kept as
+ *                vocabulary, not left as dead weight to prune on
+ *                sight — the next hero or header that wants an
+ *                uncover should find it here rather than write one.
  *   parallax     scroll-linked drift — layered images
  *   sealStamp    the 富源 chop pressing in — signature moments only
  *   smokeDrift   ambient incense; steamRise is its tighter sibling

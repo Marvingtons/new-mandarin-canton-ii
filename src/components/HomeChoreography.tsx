@@ -7,7 +7,6 @@ import { setHeaderSolid } from "@/lib/headerState";
 import {
   createMotionContext,
   EASE,
-  maskWipe,
   parallax,
   revealRise,
   sealStamp,
@@ -235,8 +234,22 @@ export default function HomeChoreography() {
           );
       }
 
-      /* ---- SCENE 5: Spotlight entrance (once) — rail items stagger,
-         the featured card curtain-reveals, small cards follow. ---- */
+      /* ---- SCENE 5: House Favorites entrance (once) — the heading block
+         staggers, then the cards rise in sequence.
+
+         THE CURTAIN WIPE IS GONE WITH THE CAROUSEL. It used to land on
+         [data-spt-card], the one featured card, while the two "up next"
+         cards rose behind it — a hierarchy in the motion that matched the
+         hierarchy in the layout. The layout is an even row of peers now,
+         so one card wiping while two rose would read as a card that failed
+         to animate. They all rise, staggered, which is the same
+         `revealRise` vocabulary the smalls always used.
+
+         This was `maskWipe`'s ONLY caller, so the helper is now exported
+         with none — left in lib/motion rather than deleted, because it is
+         a named part of the site's motion vocabulary and the next header
+         or hero that wants a clip-path uncover should find it there. The
+         note on its export says it is currently unused. ---- */
       const spt = document.querySelector<HTMLElement>("[data-spt]");
       if (spt) {
         revealRise(spt.querySelectorAll("[data-spt-rail-item]"), {
@@ -245,23 +258,20 @@ export default function HomeChoreography() {
           y: 16,
           duration: 0.5,
         });
-        maskWipe(spt.querySelector("[data-spt-card]"), {
-          trigger: spt,
-          start: "top 80%",
-          duration: 0.7,
-          delay: 0.1,
-        });
         revealRise(spt.querySelectorAll("[data-spt-small]"), {
           trigger: spt,
           start: "top 80%",
           y: 16,
           duration: 0.5,
           stagger: 0.12,
-          delay: 0.22,
+          delay: 0.18,
         });
 
-        /* The signature-dish moment: the featured plate swells a few
-           percent across its own scroll range while steam lifts off it.
+        /* The signature-dish moment, kept and now explicitly the signature:
+           the lead plate swells a few percent across its own scroll range
+           while steam lifts off it. [data-spt-card] is the first card only
+           (see FavoritesSpotlight) — the dish the house is known for, which
+           is what this was always for.
            Scrubbed, NOT pinned. A scrub reads the scroll position; a pin
            CHANGES it, by taking its target out of flow and rewriting the
            document height. Only the second one can strand a thumb, which is

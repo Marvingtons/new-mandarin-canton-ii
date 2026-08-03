@@ -1,40 +1,43 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { SpicyMark } from "@/components/SpicyMark";
 import { useT } from "@/lib/i18n/LocaleContext";
 import type { Translate } from "@/lib/i18n/dictionary";
-import PhotoPlaceholder from "@/components/PhotoPlaceholder";
 import SectionHeading from "@/components/SectionHeading";
 import { photos } from "@/data/images";
 import type { SitePhoto } from "@/data/images";
 import { favoriteCatalogItems } from "@/data/favorites";
-import type { MenuItem } from "@/data/menu";
+import type { FavoriteEntry } from "@/data/favorites";
 import { formatCents } from "@/lib/money";
 
-/** Curtain-wipe duration — the transaction commits when it ends. */
-const WIPE_MS = 620;
-/** Plate/counter/smalls swap their content at this point of the wipe. */
-const SWAP_MS = 220;
-
-/** Homepage-only blurbs — the menu page stays description-free. Keyed by the
- *  Specials item ids in src/data/menu.ts. */
+/** Homepage-only blurbs — the menu page stays description-free. Keyed by
+ *  item id in src/data/menu.ts.
+ *
+ *  DELIBERATELY WIDER THAN THE CURATION. Five of these describe dishes that
+ *  are not featured today, and they are kept for the same reason the photo
+ *  slots for them are: this copy was written for them, and promoting one
+ *  back into data/favorites.ts should be one line rather than one line plus
+ *  rewriting a sentence. An unused key costs nothing; a missing one costs a
+ *  card with no description. */
 const blurbs: Record<string, string> = {
+  "salted-pepper-chicken-wings-special":
+    "Crispy fried wings sautéed with salt, pepper & hot chili.",
+  "honey-walnut-shrimp": "Crisp shrimp in a honey glaze with candied walnuts.",
+  "house-soft-noodle":
+    "Soft noodles tossed with pork, shrimp and cabbage in the house style.",
   "mandarin-special":
     "Duck, shrimp, chicken & roast pork with vegetables in the chef's sauce.",
   oceania:
     "Shrimp, scallops, squid & fish fillet with snow peas and vegetables.",
   "orange-flavored-chicken-special":
     "Crisp chicken in the chef's special tangerine sauce.",
-  "salted-pepper-chicken-wings-special":
-    "Crispy fried wings sautéed with salt, pepper & hot chili.",
   "kung-po-san-shein":
     "Shrimp, chicken & beef in classic kung pao style: peanuts, chilies, heat.",
   "mongolian-beef-special":
     "Sliced tenderloin with jade-green scallions in a natural sauce.",
-  "honey-walnut-shrimp": "Crisp shrimp in a honey glaze with candied walnuts.",
   "upside-down-pan-fried-noodles":
     "A crisp noodle pillow under stir-fried meats and vegetables.",
 };
@@ -44,40 +47,24 @@ const blurbs: Record<string, string> = {
  * item sheet and the menu cards render no image, so a dish photograph that
  * is not reachable from here is not on the site.
  *
- * KEYED ON MENU IDS, and only the ones in favoriteItemIds can actually
- * render — DishPanel is only ever called with a favourite. The two entries
- * whose dishes are not currently favourites are kept deliberately: they
- * are correct mappings, they cost nothing, and they mean promoting a dish
- * to the favourites list is a one-line edit in data/favorites.ts rather
- * than an edit in two files.
- *
- * Coverage today, against the six in favoriteItemIds:
- *   mandarin-special                     mapped, no photo yet
- *   oceania                              unmapped, no photo
- *   orange-flavored-chicken-special      unmapped, no photo
- *   salted-pepper-chicken-wings-special  mapped, PHOTOGRAPHED ✓
- *   kung-po-san-shein                    mapped, no photo yet
- *   mongolian-beef-special               unmapped, no photo
+ * EVERY CURATED FAVOURITE NOW HAS AN ENTRY WITH A REAL FILE — that is the
+ * curation rule (see data/favorites.ts). The rest are kept as correct
+ * mappings against slots that are still empty, so a photograph arriving is
+ * an edit to images.ts and favorites.ts and not to this file.
  */
 const dishPhotoByItemId: Record<string, SitePhoto> = {
-  // ---- the six favourites ----
-  "mandarin-special": photos.dishMandarinSpecial,
+  // ---- the curated three: photographed, rendering ----
   "salted-pepper-chicken-wings-special": photos.dishSaltedPepperWings,
-  "kung-po-san-shein": photos.dishKungPaoSanShein,
-  // ---- photographed, waiting on a favourites change to be seen ----
   "honey-walnut-shrimp": photos.dishHoneyWalnutShrimp,
   "house-soft-noodle": photos.dishHouseSoftNoodle,
+  // ---- mapped, waiting on a photograph ----
+  "mandarin-special": photos.dishMandarinSpecial,
+  "kung-po-san-shein": photos.dishKungPaoSanShein,
   "upside-down-pan-fried-noodles": photos.dishPanFriedNoodles,
 };
 
-/* The set now comes from data/favorites.ts, so the menu page's favourites
-   strip shows the same six dishes without a second list to keep in step.
-   Same items, same order, same render as the positional slice this
-   replaces. COUNT follows the list rather than the other way round —
-   advance() does modular arithmetic on it, so a hardcoded 6 against a
-   shorter list would index past the end and crash on `face.name`. */
-const items: MenuItem[] = favoriteCatalogItems();
-const COUNT = items.length;
+/** Resolved once at module scope: the catalogue is a static import. */
+const entries: FavoriteEntry[] = favoriteCatalogItems();
 
 /* ---- static rail pieces, hoisted so re-renders bail out of their
    subtrees (SplitText owns the heading's DOM after mount) ---- */
@@ -100,7 +87,7 @@ function useRailPieces(t: Translate) {
     () => (
       <p
         data-spt-rail-item
-        className="spt-intro max-w-[24ch] font-display text-lg italic leading-snug text-ink/75"
+        className="spt-intro max-w-[34ch] font-display text-lg italic leading-snug text-ink/75"
       >
         {t("fav.intro")}
       </p>
@@ -126,264 +113,152 @@ function useRailPieces(t: Translate) {
 }
 
 /**
- * Photo or placeholder, filling its positioned parent.
+ * ONE DISH, ONE CARD. Same anatomy the featured card always had — the
+ * frame, the photo, then the plate under the gold rule carrying name,
+ * spicy mark, 中文, blurb and price. There is no longer a second, smaller
+ * card variant: with three peers there is no hierarchy to express, and the
+ * abbreviated name+price strip the "up next" column used was only ever a
+ * consequence of being small.
  *
- * The placeholder is the site's shared one. It used to be a solid
- * dish-tone panel (`photo.tone`) with a raw 富源 wordmark and a "PHOTO"
- * label — a second, darker placeholder style that made an empty dish slot
- * look nothing like an empty room slot. `tone` is now unused in
- * images.ts; the paper placeholder is the standard.
+ * The whole card is a link to its dish's section on the menu. It used to be
+ * a button that dragged the dish into the spotlight, which was navigation
+ * inside a carousel that no longer exists. `/menu#cat-<id>` is as close as
+ * the site can get to "this dish": the menu page anchors every category and
+ * nothing anchors an individual item, so linking further would mean
+ * inventing a URL for the item sheet.
  */
-function DishPanel({ item, small = false }: { item: MenuItem; small?: boolean }) {
+function DishCard({
+  entry,
+  lead,
+  t,
+}: {
+  entry: FavoriteEntry;
+  /** The signature dish. Carries the scrubbed swell and the steam. */
+  lead: boolean;
+  t: Translate;
+}) {
+  const { item, categoryId } = entry;
   const photo = dishPhotoByItemId[item.id];
-  if (photo?.src) {
-    return (
-      <Image
-        src={photo.src}
-        alt={photo.alt}
-        fill
-        sizes={small ? "(min-width: 900px) 25vw, 50vw" : "(min-width: 900px) 40vw, 100vw"}
-        className="object-cover"
-      />
-    );
-  }
-  return <PhotoPlaceholder sealSize={small ? 52 : 96} />;
+
+  return (
+    <Link
+      href={`/menu#cat-${categoryId}`}
+      data-spt-small
+      {...(lead ? { "data-spt-card": "" } : {})}
+      className="spt-card frame"
+      aria-label={t("fav.seeOnMenu", { name: item.name })}
+    >
+      <div className="spt-photo">
+        {/* The photo sits in its own wrapper so the lead card's scrubbed
+            swell (HomeChoreography SCENE 5) scales the image inside the
+            frame rather than the frame itself. */}
+        <div {...(lead ? { "data-spt-photo": "" } : {})} className="absolute inset-0">
+          {photo?.src ? (
+            <Image
+              src={photo.src}
+              alt={photo.alt}
+              fill
+              sizes="(min-width: 1024px) 32vw, (min-width: 640px) 48vw, 100vw"
+              className="spt-img object-cover"
+            />
+          ) : (
+            /* Unreachable while the curation rule holds — every featured
+               dish has a photograph. Kept so a mis-edit to favorites.ts
+               degrades to an empty frame rather than a crash. */
+            <div className="h-full w-full bg-paper" />
+          )}
+        </div>
+        {lead && (
+          <>
+            {/* Steam off the signature plate — rests invisible, clipped by
+                the frame's overflow so it never escapes the card. */}
+            <span
+              aria-hidden="true"
+              data-steam-wisp
+              className="steam-wisp"
+              style={{ left: "38%" }}
+            />
+            <span
+              aria-hidden="true"
+              data-steam-wisp
+              className="steam-wisp"
+              style={{ left: "56%" }}
+            />
+          </>
+        )}
+      </div>
+      <div className="frame-rule spt-plate">
+        <div className="flex items-baseline gap-2">
+          <h3 className="spt-name font-display text-ink">{item.name}</h3>
+          {item.spicy && <SpicyMark />}
+        </div>
+        {item.chineseName && (
+          <p
+            lang="zh-Hant"
+            className="mt-0.5 font-chinese text-sm tracking-[0.18em] text-ink/55"
+          >
+            {item.chineseName}
+          </p>
+        )}
+        <p className="mt-2 text-sm italic leading-relaxed text-ink/70">
+          {blurbs[item.id]}
+        </p>
+        <p className="mt-2 font-medium text-lacquer">
+          {formatCents(item.priceCents)}
+        </p>
+      </div>
+    </Link>
+  );
 }
 
 /**
- * "Spotlight" House Favorites — one structural CSS grid (rail /
- * featured card / up-next column), align-items:stretch. The featured
- * card's intrinsic height (landscape photo + in-card plate) sets the row;
- * the right column stretches to equal it and its two cards flex to
- * fill — the alignment holds at every width by construction.
+ * House Favorites — a STATIC composition. Every featured dish is visible
+ * at once: heading block, then one card per dish.
  *
- * Dish changes are a guarded transaction: overlay layer curtain-wipes
- * over the base photo (direction-aware), plate/counter/smalls swap
- * their content mid-wipe, and the base commits when the wipe ends.
+ * IT WAS A CAROUSEL AND THE CAROUSEL WAS THE PROBLEM. One featured card
+ * plus an "up next" column, arrows, an 01/06 counter, a curtain wipe, a
+ * swipe handler, and a guarded transaction to keep the three layers in
+ * step. All of that machinery existed to hide five dishes, four of which
+ * had no photograph — so the page opened on three grey placeholders and
+ * the only real dish photo on the site was two clicks away. Nothing here
+ * navigates any more, so there is nothing to keep in step: no state, no
+ * timers, no refs, no keyboard handler, no touch handler.
+ *
+ * AN EVEN GRID, NOT THE FEATURE-PLUS-SMALLS COMPOSITION. Both were
+ * available and the count decided it. Three dishes are peers — same plate,
+ * same overhead framing, same photographer — so a big-one-plus-two-little
+ * layout would assert a hierarchy the pictures do not support, and the two
+ * smalls would read as leftovers now that "up next" means nothing. Three
+ * equal cards at 1024+ also give each photo ~315px, against ~220px if the
+ * rail had stayed beside them.
+ *
+ * The heading therefore moves above the cards, which makes this section
+ * structurally identical to The Room directly below it: heading, one line
+ * of intro, an even row of framed objects. The code already claimed that
+ * was the intent — "so 'House Favorites' and 'The Room' are the same
+ * object" — and now the layout agrees with the comment.
+ *
+ * Reveal is the section's existing vocabulary, unchanged: the rail items
+ * stagger and the cards rise in sequence (SCENE 5), once only, instant
+ * under prefers-reduced-motion. The signature dish keeps the scrubbed
+ * swell and the steam it always had.
  */
 export default function FavoritesSpotlight() {
   const t = useT();
   const { railIntro, railLink } = useRailPieces(t);
-  /** Committed photo in the base layer. */
-  const [baseIdx, setBaseIdx] = useState(0);
-  /** What the plate, counter, and small cards currently show. */
-  const [faceIdx, setFaceIdx] = useState(0);
-  /** Incoming photo riding the wipe overlay, or null when idle. */
-  const [overlay, setOverlay] = useState<{ idx: number; dir: 1 | -1 } | null>(
-    null,
-  );
-  /** True during the swap window — dims smalls, drops the plate. */
-  const [swapping, setSwapping] = useState(false);
-  const busy = useRef(false);
-  const timers = useRef<number[]>([]);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    const pending = timers.current;
-    return () => pending.forEach((t) => window.clearTimeout(t));
-  }, []);
-
-  const advance = (target: number, dir: 1 | -1) => {
-    const t = ((target % COUNT) + COUNT) % COUNT;
-    if (busy.current || t === faceIdx) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      // instant, fully functional
-      setBaseIdx(t);
-      setFaceIdx(t);
-      return;
-    }
-    busy.current = true;
-    setOverlay({ idx: t, dir });
-    setSwapping(true);
-    timers.current.push(
-      window.setTimeout(() => {
-        setFaceIdx(t);
-        setSwapping(false);
-      }, SWAP_MS),
-    );
-    timers.current.push(
-      window.setTimeout(() => {
-        setBaseIdx(t);
-        setOverlay(null);
-        busy.current = false;
-      }, WIPE_MS),
-    );
-  };
-  const step = (dir: 1 | -1) => advance(faceIdx + dir, dir);
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      step(-1);
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault();
-      step(1);
-    }
-  };
-
-  const face = items[faceIdx];
 
   return (
-    <div data-spt className="spt-grid" onKeyDown={onKeyDown}>
-      {/* ---- left rail (display:contents under 900px so the controls
-              can reorder after the small cards) ---- */}
+    <div data-spt className="spt-grid">
       <div className="spt-rail">
         {railHead}
         {railIntro}
         {railLink}
-        <div data-spt-rail-item className="spt-controls flex items-center gap-3">
-          <button
-            type="button"
-            aria-label={t("fav.previousDish")}
-            className="spt-btn spt-btn-prev"
-            onClick={() => step(-1)}
-          >
-            <span className="spt-glyph" aria-hidden="true">
-              ←
-            </span>
-          </button>
-          <button
-            type="button"
-            aria-label={t("fav.nextDish")}
-            className="spt-btn spt-btn-next"
-            onClick={() => step(1)}
-          >
-            <span className="spt-glyph" aria-hidden="true">
-              →
-            </span>
-          </button>
-          <span
-            className="ml-2 inline-flex items-baseline gap-1.5 font-display text-ink"
-            aria-live="polite"
-          >
-            <span
-              key={faceIdx}
-              className="spt-count-in text-2xl leading-none"
-            >
-              {String(faceIdx + 1).padStart(2, "0")}
-            </span>
-            <span className="text-sm leading-none text-ink/60">
-              / {String(COUNT).padStart(2, "0")}
-            </span>
-          </span>
-        </div>
       </div>
 
-      {/* ---- featured card: ONE framed object — photo + plate ---- */}
-      <div
-        data-spt-card
-        className="frame spt-card"
-        onTouchStart={(e) => {
-          touchStart.current = {
-            x: e.touches[0].clientX,
-            y: e.touches[0].clientY,
-          };
-        }}
-        onTouchEnd={(e) => {
-          const start = touchStart.current;
-          touchStart.current = null;
-          if (!start) return;
-          const dx = e.changedTouches[0].clientX - start.x;
-          const dy = e.changedTouches[0].clientY - start.y;
-          if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
-            step(dx < 0 ? 1 : -1);
-          }
-        }}
-      >
-        <div className="spt-photo">
-          {/* Both dish layers ride one wrapper so the scroll-scrubbed
-              swell (HomeChoreography SCENE 5) scales the image inside
-              the frame rather than the frame itself. */}
-          <div data-spt-photo className="absolute inset-0">
-            <div className="absolute inset-0">
-              <DishPanel item={items[baseIdx]} />
-            </div>
-            {overlay && (
-              <div
-                className={`absolute inset-0 ${
-                  overlay.dir === 1 ? "spt-wipe-ltr" : "spt-wipe-rtl"
-                }`}
-              >
-                <DishPanel item={items[overlay.idx]} />
-              </div>
-            )}
-          </div>
-          {/* Steam off the plate — rests invisible, clipped by the
-              frame's overflow so it never escapes the card. */}
-          <span
-            aria-hidden="true"
-            data-steam-wisp
-            className="steam-wisp"
-            style={{ left: "38%" }}
-          />
-          <span
-            aria-hidden="true"
-            data-steam-wisp
-            className="steam-wisp"
-            style={{ left: "56%" }}
-          />
-        </div>
-        <div className="frame-rule spt-plate">
-          <div
-            className={`spt-plate-body ${swapping ? "is-out" : ""}`}
-            aria-live="polite"
-          >
-            <div className="flex items-baseline gap-2">
-              <h3 className="font-display text-2xl text-ink">{face.name}</h3>
-              {face.spicy && <SpicyMark />}
-            </div>
-            {face.chineseName && (
-              <p
-                lang="zh-Hant"
-                className="mt-0.5 font-chinese text-sm tracking-[0.18em] text-ink/55"
-              >
-                {face.chineseName}
-              </p>
-            )}
-            <p className="mt-2 max-w-md text-sm italic leading-relaxed text-ink/70">
-              {blurbs[face.id]}
-            </p>
-            <p className="mt-2 font-medium text-lacquer">
-              {formatCents(face.priceCents)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ---- up next: the two dishes after the featured one ---- */}
-      <div className="spt-next-col">
-        {([1, 2] as const).map((n) => {
-          const dish = items[(faceIdx + n) % COUNT];
-          return (
-            <button
-              key={n}
-              type="button"
-              data-spt-small
-              className={`spt-small ${swapping ? "is-dim" : ""}`}
-              aria-label={t("fav.bringToSpotlight", { name: dish.name })}
-              onClick={() => advance(faceIdx + n, 1)}
-            >
-              {/* one framed object, same anatomy as the featured card:
-                  photo + plate strip inside the frame, split by the
-                  gold rule */}
-              <div className="frame spt-small-frame">
-                <div className="relative flex-1 overflow-hidden">
-                  <div className="spt-sm-inner absolute inset-0">
-                    <DishPanel item={dish} small />
-                  </div>
-                </div>
-                <div className="frame-rule spt-sm-plate">
-                  <span className="spt-sm-name truncate font-display">
-                    {dish.name}
-                  </span>
-                  <span className="spt-sm-price shrink-0">
-                    {formatCents(dish.priceCents)}
-                  </span>
-                </div>
-              </div>
-            </button>
-          );
-        })}
+      <div className="spt-cards">
+        {entries.map((entry, i) => (
+          <DishCard key={entry.item.id} entry={entry} lead={i === 0} t={t} />
+        ))}
       </div>
     </div>
   );
