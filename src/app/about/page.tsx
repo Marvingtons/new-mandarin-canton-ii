@@ -7,7 +7,7 @@ import { photos } from "@/data/images";
 import { yearsOpen } from "@/data/restaurant";
 import { translator } from "@/lib/i18n/dictionary";
 import { getLocale } from "@/lib/i18n/server";
-import { spellYears, yearsInChinese } from "@/lib/years";
+import { spellYears } from "@/lib/years";
 import JsonLd from "@/components/JsonLd";
 import { breadcrumbNode, graph } from "@/lib/schema";
 
@@ -39,11 +39,12 @@ const photoSlots = [photos.diningRoom, photos.altar, photos.kitchen] as const;
  * THE FAMILY'S OWN WORDS, SIMPLIFIED — the source of truth, preserved
  * here verbatim and never rendered.
  *
- * What ships is the Traditional conversion in the dictionary
- * (`about.storyP*Zh`), because the rest of the site's 中文 is
- * Traditional: the seal, the dish names, the ticket, the notices. This
- * block is what a reviewer diffs that conversion against, and what the
- * family would recognise as the thing they wrote.
+ * NOTHING RENDERS FROM IT NOW. The Traditional conversion this used to
+ * be the reference for (`about.storyP*Zh`) came off the page; the
+ * English story is the story. It stays here for the same reason it was
+ * always here — it is the thing the family actually wrote, and if the
+ * 中文 ever goes back up this is what the conversion is checked against.
+ * See docs/ABOUT_REMOVED_CONTENT.md.
  *
  * 我们的餐厅创立于1995年。三十多年来，我们始终坚持一个信念：按照客人最喜爱的口味，
  * 用心烹制每一道菜，创造出属于我们自己的独一无二的美食风味。
@@ -56,7 +57,9 @@ const photoSlots = [photos.diningRoom, photos.altar, photos.kitchen] as const;
  * 从未改变。未来，我们也将继续秉持初心，坚持做好每一道菜、服务好每一位客人，
  * 让这份熟悉的味道和温暖一直传承下去。
  *
- * ⚠️ TODO(confirm): Traditional conversion pending family review.
+ * The Traditional-conversion review flag that used to sit here is CLOSED
+ * — not answered, retired: nothing on this page is waiting on it any
+ * more. It comes back with the block if the block does.
  */
 
 export default async function AboutPage() {
@@ -73,7 +76,6 @@ export default async function AboutPage() {
      sentence that states a number drops and the paragraph still reads. */
   const years = yearsOpen();
   const spelled = years == null ? null : spellYears(years, locale);
-  const yearsZh = years == null ? null : yearsInChinese(years);
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-20 pt-8">
@@ -90,12 +92,22 @@ export default async function AboutPage() {
           treatment measures 2.17:1. See Established. */}
       <Established withTenure ground="light" className="mt-5" />
 
-      {/* The signature line, second of its two sanctioned homes. Its
-          中文 half rides with it HERE and not on the homepage, because
-          this is the page where 中文 goes on to carry three paragraphs —
-          a line of it alone on a page with no other Chinese would be an
-          ornament. Same pairing as the story below, at the size of a
-          quote. */}
+      {/* The signature line, second of its two sanctioned homes.
+
+          ⚠️ ITS 中文 HALF IS NOW THE ONLY CHINESE ON THIS PAGE, and the
+          reason it was allowed here in the first place is gone. The rule
+          written when it landed: the 中文 rides on About and not on the
+          homepage "because this is the page where 中文 goes on to carry
+          three paragraphs — a line of it alone on a page with no other
+          Chinese would be an ornament." Those three paragraphs came off
+          the page below. By that rule this line is now the ornament it
+          was defined against.
+
+          Left standing rather than quietly removed, because the brief
+          asked for the story block and the memorial and not for this,
+          and because it may be the one line of 中文 the family wants
+          kept. It is a decision for them, and it is written down here so
+          it is a decision rather than an oversight. */}
       <blockquote className="mt-10 border-l-2 border-gold pl-6 text-lacquer">
         <p className="font-display text-2xl italic leading-snug sm:text-3xl">
           {t("about.pullQuote")}
@@ -129,12 +141,13 @@ export default async function AboutPage() {
           <CraneMark width={66} className="text-gold/30" />
         </div>
 
-        {/* ⚠️ THE FAMILY'S HISTORY, IN THEIR WORDS. Supplied by them in
-            Chinese with an approved English translation; see the block
-            comment on the strings in lib/i18n/dictionary.ts before
-            editing so much as a comma. The three paragraphs that used to
-            sit here were drafted for them and are gone — except the
-            memorial, which is below and flagged. */}
+        {/* ⚠️ THE FAMILY'S HISTORY, IN THEIR WORDS, and now the whole of
+            the story on this page. Supplied by them in Chinese with an
+            approved English translation; see the block comment on the
+            strings in lib/i18n/dictionary.ts before editing so much as a
+            comma. Everything that was ever drafted FOR them is gone from
+            this page — the three original paragraphs first, and now the
+            memorial too. */}
         <div className="space-y-5 leading-relaxed text-ink/80">
           <p>{t("about.storyP1")}</p>
           <p>
@@ -151,44 +164,26 @@ export default async function AboutPage() {
           <p>{t("about.storyP3")}</p>
         </div>
 
-        {/* The same story in 中文, following its other half directly and
-            set quieter — the pattern every bilingual notice on this site
-            already uses ("Allergies? Call us first · 食物過敏請先致電"),
-            at the length of a story rather than a line. It follows with
-            no rule and no label between them because it is not a second
-            section: it is the same three paragraphs, and the reader who
-            needs it will find it by recognising it.
 
-            No space joins the sentences inside the second paragraph —
-            Chinese sets its own with 。 and a space would be a gap in the
-            middle of a line.
+        {/* TWO BLOCKS USED TO FOLLOW HERE and no longer do. Both are
+            still in the repo — the strings are untouched in the
+            dictionary and the whole record is in
+            docs/ABOUT_REMOVED_CONTENT.md — because the family may want
+            either back, and putting one back should be uncommenting a
+            div rather than rewriting a page.
 
-            `leading-loose`: Noto Serif TC at this size needs more air
-            between lines than Lora does, and a wall of 漢字 at
-            leading-relaxed reads as a block rather than as paragraphs. */}
-        <div
-          lang="zh-Hant"
-          className="mt-9 space-y-4 font-chinese leading-loose text-ink/60"
-        >
-          <p>{t("about.storyP1Zh")}</p>
-          <p>
-            {yearsZh && t("about.storyP2LeadZh", { years: yearsZh })}
-            {t("about.storyP2Zh")}
-          </p>
-          <p>{t("about.storyP3Zh")}</p>
-        </div>
-      </div>
+            1. THE SAME STORY AGAIN IN 中文 — about.storyP1Zh,
+               storyP2LeadZh, storyP2Zh, storyP3Zh. A
+               Simplified→Traditional conversion of what they wrote,
+               awaiting their review, running three full paragraphs
+               directly under the English ones. The English story is
+               the story.
 
-      {/* ⚠️ NOT PART OF THE FAMILY'S TEXT, and separated from it on
-          purpose — the rule and the gap above are the whole point, so
-          that nothing here reads as something they wrote.
-
-          TODO(confirm): family to choose — story alone, or story +
-          memorial section. Kept rather than deleted because it may well
-          be true; theirs to decide, and the matching flag is on
-          `about.memorial` in the dictionary. */}
-      <div className="mt-12 border-t border-gold/30 pt-8">
-        <p className="leading-relaxed text-ink/70">{t("about.memorial")}</p>
+            2. THE MEMORIAL PARAGRAPH — about.memorial, behind a gold
+               rule. It was never theirs; it was drafted here before
+               their history arrived, and it carried the open question
+               "story alone, or story + memorial". Removing it answers
+               that question: story alone. */}
       </div>
 
       {/* Same frame, same placeholder, same caption plate as the homepage

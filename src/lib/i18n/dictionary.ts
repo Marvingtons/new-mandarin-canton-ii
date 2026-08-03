@@ -300,10 +300,18 @@ export const en = {
      dashes, and this site does not (see commit 2680106), so three of
      them became commas.
 
-     The 中文 half is THEIR ORIGINAL, converted Simplified → Traditional
-     for display. The Simplified source-of-truth is preserved verbatim in
-     app/about/page.tsx.
-     ⚠️ TODO(confirm): Traditional conversion pending family review.
+     ⚠️ THE `*Zh` KEYS ARE NO LONGER RENDERED ANYWHERE. The 中文 story
+     came off the About page; the English story is the story. The strings
+     stay — both locales, unchanged — because they are the family's own
+     history converted Simplified → Traditional, and putting the block
+     back should be uncommenting a div rather than retyping three
+     paragraphs. The Simplified source-of-truth is still in
+     app/about/page.tsx, and docs/ABOUT_REMOVED_CONTENT.md records what
+     came off and how to restore it.
+
+     The "Traditional conversion pending family review" flag is CLOSED
+     with them: nothing is waiting on that review while nothing renders.
+     It comes back with the block if the block does.
 
      `{yearsCap}` / `{years}` are filled from data/restaurant.ts's
      `yearsOpen()`, so the count never goes stale. English takes the
@@ -336,11 +344,20 @@ export const en = {
     "Times have changed over thirty years. Our devotion to quality, to flavor, and to every guest who walks through our door has not. We'll keep cooking every dish the way we always have, and welcoming every guest the way we always have, so this familiar taste, and this warmth, carry on.",
   "about.storyP3Zh":
     "三十多年來，時代在變化，但我們對品質的堅持、對味道的執著、對每一位客人的用心從未改變。未來，我們也將繼續秉持初心，堅持做好每一道菜、服務好每一位客人，讓這份熟悉的味道和溫暖一直傳承下去。",
-  /* ⚠️ NOT the family's words. Drafted here before their history
-     arrived, kept because it may be true and theirs to decide.
-     TODO(confirm): family to choose — story alone, or story + memorial.
-     No 中文 half on purpose: inventing Chinese for unapproved English
-     would make it harder, not easier, for them to say no. */
+  /* ⚠️ NOT the family's words, and NO LONGER RENDERED. Drafted here
+     before their history arrived.
+
+     Its flag — "family to choose: story alone, or story + memorial" — is
+     CLOSED, and closed with an answer rather than retired: story alone.
+     A paragraph about someone's death, written by a stranger and never
+     approved by the people it is about, does not get to sit on their
+     About page while a question mark hangs over it.
+
+     The string stays for the same reason it was written cautiously in
+     the first place: if the family reads it and says yes, it goes back
+     up. See docs/ABOUT_REMOVED_CONTENT.md. No 中文 half on purpose:
+     inventing Chinese for unapproved English would make it harder, not
+     easier, for them to say no. */
   "about.memorial":
     "A restaurant open this long outlives some of the people who built it. When one of the original owners passed away, someone who had worked here since the early days became an owner and kept it open. The kitchen carried on as it was.",
 
@@ -663,7 +680,9 @@ export const es: Record<TranslationKey, string> = {
      the family, no marketing adjectives added.
      ⚠️ Flagged for the native review like every string in this table.
      The 中文 halves are identical to the English side's by design: the
-     Chinese never moves, only the half beside it does. */
+     Chinese never moves, only the half beside it does — and neither the
+     `*Zh` keys nor `about.memorial` render anywhere now. See the English
+     table for why they are kept. */
   "about.title": "Sobre nosotros",
   "about.pullQuote": "Tres generaciones en nuestras mesas",
   "about.storyP1":
