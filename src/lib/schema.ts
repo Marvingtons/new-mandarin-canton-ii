@@ -58,7 +58,7 @@ const SCHEMA_DAY: Record<DayOfWeek, string> = {
 };
 
 /**
- * "9:30 PM" → "21:30". Schema wants ISO 8601 local time; the data file
+ * "9:00 PM" → "21:00". Schema wants ISO 8601 local time; the data file
  * is written in the 12-hour clock the printed menu and the door use.
  *
  * Returns null rather than a guess if the string is not the shape it

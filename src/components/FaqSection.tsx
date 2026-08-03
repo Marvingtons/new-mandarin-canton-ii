@@ -1,6 +1,6 @@
 import JsonLd from "@/components/JsonLd";
 import SectionHeading from "@/components/SectionHeading";
-import { sharedLastOnlineOrder } from "@/data/restaurant";
+import { todaysCutoff } from "@/lib/hours";
 import type { TranslationKey } from "@/lib/i18n/dictionary";
 import { getT } from "@/lib/i18n/server";
 import { faqNode, graph } from "@/lib/schema";
@@ -51,15 +51,21 @@ export default async function FaqSection({
 }) {
   const t = await getT();
 
-  /* The cutoff question is dropped entirely when the days stop agreeing
-     on one time, rather than printing one number over a week that has
-     two. Same discipline as the footer line it restates — see
-     sharedLastOnlineOrder. */
+  /* The cutoff question USED TO BE DROPPED ENTIRELY when the days stopped
+     agreeing on one time — a rule meant to stop one number standing in for
+     two, which on the day it fired would have deleted "how late can I
+     order online?" from the FAQ instead. The days disagree now (Saturday
+     9:00 PM, 8:30 the rest), so that rule would be live, and the answer
+     names TODAY's cutoff rather than a week-wide number.
+
+     It still drops on a day the restaurant is closed, and that is the one
+     case where saying nothing is honest: there is no cutoff today. */
+  const cutoff = todaysCutoff();
   const entries = QUESTIONS.filter(
-    (item) => item.q !== "faq.q.onlineCutoff" || sharedLastOnlineOrder,
+    (item) => item.q !== "faq.q.onlineCutoff" || cutoff,
   ).map((item) => ({
     question: t(item.q),
-    answer: t(item.a, { time: sharedLastOnlineOrder ?? "" }),
+    answer: t(item.a, { time: cutoff?.label ?? "" }),
   }));
 
   return (

@@ -40,7 +40,8 @@ const navLabel = (id: string, nameEn: string): string =>
 const primaryPhone = phoneLinks[0];
 import { useCart } from "@/lib/cart/CartContext";
 import { isLunchService } from "@/lib/order/gates";
-import { phoneLinks, restaurant, sharedLastOnlineOrder } from "@/data/restaurant";
+import { phoneLinks, restaurant } from "@/data/restaurant";
+import type { CutoffToday } from "@/lib/hours";
 import { formatCents } from "@/lib/money";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { describeItem } from "@/data/menu-descriptions-es";
@@ -64,12 +65,20 @@ export default function OrderMenu({
   taxRateBps,
   timezone,
   lunchOpenInitial,
+  cutoff,
 }: {
   menu: Menu;
   taxRateBps: number | null;
   timezone: string;
   /** Decided on the server so the first paint has lunch in the right place. */
   lunchOpenInitial: boolean;
+  /**
+   * Today's online-order cutoff, resolved on the server in the
+   * RESTAURANT's timezone — not derivable here, where the clock belongs to
+   * the visitor. Null when today is closed, and the notice line drops
+   * rather than naming a time that does not exist. See lib/hours.
+   */
+  cutoff: CutoffToday | null;
 }) {
   const { t, locale } = useLocale();
   const { itemCount, hydrated } = useCart();
@@ -230,15 +239,16 @@ export default function OrderMenu({
             {t("banner.logistics")}
           </p>
           <p className="mt-1">
-            {/* The website stops taking orders before the doors shut. The
-                "call after that" half of this used to sit here too; it is on
-                every page already, under the hours in the footer
-                (footer.lastOnlineOrder), which is where somebody who has just
-                read a cutoff time goes looking. */}
-            {sharedLastOnlineOrder && (
+            {/* TODAY's cutoff, resolved on the server (see the prop). It is
+                the closing time now — the owner set the two equal — so the
+                "call after that" half this line once carried would be
+                pointing at a phone nobody is answering. Both the English
+                and the 中文 interpolate the SAME lookup, so they cannot
+                name different times. */}
+            {cutoff && (
               <>
                 <span className="font-semibold text-ink">
-                  {t("banner.onlineUntil", { time: sharedLastOnlineOrder })}
+                  {t("banner.onlineUntil", { time: cutoff.label })}
                 </span>{" "}
                 {/* nowrap: CJK breaks between any two characters, so at
                     390 this was splitting as 網上訂餐至晚上 / 8:30 and
@@ -249,7 +259,7 @@ export default function OrderMenu({
                   lang="zh-Hant"
                   className="whitespace-nowrap font-chinese text-ink/60"
                 >
-                  {t("banner.onlineUntilZh")}
+                  {t("banner.onlineUntilZh", { time: cutoff.bare })}
                 </span>
                 {/* NBSP before the middot, a normal space after. At 390
                     this line wraps mid-sentence and the break was landing

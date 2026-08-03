@@ -1,22 +1,32 @@
 /**
- * The per-day online-order cutoff, pinned at the two days that can break.
+ * The per-day online-order cutoff, pinned at the boundary minute on EVERY
+ * day of the week.
  *
- * Two failure modes this exists to catch:
+ * WHAT CHANGED, AND WHY THIS FILE GREW. The cutoff used to run ahead of
+ * closing time, which made two days interesting: Sunday, the one day where
+ * cutoff equalled close, and Saturday, where an 8:30 PM cutoff against a
+ * 9:30 PM close left a full hour with the doors open and the website shut.
+ * The owner has since set the cutoff TO the closing time on every day, so:
  *
- *  SUNDAY is the zero-buffer day. The doors shut at 8:30 PM and the cutoff
- *  is also 8:30 PM, so an order may be placed in the same minute the
- *  restaurant closes. Nothing may quote a pickup after close, and the only
- *  thing standing between us and that is readyWindow()'s cap. If someone
- *  removes the cap, this file fails rather than a customer arriving at a
- *  locked door.
+ *  EVERY DAY IS THE ZERO-BUFFER DAY. An order can be placed in the same
+ *  minute the doors lock, on any day, and the prep range then wants to
+ *  quote 15–20 minutes past it (20–30 for a tray or a family dinner).
+ *  readyWindow()'s cap at closing time is the ONLY thing preventing the
+ *  site promising a pickup after close, seven nights a week. If someone
+ *  removes it, this file fails rather than a customer arriving at a locked
+ *  door.
  *
- *  SATURDAY is the opposite: doors until 9:30 PM, cutoff at 8:30 PM, so
- *  there is a full HOUR where the site refuses orders and the restaurant is
- *  open. Nothing in that hour may tell the customer we are closed.
+ *  THE GAP IS GONE. There is no longer a minute where the website refuses
+ *  an order while the dining room is open, so the branch of closedMessage
+ *  that covered it is unreachable by construction. That is asserted here
+ *  too — as a property of the CONFIG, not of the copy — so that a future
+ *  buffer is a test failure that points at the branch rather than a silent
+ *  return of "we're closed" over a lit dining room.
  *
  * Run: npm run verify:order-cutoff
  */
 import { restaurant } from "@/data/restaurant";
+import type { DayOfWeek } from "@/data/restaurant";
 import {
   hoursForDay,
   isAcceptingOrders,
@@ -26,6 +36,7 @@ import {
 } from "@/lib/order/pickup";
 import { readyWindow } from "@/lib/order/readyWindow";
 import { closedMessage } from "@/lib/order/gates";
+import { todaysCutoff } from "@/lib/hours";
 
 const OPTS: PickupOptions = {
   timezone: restaurant.timezone,
@@ -37,13 +48,26 @@ const OPTS: PickupOptions = {
 function at(dateIso: string, hh: number, mm: number): Date {
   // The dates below are chosen so the weekday is what the label says in
   // America/Los_Angeles, and PDT (-07:00) is in force for all of them.
-  return new Date(`${dateIso}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00-07:00`);
+  return new Date(
+    `${dateIso}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00-07:00`,
+  );
 }
 
-/** 2026-08-02 is a Sunday; 2026-08-01 a Saturday; 2026-08-03 a Monday. */
-const SUNDAY = "2026-08-02";
-const SATURDAY = "2026-08-01";
-const MONDAY = "2026-08-03";
+/**
+ * One real date per weekday, all inside PDT. Every day is now a boundary
+ * case, so every day needs a date to probe at.
+ */
+const DATE: Record<DayOfWeek, string> = {
+  sunday: "2026-08-02",
+  monday: "2026-08-03",
+  tuesday: "2026-08-04",
+  wednesday: "2026-08-05",
+  thursday: "2026-08-06",
+  friday: "2026-08-07",
+  saturday: "2026-08-01",
+};
+
+const WEEK = Object.keys(DATE) as DayOfWeek[];
 
 let pass = 0;
 const failures: string[] = [];
@@ -68,10 +92,15 @@ function minutesLocal(d: Date): number {
   return (get("hour") % 24) * 60 + get("minute");
 }
 
+/** The instant one minute before the day's cutoff. */
+function justInside(day: DayOfWeek, lastOrder: number): Date {
+  return at(DATE[day], Math.floor((lastOrder - 1) / 60), (lastOrder - 1) % 60);
+}
+
 /* ---------------------------------------------------- config sanity -- */
 
-for (const day of Object.keys(restaurant.hours)) {
-  const w = hoursForDay(day as keyof typeof restaurant.hours);
+for (const day of WEEK) {
+  const w = hoursForDay(day);
   if (!w) continue;
   check(
     `${day}: lastOrder within [open, close]`,
@@ -79,118 +108,157 @@ for (const day of Object.keys(restaurant.hours)) {
     `open=${w.open} lastOrder=${w.lastOrder} close=${w.close}`,
   );
   check(
-    `${day}: a customer ordering one minute before the cutoff cannot be quoted a pickup after close`,
-    (() => {
-      const probe = at(
-        day === "saturday" ? SATURDAY : day === "sunday" ? SUNDAY : MONDAY,
-        Math.floor((w.lastOrder - 1) / 60),
-        (w.lastOrder - 1) % 60,
-      );
-      const win = readyWindow(probe, OPTS, true, null);
-      return minutesLocal(win.to) <= w.close;
-    })(),
-    `long-prep window overran close on ${day}`,
+    `${day}: the cutoff IS the closing time (owner-confirmed, no buffer)`,
+    w.lastOrder === w.close,
+    `lastOrder=${w.lastOrder} close=${w.close} — a buffer reappeared; the` +
+      ` unreachable branch in closedMessage is live again and its copy needs review`,
+  );
+  check(
+    `${day}: opens at 11:00 AM`,
+    w.open === 11 * 60,
+    `open=${w.open} minutes past midnight`,
   );
 }
 
-/* ------------------------------------------------------ SUNDAY 8:30 -- */
+/* -------------------------- THE BOUNDARY MINUTE, ON EVERY DAY -------- */
 
-{
-  const justBefore = at(SUNDAY, 20, 29);
+for (const day of WEEK) {
+  const w = hoursForDay(day);
+  if (!w) continue;
+  const probe = justInside(day, w.lastOrder);
+  const label = `${day} ${Math.floor((w.lastOrder - 1) / 60)}:${String((w.lastOrder - 1) % 60).padStart(2, "0")}`;
+
   check(
-    "sunday 20:29 still accepts an order",
-    isAcceptingOrders(justBefore, OPTS),
-    "expected the zero-buffer day to accept right up to the cutoff",
+    `${label} still accepts an order (one minute inside the cutoff)`,
+    isAcceptingOrders(probe, OPTS),
+    "the last orderable minute of the day was refused",
   );
 
-  const slots = pickupSlots(justBefore, OPTS);
+  const slots = pickupSlots(probe, OPTS);
   check(
-    "sunday 20:29 offers ASAP and no post-close slot",
+    `${label} offers slots, none of them after close`,
     slots.length > 0 &&
-      slots.every((s) => s.value === "asap" || s.value <= "20:30"),
-    `slots=${JSON.stringify(slots.map((s) => s.value))}`,
+      slots.every(
+        (s) =>
+          s.value === "asap" ||
+          Number.parseInt(s.value.slice(0, 2), 10) * 60 +
+            Number.parseInt(s.value.slice(3), 10) <=
+            w.close,
+      ),
+    `slots=${JSON.stringify(slots.map((s) => s.value))} close=${w.close}`,
   );
 
-  // The whole point: an ASAP order here would naturally land at 20:49.
-  const w = readyWindow(justBefore, OPTS, false, null);
+  // Standard prep: 15–20 minutes past a one-minute-to-close order.
+  const std = readyWindow(probe, OPTS, false, null);
   check(
-    "sunday ASAP ready window never passes closing",
-    minutesLocal(w.to) <= 20 * 60 + 30,
-    `window ends at ${minutesLocal(w.to)} min, close is ${20 * 60 + 30}`,
+    `${label} standard ready window is clamped to close`,
+    minutesLocal(std.to) <= w.close,
+    `window ends at ${minutesLocal(std.to)}, close is ${w.close}`,
   );
   check(
-    "sunday ASAP window is not backwards",
-    w.to.getTime() >= w.from.getTime(),
-    `from=${w.from.toISOString()} to=${w.to.toISOString()}`,
-  );
-
-  // Long prep is the harsher case: 20-30 minutes past a 20:29 order.
-  const long = readyWindow(justBefore, OPTS, true, null);
-  check(
-    "sunday long-prep ready window never passes closing",
-    minutesLocal(long.to) <= 20 * 60 + 30,
-    `window ends at ${minutesLocal(long.to)} min`,
+    `${label} standard window is not backwards`,
+    std.to.getTime() >= std.from.getTime(),
+    `from=${std.from.toISOString()} to=${std.to.toISOString()}`,
   );
 
+  // Long prep is the harsher case: 20–30 minutes past the same order.
+  const long = readyWindow(probe, OPTS, true, null);
   check(
-    "sunday 20:31 no longer accepts",
-    !isAcceptingOrders(at(SUNDAY, 20, 31), OPTS),
-    "past close and past cutoff",
+    `${label} LONG-PREP ready window is clamped to close`,
+    minutesLocal(long.to) <= w.close,
+    `window ends at ${minutesLocal(long.to)}, close is ${w.close}`,
+  );
+  check(
+    `${label} long-prep window is not backwards`,
+    long.to.getTime() >= long.from.getTime(),
+    `from=${long.from.toISOString()} to=${long.to.toISOString()}`,
+  );
+  check(
+    `${label} long-prep window is pinned at close, not merely under it`,
+    minutesLocal(long.from) === w.close && minutesLocal(long.to) === w.close,
+    `from=${minutesLocal(long.from)} to=${minutesLocal(long.to)} close=${w.close}`,
+  );
+
+  // One minute past the cutoff: refused, and no slots to tempt anyone.
+  const past = at(DATE[day], Math.floor(w.close / 60), (w.close % 60) + 1);
+  check(
+    `${day} one minute past close no longer accepts`,
+    !isAcceptingOrders(past, OPTS),
+    "an order was accepted after closing time",
+  );
+  check(
+    `${day} one minute past close offers no slots`,
+    pickupSlots(past, OPTS).length === 0,
+    "slots were offered after closing time",
+  );
+  check(
+    `${day} one minute past close reports the doors shut`,
+    !isOpenNow(past, OPTS),
+    "isOpenNow disagreed with the closing time",
   );
 }
 
-/* ---------------------------------------------------- SATURDAY hour -- */
+/* ------------------------------- Saturday is the late day now -------- */
 
 {
-  const inTheGap = at(SATURDAY, 21, 0);
+  const sat = hoursForDay("saturday");
+  const fri = hoursForDay("friday");
   check(
-    "saturday 21:00 refuses online orders",
-    !isAcceptingOrders(inTheGap, OPTS),
-    "8:30 PM cutoff should already have passed",
+    "saturday closes later than the rest of the week",
+    !!sat && !!fri && sat.close > fri.close,
+    `saturday close=${sat?.close} friday close=${fri?.close}`,
+  );
+  // 8:31 PM Saturday is past every OTHER day's cutoff and inside Saturday's.
+  const satLate = at(DATE.saturday, 20, 31);
+  check(
+    "saturday 20:31 still accepts (its cutoff is 9:00 PM)",
+    isAcceptingOrders(satLate, OPTS),
+    "saturday's later cutoff is not being read",
   );
   check(
-    "saturday 21:00 the doors are still open",
-    isOpenNow(inTheGap, OPTS),
-    "saturday closes at 9:30 PM",
+    "friday 20:31 refuses (its cutoff is 8:30 PM)",
+    !isAcceptingOrders(at(DATE.friday, 20, 31), OPTS),
+    "a weekday accepted an order past its cutoff",
   );
-  check(
-    "saturday 21:00 offers no slots",
-    pickupSlots(inTheGap, OPTS).length === 0,
-    "past the cutoff nothing is offerable",
-  );
+}
 
-  // The copy shown in that hour must not claim the restaurant is closed.
-  const msg = closedMessage(inTheGap, OPTS);
+/* ---------------------------- the gap is gone, and stays gone -------- */
+
+for (const day of WEEK) {
+  const w = hoursForDay(day);
+  if (!w) continue;
   check(
-    "saturday gap message does not say we are closed",
-    !/we're closed/i.test(msg),
-    `message was: ${msg}`,
+    `${day}: no minute exists where the site refuses and the doors are open`,
+    w.lastOrder >= w.close,
+    `cutoff ${w.lastOrder} is before close ${w.close}, so the gap is back`,
   );
+  // Past close on any day, the refusal is the closed one and it names the
+  // day's own hours rather than a hardcoded time.
+  const msg = closedMessage(at(DATE[day], 22, 0), OPTS);
+  const closeLabel = `${((Math.floor(w.close / 60) + 11) % 12) + 1}:${String(w.close % 60).padStart(2, "0")} PM`;
   check(
-    "saturday gap message names the cutoff and invites a call",
-    msg.includes("8:30 PM") && /call/i.test(msg),
+    `${day}: the post-close refusal names ${closeLabel} and invites a call`,
+    msg.includes(closeLabel) && /call/i.test(msg),
     `message was: ${msg}`,
   );
 }
 
-/* -------------------------------------------------- ordinary weekday -- */
+/* -------------------- what the display surfaces are handed ----------- */
 
-{
+for (const day of WEEK) {
+  const w = hoursForDay(day);
+  if (!w) continue;
+  const c = todaysCutoff(at(DATE[day], 12, 0));
+  const expected = restaurant.hours[day].lastOnlineOrder;
   check(
-    "monday 20:29 still accepts (cutoff 8:30, close 9:00)",
-    isAcceptingOrders(at(MONDAY, 20, 29), OPTS),
-    "",
+    `${day}: todaysCutoff() reports ${expected}`,
+    c?.label === expected,
+    `got ${JSON.stringify(c)}`,
   );
   check(
-    "monday 20:31 refuses",
-    !isAcceptingOrders(at(MONDAY, 20, 31), OPTS),
-    "",
-  );
-  const msg = closedMessage(at(MONDAY, 20, 45), OPTS);
-  check(
-    "monday gap message does not say we are closed",
-    !/we're closed/i.test(msg),
-    `message was: ${msg}`,
+    `${day}: the 中文 half gets the same clock without a meridiem`,
+    !!c && c.bare === expected.replace(/\s*(AM|PM)$/i, "") && !/M$/.test(c.bare),
+    `bare=${JSON.stringify(c?.bare)}`,
   );
 }
 

@@ -79,12 +79,30 @@ function toHHMM(mins: number): string {
 /**
  * Online-ordering hours.
  *
- * Preferred source is ONLINE_ORDERING_HOURS (JSON, 24h times). When unset we
- * derive the window from the confirmed dine-in hours in restaurant.ts minus a
- * closing cutoff, so online orders stop before the kitchen does.
+ * ⚠️ THIS WAS A SECOND SOURCE OF TRUTH FOR THE CUTOFF, and it disagreed.
  *
- * ⚠️ CONFIRM: ONLINE_ORDERING_CUTOFF_MINUTES defaults to 30 only because the
- * build spec proposed it. The owner must confirm the real cutoff.
+ * It used to compute `close − ONLINE_ORDERING_CUTOFF_MINUTES`, a flat 30
+ * that defaulted from a build spec and was flagged for the owner. Meanwhile
+ * restaurant.ts grew a real per-day `lastOnlineOrder`, which is what
+ * lib/order/pickup.ts gates on and what every display surface prints. The
+ * two have not matched since: this produced 8:00 PM where the site says
+ * 8:30, and 8:30 where Saturday now says 9:00.
+ *
+ * Nothing gates on it today — `orderingStatus()` in lib/menu/onlineHours is
+ * the only reader and has no callers — so the disagreement was latent
+ * rather than live. It was still shipped to the browser inside the public
+ * tenant object on every page, one call away from silently refusing orders
+ * half an hour before the whole rest of the site says ordering stops.
+ *
+ * It reads `lastOnlineOrder` now, so the fallback cannot drift from the
+ * gate. ONLINE_ORDERING_CUTOFF_MINUTES is gone with it: "how long before
+ * close does the kitchen need" is a per-day decision the owner makes in
+ * restaurant.ts, not a global integer, and its ⚠️ CONFIRM went with it.
+ *
+ * ONLINE_ORDERING_HOURS still overrides everything, for a deployment that
+ * genuinely needs a window unlike the door hours. Setting it re-creates the
+ * second source deliberately, which is the difference between an override
+ * and a default.
  */
 function resolveOrderingHours(): Record<DayKey, OrderingWindow> {
   const raw = env("ONLINE_ORDERING_HOURS");
@@ -100,26 +118,33 @@ function resolveOrderingHours(): Record<DayKey, OrderingWindow> {
       });
       if (ok) return parsed;
       console.warn(
-        "[tenant] ONLINE_ORDERING_HOURS is missing days or malformed — falling back to dine-in hours minus cutoff.",
+        "[tenant] ONLINE_ORDERING_HOURS is missing days or malformed — falling back to the per-day cutoff in restaurant.ts.",
       );
     } catch {
       console.warn(
-        "[tenant] ONLINE_ORDERING_HOURS is not valid JSON — falling back to dine-in hours minus cutoff.",
+        "[tenant] ONLINE_ORDERING_HOURS is not valid JSON — falling back to the per-day cutoff in restaurant.ts.",
       );
     }
   }
 
-  const cutoff = intEnv("ONLINE_ORDERING_CUTOFF_MINUTES", 30);
   const out = {} as Record<DayKey, OrderingWindow>;
   for (const day of DAYS) {
     const h = restaurant.hours[day];
     const open = parse12h(h.open);
     const close = parse12h(h.close);
-    if (h.closed || open === null || close === null || close - cutoff <= open) {
+    // The configured cutoff, clamped into the door hours exactly as
+    // pickup.ts's todaysWindow() clamps it — same rule, same result.
+    const configured = parse12h(h.lastOnlineOrder);
+    if (h.closed || open === null || close === null) {
       out[day] = { open: "00:00", close: "00:00", closed: true };
-    } else {
-      out[day] = { open: toHHMM(open), close: toHHMM(close - cutoff) };
+      continue;
     }
+    const lastOrder =
+      configured === null ? close : Math.min(Math.max(configured, open), close);
+    out[day] =
+      lastOrder <= open
+        ? { open: "00:00", close: "00:00", closed: true }
+        : { open: toHHMM(open), close: toHHMM(lastOrder) };
   }
   return out;
 }

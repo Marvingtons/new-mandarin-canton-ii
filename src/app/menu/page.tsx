@@ -3,6 +3,7 @@ import { getMenu } from "@/lib/menu/source";
 import { publicTenant } from "@/config/tenant.server";
 import OrderMenu from "@/components/order/OrderMenu";
 import { isLunchService } from "@/lib/order/gates";
+import { todaysCutoff } from "@/lib/hours";
 import JsonLd from "@/components/JsonLd";
 import { breadcrumbNode, graph, menuGraph } from "@/lib/schema";
 
@@ -58,6 +59,15 @@ export default async function MenuPage() {
     leadMinutes: tenant.pickupLeadMinutes,
     intervalMinutes: tenant.pickupSlotIntervalMinutes,
   });
+  /* Today's ordering cutoff, decided here for the same reason lunch is:
+     the notice card names it, the cutoff differs by day now (9:00 PM on
+     Saturday, 8:30 the rest of the week), and OrderMenu is a client
+     component whose own clock would be the VISITOR's. A guest browsing
+     from New York must not be told a Chula Vista cutoff on their own
+     Saturday. Passing the server's answer down also keeps the first paint
+     right, so the printed time never changes under the reader at
+     hydration. */
+  const cutoff = todaysCutoff();
   return (
     <>
       {/* THE MENU, FOR MACHINES. 143 dishes with their real prices,
@@ -85,6 +95,7 @@ export default async function MenuPage() {
         taxRateBps={tenant.taxRateBps}
         timezone={tenant.timezone}
         lunchOpenInitial={lunchOpen}
+        cutoff={cutoff}
       />
     </>
   );

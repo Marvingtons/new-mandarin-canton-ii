@@ -5,7 +5,7 @@ import LocationMap from "@/components/LocationMap";
 import OpenNowChip from "@/components/OpenNowChip";
 import PhotoFrame from "@/components/PhotoFrame";
 import { photos } from "@/data/images";
-import { phoneLinks, restaurant } from "@/data/restaurant";
+import { phoneLinks, restaurant, telHref } from "@/data/restaurant";
 import { getT } from "@/lib/i18n/server";
 import FaqSection from "@/components/FaqSection";
 import JsonLd from "@/components/JsonLd";
@@ -106,6 +106,30 @@ export default async function ContactPage() {
           <OpenNowChip tone="light" className="mt-4" />
           <p className="mt-3 text-sm italic text-ink/60">
             {t("contact.open7")}
+          </p>
+          {/* The holiday caveat, second and last of its two homes (the
+              other is the footer's hours column). Same line, same order,
+              same 中文 — and the same reason for being here rather than on
+              the menu page: it qualifies a set of hours, so it lives
+              wherever the hours are printed.
+
+              text-lacquer on the link, not gold: this page is ivory, where
+              every gold in the palette measures ~2.1:1. Same rule as the
+              small-caps labels above. */}
+          <p className="mt-3 text-sm leading-relaxed text-ink/70">
+            {t("hours.holidayLead")}{" "}
+            <span aria-hidden="true" className="text-ink/35">
+              ·
+            </span>{" "}
+            <a
+              href={telHref}
+              className="tap token-colors font-semibold text-lacquer underline decoration-gold/60 underline-offset-4 hover:text-lacquer-dark"
+            >
+              {t("hours.holidayCall")}
+            </a>{" "}
+            <span lang="zh-Hant" className="font-chinese text-ink/55">
+              {t("hours.holidayZh")}
+            </span>
           </p>
         </div>
       </div>

@@ -7,8 +7,10 @@ import type { DayOfWeek } from "@/data/restaurant";
  * and the server (re-validates the submitted slot). Because both compute the
  * same set from the same data, a tampered pickup time is rejected server-side.
  *
- * Store hours come from restaurant.ts:
- *   Mon–Fri 11:00–21:00 · Sat 11:00–21:30 · Sun 11:00–20:30
+ * Store hours come from restaurant.ts and are NOT restated here — a second
+ * copy in a comment is a second source of truth that nothing tests. The
+ * shape as of the owner's last word: 11:00 AM daily, closing 8:30 PM with
+ * Saturday at 9:00 PM, and the online cutoff equal to closing on every day.
  */
 
 export interface PickupSlot {
@@ -91,8 +93,9 @@ function hhmm(mins: number): string {
  *
  * Clamped to the door hours. A lastOnlineOrder later than closing would
  * let the site take an order it cannot fill; earlier than opening would
- * close ordering before it started. Sunday is the deliberate equality
- * case — cutoff EQUALS close — and is allowed.
+ * close ordering before it started. EQUALITY — cutoff exactly at close —
+ * is allowed, and is now the configured state on every day of the week
+ * rather than Sunday's special case.
  */
 function todaysWindow(
   day: DayOfWeek,

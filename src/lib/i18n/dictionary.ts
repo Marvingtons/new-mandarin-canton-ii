@@ -89,8 +89,14 @@ export const en = {
   "banner.pickupLead": "Pickup only",
   "banner.logistics":
     "ready in 15–20 min · party trays & family dinners 20–30 · pay at the counter",
+  /* {time} is TODAY's cutoff, not the week's — 8:30 PM Sun–Fri, 9:00 PM
+     Saturday. The 中文 half took a hardcoded "8:30" until the owner moved
+     Saturday, at which point it was the only string on the site that
+     could contradict the English beside it. It interpolates the same
+     lookup now (see todaysCutoff), and takes the BARE clock because 晚上
+     already says which half of the day it is. */
   "banner.onlineUntil": "Online orders until {time}",
-  "banner.onlineUntilZh": "網上訂餐至晚上8:30",
+  "banner.onlineUntilZh": "網上訂餐至晚上{time}",
   "banner.allergy": "Allergies? Call us first",
   "banner.allergyZh": "食物過敏請先致電",
 
@@ -215,12 +221,32 @@ export const en = {
   "footer.getDirections": "Get Directions",
   "footer.pickupOnly": "Takeout pickup only · no delivery",
   "footer.allergyQuestions": "Questions about allergies? Call us.",
-  "footer.lastOnlineOrder":
-    "Last online order {time}. The dining room stays open past it, so please call to order after that.",
+  /* ⚠️ THE SECOND SENTENCE HAD TO GO. It read "The dining room stays open
+     past it, so please call to order after that", which was true while the
+     cutoff ran ahead of closing — up to an hour ahead on a Saturday. The
+     owner has since set the cutoff TO the closing time on every day, so
+     there is no "past it" left to call during: when online ordering stops,
+     the restaurant is closing. Leaving the sentence would have sent people
+     to a phone nobody is answering.
+
+     {time} is today's cutoff (see todaysCutoff), because the week no
+     longer shares one. */
+  "footer.lastOnlineOrder": "Last online order {time}, when we close.",
   "footer.privacy": "Privacy",
   "footer.terms": "Terms",
   "footer.today": "Today",
   "footer.closed": "Closed",
+  /* ---- the holiday line, under the hours (footer + /contact) ----
+     One line, the quiet style, and NOT a third banner on the menu page —
+     the notice-fatigue rule stands and the menu card stays at two lines.
+     "call ahead" is the site's tappable-number treatment: the words are
+     the tel: link, because a phone number spelled out here would be a
+     third copy of it in one footer.
+     The 中文 half follows its English directly with no middot of its own,
+     per the separator convention on banner.allergy. */
+  "hours.holidayLead": "Holiday hours may differ",
+  "hours.holidayCall": "please call ahead",
+  "hours.holidayZh": "節假日營業時間或有不同，請來電確認",
 
   /* ---- contact page ----
      Its three section labels reuse footer.findUs / hero.call / footer.hours
@@ -396,9 +422,21 @@ export const en = {
   "faq.q.phone": "Can I order by phone?",
   "faq.a.phone":
     "Yes. Call (619) 656-6888 or (619) 656-6787. Both lines are staffed.",
+  /* ⚠️ REWRITTEN TWICE OVER by one hours change. "every day" is no longer
+     true — Saturday's cutoff is 9:00 PM against 8:30 the rest of the
+     week — and neither is "the dining room stays open past that", because
+     the cutoff IS closing time now. Both halves of the old answer were
+     confidently wrong.
+
+     It names TODAY's cutoff rather than enumerating the week, and that is
+     a source-of-truth decision rather than a copy one: spelling out
+     "8:30 Sun–Fri, 9:00 Sat" here would put the hours in a translation
+     file, which is precisely the straggler this pass exists to remove.
+     The per-day week is published by the hours table, which derives from
+     the same record. */
   "faq.q.onlineCutoff": "How late can I order online?",
   "faq.a.onlineCutoff":
-    "Online orders close at {time} every day. The dining room stays open past that, so please call to order after it.",
+    "Until we close, which is {time} today. Holiday hours may differ, so please call ahead.",
   "faq.q.food": "What kind of food do you cook?",
   "faq.a.food":
     "Mandarin, Szechuan and Cantonese, cooked to order. The family has been cooking it here since 1995.",
@@ -638,12 +676,21 @@ export const es: Record<TranslationKey, string> = {
   "footer.getDirections": "Cómo llegar",
   "footer.pickupOnly": "Solo para llevar · sin entrega a domicilio",
   "footer.allergyQuestions": "¿Preguntas sobre alergias? Llámenos.",
+  /* Second sentence dropped, like the English: the cutoff is closing time
+     now, so there is no "sigue abierto después". */
   "footer.lastOnlineOrder":
-    "Última orden en línea a las {time}. El restaurante sigue abierto después, así que por favor llame para ordenar.",
+    "Última orden en línea a las {time}, cuando cerramos.",
   "footer.privacy": "Privacidad",
   "footer.terms": "Términos",
   "footer.today": "Hoy",
   "footer.closed": "Cerrado",
+  /* ---- the holiday line ----
+     "días festivos" is what the neighbourhood says; "llame antes" keeps
+     the usted-neutral register the rest of this table uses. Pending the
+     same native review as every string here (see the flag at the top). */
+  "hours.holidayLead": "El horario puede cambiar en días festivos",
+  "hours.holidayCall": "por favor llame antes",
+  "hours.holidayZh": "節假日營業時間或有不同，請來電確認",
 
   /* ---- contact page ---- */
   "contact.title": "Visítenos",
@@ -723,7 +770,7 @@ export const es: Record<TranslationKey, string> = {
     "Sí. Llame al (619) 656-6888 o al (619) 656-6787. Las dos líneas están atendidas.",
   "faq.q.onlineCutoff": "¿Hasta qué hora puedo ordenar en línea?",
   "faq.a.onlineCutoff":
-    "Las órdenes en línea cierran a las {time} todos los días. El restaurante sigue abierto después, así que por favor llame para ordenar.",
+    "Hasta que cerramos, que hoy es a las {time}. El horario puede cambiar en días festivos, así que por favor llame antes.",
   "faq.q.food": "¿Qué tipo de comida preparan?",
   "faq.a.food":
     "Comida mandarina, sichuanesa y cantonesa, hecha al momento. La familia lleva cocinándola aquí desde 1995.",

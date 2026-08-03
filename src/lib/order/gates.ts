@@ -39,10 +39,15 @@ export function closedMessage(now: Date, opts: PickupOptions): string {
   // Past the cutoff but before close: the doors are open, so "we're closed"
   // would read as a lie to someone standing outside looking at the lights.
   //
-  // This branch used to cover a fixed 20 minutes. With a per-day cutoff it
-  // can be an hour wide (Saturday: 8:30 PM cutoff, 9:30 PM close) and on
-  // Sunday it is unreachable by construction, because the cutoff IS the
-  // closing time and there is no minute that satisfies both halves.
+  // ⚠️ CURRENTLY UNREACHABLE ON EVERY DAY, and kept anyway. The owner set
+  // `lastOnlineOrder` to the closing time all week, so there is no minute
+  // that satisfies both halves of this condition — what used to be true of
+  // Sunday alone is now true of the whole week. It stays because it is the
+  // correct answer to a state the configuration can re-enter with a single
+  // edit: give any day a cutoff before its close and this is what that
+  // day's customers must be told. Deleting it would mean the next buffer
+  // ships with "we're closed" over a lit dining room, which is the exact
+  // bug this branch was written to fix.
   if (mins < window.close && mins >= window.lastOrder) {
     return (
       `Online orders for today closed at ${lastOrder} so the kitchen can finish by ${closeLabel}. ` +

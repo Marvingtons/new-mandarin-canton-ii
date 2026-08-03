@@ -107,10 +107,14 @@ export default function Checkout({
   // the same function the server refuses with (closedMessage). It used to
   // be a hardcoded "We're closed right now. Please order during store
   // hours." — which was survivable while the cutoff was a flat 20 minutes,
-  // and became a lie the moment it went per-day: on a Saturday the doors
-  // are open until 9:30 but the site stops at 8:30, so for a full hour
+  // and became a lie the moment it went per-day: Saturday had a full hour
+  // where the doors were open until 9:30 and the site stopped at 8:30, and
   // that string told people the restaurant was shut while the lights were
-  // on. closedMessage already knows the difference and says so bilingually.
+  // on. The owner has since set the cutoff TO closing time on every day,
+  // so that hour no longer exists and "we're closed" is true again
+  // whenever it renders. It stays computed rather than hardcoded because
+  // the fix is not that the copy happens to be right today: closedMessage
+  // reads the hours, so it is right after the next change too.
   useEffect(() => {
     const compute = () => {
       const at = new Date();

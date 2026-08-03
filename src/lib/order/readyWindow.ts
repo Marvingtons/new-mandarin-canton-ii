@@ -41,11 +41,17 @@ function addMinutes(at: Date, minutes: number): Date {
  * `scheduledFor` is the customer's chosen slot when they picked one; ASAP
  * orders pass null and get now + the prep range.
  *
- * The window is CAPPED at closing time. The 20-minute ordering cutoff
- * (lib/order/pickup.ts) makes this rare by design, but a long-prep order
- * placed just inside the cutoff could otherwise promise a pickup after the
- * doors are locked — and a promise the restaurant cannot keep is worse than a
- * tight one.
+ * The window is CAPPED at closing time, and that cap is now LOAD BEARING
+ * SEVEN DAYS A WEEK rather than a belt over one day's braces.
+ *
+ * It was written when the ordering cutoff ran ahead of close, which made an
+ * overrun rare and only really possible on a long-prep order placed in the
+ * last minutes. The owner has since set the cutoff TO the closing time on
+ * every day, so an order can arrive in the same minute the doors lock and
+ * the prep range wants to quote 15–30 minutes past it. Nothing else stops
+ * that. Remove this and the site promises pickups after close every night
+ * of the week; scripts/verify-order-cutoff.ts pins it at the boundary
+ * minute on a weekday, a Saturday and a Sunday for exactly that reason.
  */
 export function readyWindow(
   now: Date,

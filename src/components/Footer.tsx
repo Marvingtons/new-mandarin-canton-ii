@@ -10,9 +10,10 @@ import {
   fullAddress,
   phoneLinks,
   restaurant,
-  sharedLastOnlineOrder,
+  telHref,
   weeklyOpeningSummary,
 } from "@/data/restaurant";
+import { todaysCutoff } from "@/lib/hours";
 import { getT } from "@/lib/i18n/server";
 
 /** The band frames text, not a photo, so its mount stays transparent. */
@@ -33,6 +34,11 @@ const BAND_FILL = { "--frame-fill": "transparent" } as CSSProperties;
  */
 export default async function Footer() {
   const t = await getT();
+  /* Resolved server-side, in the restaurant's timezone. Safe to compute
+     per request: every route is already dynamic (the root layout reads the
+     locale cookie), so there is no prerendered HTML for a stale day to be
+     baked into. */
+  const cutoff = todaysCutoff();
 
   return (
     <footer className="mt-auto border-t-4 border-double border-gold/60 bg-ink text-ivory">
@@ -143,16 +149,45 @@ export default async function Footer() {
             {weeklyOpeningSummary}
           </p>
           <HoursTable tone="dark" dense className="mt-4" />
-          {/* The doors and the website close at different times, so the
-              table above is not the whole answer. Stated once, quietly,
-              under the hours it qualifies. Derived: if the days ever stop
-              agreeing on a cutoff this renders nothing rather than one
-              number standing in for two. */}
-          {sharedLastOnlineOrder && (
+          {/* The website's cutoff, under the hours it qualifies.
+              TODAY's, not the week's: the owner set the cutoff to closing
+              time, which made Saturday's 9:00 PM disagree with the rest of
+              the week's 8:30. This line used to read
+              `sharedLastOnlineOrder` and render NOTHING when the days
+              disagreed — a rule written to stop one number standing in for
+              two, which on the day it fired would instead have published
+              no cutoff at all. It names today's and the number is always
+              true. */}
+          {cutoff && (
             <p className="mt-3 text-sm leading-relaxed text-ivory/50">
-              {t("footer.lastOnlineOrder", { time: sharedLastOnlineOrder })}
+              {t("footer.lastOnlineOrder", { time: cutoff.label })}
             </p>
           )}
+          {/* HOLIDAY HOURS, and the only place besides /contact that says
+              so. It sits under the hours because that is the claim it
+              qualifies, and it is deliberately NOT a third band on the
+              menu page — the notice card there stays two lines.
+
+              "please call ahead" IS the phone link rather than sitting
+              beside a spelled-out number: this footer already prints both
+              numbers as full-size buttons in the contact band above, and a
+              third copy in the hours column would be the same fact three
+              times in one screen. */}
+          <p className="mt-3 text-sm leading-relaxed text-ivory/50">
+            {t("hours.holidayLead")}{" "}
+            <span aria-hidden="true" className="text-ivory/25">
+              ·
+            </span>{" "}
+            <a
+              href={telHref}
+              className="tap token-colors underline decoration-gold/50 underline-offset-4 hover:text-ivory/85"
+            >
+              {t("hours.holidayCall")}
+            </a>{" "}
+            <span lang="zh-Hant" className="font-chinese text-ivory/40">
+              {t("hours.holidayZh")}
+            </span>
+          </p>
         </div>
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">

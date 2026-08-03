@@ -122,28 +122,45 @@ export const restaurant: RestaurantInfo = {
   timezone: "America/Los_Angeles",
   /*
    * `close` is when the DOORS shut. `lastOnlineOrder` is when the website
-   * stops taking orders, and it is 8:30 PM every day per the owner.
+   * stops taking orders.
    *
-   * ⚠️ TODO(confirm): SATURDAY. The doors are open until 9:30 PM, so an
-   * 8:30 cutoff gives up a full hour of online ordering — the widest gap
-   * of the week, on the busiest night. Implemented as instructed; the
-   * owner may want 9:00 PM here.
+   * OWNER-CONFIRMED, and it replaced both halves of the question that used
+   * to sit here. The old Saturday TODO asked whether an 8:30 PM cutoff
+   * against a 9:30 PM close was really intended; the answer came back as
+   * neither of the two options it offered. Saturday closes at 9:00 PM now,
+   * not 9:30, and the cutoff is not a separate decision at all:
    *
-   * ⚠️ SUNDAY IS THE ZERO-BUFFER DAY. The doors shut at 8:30 PM and the
-   * cutoff is also 8:30 PM, so an order may be placed right up to the
-   * minute the restaurant closes. That is safe, but only because
-   * readyWindow() caps both ends of the quoted window at closing time
-   * (see lib/order/readyWindow.ts) — an 8:29 PM order quotes "8:30 PM",
-   * not the 8:44 the prep range would otherwise produce. If that cap is
-   * ever removed, Sunday starts promising pickups after close.
+   *   THE CUTOFF IS THE CLOSING TIME, EVERY DAY. No buffer, anywhere.
+   *
+   * 8:30 PM Sun–Fri, 9:00 PM Saturday, opening unchanged at 11:00 AM
+   * daily. The flag is gone because it is answered, not because it was
+   * tidied away.
+   *
+   * ⚠️ EVERY DAY IS NOW THE ZERO-BUFFER DAY. What used to be true of
+   * Sunday alone is true of the whole week: an order may be placed in the
+   * same minute the doors are locked. That is safe for exactly one
+   * reason — readyWindow() caps BOTH ends of the quoted pickup window at
+   * closing time (lib/order/readyWindow.ts), so an 8:29 PM order quotes
+   * "8:30 PM" and not the 8:44 or 8:59 its prep range would otherwise
+   * produce. That cap used to be a belt over one day's braces. It is now
+   * the only thing standing between the site and promising seven days a
+   * week a pickup after close. scripts/verify-order-cutoff.ts pins it at
+   * the boundary minute on a weekday, on Saturday and on Sunday; if the
+   * cap is ever removed, that file fails rather than a customer arriving
+   * at a locked door.
+   *
+   * The other consequence, and it is deliberate: `lastOnlineOrder` no
+   * longer agrees across the week, so `sharedLastOnlineOrder` below is
+   * null and every surface that quotes a cutoff names TODAY's. See
+   * lib/hours.ts's todaysCutoff().
    */
   hours: {
-    monday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
-    tuesday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
-    wednesday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
-    thursday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
-    friday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "8:30 PM" },
-    saturday: { open: "11:00 AM", close: "9:30 PM", lastOnlineOrder: "8:30 PM" },
+    monday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
+    tuesday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
+    wednesday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
+    thursday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
+    friday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
+    saturday: { open: "11:00 AM", close: "9:00 PM", lastOnlineOrder: "9:00 PM" },
     sunday: { open: "11:00 AM", close: "8:30 PM", lastOnlineOrder: "8:30 PM" },
   },
   // All null = unconfirmed. Fill in each real value and the matching
@@ -223,11 +240,21 @@ export const weeklyOpeningSummary: string = (() => {
 /**
  * "8:30 PM" when every open day agrees, otherwise null.
  *
+ * ⚠️ IT IS NULL NOW, and that is the expected value rather than a fault.
  * Same discipline as weeklyOpeningSummary above: it states a single time
- * only when a single time is true. The moment the owner gives Saturday a
- * 9:00 PM cutoff (see the TODO on `hours`) this returns null and the
- * surfaces that quote it fall back to naming today's cutoff rather than
- * printing one number over a week that has two.
+ * only when a single time is true. Saturday's cutoff is 9:00 PM against
+ * 8:30 the rest of the week, so there is no single time to state — the
+ * exact case the previous version of this comment predicted.
+ *
+ * Every surface that quotes a cutoff therefore names TODAY's, through
+ * `todaysCutoff()` in lib/hours.ts. This export is kept because it is
+ * still the right question ("is one number true for the whole week?") and
+ * a week-wide phrasing is still the better copy on the day it is honest —
+ * if the owner ever levels Saturday, the surfaces read it again with no
+ * code change. Callers must treat null as "say today's", never as
+ * "say nothing": three of them used to drop their whole line on null,
+ * which turned a Saturday hours change into a Saturday with no cutoff
+ * published anywhere.
  */
 export const sharedLastOnlineOrder: string | null = (() => {
   const open = Object.values(restaurant.hours).filter((h) => !h.closed);

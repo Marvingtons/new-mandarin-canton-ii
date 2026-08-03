@@ -70,3 +70,43 @@ export function openStatus(at: Date = new Date()): OpenStatus | null {
   }
   return null;
 }
+
+export interface CutoffToday {
+  /** "9:00 PM" — for English copy. */
+  label: string;
+  /**
+   * "9:00" — the same clock with the meridiem dropped, for the 中文 half,
+   * which carries 晚上 and would read as a stutter with "PM" after it.
+   */
+  bare: string;
+}
+
+/**
+ * TODAY's online-order cutoff, and the one reader for every surface that
+ * prints one.
+ *
+ * The cutoff is per day (restaurant.ts) and since the owner set it equal
+ * to closing time it no longer agrees across the week: 8:30 PM Sun–Fri,
+ * 9:00 PM Saturday. `sharedLastOnlineOrder` is null as a result, and the
+ * three surfaces that used to read it — the footer line, the menu banner,
+ * the FAQ answer — would each have silently dropped their whole line.
+ * "No cutoff published anywhere on Saturday" is a worse answer than
+ * "today's cutoff", so they all come through here instead.
+ *
+ * Both fields come from ONE lookup so the English and the 中文 can never
+ * name different times. Resolved through restaurant.timezone like every
+ * other clock on this site — a guest in New York must not be told a
+ * Chula Vista cutoff three hours out.
+ *
+ * Null when today is closed, or when the string is malformed: callers
+ * render nothing rather than a guess, which is the one case where saying
+ * nothing IS the honest answer.
+ */
+export function todaysCutoff(at: Date = new Date()): CutoffToday | null {
+  const { day } = tenantNow(restaurant.timezone, at);
+  const today = restaurant.hours[day as DayOfWeek];
+  if (today.closed) return null;
+  const label = today.lastOnlineOrder.trim();
+  if (parseClock(label) === null) return null;
+  return { label, bare: label.replace(/\s*(AM|PM)\s*$/i, "") };
+}
