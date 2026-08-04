@@ -124,9 +124,9 @@ export default async function RootLayout({
             In the root layout rather than per page so a crawler that
             lands anywhere (a legal page, a 404) still resolves the
             business. Pages that have more to say add their own block:
-            /menu the full menu graph, /contact the FAQ, each with its
-            own breadcrumb trail. They reference these two by @id rather
-            than restating them. */}
+            /menu the full menu graph, and every page its own breadcrumb
+            trail. They reference these two by @id rather than restating
+            them. */}
         <JsonLd data={graph(restaurantNode(), websiteNode())} />
         <LocaleProvider locale={locale}>
           <SmoothScroll />

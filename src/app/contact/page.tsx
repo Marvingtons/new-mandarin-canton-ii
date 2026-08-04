@@ -7,7 +7,6 @@ import PhotoFrame from "@/components/PhotoFrame";
 import { photos } from "@/data/images";
 import { phoneLinks, restaurant, telHref } from "@/data/restaurant";
 import { getT } from "@/lib/i18n/server";
-import FaqSection from "@/components/FaqSection";
 import JsonLd from "@/components/JsonLd";
 import { breadcrumbNode, graph } from "@/lib/schema";
 
@@ -69,7 +68,10 @@ export default async function ContactPage() {
           <h2 className="mt-9 text-xs font-semibold uppercase tracking-[0.25em] text-lacquer">
             {t("hero.call")}
           </h2>
-          {/* Large tap targets — both lines are staffed */}
+          {/* Large tap targets. Two numbers with nothing said about them
+              invites "so which one do I call?" — the answer, that both
+              lines are staffed, was in the FAQ and is now in the line
+              under them (contact.phoneWelcome). */}
           <div className="mt-4 flex flex-col gap-2 sm:items-start">
             {phoneLinks.map(({ phone, href }) => (
               <a
@@ -134,13 +136,13 @@ export default async function ContactPage() {
         </div>
       </div>
 
+      {/* THE LAST THING ON THIS PAGE. It used to be followed by a FAQ
+          whose eight answers each restated a fact already printed
+          somewhere else — the menu banner, the checkout, the footer, the
+          hours table, this page's own address block. Restating them here
+          bought nothing but a second copy to keep in sync, so the map is
+          where the page ends now. */}
       <LocationMap aspect="16/7" tone="light" className="mt-14" />
-
-      {/* THE FAQ LIVES HERE and not on its own page. Every answer is
-          about visiting or ordering, which is this page's whole subject,
-          and a one-question-per-page FAQ site is how a five-page
-          restaurant site turns into thirty pages nobody links to. */}
-      <FaqSection className="mt-16" />
     </div>
   );
 }

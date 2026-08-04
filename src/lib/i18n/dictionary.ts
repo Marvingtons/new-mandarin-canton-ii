@@ -258,9 +258,15 @@ export const en = {
   /* Was "Takeout orders welcome by phone." — the passive "welcome by"
      of a hotel sign, and the only sentence on the marketing pages with
      nobody in it. The family speaks in the first person plural
-     throughout their history; so does this now. The Spanish already
-     said exactly this and did not change. */
-  "contact.phoneWelcome": "We take takeout orders by phone too.",
+     throughout their history; so does this now.
+
+     THE SECOND SENTENCE IS THE ONE THING THE DELETED FAQ KNEW that no
+     other surface did. Two numbers printed side by side ask a question
+     — which of these do I call? — and "Both lines are staffed" was the
+     answer, buried six questions down a list. It belongs directly under
+     the two buttons it is about. */
+  "contact.phoneWelcome":
+    "We take takeout orders by phone too. Both lines are staffed.",
   "contact.open7": "Open 7 days a week.",
 
   /* ---- THE SIGNATURE LINE ----
@@ -387,65 +393,30 @@ export const en = {
   "about.memorial":
     "A restaurant open this long outlives some of the people who built it. When one of the original owners passed away, someone who had worked here since the early days became an owner and kept it open. The kitchen carried on as it was.",
 
-  /* ---- FAQ (contact page) ----
-     ⚠️ EVERY ANSWER IS A FACT THIS REPO ALREADY HOLDS, and each one is
-     the same fact some other surface already states — the notice card,
-     the checkout, the footer, the hours table. Nothing here is new
-     information, which is the test a FAQ has to pass: it is the
-     questions people actually ask, answered where an answer engine can
-     read them, not a place to make claims that appear nowhere else.
+  /* ---- THE FAQ USED TO LIVE HERE ----
+     Eight question/answer pairs, rendered on /contact and emitted as
+     FAQPage schema from these same keys. Removed, and the disposition of
+     every fact they carried is worth writing down so nobody re-adds them
+     believing something was lost:
 
-     WHAT IS DELIBERATELY NOT ASKED: parking, reservations, beer & wine,
-     high chairs, catering radius, health score. Every one of those is a
-     `null` in data/restaurant.ts, and a plausible-sounding answer to any
-     of them would be exactly the invented fact this codebase spends its
-     comments refusing to print. They are on the list for the family.
+       deliver?      → banner.pickupLead + footer.pickupOnly
+       how long?     → banner.logistics (the same 15–20 / 20–30)
+       how to pay?   → banner.logistics + checkout.noOnlinePayment
+       by phone?     → the two call buttons on /contact and in the footer;
+                       "both lines are staffed" moved into
+                       contact.phoneWelcome, which is the only line here
+                       that had a home to find
+       cutoff?       → banner.onlineUntil + footer.lastOnlineOrder, and
+                       hours.holiday* for the holiday caveat
+       what food?    → footer.cuisineLine + home.storyBody + about.storyP1
+       where?        → /contact's own address block + contact.open7
+       allergies?    → banner.allergy, sheet.allergyCall/Note,
+                       checkout.allergyWarn, conf.allergyBody,
+                       footer.allergyQuestions
 
-     These strings are rendered visibly AND emitted as FAQPage schema
-     from the same keys — Google requires the two to match, and sharing
-     the key is the only way that stays true.
-
-     No 中文 halves: the answers restate lines that have them
-     (banner.allergy, banner.onlineUntil) and lines that do not, so a
-     half-Chinese FAQ would be worse than none. The 中文 belongs to the
-     notices these answers point back to. */
-  "faq.title": "Questions we get asked",
-  "faq.q.delivery": "Do you deliver?",
-  "faq.a.delivery":
-    "No. We are takeout pickup only, and we are not on any delivery app. You order here or by phone, then collect it at the counter.",
-  "faq.q.howLong": "How long does an order take?",
-  "faq.a.howLong":
-    "Most orders are ready in 15 to 20 minutes. Party trays and family dinners take 20 to 30.",
-  "faq.q.pay": "How do I pay?",
-  "faq.a.pay":
-    "At the counter when you pick up, by cash or card. We do not take payment online.",
-  "faq.q.phone": "Can I order by phone?",
-  "faq.a.phone":
-    "Yes. Call (619) 656-6888 or (619) 656-6787. Both lines are staffed.",
-  /* ⚠️ REWRITTEN TWICE OVER by one hours change. "every day" is no longer
-     true — Saturday's cutoff is 9:00 PM against 8:30 the rest of the
-     week — and neither is "the dining room stays open past that", because
-     the cutoff IS closing time now. Both halves of the old answer were
-     confidently wrong.
-
-     It names TODAY's cutoff rather than enumerating the week, and that is
-     a source-of-truth decision rather than a copy one: spelling out
-     "8:30 Sun–Fri, 9:00 Sat" here would put the hours in a translation
-     file, which is precisely the straggler this pass exists to remove.
-     The per-day week is published by the hours table, which derives from
-     the same record. */
-  "faq.q.onlineCutoff": "How late can I order online?",
-  "faq.a.onlineCutoff":
-    "Until we close, which is {time} today. Holiday hours may differ, so please call ahead.",
-  "faq.q.food": "What kind of food do you cook?",
-  "faq.a.food":
-    "Mandarin, Szechuan and Cantonese, cooked to order. The family has been cooking it here since 1995.",
-  "faq.q.where": "Where are you?",
-  "faq.a.where":
-    "543 Telegraph Canyon Rd, Chula Vista, CA 91910. We are open 7 days a week from 11:00 AM.",
-  "faq.q.allergies": "I have a food allergy. What should I do?",
-  "faq.a.allergies":
-    "Please call us before you order rather than leaving a note. An order note only reaches the kitchen when your ticket prints, and an allergy is not something we want to find out that late.",
+     Every one of them was a second copy of a line printed somewhere a
+     customer actually reads it, on the way to doing the thing the line
+     is about. A FAQ that only restates the site is a sync liability. */
 
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacy",
@@ -698,7 +669,11 @@ export const es: Record<TranslationKey, string> = {
   /* ---- contact page ---- */
   "contact.title": "Visítenos",
   "contact.callNumber": "Llamar al {phone}",
-  "contact.phoneWelcome": "También tomamos órdenes para llevar por teléfono.",
+  /* Second sentence carried over from the deleted FAQ, like the English.
+     "Atendidas" rather than "con personal": it is what a person says
+     about a phone line that somebody picks up. */
+  "contact.phoneWelcome":
+    "También tomamos órdenes para llevar por teléfono. Las dos líneas están atendidas.",
   "contact.open7": "Abierto los 7 días de la semana.",
 
   /* ---- the signature line ---- */
@@ -753,36 +728,9 @@ export const es: Record<TranslationKey, string> = {
   "about.memorial":
     "Un restaurante abierto tanto tiempo sobrevive a algunas de las personas que lo levantaron. Cuando uno de los dueños originales falleció, alguien que trabajaba aquí desde los primeros años se hizo dueño y lo mantuvo abierto. La cocina siguió igual.",
 
-  /* ---- FAQ (contact page) ----
-     Same register as the rest: usted for the guest, nosotros for the
-     family. "Solo para recoger" and "pague en el mostrador" are the
-     exact phrases the cart and checkout already use, so a customer who
-     reads the FAQ and then orders sees the same words twice. */
-  "faq.title": "Preguntas que nos hacen",
-  "faq.q.delivery": "¿Hacen entregas a domicilio?",
-  "faq.a.delivery":
-    "No. Somos solo para recoger, y no estamos en ninguna app de entrega. Ordene aquí o por teléfono, y recoja en el mostrador.",
-  "faq.q.howLong": "¿Cuánto tarda una orden?",
-  "faq.a.howLong":
-    "La mayoría de las órdenes están listas en 15 a 20 minutos. Las charolas para fiesta y las cenas familiares tardan de 20 a 30.",
-  "faq.q.pay": "¿Cómo puedo pagar?",
-  "faq.a.pay":
-    "En el mostrador cuando recoja, con efectivo o tarjeta. No aceptamos pagos en línea.",
-  "faq.q.phone": "¿Puedo ordenar por teléfono?",
-  "faq.a.phone":
-    "Sí. Llame al (619) 656-6888 o al (619) 656-6787. Las dos líneas están atendidas.",
-  "faq.q.onlineCutoff": "¿Hasta qué hora puedo ordenar en línea?",
-  "faq.a.onlineCutoff":
-    "Hasta que cerramos, que hoy es a las {time}. El horario puede cambiar en días festivos, así que por favor llame antes.",
-  "faq.q.food": "¿Qué tipo de comida preparan?",
-  "faq.a.food":
-    "Comida mandarina, sichuanesa y cantonesa, hecha al momento. La familia lleva cocinándola aquí desde 1995.",
-  "faq.q.where": "¿Dónde están?",
-  "faq.a.where":
-    "543 Telegraph Canyon Rd, Chula Vista, CA 91910. Abrimos los 7 días de la semana desde las 11:00 AM.",
-  "faq.q.allergies": "Tengo una alergia alimentaria. ¿Qué hago?",
-  "faq.a.allergies":
-    "Por favor llámenos antes de ordenar, en lugar de dejar una nota. Una nota llega a la cocina solo cuando se imprime su ticket, y una alergia no es algo que queramos saber tan tarde.",
+  /* The FAQ's eight pairs stood here. Removed with the English — see the
+     disposition list in `en`. The one sentence worth keeping went into
+     contact.phoneWelcome above. */
 
   /* ---- legal page headers ---- */
   "legal.privacy": "Privacidad",

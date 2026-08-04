@@ -246,26 +246,13 @@ export function menuGraph(): Node {
   };
 }
 
-/**
- * The FAQ, paired with the visible section on /contact.
- *
- * ⚠️ THE ANSWERS MUST MATCH THE RENDERED TEXT WORD FOR WORD. Both come
- * from the same dictionary keys, which is the only way to keep that true
- * — see FaqSection. Passing text in from the component rather than
- * rebuilding it here is the whole point of this signature.
- */
-export function faqNode(
-  entries: { question: string; answer: string }[],
-): Node {
-  return {
-    "@type": "FAQPage",
-    mainEntity: entries.map((entry) => ({
-      "@type": "Question",
-      name: entry.question,
-      acceptedAnswer: { "@type": "Answer", text: entry.answer },
-    })),
-  };
-}
+/* NO faqNode HERE ANY MORE, and it must not come back on its own. It
+   emitted a FAQPage whose questions came from the same dictionary keys
+   the visible <dl> rendered — the only honest way to build one. The
+   visible FAQ is gone from /contact, and FAQPage markup describing
+   questions no page shows is a structured-data violation Google acts on,
+   not a harmless leftover. If a FAQ ever returns, the schema returns
+   with the component that renders it, from the same strings. */
 
 /** Wrap nodes in the @graph envelope a page embeds. */
 export function graph(...nodes: Node[]): Node {
