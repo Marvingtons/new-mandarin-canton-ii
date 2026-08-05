@@ -184,7 +184,15 @@ export default async function Footer() {
             >
               {t("hours.holidayCall")}
             </a>{" "}
-            <span lang="zh-Hant" className="font-chinese text-ivory/40">
+            {/* text-ivory-muted, not ivory/40. At /40 this measured
+                3.53:1 on ink — the one colour-contrast failure in the
+                whole audit. There is no alpha that is both quieter than
+                the /50 line it sits in AND readable, so this stops
+                trying to be quieter than its own sentence: the Noto
+                Serif TC face and the lang switch are what set it apart
+                now, which is the distinction that was doing the work
+                anyway. See --ivory-muted in globals.css. */}
+            <span lang="zh-Hant" className="font-chinese text-ivory-muted">
               {t("hours.holidayZh")}
             </span>
           </p>

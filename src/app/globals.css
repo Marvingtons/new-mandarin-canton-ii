@@ -67,6 +67,35 @@
   --cream: #fcf7ec;
   /* Aged paper — supporting neutral for cards & alternating sections */
   --paper: #eedfc0;
+  /*
+   * QUIET TEXT ON --ink, AND THE FLOOR FOR IT.
+   *
+   * Muted-on-ink was being spelled as an ad-hoc `text-ivory/NN` at each
+   * call site, and the alphas drifted below the point where they are
+   * still readable. Measured, ivory composited on ink:
+   *
+   *   ivory/25  #554C45  2.14:1   aria-hidden middots only
+   *   ivory/40  #756D64  3.53:1   FAILED — the 中文 sub-line in Footer
+   *   ivory/45  #80786F  4.13:1   FAILED — the kitchen board empty state
+   *   ivory/50  #8B837A  4.81:1   passes, but with no headroom
+   *   ivory/55  #968E84  5.56:1   THIS
+   *   ivory/60  #A1998F  6.38:1   the legal row
+   *
+   * 55% is the lowest step that clears 4.5:1 with enough room that
+   * antialiasing on a 14px glyph cannot argue with it. It is a solid,
+   * not an alpha, so it does not change meaning when the surface under
+   * it is not exactly --ink — which is the other half of why the ad-hoc
+   * alphas drifted.
+   *
+   * color-mix in srgb is the same arithmetic as compositing ivory at 55%
+   * over ink, so this stays derived from the two tokens rather than
+   * being a third hardcoded neutral that has to be re-tinted by hand.
+   *
+   * ⚠️ NOTHING QUIETER THAN THIS MAY CARRY TEXT ON INK. If a sub-line
+   * needs to recede further, change the face or the size — the colour
+   * has no room left underneath it.
+   */
+  --ivory-muted: color-mix(in srgb, var(--ivory) 55%, var(--ink));
 
   --background: var(--ivory);
   --foreground: var(--ink);
@@ -132,6 +161,7 @@
   --color-gold-light: var(--gold-light);
   --color-ink: var(--ink);
   --color-ivory: var(--ivory);
+  --color-ivory-muted: var(--ivory-muted);
   --color-cream: var(--cream);
   --color-paper: var(--paper);
   --color-background: var(--background);
