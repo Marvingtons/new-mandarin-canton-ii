@@ -166,12 +166,12 @@ function whenReady(): Promise<void> {
    * which leaves the network free for the image the page is scored on.
    * The escalation happens HERE, one tick after the poster has decoded.
    */
-  const video = poster.then(() =>
-    Promise.race([
-      whenPrimaryHasFrame(),
-      new Promise<void>((r) => setTimeout(r, VIDEO_GRACE_MS)),
-    ]),
-  );
+  // The grace timer is handed IN rather than raced outside, so losing the
+  // race also stops the DOM poll. Raced from out here it did not: the
+  // interval kept looking for a video element every 60ms for the entire
+  // life of the page, on exactly the visits where the element was never
+  // going to appear.
+  const video = poster.then(() => whenPrimaryHasFrame(VIDEO_GRACE_MS));
 
   return Promise.all([poster, fonts, video]).then(() => undefined);
 }
@@ -190,7 +190,7 @@ function whenReady(): Promise<void> {
  * that cannot load is not a reason to hold the curtain — HeroVideo's own
  * onError swaps it for the poster, which is what was underneath anyway.
  */
-function whenPrimaryHasFrame(): Promise<void> {
+function whenPrimaryHasFrame(graceMs: number): Promise<void> {
   return new Promise<void>((resolve) => {
     // HeroVideo mounts the element on its own schedule, so poll briefly
     // for it rather than assuming it is in the DOM yet.
@@ -199,8 +199,14 @@ function whenPrimaryHasFrame(): Promise<void> {
       if (settled) return;
       settled = true;
       clearInterval(poll);
+      clearTimeout(deadline);
       resolve();
     };
+    // The budget, and the poll's own off switch. Under reduced motion —
+    // or any visit where the video failed and HeroVideo unmounted it —
+    // [data-hero-primary] never appears at all, and without this the
+    // interval below would outlive the page.
+    const deadline = setTimeout(done, graceMs);
     const check = () => {
       const el = document.querySelector<HTMLVideoElement>("[data-hero-primary]");
       if (!el) return;
