@@ -1,0 +1,87 @@
+# Cache-Control for Cloudflare Workers static assets.
+# https://developers.cloudflare.com/workers/static-assets/headers/
+#
+# WHY THIS FILE EXISTS
+#
+# Workers Assets serves everything in here with `public, max-age=0,
+# must-revalidate` by default. Measured on production before this file:
+# /hero-poster-plate.jpg and every /images/*.jpg came back with exactly
+# that, which Lighthouse reports as a cache lifetime of ZERO.
+#
+# It costs more than the source images. The optimized `_next/image`
+# responses were uncached too, and NOT for a reason anyone would guess
+# from the Next config: `images.minimumCacheTTL` DOES NOTHING on this
+# adapter. The OpenNext Cloudflare build compiles it in as an esbuild
+# define (cli/build/open-next/compile-images.js) and its own image
+# handler never reads the global — grep __IMAGES_MINIMUM_CACHE_TTL_SEC__
+# in cli/templates/images.js and there is one declaration in the .d.ts
+# and no use. What that handler actually does is:
+#
+#   immutable = parseResult.static
+#             || upstreamCacheControl.includes("immutable")
+#
+# and it sets Cache-Control ONLY when `immutable` came out true. Our
+# photos are referenced as string paths in src/data/images.ts, not as
+# static imports, so `static` is false and the whole decision falls to
+# the header the source asset was served with — this file. Setting
+# `immutable` here is therefore what caches BOTH the original and every
+# optimized derivative of it; there is no separate knob for the latter.
+#
+# ⚠️ THE CONTRACT `immutable` MAKES, AND WHY WE CAN KEEP IT
+#
+# `immutable` promises the bytes at a URL will never change. The project
+# already works this way and wrote the rule down before this file
+# existed: see the dining-room note in src/data/images.ts, where a
+# replacement photograph was given a NEW filename specifically because
+# "writing new bytes under an unchanged URL means every cache keyed on
+# that URL still holds the old picture". A photograph that is a
+# different picture gets a different filename. That convention is what
+# this header is standing on.
+#
+# So: to change any image below, ADD A FILE, do not overwrite one. An
+# overwrite is now a year-long stale cache for returning visitors with
+# no way to tell from the page.
+
+# ⚠️ THIS ONE IS NOT BELT-AND-BRACES, IT IS THE ONLY BRACES.
+#
+# Next's build output is content-hashed by construction — every file
+# under _next/static carries a hash of its own contents in the name — so
+# on a host that knows what Next is, these ship immutable automatically.
+# Workers Assets does not know what Next is. Measured on the built worker
+# before this rule:
+#
+#   /_next/static/chunks/<hashed>.js -> public, max-age=0, must-revalidate
+#
+# which means every returning visitor was revalidating every chunk and
+# every stylesheet on every navigation, for files that cannot change
+# without changing their URL. This was checked rather than assumed
+# precisely because "it should be immutable by default" is true almost
+# everywhere else.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/images/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/hero-poster-plate.jpg
+  Cache-Control: public, max-age=31536000, immutable
+
+# NOTE: the hero footage is NOT here. It is an R2 object on
+# media.newmandarincantonii.com, and R2 serves whatever cacheControl was
+# written at upload time rather than anything in this file — see
+# docs/DEPLOY_RUNBOOK.md for the upload, which sets the same year-long
+# immutable value against a content-hashed key.
+
+/brand/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Brand marks and icons, all content-stable under the same rename rule.
+/*.svg
+  Cache-Control: public, max-age=31536000, immutable
+
+# NOT immutable, and deliberately so: this is a document about the site
+# that is meant to be re-read, and agents fetch it precisely to find out
+# what changed. A day is long enough to be worth caching and short
+# enough that a corrected fact reaches them.
+/llms.txt
+  Cache-Control: public, max-age=86400
