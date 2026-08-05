@@ -193,6 +193,76 @@ braces, and it is visible in the dashboard where the next person will look.
 
 ---
 
+## 4c. R2 bucket for the hero footage — REQUIRED before the homepage has a hero
+
+The hero video used to be served from `pub-364f647b29874b09922e1889f267c323.r2.dev`,
+the bucket's development URL: 5,525,614 bytes with **no `Cache-Control` header at
+all**, re-downloaded in full on every visit, and the largest single thing on the
+page. Section 4b already says not to enable `r2.dev`; this was the same mistake in
+a second bucket.
+
+It is now a content-hashed object on our own zone. `src/lib/heroMedia.ts` names the
+two files and will not fall back to anything if they are missing — the hero
+degrades to the poster still, which is a designed state but not the intended one.
+
+**A SEPARATE BUCKET FROM `nmc-print-jobs`, deliberately.** That bucket holds ticket
+bodies carrying a customer's name and phone under a 24h expiry rule. Pointing a
+second public hostname at it to save creating a bucket would put public marketing
+media and customer PII behind one origin, and the expiry rule is prefix-scoped so
+the two would need to stay carefully out of each other's way forever.
+
+1. Create the bucket:
+   ```bash
+   wrangler r2 bucket create nmc-media
+   ```
+2. **Connect a custom domain.** Dashboard → R2 → `nmc-media` → Settings → Public
+   access → Custom Domains → Connect Domain → `media.newmandarincantonii.com`.
+   Cloudflare adds the DNS record. Do **not** enable the `r2.dev` domain — that is
+   the thing being removed here.
+3. Upload both encodes. **The `--cache-control` flag is not optional and is not
+   `public/_headers`'s job**: R2 serves the `cacheControl` an object was written
+   with, and a `_headers` rule cannot reach an object on a custom domain.
+   ```bash
+   wrangler r2 object put nmc-media/newmandarin-hero.46c01c36.webm \
+     --file newmandarin-hero.46c01c36.webm \
+     --content-type video/webm \
+     --cache-control "public, max-age=31536000, immutable" --remote
+   wrangler r2 object put nmc-media/newmandarin-hero.b11879a5.mp4 \
+     --file newmandarin-hero.b11879a5.mp4 \
+     --content-type video/mp4 \
+     --cache-control "public, max-age=31536000, immutable" --remote
+   ```
+4. Verify before relying on it. Both must answer `200` with the immutable header
+   and a `content-length` matching the table below:
+   ```bash
+   curl -sSI https://media.newmandarincantonii.com/newmandarin-hero.46c01c36.webm
+   curl -sSI https://media.newmandarincantonii.com/newmandarin-hero.b11879a5.mp4
+   ```
+
+| file | bytes |
+| --- | --- |
+| `newmandarin-hero.46c01c36.webm` | 1,898,611 |
+| `newmandarin-hero.b11879a5.mp4` | 2,553,620 |
+
+### Re-encoding the footage
+
+From the 1920x1080 24fps master. **Re-hash and rename after encoding** — the hash
+in the filename is what makes `immutable` honest, so an encode that reuses a name
+is a year-long stale cache with no way to tell from the page.
+
+```bash
+ffmpeg -i master.mp4 -c:v libvpx-vp9 -crf 40 -b:v 0 -deadline good -cpu-used 1 \
+  -row-mt 1 -auto-alt-ref 1 -lag-in-frames 25 -pix_fmt yuv420p -an hero.webm
+ffmpeg -i master.mp4 -c:v libx264 -crf 30 -preset slow -movflags +faststart -an hero.mp4
+sha256sum hero.webm hero.mp4   # first 8 hex become the filename
+```
+
+`+faststart` on the mp4 is load-bearing: it moves the moov atom to the head so the
+preloader's `preload="metadata"` fetch is a small read off the front of the file
+rather than a seek to the end of it.
+
+---
+
 ## 5. Printer
 
 1. Power up on Ethernet with DHCP. Hold **FEED** while powering on for the
