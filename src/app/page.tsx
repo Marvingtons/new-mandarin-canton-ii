@@ -12,6 +12,7 @@ import MandarinCluster from "@/components/MandarinCluster";
 import Parallax from "@/components/Parallax";
 import PhotoFrame from "@/components/PhotoFrame";
 import { photos } from "@/data/images";
+import { HERO_MEDIA_ORIGIN, HERO_POSTER } from "@/lib/heroMedia";
 import { getT } from "@/lib/i18n/server";
 
 /**
@@ -34,6 +35,40 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* ---- THE TWO HINTS THE HOMEPAGE NEEDS, HOISTED INTO <head> ----
+
+          React hoists <link> out of the tree and into the document head,
+          so these are plain elements rather than a ReactDOM.preload()
+          call in a client component. That was the first attempt and it
+          silently emitted NOTHING — the head came back with Next's own
+          script preload and no image hint at all. These are verifiable
+          in `curl | grep '<link'`, which is the only reason to prefer
+          one spelling of a head tag over another.
+
+          1. THE POSTER, AT HIGH PRIORITY. /hero-poster-plate.jpg IS this
+          site's Largest Contentful Paint element — Lighthouse names the
+          node (div.hero-kenburns) and its discovery checklist failed on
+          exactly one line: `priorityHinted: false`. The poster is a CSS
+          background-image, so there is no <img> to put `priority` on and
+          no `fetchpriority` attribute available; this link is the only
+          way to tell the browser it outranks the rest of the page. It
+          also moves the request into the FIRST network flight, because
+          the preload scanner reads the head before the CSSOM exists.
+
+          2. THE MEDIA ORIGIN. The footage moved to its own hostname for
+          cache headers (see lib/heroMedia.ts) and that costs a DNS + TCP
+          + TLS handshake the old same-origin request never paid. Without
+          this the handshake waits for the <video> to mount. No
+          crossOrigin: the video is a plain no-cors media request, and a
+          preconnect whose CORS mode does not match opens a connection
+          the browser then refuses to reuse. */}
+      <link
+        rel="preload"
+        as="image"
+        href={HERO_POSTER}
+        fetchPriority="high"
+      />
+      <link rel="preconnect" href={HERO_MEDIA_ORIGIN} />
       <HomeChoreography />
       <HeroVideo />
 

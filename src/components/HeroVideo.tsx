@@ -7,34 +7,35 @@ import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
 import { ARC_VIEWBOX, HEM_D } from "@/lib/brand/arc";
 import { useT } from "@/lib/i18n/LocaleContext";
+import { HERO_POSTER, HERO_SOURCES } from "@/lib/heroMedia";
 import { introWillPlay, onIntroLifted } from "@/lib/introSignal";
 import { primaryPhone, restaurant, telHref } from "@/data/restaurant";
 
 /**
- * Hero footage, served from R2 rather than /public: 10.04s muted loop,
- * 1920x1080 h264 24fps, 5,525,614 bytes. Keeping 5.5 MB of video out of
- * the Worker bundle is the point — it was in `public/` until this moved.
+ * Hero footage: 10.04s muted loop, 1920x1080 24fps, served from R2 on
+ * our own zone. The URLs, the byte counts and the reason the old r2.dev
+ * address had to go all live in lib/heroMedia.ts.
  *
  * The loop is one dish being made: floured wings lifted from the bowl,
  * a wok flare, then ~2s holding the plated salt-and-pepper wings on the
- * blue-and-white plate. Set to null to fall back to the poster-only hero
- * without requesting the file.
+ * blue-and-white plate.
  *
  * POSTER IS NOT FRAME 0. /public/hero-poster-plate.jpg is t=9.8 — the
  * held plate. The previous file used frame 0 so the poster-to-video
  * handoff was invisible; that is deliberately given up here, because the
  * poster is what a prefers-reduced-motion visitor keeps FOREVER, and
  * frame 0 of this loop is raw chicken in flour. A still hero should be
- * the finished dish. The handoff is nearly always hidden anyway: the
- * preloader covers it, and this copy is preload="auto" so it is buffered
- * before the overlay lifts. The two files are both 1920x1080, so the
- * swap costs no layout shift either way.
+ * the finished dish. The two files are both 1920x1080, so the swap costs
+ * no layout shift either way.
+ *
+ * ⚠️ THE HANDOFF IS NO LONGER HIDDEN BY BRUTE FORCE. This copy used to
+ * be preload="auto", which asked for 5.5 MB in the first network flight
+ * — competing with the poster, which is the LCP element. It is now
+ * preload="metadata", and the preloader escalates it to a full buffer
+ * the moment the POSTER has decoded. Poster first, movie second, always.
+ * See LoadingOverlay's whenReady().
  */
-const HERO_VIDEO_SRC: string | null =
-  "https://pub-364f647b29874b09922e1889f267c323.r2.dev/newmandarin-hero.mp4";
-
-/** The held-plate still: poster, reduced-motion hero, and load fallback. */
-const HERO_POSTER = "/hero-poster-plate.jpg";
+const HERO_HAS_VIDEO = HERO_SOURCES.length > 0;
 
 /**
  * After the preloader lifts, the footage plays full-bleed with no text
@@ -269,7 +270,7 @@ export default function HeroVideo() {
   // Mount the video client-side only, never under prefers-reduced-motion
   // (those visitors keep the poster still).
   useEffect(() => {
-    if (!HERO_VIDEO_SRC) return;
+    if (!HERO_HAS_VIDEO) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const t = setTimeout(() => setVideo("on"), 0);
     return () => clearTimeout(t);
@@ -296,14 +297,22 @@ export default function HeroVideo() {
         />
       </div>
 
-      {video === "on" && HERO_VIDEO_SRC && (
+      {video === "on" && HERO_HAS_VIDEO && (
         <>
           {/* autoPlay is the belt to the effect's braces: the unveil
               effect is what starts playback from frame 0, but if that
               effect never runs the footage still plays rather than
-              freezing on the poster. preload="auto" is required here —
-              this copy must be buffered by the time the overlay lifts
-              (~1.35s), and "metadata" would stall the unveil. */}
+              freezing on the poster.
+
+              preload="metadata" — NOT "auto", which is what this was.
+              "auto" put a multi-megabyte video request in the same
+              network flight as the poster, and the poster is the LCP
+              element of the site; the two were competing for bandwidth
+              and the poster was losing. The preloader escalates this
+              element to a full buffer as soon as the poster has decoded
+              (LoadingOverlay's whenReady), so the reveal still lands on
+              motion — it just no longer gets there by starving the one
+              image the page is measured on. */}
           <video
             ref={(el) => {
               videoARef.current = el;
@@ -313,13 +322,12 @@ export default function HeroVideo() {
               primeForAutoplay(el);
               if (el && !activeRef.current) activeRef.current = el;
             }}
-            // The preloader gates its wipe on THIS element's readyState —
+            // The preloader both ESCALATES and gates on THIS element —
             // it is the copy that plays first, so it is the one whose
             // buffering decides whether the reveal lands on motion. The
             // attribute is the whole contract; see LoadingOverlay.
             data-hero-primary=""
             className="hero-video absolute inset-0 h-full w-full object-cover"
-            src={HERO_VIDEO_SRC}
             poster={HERO_POSTER}
             muted
             loop
@@ -332,14 +340,23 @@ export default function HeroVideo() {
             disableRemotePlayback
             x-webkit-airplay="deny"
             disablePictureInPicture
-            preload="auto"
+            preload="metadata"
             onError={() => setVideo("failed")}
-          />
+          >
+            {/* webm first: the browser takes the first type it can play,
+                so VP9 goes to everything except Safari. */}
+            {HERO_SOURCES.map((s) => (
+              <source key={s.src} src={s.src} type={s.type} />
+            ))}
+          </video>
           {/* Standby copy for the loop-seam crossfade; absolute, so
               mounting it causes no layout shift. Not needed until the
-              first seam ~9.4s in, so it only takes metadata up front —
-              one 5.5 MB fetch on load, not two. No autoPlay: this copy
-              is played by the crossfade, and playing it on mount would
+              first seam ~9.4s in, so it asks for NOTHING up front —
+              preload="none", where this used to take metadata. The
+              crossfade's play() is what loads it, and by then the
+              primary has pulled the same bytes through a year-long
+              immutable cache, so it is a cache read rather than a
+              second download. No autoPlay: playing it on mount would
               run both videos at once. */}
           <video
             ref={(el) => {
@@ -347,18 +364,21 @@ export default function HeroVideo() {
               primeForAutoplay(el);
             }}
             className="hero-video absolute inset-0 h-full w-full object-cover"
-            src={HERO_VIDEO_SRC}
             muted
             loop
             playsInline
             disableRemotePlayback
             x-webkit-airplay="deny"
             disablePictureInPicture
-            preload="metadata"
+            preload="none"
             aria-hidden="true"
             tabIndex={-1}
             style={{ opacity: 0 }}
-          />
+          >
+            {HERO_SOURCES.map((s) => (
+              <source key={s.src} src={s.src} type={s.type} />
+            ))}
+          </video>
         </>
       )}
 

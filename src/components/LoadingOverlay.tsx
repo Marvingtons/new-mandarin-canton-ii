@@ -14,6 +14,7 @@ import {
   YUAN_DS,
 } from "@/lib/brand/seal";
 import { restaurant } from "@/data/restaurant";
+import { HERO_POSTER } from "@/lib/heroMedia";
 import {
   INTRO_SESSION_KEY,
   introWillPlay,
@@ -82,6 +83,38 @@ const WIPE_MS = 600;
 /** Reduced motion gets the finished mark, faded, over the same gating. */
 const RM_FADE_MS = 300;
 
+/**
+ * How long past the POSTER's decode we will keep waiting for the video's
+ * first frame, and no longer.
+ *
+ * This number exists because the curtain was reaching CAP_MS on every
+ * single visit. Measured on production: LCP 2523ms against an FCP of
+ * 655ms, which is 1800 (the cap) + 600 (the wipe) and change — the
+ * overlay was not being lifted by readiness at all, it was being lifted
+ * by the timeout, every time, and LCP is pinned to the reveal because
+ * the poster is behind the curtain until then.
+ *
+ * The starved leg was the video: 5.5 MB with no cache headers, gated on
+ * readyState >= HAVE_CURRENT_DATA. Making it smaller helps and is not
+ * enough on its own, because a slow connection will always find a size
+ * that misses — and a leg that can consume the entire budget is a leg
+ * that decides the reveal.
+ *
+ * So the video now gets a BUDGET rather than the remainder. If its first
+ * frame is not here within this long after the poster is, the curtain
+ * goes up anyway — and what is underneath is the poster, which is the
+ * video's own closing frame at the same 1920x1080. That is the argument
+ * this file already made for gating on HAVE_CURRENT_DATA instead of
+ * canplaythrough; this applies it one step further out.
+ *
+ * 400ms is chosen against the timeline, not by feel: poster in the first
+ * flight lands around 400-600ms, so poster + this grace still resolves
+ * under READY_AT_MS and the animation stays the thing that decides when
+ * the curtain lifts. Raising it past ~550 makes the video the decider
+ * again on exactly the connections that can least afford it.
+ */
+const VIDEO_GRACE_MS = 400;
+
 const emptySubscribe = (): (() => void) => () => {};
 
 /**
@@ -97,11 +130,16 @@ const emptySubscribe = (): (() => void) => () => {};
  * ever cost time, never the reveal.
  */
 function whenReady(): Promise<void> {
+  // The <link rel="preload" as="image" fetchpriority="high"> in
+  // app/page.tsx has already put this in the first network flight, so
+  // this Image() is almost always reading a warm cache rather than
+  // starting a request. It is still the honest way to learn that the
+  // bytes have DECODED, which is what the curtain is waiting on.
   const poster = new Promise<void>((resolve) => {
     const img = new Image();
     img.onload = () => resolve();
     img.onerror = () => resolve();
-    img.src = "/hero-poster-plate.jpg";
+    img.src = HERO_POSTER;
   });
 
   const fonts = document.fonts
@@ -118,7 +156,42 @@ function whenReady(): Promise<void> {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduced) return Promise.all([poster, fonts]).then(() => undefined);
 
-  const video = new Promise<void>((resolve) => {
+  /**
+   * POSTER FIRST, MOVIE SECOND, ALWAYS.
+   *
+   * This chains off `poster` rather than running beside it, and that
+   * ordering is the point of the whole rewrite. The video element is
+   * mounted preload="metadata", so until something escalates it the
+   * browser has fetched a few hundred KB of container and stopped —
+   * which leaves the network free for the image the page is scored on.
+   * The escalation happens HERE, one tick after the poster has decoded.
+   */
+  const video = poster.then(() =>
+    Promise.race([
+      whenPrimaryHasFrame(),
+      new Promise<void>((r) => setTimeout(r, VIDEO_GRACE_MS)),
+    ]),
+  );
+
+  return Promise.all([poster, fonts, video]).then(() => undefined);
+}
+
+/**
+ * Escalate the hero's primary copy to a real buffer, then resolve when
+ * it has a frame to show.
+ *
+ * `preload` is only consulted when a load begins, so moving the property
+ * is not enough on its own — load() is what makes the element act on the
+ * new value. The metadata it already fetched is not wasted: the files
+ * are encoded with +faststart (moov at the head) and served immutable,
+ * so the re-request is a cache read.
+ *
+ * Every listener resolves rather than rejects, error included. A hero
+ * that cannot load is not a reason to hold the curtain — HeroVideo's own
+ * onError swaps it for the poster, which is what was underneath anyway.
+ */
+function whenPrimaryHasFrame(): Promise<void> {
+  return new Promise<void>((resolve) => {
     // HeroVideo mounts the element on its own schedule, so poll briefly
     // for it rather than assuming it is in the DOM yet.
     let settled = false;
@@ -131,6 +204,7 @@ function whenReady(): Promise<void> {
     const check = () => {
       const el = document.querySelector<HTMLVideoElement>("[data-hero-primary]");
       if (!el) return;
+      clearInterval(poll);
       // HAVE_CURRENT_DATA: there is a frame to show and more is coming.
       if (el.readyState >= 2) {
         done();
@@ -139,13 +213,17 @@ function whenReady(): Promise<void> {
       el.addEventListener("loadeddata", done, { once: true });
       el.addEventListener("canplay", done, { once: true });
       el.addEventListener("error", done, { once: true });
-      clearInterval(poll);
+      // The escalation itself, and it must come AFTER the listeners —
+      // load() can settle a cached file synchronously enough that a
+      // listener attached afterwards never hears the event.
+      if (el.preload !== "auto") {
+        el.preload = "auto";
+        el.load();
+      }
     };
     const poll = setInterval(check, 60);
     check();
   });
-
-  return Promise.all([poster, fonts, video]).then(() => undefined);
 }
 
 export default function LoadingOverlay() {
