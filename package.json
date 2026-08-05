@@ -13,6 +13,7 @@
     "ticket:heights": "tsx --conditions=react-server scripts/ticket-heights.ts",
     "verify:ticket-glyphs": "tsx --conditions=react-server scripts/verify-ticket-glyphs.ts",
     "verify:orders": "tsx --conditions=react-server scripts/verify-orders.ts",
+    "verify:pricing": "tsx --conditions=react-server scripts/verify-pricing.ts",
     "verify:print-codes": "tsx --conditions=react-server scripts/verify-print-codes.ts",
     "verify:print-recurrence": "tsx --conditions=react-server scripts/verify-print-recurrence.ts",
     "verify:printer-health": "tsx --conditions=react-server scripts/verify-printer-health.ts",

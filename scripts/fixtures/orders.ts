@@ -12,6 +12,7 @@
  * here first.
  */
 
+import { taxCents } from "../../src/lib/money";
 import { resolveOrderLine } from "../../src/lib/orders/lines";
 import type { MenuItem } from "../../src/lib/menu/types";
 import type { Order, OrderLine } from "../../src/lib/orders/types";
@@ -112,15 +113,26 @@ function buildLines(): OrderLine[] {
   ];
 }
 
-/** Sum the lines and apply the tenant's 7.75% so totals are always coherent. */
+/**
+ * The tenant's rate, as a fixture reads it.
+ *
+ * These scripts render tickets without a tenant environment, so the rate is
+ * stated here rather than resolved — but it is stated ONCE, and it goes
+ * through the same taxCents() production uses, so a fixture can never disagree
+ * with the app about how a rate becomes money. Keep in step with
+ * TENANT_TAX_RATE_BPS in wrangler.jsonc.
+ */
+export const FIXTURE_TAX_RATE_BPS = 875;
+
+/** Sum the lines and apply the tenant's 8.75% so totals are always coherent. */
 function totalsFor(lines: OrderLine[]) {
   const subtotalCents = lines.reduce((n, l) => n + l.lineCents, 0);
-  const taxCents = Math.round((subtotalCents * 775) / 10000);
+  const tax = taxCents(subtotalCents, FIXTURE_TAX_RATE_BPS);
   return {
     subtotalCents,
-    taxCents,
+    taxCents: tax,
     tipCents: 0,
-    totalCents: subtotalCents + taxCents,
+    totalCents: subtotalCents + tax,
   };
 }
 
@@ -399,7 +411,8 @@ export function sqlShapedOrder(): Order {
       // The worst case: an item with nothing but a price.
       { itemId: "mystery", lineCents: 500 },
     ],
-    totals: { subtotalCents: 3490, taxCents: 270, tipCents: 0, totalCents: 3760 },
+    // 3490 @ 875 bps = 305.375c -> 305c half-up.
+    totals: { subtotalCents: 3490, taxCents: 305, tipCents: 0, totalCents: 3795 },
     customer: { name: "Walk In", phone: "+16195550100" },
     phoneVerifiedAt: new Date("2026-07-30T01:00:00.000Z").toISOString(),
     pickupAt: new Date("2026-07-30T01:45:00.000Z").toISOString(),

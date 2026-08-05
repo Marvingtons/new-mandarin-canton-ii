@@ -120,7 +120,8 @@ async function seedOrder(repo: Repo, businessDate: string) {
     orderNumberPrefix: "A",
     idempotencyKey: `print-test-${seq}-${Date.now()}`,
     items,
-    totals: { subtotalCents: 4500, taxCents: 349, tipCents: 0, totalCents: 4849 },
+    // 4500 @ 875 bps = 393.75c -> 394c half-up.
+    totals: { subtotalCents: 4500, taxCents: 394, tipCents: 0, totalCents: 4894 },
     customer: { name: "Print Test", phone: "+16195550000" },
     phoneVerifiedAt: new Date(),
     pickupAt: new Date(Date.now() + 25 * 60_000),
@@ -339,7 +340,7 @@ async function main(): Promise<void> {
   process.env.CLOUDPRNT_SECRET = SECRET;
   process.env.CLOUDPRNT_PRINTER_MAC = MAC;
   process.env.RESTAURANT_TIMEZONE = "America/Los_Angeles";
-  process.env.TENANT_TAX_RATE_BPS = "775";
+  process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
   // The production configuration, unchanged — this test is only meaningful
   // against the numbers that actually ship.

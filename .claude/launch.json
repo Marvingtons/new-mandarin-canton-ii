@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "preview-cf",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview:cf"],
+      "port": 8787,
+      "autoPort": true
     }
   ]
 }

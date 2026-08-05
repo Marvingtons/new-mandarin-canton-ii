@@ -174,7 +174,7 @@ a route that no longer exists.
 | Name | [order/page.tsx:9](../src/app/order/page.tsx#L9) |
 | Name + "Telegraph Canyon" prose | [page.tsx:182, 236](../src/app/page.tsx#L182) |
 | Address | [images.ts:52-53](../src/data/images.ts#L52) |
-| Tax 775 bps + `America/Los_Angeles` | [ticket/preview/route.ts:57, 64](../src/app/api/ticket/preview/route.ts#L57) — dev-only route, acceptable |
+| ~~Tax 775 bps~~ + `America/Los_Angeles` | [ticket/preview/route.ts](../src/app/api/ticket/preview/route.ts) — the hardcoded rate is GONE; the fixture now takes `tenant.taxRateBps`. The timezone default remains, dev-only, acceptable |
 | Timezone default | [tenant.server.ts:160](../src/config/tenant.server.ts#L160) — a fallback, not a hardcode |
 | Hours | [restaurant.ts:84](../src/data/restaurant.ts#L84) — read by `tenant.server.ts` and `pickup.ts`, not env-overridable |
 

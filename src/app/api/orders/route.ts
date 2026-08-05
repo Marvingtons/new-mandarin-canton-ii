@@ -1,5 +1,4 @@
 import { phonesSentence } from "@/data/restaurant";
-import { z } from "zod";
 import { getMenu } from "@/lib/menu/source";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
 import { taxCents } from "@/lib/money";
@@ -18,6 +17,7 @@ import {
 import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass";
 import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
+import { OrderRequestSchema, type OrderRequest } from "@/lib/orders/requestSchema";
 import { checkModifierGroups } from "@/lib/orders/modifierRules";
 import { stripRiceForSize } from "@/lib/menu/rice";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
@@ -51,31 +51,6 @@ import type { OrderLine } from "@/lib/orders/types";
  * printer to claim it.
  */
 export const runtime = "nodejs";
-
-const LineSchema = z
-  .object({
-    lineId: z.string().optional(),
-    itemId: z.string().min(1),
-    sizeId: z.string().min(1),
-    modifierIds: z.array(z.string()).default([]),
-    quantity: z.number().int().min(1).max(50),
-    specialInstructions: z.string().max(200).optional(),
-  })
-  .strict(); // a stray `price`/`amount` on a line is a hard reject
-
-const BodySchema = z
-  .object({
-    lines: z.array(LineSchema).min(1).max(60),
-    pickup: z
-      .object({
-        name: z.string().min(1).max(80),
-        phone: z.string().min(7).max(32),
-        time: z.string().min(1).max(20),
-      })
-      .strict(),
-    idempotencyKey: z.string().min(8).max(200),
-  })
-  .strict(); // a top-level `amount`/`total`/`phoneVerified` is a hard reject
 
 /**
  * Machine-readable rejection reasons.
@@ -116,10 +91,11 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // 2. Parse + validate shape.
-  let body: z.infer<typeof BodySchema>;
+  // 2. Parse + validate shape. The schema carries no money field at all, so
+  //    there is nothing here for a client to price — see requestSchema.ts.
+  let body: OrderRequest;
   try {
-    body = BodySchema.parse(await request.json());
+    body = OrderRequestSchema.parse(await request.json());
   } catch {
     return bad("Your order could not be read. Please rebuild your cart. · 無法讀取訂單，請重新下單。");
   }

@@ -62,7 +62,7 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `TWILIO_AUTH_TOKEN` | Twilio account | step 3 |
 | `TWILIO_VERIFY_SERVICE_SID` | The Verify service (`VA…`) | step 3 |
 | `OWNER_ALERT_PHONE` | Owner's mobile, E.164 (`+1619…`). Unset = the unprinted-order alert silently no-ops | — |
-| `TENANT_TAX_RATE_BPS` | Sales tax in basis points. `775` = 7.75% | ⚠️ confirm the Chula Vista rate with the owner |
+| `TENANT_TAX_RATE_BPS` | Sales tax in basis points. `875` = 8.75% | ✓ Chula Vista rate, confirmed with the owner |
 
 ### Needed for outbound SMS
 

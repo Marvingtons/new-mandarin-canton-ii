@@ -58,8 +58,9 @@ only): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 - `TENANT_TIMEZONE` is accepted as an alias at
   [tenant.server.ts:160](../../src/config/tenant.server.ts#L160) but is absent
   from `.env.example`.
-- `TENANT_TAX_RATE_BPS=775` is a ⚠️ TODO(confirm) — the Chula Vista rate has
-  never been verified with the owner.
+- ~~`TENANT_TAX_RATE_BPS=775` is a ⚠️ TODO(confirm)~~ — RESOLVED. The owner
+  confirmed the Chula Vista rate at 8.75%; the value is now `875` and
+  `npm run verify:pricing` asserts it.
 
 ## Baseline state — nothing broken
 

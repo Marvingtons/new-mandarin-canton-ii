@@ -16,6 +16,7 @@
 
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { taxCents } from "../src/lib/money";
 
 const DATA_DIR = join(process.cwd(), ".data", "postgres");
 const PORT = 55432;
@@ -24,6 +25,12 @@ const URL = `postgresql://postgres:postgres@localhost:${PORT}/${DB_NAME}`;
 
 const TENANT = process.env.TENANT_ID ?? "new-mandarin-canton";
 const TIMEZONE = process.env.TENANT_TIMEZONE ?? "America/Los_Angeles";
+// Seeded orders carry the same rate the app would quote — read from the
+// environment when one is set, so a developer who changes it sees it here.
+const TAX_RATE_BPS = Number.parseInt(
+  process.env.TENANT_TAX_RATE_BPS ?? "875",
+  10,
+);
 
 async function main(): Promise<void> {
   if (process.argv.includes("--reset")) {
@@ -191,7 +198,7 @@ async function seed(
 
   for (const spec of orders) {
     const subtotalCents = spec.items.reduce((n, l) => n + l.lineCents, 0);
-    const taxCents = Math.round((subtotalCents * 775) / 10000);
+    const tax = taxCents(subtotalCents, TAX_RATE_BPS);
 
     const { order } = await repo.createOrder({
       tenantId: TENANT,
@@ -199,7 +206,12 @@ async function seed(
       orderNumberPrefix: process.env.ORDER_NUMBER_PREFIX ?? "A",
       idempotencyKey: spec.key,
       items: spec.items,
-      totals: { subtotalCents, taxCents, tipCents: 0, totalCents: subtotalCents + taxCents },
+      totals: {
+        subtotalCents,
+        taxCents: tax,
+        tipCents: 0,
+        totalCents: subtotalCents + tax,
+      },
       customer: spec.customer,
       phoneVerifiedAt: new Date(now - 60_000),
       pickupAt: new Date(now + spec.pickupOffsetMin * 60_000),

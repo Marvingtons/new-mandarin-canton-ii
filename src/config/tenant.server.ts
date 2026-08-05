@@ -151,8 +151,8 @@ function resolveOrderingHours(): Record<DayKey, OrderingWindow> {
 
 /**
  * Resolve the tax rate to integer basis points from either
- * TENANT_TAX_RATE_BPS (preferred, e.g. "775") or TAX_RATE (a decimal like
- * "0.0775"). Returns null when neither is set, which makes checkout refuse
+ * TENANT_TAX_RATE_BPS (preferred, e.g. "875") or TAX_RATE (a decimal like
+ * "0.0875"). Returns null when neither is set, which makes checkout refuse
  * to charge rather than guess a rate.
  */
 function resolveTaxRateBps(bpsRaw: string | null): number | null {
@@ -164,7 +164,7 @@ function resolveTaxRateBps(bpsRaw: string | null): number | null {
   if (rateRaw === null) return null;
   const rate = Number.parseFloat(rateRaw);
   if (!Number.isFinite(rate) || rate < 0) return null;
-  // 0.0775 -> 775 bps. Round to avoid float dust (0.0775 * 10000 = 774.999…).
+  // 0.0875 -> 875 bps. Round to avoid float dust (0.0775 * 10000 = 774.999…).
   return Math.round(rate * 10000);
 }
 
@@ -185,12 +185,19 @@ export function publicTenant(): PublicTenantConfig {
     // as the pre-existing alias so an already-configured deploy keeps working.
     timezone:
       env("RESTAURANT_TIMEZONE") ?? env("TENANT_TIMEZONE") ?? "America/Los_Angeles",
-    // ⚠️ TODO(confirm): the real Chula Vista rate. Nothing is charged online
-    // any more, but this figure prints on the kitchen ticket and is what the
-    // customer is quoted, so a wrong value is still a wrong promise. Null
-    // makes the order flow refuse rather than guess.
+    // 875 bps = 8.75%, the Chula Vista rate, confirmed with the owner.
+    // Nothing is charged online any more, but this figure prints on the
+    // kitchen ticket and is what the customer is quoted, so a wrong value is
+    // still a wrong promise. Null makes the order flow refuse rather than
+    // guess.
+    //
+    // THE ONE PLACE THE RATE LIVES. Client components never carry a rate of
+    // their own: they receive this value as a prop and display what it yields,
+    // and /api/orders recomputes tax from it server-side at submission, so a
+    // rate change reaches a cart that was built before it.
+    //
     // Preferred form is TENANT_TAX_RATE_BPS (exact integer basis points);
-    // TAX_RATE (a decimal like 0.0775) is accepted as a fallback.
+    // TAX_RATE (a decimal like 0.0875) is accepted as a fallback.
     taxRateBps: resolveTaxRateBps(taxRaw),
     // Empty array = tips not offered. Payment happens at the counter now, so
     // tipping is the register's business, not ours. Retained for tenant #2.

@@ -2,6 +2,7 @@ import { publicTenant } from "@/config/tenant.server";
 import { businessDateFor } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { getOrderByNumber } from "@/lib/orders/repository";
+import { taxCents } from "@/lib/money";
 import { rasterizeTicket, renderTicket } from "@/lib/ticket/render";
 import { encodeStarPrntRaster } from "@/lib/ticket/starprnt";
 import {
@@ -24,8 +25,17 @@ import type { Order } from "@/lib/orders/types";
  */
 export const runtime = "nodejs";
 
-/** Mirrors scripts/fixtures/orders.ts — a 中文 item, an English-only item. */
-function fixtureOrder(): Order {
+/**
+ * Mirrors scripts/fixtures/orders.ts — a 中文 item, an English-only item.
+ *
+ * Takes the rate rather than reading one: this is the only place in the app
+ * that has to INVENT an order, and it used to invent the tax rate too (a
+ * hardcoded 775). That was a second copy of a number the tenant config owns,
+ * which is how a preview ends up showing a rate the kitchen ticket does not.
+ * A null rate means the tenant has none configured, and the fixture prints
+ * zero tax exactly as a real order would refuse to quote one.
+ */
+function fixtureOrder(taxRateBps: number | null): Order {
   const items = [
     {
       itemId: "kung-pao-chicken",
@@ -61,7 +71,7 @@ function fixtureOrder(): Order {
     },
   ];
   const subtotalCents = items.reduce((n, l) => n + l.lineCents, 0);
-  const taxCents = Math.round((subtotalCents * 775) / 10000);
+  const tax = taxRateBps == null ? 0 : taxCents(subtotalCents, taxRateBps);
   const now = new Date();
 
   return {
@@ -72,7 +82,12 @@ function fixtureOrder(): Order {
     status: "QUEUED",
     idempotencyKey: "preview",
     items,
-    totals: { subtotalCents, taxCents, tipCents: 0, totalCents: subtotalCents + taxCents },
+    totals: {
+      subtotalCents,
+      taxCents: tax,
+      tipCents: 0,
+      totalCents: subtotalCents + tax,
+    },
     customer: { name: "Preview Customer", phone: "+16195550148" },
     phoneVerifiedAt: now.toISOString(),
     pickupAt: new Date(now.getTime() + 25 * 60_000).toISOString(),
@@ -126,7 +141,7 @@ export async function GET(request: Request): Promise<Response> {
   // deployed route proves that half.
   if (url.searchParams.get("format") === "starprnt") {
     const { pixels, width, height, free } = await rasterizeTicket(
-      order ?? fixtureOrder(),
+      order ?? fixtureOrder(tenant.taxRateBps),
       { timezone: tenant.timezone, reprint },
     );
     let body: Uint8Array;
@@ -142,7 +157,7 @@ export async function GET(request: Request): Promise<Response> {
     return jobResponse(body, JOB_MEDIA_TYPE_STARPRNT, { "x-payload-sha256": sha256 });
   }
 
-  const png = await renderTicket(order ?? fixtureOrder(), {
+  const png = await renderTicket(order ?? fixtureOrder(tenant.taxRateBps), {
     timezone: tenant.timezone,
     reprint,
   });

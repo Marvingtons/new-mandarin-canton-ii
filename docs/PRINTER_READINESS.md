@@ -180,7 +180,7 @@ reads. "Documented" = present in `.env.example`.
 | `TENANT_ID` | yes | ✓ | `nmc` |
 | `RESTAURANT_TIMEZONE` | yes | ✓ | `America/Los_Angeles` |
 | `TENANT_TIMEZONE` | no | **✗ undocumented** | accepted alias, [tenant.server.ts:160](../src/config/tenant.server.ts#L160) |
-| `TENANT_TAX_RATE_BPS` | yes | ✓ | `775`; ⚠️ rate itself unconfirmed with owner |
+| `TENANT_TAX_RATE_BPS` | yes | ✓ | `875` (8.75%), confirmed with the owner |
 | `TAX_RATE` | no | ✓ | decimal fallback if bps unset |
 | `ORDER_NUMBER_PREFIX` | no | ✓ | `A` |
 | `PICKUP_LEAD_MINUTES` | no | ✓ | |

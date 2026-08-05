@@ -112,7 +112,8 @@ async function seedOrder(repo: Repo, tenant: string, businessDate: string) {
     orderNumberPrefix: "A",
     idempotencyKey: `health-test-${seq}-${Date.now()}`,
     items,
-    totals: { subtotalCents: 2250, taxCents: 174, tipCents: 0, totalCents: 2424 },
+    // 2250 @ 875 bps = 196.875c -> 197c half-up.
+    totals: { subtotalCents: 2250, taxCents: 197, tipCents: 0, totalCents: 2447 },
     customer: { name: "Health Test", phone: "+16195550000" },
     phoneVerifiedAt: new Date(),
     pickupAt: new Date(Date.now() + 25 * 60_000),
@@ -533,7 +534,7 @@ async function main(): Promise<void> {
   process.env.CLOUDPRNT_SECRET = SECRET;
   process.env.CLOUDPRNT_PRINTER_MAC = MAC;
   process.env.RESTAURANT_TIMEZONE = "America/Los_Angeles";
-  process.env.TENANT_TAX_RATE_BPS = "775";
+  process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
   process.env.TICKET_COPIES = "3";
   process.env.ADMIN_DASH_PASSWORD = "verify-printer-health-password";

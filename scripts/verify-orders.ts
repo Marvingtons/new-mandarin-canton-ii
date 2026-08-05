@@ -114,11 +114,14 @@ async function main(): Promise<void> {
     unitCents: 2250,
     lineCents: 2250,
   };
+  // 2250 @ 875 bps = 196.875c -> 197c half-up. Stated rather than computed:
+  // this suite is about what the STORE does with totals, so the numbers it
+  // round-trips should be readable on the page.
   const totals = {
     subtotalCents: 2250,
-    taxCents: 174,
+    taxCents: 197,
     tipCents: 0,
-    totalCents: 2424,
+    totalCents: 2447,
   };
   const baseInput = {
     tenantId: RUN_TENANT,
