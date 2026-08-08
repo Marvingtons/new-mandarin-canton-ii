@@ -214,6 +214,11 @@ export const menu: MenuCategory[] = [
       {
         // One dish, two printed weights — a size pair, not two items. The old
         // `roasted-duck-whole` row is folded in here as the second tier.
+        //
+        // removed at owner request 2026-08 — hidden from online ordering via
+        // itemOverridesById in data/menu-overrides.ts. The row stays here (the
+        // record: 中文, Half/Whole prices) because it is still on the printed
+        // menu and may return; deleting it is not the ask.
         id: "roasted-duck",
         name: "Roasted Duck",
         chineseName: "燒鴨",

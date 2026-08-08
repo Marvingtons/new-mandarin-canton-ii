@@ -341,7 +341,15 @@ export default function Checkout({
           setVerify("idle");
           setCode("");
         }
-        setError(("error" in data && data.error) || t("err.noPlaceOrder"));
+        // The item-unavailable rejection is the one the server sends in
+        // English · 中文 but the reader may need in Español · 中文 — a stale
+        // cart holding a since-removed dish. Localize it here off the reason;
+        // every other rejection falls back to the server's own prose.
+        const message =
+          "reason" in data && data.reason === "item_unavailable"
+            ? `${t("err.itemUnavailable")} · ${t("err.itemUnavailableZh")}`
+            : ("error" in data && data.error) || t("err.noPlaceOrder");
+        setError(message);
         setSubmitting(false);
         return;
       }

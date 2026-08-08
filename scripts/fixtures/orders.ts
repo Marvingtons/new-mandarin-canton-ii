@@ -255,13 +255,30 @@ export async function mixedSizeOrder(): Promise<Order> {
   const all = await catalogueItems();
   const byId = new Map(all.map((i) => [i.id, i]));
 
+  // The Half/Whole size chip used to be proven by Roasted Duck, the
+  // catalogue's only 半隻/全隻 item — removed from online ordering at owner
+  // request (2026-08), so it no longer resolves from the catalogue. The
+  // coverage that mattered was of the SIZE PAIR, not of that one dish, so a
+  // synthetic two-weight item stands in and outlives any single menu change.
+  // Its size labels still route through the real resolveSizeZh (半隻/全隻).
+  const twoWeightRoast = fixtureItem({
+    id: "fixture-two-weight-roast",
+    nameEn: "Two-Weight Roast",
+    priceCents: 2000,
+    sizes: [
+      { id: "half", label: "Half", priceCents: 2000 },
+      { id: "whole", label: "Whole", priceCents: 3800 },
+    ],
+  });
+  byId.set(twoWeightRoast.id, twoWeightRoast);
+
   const wanted: [string, string][] = [
     ["egg-rolls", "regular"], // implicit single tier — prints no chip
     ["kung-pao-chicken", "individual"], // the default — prints no chip
     ["kung-pao-chicken", "party-tray"], // 【餐盤 TRAY】
     ["egg-drop-soup", "cup"], // 【杯裝 CUP】
-    ["roasted-duck", "half"], // 【半隻 HALF】
-    ["roasted-duck", "whole"], // 【全隻 WHOLE】
+    ["fixture-two-weight-roast", "half"], // 【半隻 HALF】
+    ["fixture-two-weight-roast", "whole"], // 【全隻 WHOLE】
     ["combo-family-dinner-1", "people-4"], // 【四人 4 PEOPLE】
   ];
 

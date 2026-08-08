@@ -269,13 +269,14 @@ check(
     `SIZE_IDS_WITHOUT_RICE = ${[...SIZE_IDS_WITHOUT_RICE].join(",")}`,
   );
 
-  // Roasted Duck (half/whole) and Egg Drop Soup (cup/bowl) were named as
-  // candidates for exclusion. They need no rule: appetizers and soup are
-  // not rice categories, so those items have no rice group at any size.
-  for (const [label, sizeA] of [
-    ["Roasted Duck", "half"],
-    ["Egg Drop Soup", "cup"],
-  ] as const) {
+  // Egg Drop Soup (cup/bowl) was named as a candidate for exclusion. It needs
+  // no rule: soup is not a rice category, so the item has no rice group at any
+  // size. Roasted Duck (half/whole) was the paired appetizer example here; it
+  // was removed from online ordering (owner request, 2026-08) so it no longer
+  // resolves from the catalogue, and the property it demonstrated — a non-rice
+  // category never grows a rice group — is proven by the rice-bearing-size
+  // roster above and by Egg Drop Soup below.
+  for (const [label, sizeA] of [["Egg Drop Soup", "cup"]] as const) {
     const item = menu.categories
       .flatMap((c) => c.items)
       .find((i) => itemSizes(i).some((s) => s.id === sizeA));

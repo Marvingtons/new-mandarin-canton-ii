@@ -56,6 +56,13 @@ export function overrideKey(nameEn: string): string {
  * which is a transcription.
  */
 export const itemOverridesById: Record<string, MenuItemOverride> = {
+  // removed at owner request 2026-08 — Roasted Duck (Appetizers #5) is off the
+  // ordering surface but NOT deleted: it stays on the printed menu (rev 9/25)
+  // and it may return (duck does that). `hidden` force-hides it everywhere the
+  // catalogue feeds — menu page, search, item sheet, the cart, and the server
+  // recompute — while its row, its 中文 (燒鴨) and its Half/Whole prices stay
+  // in menu.ts as the record. See docs/nmc-menu-prices-with-traditional-chinese.md #5.
+  "roasted-duck": { hidden: true },
   "mixed-vegetable": { vegetarian: true },
   "tofu-vegetable": { vegetarian: true },
   "vegetarian-fried-rice": { vegetarian: true },

@@ -58,8 +58,16 @@ export const runtime = "nodejs";
  * The customer-facing string is bilingual prose and will be reworded; a client
  * that has to decide whether its own "✓ verified" badge is still true cannot
  * key off prose. Only the cases a client must REACT to get a code.
+ *
+ * `item_unavailable` is the reaction the checkout needs so it can render the
+ * rejection in the READER'S language: the server's prose is English · 中文, but
+ * a Spanish customer must read Español · 中文 (see err.itemUnavailable). The
+ * prose below is the fallback for a client that does not localize.
  */
-export type OrderRejection = "phone_unverified" | "phone_mismatch";
+export type OrderRejection =
+  | "phone_unverified"
+  | "phone_mismatch"
+  | "item_unavailable";
 
 function bad(message: string, status = 400, reason?: OrderRejection) {
   return Response.json(
@@ -207,8 +215,23 @@ export async function POST(request: Request): Promise<Response> {
   let subtotalCents = 0;
   for (const line of body.lines) {
     const item = index.get(line.itemId);
-    if (!item) return bad("An item is no longer on the menu. Please rebuild your cart. · 有項目已下架，請重新下單。");
-    if (!isAvailable(item)) return bad(`"${item.nameEn}" is currently unavailable. · 該項目暫時售罄。`);
+    // A hidden item (86'd, or removed like Roasted Duck 2026-08) is filtered
+    // out of the catalogue before it is indexed, so a stale cart holding its
+    // id lands HERE — the item is simply absent. The isAvailable() line below
+    // is the belt-and-braces case for an id that is indexed yet unavailable.
+    // Both carry the item_unavailable reason so the checkout can localize.
+    if (!item)
+      return bad(
+        "An item in your cart is no longer available. Please rebuild your cart. · 購物車中有項目已下架，請重新下單。",
+        400,
+        "item_unavailable",
+      );
+    if (!isAvailable(item))
+      return bad(
+        `"${item.nameEn}" is currently unavailable. · 該項目暫時售罄。`,
+        400,
+        "item_unavailable",
+      );
     // Lunch specials are an 11–3 product. The client hides them outside that
     // window, but the client's clock is display-only — this is the gate.
     if (!bypass && item.lunchSpecial && !isLunchService(now, pickupOpts)) {

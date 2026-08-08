@@ -33,7 +33,7 @@ menu before shipping. All prices USD.
 | 2 | Salt Pepper Chicken Wings (6)<br><small>中文：椒鹽雞翼（6隻）</small> | 12.95 |
 | 3 | B.B.Q. Pork<br><small>中文：蜜汁叉燒</small> | 14.95 |
 | 4 | B.B.Q. Spareribs<br><small>中文：燒排骨</small> | 16.95 |
-| 5 | Roasted Duck<br><small>中文：燒鴨</small> | Half 20.00 / Whole 38.00 |
+| 5 | Roasted Duck<br><small>中文：燒鴨</small><br><small>⚠ Removed from online ordering at owner request (2026-08); remains on printed menu rev 9/25 until next reprint.</small> | Half 20.00 / Whole 38.00 |
 | 6 | Steamed or Fried Dumplings (8)<br><small>中文：蒸餃或煎餃（8隻）</small> | 15.95 |
 | 7 | Fired Cream Cheese Wonton (8)<br><small>中文：炸忌廉芝士雲吞（8隻）</small> | 9.95 |
 

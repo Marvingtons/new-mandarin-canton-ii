@@ -184,6 +184,13 @@ export const en = {
   "err.noReachServerZh": "無法連線，請重試。",
   "err.noPlaceOrder": "We couldn't place your order. Please try again.",
   "err.noPlaceOrderZh": "無法送出訂單，請重試。",
+  /* Shown when the server rejects a line whose item is no longer orderable —
+     a stale cart holding a since-removed dish (e.g. Roasted Duck, 2026-08).
+     Keyed off the item_unavailable reason so a Spanish reader gets
+     "Español · 中文", the same shape as every other notice on the site. */
+  "err.itemUnavailable":
+    "An item in your cart is no longer available. Please rebuild your cart.",
+  "err.itemUnavailableZh": "購物車中有項目已下架，請重新下單。",
   "err.codeWrong": "That code isn't right.",
   "err.codeNotSent": "We couldn't send a code.",
   "otp.codeSent": "Code sent to ••••{last4}. It expires in 10 minutes.",
@@ -616,6 +623,11 @@ export const es: Record<TranslationKey, string> = {
   "err.noReachServerZh": "無法連線，請重試。",
   "err.noPlaceOrder": "No pudimos enviar su orden. Intente de nuevo.",
   "err.noPlaceOrderZh": "無法送出訂單，請重試。",
+  // The 中文 half is identical to the English side's — the Chinese never
+  // moves, only the half beside it does.
+  "err.itemUnavailable":
+    "Un artículo de su carrito ya no está disponible. Por favor arme su orden de nuevo.",
+  "err.itemUnavailableZh": "購物車中有項目已下架，請重新下單。",
   "err.codeWrong": "Ese código no es correcto.",
   "err.codeNotSent": "No pudimos enviar el código.",
   "otp.codeSent": "Código enviado al ••••{last4}. Vence en 10 minutos.",
