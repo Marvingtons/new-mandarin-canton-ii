@@ -10,7 +10,7 @@ import {
   resolveItemOverride,
   resolveModifierZh,
 } from "@/data/menu-overrides";
-import { riceGroupForCategory } from "@/lib/menu/rice";
+import { riceGroupForItem } from "@/lib/menu/rice";
 import type {
   Menu,
   MenuCategory,
@@ -87,7 +87,10 @@ function modifierGroupsFor(
   // Rice FIRST, because it is the required one. The sheet renders groups
   // in order, and a customer scrolling to a disabled Add button should
   // meet the thing blocking it before the optional extras.
-  const rice = riceGroupForCategory(categoryId);
+  //
+  // The category is the default; the item's own `includesRice` flag wins, so
+  // a noodle dish in an entrée section gets no rice group at all.
+  const rice = riceGroupForItem(categoryId, item.includesRice);
   if (rice) groups.push(rice);
 
   if (item.modifiers?.length) {

@@ -82,6 +82,21 @@ export interface MenuItem {
   sizes?: MenuItemSize[];
   /** Printed per-item add-ons. Real priced options, never prose. */
   modifiers?: MenuItemModifier[];
+  /**
+   * Whether this dish comes with the included rice side, OVERRIDING the
+   * category rule (see RICE_CATEGORY_IDS in src/lib/menu/rice.ts).
+   *
+   * Unset means "use the category default", which is the right answer for
+   * almost every dish: an entrée category includes rice, an appetizer or a
+   * plate of noodles does not. Set it only where a single dish disagrees with
+   * its category — a noodle or rice dish that happens to sit in an entrée
+   * section. `false` there means "no rice side, whatever the category says".
+   *
+   * Rice eligibility is a property of the DISH, not merely of the section it
+   * is printed under, so the exception lives on the item rather than as a
+   * special case in the resolver.
+   */
+  includesRice?: boolean;
   spicy?: boolean;
   tags?: string[];
 }
@@ -164,6 +179,10 @@ export const menu: MenuCategory[] = [
         description: "Beef, chicken, shrimp, vegetables.",
         priceCents: 2095,
         trayCents: 7400,
+        // A NOODLE dish in the Specials section. The category would give it
+        // the included-rice side every other Special gets; it is the starch
+        // itself, so it opts out. See MenuItem.includesRice.
+        includesRice: false,
       },
       {
         id: "honey-walnut-shrimp",

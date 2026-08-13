@@ -19,7 +19,7 @@ import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import { OrderRequestSchema, type OrderRequest } from "@/lib/orders/requestSchema";
 import { checkModifierGroups } from "@/lib/orders/modifierRules";
-import { stripRiceForSize } from "@/lib/menu/rice";
+import { stripRice } from "@/lib/menu/rice";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import {
@@ -255,25 +255,28 @@ export async function POST(request: Request): Promise<Response> {
        ticket that does not say which rice. The storage key is bumped for
        that case too (see lib/cart/CartContext), but a client-side key is
        a courtesy and this is the guarantee. */
-    /* RICE IS AN INDIVIDUAL-PORTION THING. A tray is the dish alone, so a
-       tray line arriving with a rice modifier is stripped here rather than
-       refused: it is not tampering and it is not the customer's mistake —
-       it is a cart built before this rule shipped, sitting in a
-       sessionStorage tab that has been open since yesterday. Refusing it
-       would turn a $0 modifier into a lost order.
+    /* RICE IS NOT ALWAYS OFFERED. A party tray is the dish alone, and a
+       noodle or rice dish is the starch itself — neither includes a rice
+       side. A line arriving with a rice modifier for such an item/size is
+       stripped here rather than refused: it is not tampering and it is not
+       the customer's mistake — it is a cart built before the rule shipped,
+       sitting in a sessionStorage tab that has been open since yesterday.
+       Refusing it would turn a $0 modifier into a lost order, and leaving
+       it would throw at resolveOrderLine as an unknown modifier.
 
        Stripped BEFORE the group check, which reads the same size-filtered
-       groups, so the two cannot disagree about what a tray is allowed to
-       carry. Warn-logged with the item so the frequency is visible; when
-       it stops appearing, the stale carts have aged out. */
-    const { modifierIds, removed } = stripRiceForSize(
+       groups, so the two cannot disagree about what this line may carry.
+       Warn-logged with the item so the frequency is visible; when it stops
+       appearing, the stale carts have aged out. */
+    const { modifierIds, removed } = stripRice(
+      item,
       line.sizeId,
       line.modifierIds,
     );
     if (removed.length > 0) {
       console.warn(
         `[orders] stripped rice from a "${size.label}" line of "${item.nameEn}": ` +
-          `${removed.join(", ")} — trays do not include rice (stale cart)`,
+          `${removed.join(", ")} — this item does not include rice at that size (stale cart)`,
       );
     }
 

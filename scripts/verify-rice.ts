@@ -35,10 +35,21 @@ import {
   RICE_SPLIT_CATEGORY_IDS,
   SIZE_IDS_WITHOUT_RICE,
   groupsForSize,
-  stripRiceForSize,
+  stripRice,
 } from "@/lib/menu/rice";
 
 const EXCLUDED = ["appetizers", "soup", "fried-rice", "noodles"];
+
+/**
+ * Items whose own `includesRice` flag overrides their entrée category's
+ * default. Rice eligibility follows the DISH, not just the section: a noodle
+ * dish printed under Specials is the starch itself and comes with no rice.
+ *
+ * This is the audited, exhaustive list — the coverage checks below assert that
+ * these and ONLY these items opt out inside a rice category, so a stray new
+ * exclusion (or the noodles regaining rice) fails the suite.
+ */
+const RICE_OPT_OUTS = new Set(["upside-down-pan-fried-noodles"]);
 
 let pass = 0;
 const failures: string[] = [];
@@ -53,15 +64,20 @@ const riceOf = (item: MenuItem) =>
 
 /* ------------------------------------------------ 2. coverage ---- */
 
-const counts: Record<string, { withRice: number; total: number; opts: Set<number> }> = {};
+const counts: Record<
+  string,
+  { withRice: number; total: number; opts: Set<number>; noRice: string[] }
+> = {};
 for (const cat of menu.categories) {
-  const c = { withRice: 0, total: 0, opts: new Set<number>() };
+  const c = { withRice: 0, total: 0, opts: new Set<number>(), noRice: [] as string[] };
   for (const item of cat.items) {
     c.total++;
     const g = riceOf(item);
     if (g) {
       c.withRice++;
       c.opts.add(g.modifiers.length);
+    } else {
+      c.noRice.push(item.id);
     }
   }
   counts[cat.id] = c;
@@ -83,15 +99,75 @@ for (const id of RICE_CATEGORY_IDS) {
     check(`${id}: category exists`, false, "category not found in the menu");
     continue;
   }
+  // Every item offers rice EXCEPT the audited per-item opt-outs. An item
+  // that lacks rice without being on that list is a category dish silently
+  // losing its side; an opt-out that still shows rice is the bug this fixes.
+  const unexpected = c.noRice.filter((itemId) => !RICE_OPT_OUTS.has(itemId));
   check(
-    `${id}: every item offers rice`,
-    c.withRice === c.total && c.total > 0,
-    `${c.withRice}/${c.total}`,
+    `${id}: every item offers rice except audited opt-outs`,
+    unexpected.length === 0 && c.total > 0,
+    `${c.withRice}/${c.total} with rice; unexpected no-rice: ${unexpected.join(", ") || "(none)"}`,
   );
   check(
     `${id}: two options (no half-and-half on a single entrée)`,
     c.opts.size === 1 && c.opts.has(2),
     `option counts seen: ${[...c.opts].join(",")}`,
+  );
+}
+
+// The opt-outs are real, and they live in rice categories (otherwise the
+// flag is redundant with the category rule and should be deleted). Assert
+// each one resolves, sits in a rice category, and offers no rice anywhere.
+{
+  const byId = new Map(
+    menu.categories.flatMap((cat) => cat.items).map((i) => [i.id, i]),
+  );
+  const seenOptOuts: string[] = [];
+  for (const cat of menu.categories) {
+    for (const item of cat.items) {
+      if (riceOf(item) === null && RICE_OPT_OUTS.has(item.id)) {
+        seenOptOuts.push(item.id);
+      }
+    }
+  }
+  check(
+    "every audited opt-out is present and rice-free",
+    seenOptOuts.sort().join(",") === [...RICE_OPT_OUTS].sort().join(","),
+    `saw: ${seenOptOuts.join(", ") || "(none)"}`,
+  );
+  for (const optOutId of RICE_OPT_OUTS) {
+    const item = byId.get(optOutId);
+    check(
+      `${optOutId}: overrides an entrée category (flag is not redundant)`,
+      !!item && RICE_CATEGORY_IDS.has(item.categoryId),
+      item ? `category is ${item.categoryId}` : "item not found in the menu",
+    );
+    check(
+      `${optOutId}: offers no rice at ANY size`,
+      !!item &&
+        itemSizes(item).every(
+          (s) => !groupsForSize(item, s.id).some((g) => g.id === RICE_GROUP_ID),
+        ),
+      "a rice group survived on a no-rice dish",
+    );
+  }
+
+  // The dish the bug was reported against, named explicitly so the suite
+  // reads as the fix it is, and a peer Specials ENTRÉE that must keep rice.
+  const noodles = byId.get("upside-down-pan-fried-noodles");
+  check(
+    "Upside Down Pan Fried Noodles offers no rice modifier in any size",
+    !!noodles &&
+      itemSizes(noodles).every(
+        (s) => !groupsForSize(noodles, s.id).some((g) => g.id === RICE_GROUP_ID),
+      ),
+    "the reported noodle dish still offered a rice side",
+  );
+  const beef = byId.get("mongolian-beef-special");
+  check(
+    "Mongolian Beef (a Specials entrée) still offers two-option rice",
+    !!beef && riceOf(beef)?.modifiers.length === 2,
+    "the category default stopped reaching an entrée in the same section",
   );
 }
 
@@ -325,7 +401,7 @@ check(
     // The stale-cart path: a tray line arriving WITH rice is stripped,
     // not refused.
     const injected = [...others, RICE_STEAMED_ID];
-    const stripped = stripRiceForSize("party-tray", injected);
+    const stripped = stripRice(tray, "party-tray", injected);
     check(
       "injected rice on a tray is stripped",
       stripped.removed.join(",") === RICE_STEAMED_ID &&
@@ -339,7 +415,7 @@ check(
     );
     check(
       "the same ids on an individual portion are untouched",
-      stripRiceForSize("individual", injected).removed.length === 0,
+      stripRice(tray, "individual", injected).removed.length === 0,
       "rice was stripped from a portion that includes it",
     );
     check(
@@ -412,6 +488,59 @@ check(
     check("half-and-half costs nothing", rice?.priceCents === 0, "");
   } else {
     check("found a family dinner to test the printed name", false);
+  }
+}
+
+/* ------------- a Specials no-rice item: stale cart + ticket ---- */
+
+{
+  // Point 6 / point 4 for the per-item rule, mirroring the tray section:
+  // a noodle dish in an entrée section carries no rice at its individual
+  // size either. A stale line that arrives with a rice id must be STRIPPED
+  // (not thrown out as an unknown modifier), and the ticket it prints must
+  // carry no rice line.
+  const noodles = menu.categories
+    .flatMap((c) => c.items)
+    .find((i) => i.id === "upside-down-pan-fried-noodles");
+
+  if (!noodles) {
+    check("found the Specials noodle dish for the ticket check", false);
+  } else {
+    const indiv = itemSizes(noodles)[0]!.id;
+
+    check(
+      "a line with no rice is accepted for the noodle dish",
+      checkModifierGroups(noodles, indiv, []) === null,
+      "the required-rice check fired on a dish that has no rice",
+    );
+
+    const injected = [RICE_STEAMED_ID];
+    const stripped = stripRice(noodles, indiv, injected);
+    check(
+      "stale rice on a no-rice item is stripped, not kept",
+      stripped.removed.join(",") === RICE_STEAMED_ID &&
+        stripped.modifierIds.length === 0,
+      `removed=${stripped.removed.join(",")} kept=${stripped.modifierIds.join(",")}`,
+    );
+    check(
+      "the stripped line then passes the group check",
+      checkModifierGroups(noodles, indiv, stripped.modifierIds) === null,
+      "",
+    );
+
+    const line = resolveOrderLine(noodles, indiv, stripped.modifierIds, 1);
+    check(
+      "the Specials no-rice item prints a ticket with no rice line",
+      !line.modifiers.some((m) =>
+        [RICE_STEAMED_ID, RICE_FRIED_ID, RICE_BOTH_ID].includes(m.id),
+      ),
+      `printed: ${line.modifiers.map((m) => m.nameEn).join(", ") || "(none)"}`,
+    );
+    check(
+      "stripping the rice does not change the noodle price",
+      line.lineCents === resolveLinePrice(noodles, indiv, [], 1).lineCents,
+      "the $0 claim broke on the individual tier",
+    );
   }
 }
 

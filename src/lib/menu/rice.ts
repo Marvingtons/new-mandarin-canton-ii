@@ -96,6 +96,29 @@ export function sizeIncludesRice(sizeId: string): boolean {
 }
 
 /**
+ * Does the CATEGORY, on its own, include a rice side? The default a dish
+ * inherits unless it overrides with its own `includesRice` flag.
+ */
+export function categoryIncludesRice(categoryId: string): boolean {
+  return (
+    RICE_SPLIT_CATEGORY_IDS.has(categoryId) || RICE_CATEGORY_IDS.has(categoryId)
+  );
+}
+
+/**
+ * Whether THIS item, at THIS size, offers the rice group.
+ *
+ * The single truth for the whole rule, and it composes the two independent
+ * gates: the item either carries a rice group at all (category default,
+ * overridden per item — see riceGroupForItem) AND the size is one that
+ * includes rice (an individual portion, never a tray — see groupsForSize).
+ * A no-rice dish fails the first; a tray fails the second; either is enough.
+ */
+export function itemSizeOffersRice(item: MenuItem, sizeId: string): boolean {
+  return groupsForSize(item, sizeId).some((g) => g.id === RICE_GROUP_ID);
+}
+
+/**
  * The item's modifier groups AS THEY APPLY TO ONE SIZE — the rice group
  * disappears on a tray, everything else is untouched.
  *
@@ -119,18 +142,24 @@ export function groupsForSize(
 }
 
 /**
- * Drop any rice choice that this size does not offer.
+ * Drop any rice choice this item does not offer at this size.
  *
- * Used in three places for three different reasons, all the same rule:
- * the item sheet (never create one), the cart (never show one that will
- * not be cooked), and the order route (never store or print one). Returns
- * the input array by reference when there is nothing to remove.
+ * Two reasons a rice id can be stale, one rule: a PARTY TRAY carries no rice
+ * (the dish alone), and a NO-RICE DISH carries none at any size (a plate of
+ * noodles in the Specials section). Both surface here as "the resolved groups
+ * for this item and size have no rice group", so the id is stripped rather
+ * than left to be rejected as an unknown modifier downstream.
+ *
+ * Used for the same rule the item sheet and the cart already read through
+ * `groupsForSize`: never store or print a rice the kitchen will not bag.
+ * Returns the input array by reference when there is nothing to remove.
  */
-export function stripRiceForSize(
+export function stripRice(
+  item: MenuItem,
   sizeId: string,
   modifierIds: readonly string[],
 ): { modifierIds: string[]; removed: string[] } {
-  if (sizeIncludesRice(sizeId)) {
+  if (itemSizeOffersRice(item, sizeId)) {
     return { modifierIds: [...modifierIds], removed: [] };
   }
   const rice = new Set<string>([RICE_STEAMED_ID, RICE_FRIED_ID, RICE_BOTH_ID]);
@@ -196,16 +225,30 @@ export function riceGroup(allowSplit: boolean): MenuModifierGroup {
 }
 
 /**
- * Which group an item in this category should get, or null for none.
+ * Which rice group a dish should get, or null for none.
+ *
+ * Rice eligibility is a property of the DISH: the category rule is the
+ * DEFAULT, and an item's own `includesRice` flag overrides it. So a noodle
+ * dish printed in the Specials section (`includesRice: false`) opts out of
+ * the rice its category would otherwise give it, and the exception lives on
+ * the one item rather than as a name checked in this resolver.
+ *
+ * The half-and-half option is still a property of the category — it exists
+ * only for the family sets that feed a table — so an explicit opt-IN in some
+ * future single-serve category still gets the plain two-way choice.
+ *
  * One function so the à la carte builder and the combo builder cannot
  * disagree about who gets rice.
  */
-export function riceGroupForCategory(
+export function riceGroupForItem(
   categoryId: string,
+  includesRice?: boolean,
 ): MenuModifierGroup | null {
-  if (RICE_SPLIT_CATEGORY_IDS.has(categoryId)) return riceGroup(true);
-  if (RICE_CATEGORY_IDS.has(categoryId)) return riceGroup(false);
-  return null;
+  const eligible = includesRice ?? categoryIncludesRice(categoryId);
+  if (!eligible) return null;
+  return RICE_SPLIT_CATEGORY_IDS.has(categoryId)
+    ? riceGroup(true)
+    : riceGroup(false);
 }
 
 /**
