@@ -30,7 +30,8 @@
     "verify:allergy-hint": "tsx scripts/verify-allergy-hint.ts",
     "verify:order-cutoff": "tsx scripts/verify-order-cutoff.ts",
     "verify:rice": "tsx --conditions=react-server scripts/verify-rice.ts",
-    "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts"
+    "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
@@ -57,6 +58,7 @@
     "embedded-postgres": "^18.4.0-beta.17",
     "eslint": "^9",
     "eslint-config-next": "^16.2.12",
+    "react-doctor": "^0.9.12",
     "subset-font": "^2.5.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
