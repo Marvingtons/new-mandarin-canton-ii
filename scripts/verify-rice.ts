@@ -38,7 +38,7 @@ import {
   stripRice,
 } from "@/lib/menu/rice";
 
-const EXCLUDED = ["appetizers", "soup", "fried-rice", "noodles"];
+const EXCLUDED = ["appetizers", "soup", "fried-rice", "noodles", "sides"];
 
 /**
  * Items whose own `includesRice` flag overrides their entrée category's
@@ -168,6 +168,33 @@ for (const id of RICE_CATEGORY_IDS) {
     "Mongolian Beef (a Specials entrée) still offers two-option rice",
     !!beef && riceOf(beef)?.modifiers.length === 2,
     "the category default stopped reaching an entrée in the same section",
+  );
+
+  // #116 IS rice: it must never grow the entrée included-rice side (that would
+  // put "● Steamed Rice" under an order of steamed rice). Its steamed/fried
+  // choice is a separate PREPARATION group, asserted in verify:preparation.
+  // Here we only guard the rice side stays away from it, at every size.
+  const friedSteamed = byId.get("fried-steamed-rice");
+  check(
+    "Fried/Steamed Rice (#116) resolves from the catalogue",
+    !!friedSteamed,
+    "the Sides dish was not found — did the move drop it?",
+  );
+  check(
+    "Fried/Steamed Rice (#116) sits in the Sides section, not Fried Rice",
+    !!friedSteamed && friedSteamed.categoryId === "sides",
+    friedSteamed ? `category is ${friedSteamed.categoryId}` : "item not found",
+  );
+  check(
+    "Fried/Steamed Rice (#116) offers NO rice modifier at any size",
+    !!friedSteamed &&
+      itemSizes(friedSteamed).every(
+        (s) =>
+          !groupsForSize(friedSteamed, s.id).some(
+            (g) => g.id === RICE_GROUP_ID,
+          ),
+      ),
+    "the rice side reached a dish that already is rice",
   );
 }
 

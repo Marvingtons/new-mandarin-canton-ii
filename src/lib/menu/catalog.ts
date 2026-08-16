@@ -11,6 +11,7 @@ import {
   resolveModifierZh,
 } from "@/data/menu-overrides";
 import { riceGroupForItem } from "@/lib/menu/rice";
+import { preparationGroup } from "@/lib/menu/preparation";
 import type {
   Menu,
   MenuCategory,
@@ -92,6 +93,12 @@ function modifierGroupsFor(
   // a noodle dish in an entrée section gets no rice group at all.
   const rice = riceGroupForItem(categoryId, item.includesRice);
   if (rice) groups.push(rice);
+
+  // The dish's OWN preparation (steamed vs fried rice on #116), also required,
+  // so it sits in the same "required first" slot as rice. Distinct from the
+  // entrée rice side — see lib/menu/preparation.ts. An item never carries both:
+  // #116 is a Sides dish, not an entrée, so it gets no rice group above.
+  if (item.preparationChoice) groups.push(preparationGroup());
 
   if (item.modifiers?.length) {
     groups.push({

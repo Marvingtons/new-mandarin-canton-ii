@@ -20,6 +20,7 @@ import { resolveOrderLine } from "@/lib/orders/lines";
 import { OrderRequestSchema, type OrderRequest } from "@/lib/orders/requestSchema";
 import { checkModifierGroups } from "@/lib/orders/modifierRules";
 import { stripRice } from "@/lib/menu/rice";
+import { applyPreparationDefault } from "@/lib/menu/preparation";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import {
@@ -268,7 +269,7 @@ export async function POST(request: Request): Promise<Response> {
        groups, so the two cannot disagree about what this line may carry.
        Warn-logged with the item so the frequency is visible; when it stops
        appearing, the stale carts have aged out. */
-    const { modifierIds, removed } = stripRice(
+    const { modifierIds: withoutStaleRice, removed } = stripRice(
       item,
       line.sizeId,
       line.modifierIds,
@@ -277,6 +278,24 @@ export async function POST(request: Request): Promise<Response> {
       console.warn(
         `[orders] stripped rice from a "${size.label}" line of "${item.nameEn}": ` +
           `${removed.join(", ")} — this item does not include rice at that size (stale cart)`,
+      );
+    }
+
+    /* A MISSING PREPARATION IS DEFAULTED, NOT REFUSED. Unlike the required
+       rice side above — which the customer must answer — the steamed/fried
+       preparation on #116 is preselected by the sheet, so the only way a line
+       arrives without it is a cart built before the selector shipped. Default
+       to Steamed (the sheet's own default) and warn-log, rather than turning a
+       $3 order into a lost one. Done BEFORE the group check so the defaulted
+       line satisfies the required group. See lib/menu/preparation.ts. */
+    const { modifierIds, defaulted } = applyPreparationDefault(
+      item,
+      withoutStaleRice,
+    );
+    if (defaulted) {
+      console.warn(
+        `[orders] a "${size.label}" line of "${item.nameEn}" arrived with no ` +
+          `preparation choice; defaulted to Steamed (stale cart)`,
       );
     }
 

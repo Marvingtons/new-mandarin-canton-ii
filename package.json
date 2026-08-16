@@ -30,6 +30,7 @@
     "verify:allergy-hint": "tsx scripts/verify-allergy-hint.ts",
     "verify:order-cutoff": "tsx scripts/verify-order-cutoff.ts",
     "verify:rice": "tsx --conditions=react-server scripts/verify-rice.ts",
+    "verify:preparation": "tsx --conditions=react-server scripts/verify-preparation.ts",
     "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts",
     "doctor": "npx react-doctor@latest"
   },

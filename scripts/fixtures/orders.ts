@@ -14,6 +14,8 @@
 
 import { taxCents } from "../../src/lib/money";
 import { resolveOrderLine } from "../../src/lib/orders/lines";
+import { RICE_FRIED_ID } from "../../src/lib/menu/rice";
+import { PREP_STEAMED_ID } from "../../src/lib/menu/preparation";
 import type { MenuItem } from "../../src/lib/menu/types";
 import type { Order, OrderLine } from "../../src/lib/orders/types";
 
@@ -331,6 +333,47 @@ export async function breadthOrder(): Promise<Order> {
 }
 
 /**
+ * The two rices, side by side, so the ticket has to keep them distinct.
+ *
+ * This is the fixture #116 exists for: a $3 STEAMED RICE SIDE and an ENTRÉE
+ * whose included rice is FRIED. They must print differently and unmistakably —
+ * the side's steamed choice IS the dish and rides the item line ("白飯 Steamed
+ * Rice"), while the entrée's fried rice is a ● side beneath it ("● 炒飯 / Fried
+ * Rice"). If the two ever collapsed into the same shape, a cook could bag the
+ * wrong rice for either. verify:preparation renders this and asserts exactly
+ * that separation; here it also lands in the shared fixture set so ticket:sample
+ * and verify:orders exercise it too.
+ */
+export async function preparationOrder(): Promise<Order> {
+  const all = await catalogueItems();
+  const byId = new Map(all.map((i) => [i.id, i]));
+
+  const side = byId.get("fried-steamed-rice");
+  const entree = byId.get("mongolian-beef-special");
+  if (!side || !entree) {
+    throw new Error(
+      "preparation fixture: catalogue is missing fried-steamed-rice or " +
+        "mongolian-beef-special",
+    );
+  }
+
+  const lines = [
+    // $3 steamed rice side — the preparation IS the dish, prints on the item line.
+    resolveOrderLine(side, "individual", [PREP_STEAMED_ID], 1),
+    // An entrée whose included rice side is fried — prints as a ● bullet beneath.
+    resolveOrderLine(entree, "individual", [RICE_FRIED_ID], 2),
+  ];
+
+  return {
+    ...fixtureOrder(),
+    orderNumber: "A-116",
+    items: lines,
+    totals: totalsFor(lines),
+    customer: { name: "Two Rices", phone: "+16195550116" },
+  };
+}
+
+/**
  * The wrapping torture fixture. Every string here is chosen to break a
  * hand-rolled wrapper in a different way:
  *   - a 52-character English item name, far past one line at 40px
@@ -481,6 +524,7 @@ export async function fixtureOrders(): Promise<NamedOrder[]> {
     { name: "12-line party tray", order: await longOrder(), totalsCoherent: true },
     { name: "mixed sizes", order: await mixedSizeOrder(), totalsCoherent: true },
     { name: "full-menu breadth", order: await breadthOrder(), totalsCoherent: true },
+    { name: "two rices (side + entrée)", order: await preparationOrder(), totalsCoherent: true },
     { name: "wrapping torture", order: tortureOrder(), totalsCoherent: true },
     { name: "sql-shaped", order: sqlShapedOrder(), totalsCoherent: true },
     { name: "malformed", order: malformedOrder(), totalsCoherent: false },

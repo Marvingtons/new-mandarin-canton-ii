@@ -44,6 +44,7 @@ import {
 } from "@/data/menu-overrides";
 import { restaurant } from "@/data/restaurant";
 import { riceGlyphStrings } from "@/lib/menu/rice";
+import { preparationGlyphStrings } from "@/lib/menu/preparation";
 
 /**
  * Every fixed string the ticket renders. render.ts must use these constants
@@ -105,6 +106,13 @@ export function collectTicketGlyphs(): string {
   // Combo items would have been covered (their groups are walked below),
   // which is exactly the kind of half-coverage that ships.
   parts.push(...riceGlyphStrings());
+
+  // The preparation group (#116's steamed/fried choice) is injected in
+  // catalog.ts too, after this loop. Its printed options are the same 白飯/炒飯
+  // strings the rice group already covers, so this adds no glyph today — it is
+  // here so the coverage stops silently depending on the rice group naming its
+  // options identically.
+  parts.push(...preparationGlyphStrings());
 
   // À la carte: the catalogue is now the only source of dish 中文.
   for (const category of menu) {

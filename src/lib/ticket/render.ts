@@ -14,6 +14,7 @@ import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 import { formatPickupTime } from "@/lib/orders/businessDate";
 import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { formatCents } from "@/lib/money";
+import { isPreparationModifierId } from "@/lib/menu/preparation";
 import type { Order, OrderLine } from "@/lib/orders/types";
 
 /**
@@ -271,9 +272,24 @@ function drawLine(
   // runs the full width underneath it.
   const firstLine = showPrice ? column - PRICE_WIDTH - PRICE_GAP : column;
 
+  // The preparation choice (steamed vs fried rice on #116) IS the dish: the
+  // menu name is a "Fried/Steamed" either/or the customer just resolved, so the
+  // resolved rice prints ON the item line and is lifted out of the ● side loop
+  // below. Any OTHER modifiers still print beneath as sides. This is the whole
+  // reason it is modelled as the item's own preparation and not the entrée rice
+  // side — see lib/menu/preparation.ts.
+  const prep = line.modifiers.find((m) => isPreparationModifierId(m.id)) ?? null;
+  const sideModifiers = prep
+    ? line.modifiers.filter((m) => m.id !== prep.id)
+    : line.modifiers;
+
   const chip = sizeChip(line, coverage);
-  const nameEn = chip ? `${line.nameEn} ${chip}` : line.nameEn;
-  const nameZh = zhIfPrintable(line.nameZh, coverage);
+  const nameEn = chip
+    ? `${prep ? prep.nameEn : line.nameEn} ${chip}`
+    : prep
+      ? prep.nameEn
+      : line.nameEn;
+  const nameZh = zhIfPrintable(prep ? prep.nameZh : line.nameZh, coverage);
 
   // The badge and the name sit on one row, so the row's height is whichever is
   // taller — a two-line name pushes the row, a short one leaves the badge's
@@ -323,7 +339,7 @@ function drawLine(
     });
   }
 
-  for (const [i, mod] of line.modifiers.entries()) {
+  for (const [i, mod] of sideModifiers.entries()) {
     const zh = zhIfPrintable(mod.nameZh, coverage);
     c.text(zh ? `● ${zh} / ${mod.nameEn}` : `● ${mod.nameEn}`, {
       size: 26,

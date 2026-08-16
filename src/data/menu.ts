@@ -97,6 +97,14 @@ export interface MenuItem {
    * special case in the resolver.
    */
   includesRice?: boolean;
+  /**
+   * Whether this dish has its own required PREPARATION choice — steamed vs
+   * fried rice on #116 "Fried/Steamed Rice". This is the dish's own making,
+   * NOT the entrée included-rice side: it prints on the item line, applies at
+   * every size, and is a different code path (see src/lib/menu/preparation.ts
+   * and the note on `includesRice` above). Unset everywhere else.
+   */
+  preparationChoice?: boolean;
   spicy?: boolean;
   tags?: string[];
 }
@@ -966,7 +974,6 @@ export const menu: MenuCategory[] = [
         priceCents: 1850,
         trayCents: 6200,
       },
-      { id: "fried-steamed-rice", name: "Fried/Steamed Rice", chineseName: "炒飯／白飯", priceCents: 300, trayCents: 3800 },
     ],
   },
   {
@@ -1037,6 +1044,37 @@ export const menu: MenuCategory[] = [
         modifiers: [
           { id: "skinny-egg-noodle", name: "Skinny Egg Noodle", priceCents: 300 },
         ],
+      },
+    ],
+  },
+  {
+    // Sides sits after Fried Rice / Noodles and before the combo sections
+    // (Lunch Specials, Family Dinners), which are appended after every à la
+    // carte category by catalogMenu(). It holds dishes that are a starch or an
+    // accompaniment rather than an entrée.
+    //
+    // #116 lives here rather than under Fried Rice: it is a plain rice side
+    // ($3.00 / $38.00 tray), not one of the $17.50–$19.50 entrée fried rices it
+    // used to sit among. Its printed-menu number (#116) is a document ordinal,
+    // not stored in the data, so moving it renumbers nothing.
+    id: "sides",
+    name: "Sides",
+    items: [
+      {
+        id: "fried-steamed-rice",
+        name: "Fried/Steamed Rice",
+        chineseName: "炒飯／白飯",
+        priceCents: 300,
+        trayCents: 3800,
+        // The steamed-vs-fried pick is the dish's OWN preparation — a required
+        // choice that prints on the item line — not the entrée rice side. See
+        // src/lib/menu/preparation.ts.
+        //
+        // TODO(confirm): does Fried Rice at the $3.00 size cost more? Owner to
+        // confirm — steamed $3.00 vs fried likely higher. Per-option pricing is
+        // wired (preparationGroup); both options are $0 today, so a "fried costs
+        // more" answer is a one-value change there, not here.
+        preparationChoice: true,
       },
     ],
   },
