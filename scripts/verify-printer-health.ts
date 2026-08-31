@@ -233,7 +233,9 @@ async function historyCase(
     ),
     check(
       "history: first healthy poll drains the queue",
-      restored.jobReady && restored.token === order.orderNumber,
+      // token is a delivery id now; this tenant holds exactly one order, so
+      // jobReady alone means the queued order was handed over.
+      restored.jobReady === true,
       `jobReady=${restored.jobReady} token=${restored.token} — expected the queued order`,
     ),
   ];

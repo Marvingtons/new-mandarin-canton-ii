@@ -72,7 +72,23 @@ create table if not exists orders (
   -- Deliberately NOT updated_at, which the offer path's own bookkeeping writes
   -- move: measuring patience against that column is what let one order print
   -- its copy-set several times over. See src/lib/print/entitlement.ts.
+  --
+  -- KEPT, but now INFORMATIONAL. The offer decision no longer reads this — it
+  -- reads print_delivery_id / print_delivery_expires_at below. This column
+  -- survives only to drive the "elapsed since offer" figure in the poll logs.
   print_offered_at  timestamptz,
+  -- IDENTITY of the hand-over the printer is currently holding, or NULL when it
+  -- holds nothing of ours. This — not a self-clearing timestamp — is what the
+  -- offer path now measures against: offer only if this is NULL, or the
+  -- delivery it names has expired. It points at a row in print_deliveries and
+  -- is the token echoed on the confirming DELETE and carried in the job URL.
+  -- Stamped and cleared in the same statement as the counters it travels with.
+  print_delivery_id         uuid,
+  -- When the in-flight delivery's confirmation window closes. Written in the
+  -- SAME statement as print_delivery_id so the two can never drift apart, which
+  -- is the whole point of moving off print_offered_at. NULL when nothing is in
+  -- flight.
+  print_delivery_expires_at timestamptz,
   -- Set ONLY by a CloudPRNT DELETE, i.e. the printer's own confirmation that
   -- paper came out. Never set optimistically when a job is handed over. On a
   -- split ticket this waits for the LAST piece, so a sequence that stalls
@@ -138,6 +154,67 @@ comment on table order_counters is
   'One row per tenant per business day. Incremented by a single atomic UPSERT so 50 concurrent submissions get 50 distinct numbers.';
 
 -- ---------------------------------------------------------------------------
+-- One row per HAND-OVER of a job body to the printer.
+--
+-- The record the database could not previously produce. An order printed its
+-- copy-set and then printed it again, and nothing said why: the re-offer loop
+-- decided from a timestamp it also cleared itself, so it could not tell a dead
+-- print from a merely-late confirmation, and a printer that fetched the same
+-- body twice on its own wrote nothing at all.
+--
+-- Each hand-over is now a row here with its own id. That id is the token the
+-- printer is handed, echoes back on the confirming DELETE, and carries in the
+-- job URL — so a confirmation closes the SPECIFIC delivery it names, a re-fetch
+-- is counted, and "how many tickets did this order actually cause, and why?"
+-- becomes a question SQL can answer. orders.print_delivery_id points at the row
+-- currently in flight.
+-- ---------------------------------------------------------------------------
+create table if not exists print_deliveries (
+  -- App-generated (crypto.randomUUID) so orders.print_delivery_id can be stamped
+  -- in the same statement that claims the job, with no round-trip to read a
+  -- server-side default back.
+  id           uuid        primary key,
+  -- Cascade so deleting an order takes its deliveries with it rather than
+  -- leaving orphans behind an FK error.
+  order_id     bigint      not null references orders (id) on delete cascade,
+  tenant_id    text        not null,
+  -- When this hand-over went out, and when its confirmation window closes.
+  offered_at   timestamptz not null default now(),
+  expires_at   timestamptz not null,
+  -- When the printer first fetched the body, and how many times in total. A
+  -- second fetch before confirmation is the silent double-print; it was
+  -- invisible before because the GET path wrote nothing. fetch_count > 1 badges
+  -- the kitchen card.
+  fetched_at   timestamptz,
+  fetch_count  int         not null default 0,
+  -- Set by the confirming DELETE, with the code it carried. Once confirmed_at
+  -- is set the delivery can never print again: its GET answers 410 Gone and a
+  -- second confirmation is treated as a stale replay.
+  confirmed_at timestamptz,
+  confirm_code text,
+  -- WHY this hand-over happened. 'manual_reprint' is the ONLY legitimate marker
+  -- of a second ticket — an order that produced one without a manual_reprint
+  -- delivery is a bug by definition.
+  reason       text        not null,
+  -- Who caused it: 'printer' for automatic offers, 'kitchen' for a manual 重印.
+  -- ⚠️ TODO(confirm): the board is one shared password with no per-person
+  -- identity (see src/lib/auth/kitchenSession.ts), so 'kitchen' is as
+  -- fine-grained as this gets until real accounts exist.
+  actor        text,
+  created_at   timestamptz not null default now(),
+
+  constraint print_deliveries_reason_check
+    check (reason in ('first-offer', 'retry', 'manual_reprint'))
+);
+
+comment on table print_deliveries is
+  'One row per hand-over of a job body to the printer. The audit trail behind duplicate-ticket diagnosis: offered/fetched/confirmed timestamps, a fetch count, and the reason. orders.print_delivery_id points at the in-flight row.';
+
+-- The board aggregates deliveries per order on every 10s poll.
+create index if not exists print_deliveries_order_idx
+  on print_deliveries (tenant_id, order_id);
+
+-- ---------------------------------------------------------------------------
 -- What the printer is telling us, remembered between polls.
 --
 -- The CloudPRNT poll carries the printer's own state, and the server used to
@@ -181,6 +258,7 @@ create table if not exists printer_status (
 -- the service-role key, which bypasses RLS anyway. No policy is defined, so a
 -- leaked anon key grants nothing here.
 -- ---------------------------------------------------------------------------
-alter table orders         enable row level security;
-alter table order_counters enable row level security;
-alter table printer_status enable row level security;
+alter table orders            enable row level security;
+alter table order_counters    enable row level security;
+alter table printer_status    enable row level security;
+alter table print_deliveries  enable row level security;

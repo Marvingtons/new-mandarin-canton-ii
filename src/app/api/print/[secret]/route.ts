@@ -8,7 +8,10 @@ import {
   ticketCopies,
   ticketCopyRoles,
 } from "@/config/tenant.server";
-import { decideOffer, entitledToOffer } from "@/lib/print/entitlement";
+import {
+  confirmationWindowSeconds,
+  decideOffer,
+} from "@/lib/print/entitlement";
 import { readPrinterCondition } from "@/lib/print/printerStatus";
 import { recordPoll } from "@/lib/print/healthStore";
 import {
@@ -31,19 +34,20 @@ import {
   type CloudPrntStatusResponse,
 } from "@/lib/print/cloudprnt";
 import {
-  advancePrintSegment,
-  bumpPrintAttempt,
   claimNextPrintJob,
+  confirmPrintDelivery,
   currentPrintJob,
-  findRecentOrderByNumber,
-  markPrinted,
+  getOrderById,
+  getPrintDelivery,
   printSegmentState,
+  recordDeliveryFetch,
   recordPrintAttempt,
   recordPrintJobKey,
   recordPrintSegments,
   recordRenderFailure,
+  reofferPrintDelivery,
   requeueAfterPrinterRestored,
-  revokePrintOffer,
+  type ConfirmDeliveryInput,
 } from "@/lib/orders/repository";
 import {
   deletePrintJob,
@@ -231,9 +235,9 @@ export async function POST(
     /* ---------------- the gate ---------------- */
     //
     // THE WHOLE POINT: no offer, and NO ATTEMPT COUNTED. Returning here is
-    // before `currentPrintJob`, before `bumpPrintAttempt`, before
-    // `print_offered_at` — so a printer that is out of paper for an hour costs
-    // an order exactly nothing, and the queue it comes back to is intact.
+    // before `currentPrintJob`, before any hand-over is counted or a delivery
+    // stamped — so a printer that is out of paper for an hour costs an order
+    // exactly nothing, and the queue it comes back to is intact.
     if (transition.blockedReason !== null) {
       return Response.json(NO_JOB);
     }
@@ -249,6 +253,14 @@ export async function POST(
       );
     }
 
+    // Config read once. The fresh-claim window assumes a whole ticket (one
+    // piece); a re-offer uses the decision's window, which knows the split.
+    const copies = ticketCopies();
+    const floor = printConfirmFloorSeconds();
+    const perCopy = printSecondsPerCopy();
+    const cap = printOfferCap();
+    const freshWindow = confirmationWindowSeconds(copies, floor, perCopy, 1);
+
     // A job already handed over and not yet confirmed wins: re-offering the
     // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
     // while the first is unaccounted for would double-print.
@@ -257,8 +269,8 @@ export async function POST(
     // ENTITLEMENT — the thing that stops one order printing its copy-set over
     // and over. The rule and its reasoning live in lib/print/entitlement.ts;
     // this is only the plumbing. Every decision is logged verdict-style,
-    // because the previous two rounds of this bug were both diagnosed from
-    // paper rather than from logs that said what the server had decided.
+    // because the previous rounds of this bug were diagnosed from paper rather
+    // than from logs that said what the server had decided.
     if (job) {
       // The piece in flight, so the window budgets the paper in THAT piece
       // rather than the whole copy set, and so every piece gets the same
@@ -267,19 +279,24 @@ export async function POST(
       const inFlight = await printSegmentState(tenant.tenantId, job.id);
       const decision = decideOffer({
         now: Date.now(),
+        deliveryId: job.printDeliveryId,
+        deliveryExpiresAt: job.printDeliveryExpiresAt,
         offeredAt: job.offeredAt,
         printAttempts: job.printAttempts,
-        copies: ticketCopies(),
-        floorSeconds: printConfirmFloorSeconds(),
-        perCopySeconds: printSecondsPerCopy(),
-        deliveryCap: printOfferCap(),
+        copies,
+        floorSeconds: floor,
+        perCopySeconds: perCopy,
+        deliveryCap: cap,
         segments: inFlight.segments,
         segmentIndex: inFlight.segment,
       });
 
+      const elapsed =
+        decision.elapsedSeconds === null ? "-" : `${decision.elapsedSeconds.toFixed(0)}s`;
       const line =
         `[cloudprnt] verdict=${decision.verdict} ${job.orderNumber} ` +
-        `attempts=${job.printAttempts} window=${decision.windowSeconds}s — ${decision.reason}`;
+        `attempts=${job.printAttempts} delivery=${job.printDeliveryId ?? "none"} ` +
+        `window=${decision.windowSeconds}s elapsed=${elapsed} — ${decision.reason}`;
       if (decision.verdict === "hold") console.info(line);
       else console.warn(line);
 
@@ -291,17 +308,34 @@ export async function POST(
           ok: false,
           error: `no print confirmation after ${job.printAttempts} hand-overs`,
         });
-        job = await claimNextPrintJob(tenant.tenantId);
-      } else if (entitledToOffer(decision)) {
-        // Counts the hand-over AND stamps print_offered_at in one statement,
-        // so the window starts the moment the body goes out.
-        await bumpPrintAttempt(tenant.tenantId, job.id);
+        job = await claimNextPrintJob(tenant.tenantId, freshWindow);
+      } else {
+        // retry (an expired delivery, or the next piece of a split). A NEW
+        // delivery with its own id and expiry — never a re-stamp of the old
+        // one — so the confirmation for the previous hand-over cannot close
+        // this one. The window is the piece-aware one from the decision.
+        job = await reofferPrintDelivery(
+          tenant.tenantId,
+          job.id,
+          decision.windowSeconds,
+          "retry",
+        );
       }
     } else {
-      job = await claimNextPrintJob(tenant.tenantId);
+      job = await claimNextPrintJob(tenant.tenantId, freshWindow);
     }
 
     if (!job) return Response.json(NO_JOB);
+
+    // Every offer path above stamps a delivery id in the same statement. If it
+    // is somehow absent, refuse rather than hand over an unidentifiable job.
+    const deliveryId = job.printDeliveryId;
+    if (!deliveryId) {
+      console.error(
+        `[cloudprnt] ${job.orderNumber} offered with no delivery id — refusing`,
+      );
+      return Response.json(NO_JOB);
+    }
 
     // Publish the body to R2 and point the printer at the object.
     //
@@ -311,30 +345,45 @@ export async function POST(
     // service", which is an R2 object on our own zone: a static GET with a
     // fixed Content-Length and no streaming layer to negotiate with.
     //
-    // Published at CLAIM, not per poll. The key ends in the sha256 of the
-    // body, so the URL cannot be derived without rendering; the key is stored
-    // and reused, and a re-offer of the same piece re-advertises the same
-    // object rather than re-rendering a ticket that already exists.
-    const jobUrl = await publishJobBody(tenant, job);
+    // Published per DELIVERY: the key carries the delivery id, so a re-offer is
+    // a genuinely new URL and a printer holding a stale handle cannot re-fetch
+    // the previous body. The key is stored and reused within one delivery, so
+    // the render happens once per delivery rather than once per poll.
+    const jobUrl = await publishJobBody(tenant, job, deliveryId);
+
+    // The GET URL always encodes the delivery identity. On the R2 path that is
+    // the delivery id in the object key. On the fallback path (no bucket, or
+    // firmware that honours jobGetUrl) it is a token on this same endpoint, so
+    // the Worker GET can count the fetch and refuse a superseded or confirmed
+    // delivery. The token IS the authorization for that specific body.
+    //
+    // ⚠️ TODO(confirm): whether this printer's firmware appends its own mac/type
+    // query params to a jobGetUrl that already carries one. The GET tolerates
+    // both missing (token authorizes; absent type falls back to the star PNG),
+    // but bench-confirm on the real unit. The R2 primary path is unaffected.
+    const pollUrl = new URL(request.url);
+    const selfGetUrl = `${pollUrl.origin}${pollUrl.pathname}?token=${encodeURIComponent(deliveryId)}`;
 
     const body: CloudPrntStatusResponse = {
       jobReady: true,
       // With the body already encoded and sitting in R2, the media type is no
       // longer the printer's to choose — so only the type of the object we
-      // published is advertised. Falling back to the Worker path (no jobUrl)
-      // restores the full menu, since then the GET does pick a format.
+      // published is advertised. The fallback (no jobUrl) restores the full
+      // menu, since then the Worker GET picks a format from `type=`.
       mediaTypes: jobUrl ? [JOB_MEDIA_TYPE_STARPRNT] : OFFERED_MEDIA_TYPES,
-      // Echoed back on the DELETE, which is what lets a confirmation name the
-      // order it belongs to rather than being applied to whatever is in flight.
-      jobToken: job.orderNumber,
+      // The DELIVERY ID — not the order number any more. This is what lets a
+      // confirmation close the exact hand-over it belongs to rather than
+      // "whatever is in flight for this order now".
+      jobToken: deliveryId,
       deleteMethod: "DELETE",
       // Only the GET moves. `jobConfirmationUrl` is deliberately left unset so
       // confirmations still come back here and the state machine is untouched.
-      ...(jobUrl ? { jobGetUrl: jobUrl } : {}),
+      jobGetUrl: jobUrl ?? selfGetUrl,
     };
-    if (jobUrl) {
-      console.info(`[cloudprnt] ${job.orderNumber} job body published at ${jobUrl}`);
-    }
+    console.info(
+      `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} handed over ` +
+        `at ${jobUrl ?? selfGetUrl}`,
+    );
     return Response.json(body);
   } catch (err) {
     console.error(
@@ -376,17 +425,21 @@ function logJobResponse(orderNumber: string, response: Response): Response {
  * a `jobGetUrl` and the printer falls back to fetching from this Worker, which
  * still prints. A ticket served the slow way beats a ticket not offered.
  *
- * Idempotent per piece: the stored key short-circuits everything below, so the
- * render happens once per piece rather than once per poll.
+ * Idempotent per DELIVERY: a stored key from THIS delivery short-circuits
+ * everything below, so the render happens once per delivery rather than once
+ * per poll. A key left from a PREVIOUS delivery does not short-circuit — the
+ * re-offer cleared print_job_key precisely so this re-renders under the new
+ * delivery-scoped key rather than pointing the printer at the old object.
  */
 async function publishJobBody(
   tenant: { tenantId: string; timezone: string },
   job: Order,
+  deliveryId: string,
 ): Promise<string | null> {
   if (!printJobStoreReady()) return null;
 
   const { segment, jobKey } = await printSegmentState(tenant.tenantId, job.id);
-  if (jobKey) return printJobUrl(jobKey);
+  if (jobKey && jobKey.includes(deliveryId)) return printJobUrl(jobKey);
 
   try {
     const ticket = await renderTicketJob(
@@ -412,13 +465,13 @@ async function publishJobBody(
     await recordPrintSegments(tenant.tenantId, job.id, ticket.segments);
 
     const sha256 = await payloadHash(ticket.body);
-    const key = printJobKeyFor(job.orderNumber, sha256, ticket.segment);
+    const key = printJobKeyFor(job.orderNumber, deliveryId, sha256, ticket.segment);
     const stored = await putPrintJob(key, ticket.body);
     if (!stored) return null;
 
     await recordPrintJobKey(tenant.tenantId, job.id, key);
     console.info(
-      `[cloudprnt] ${job.orderNumber} piece ${ticket.segment + 1}/${ticket.segments} ` +
+      `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} piece ${ticket.segment + 1}/${ticket.segments} ` +
         `-> R2 ${key} (${ticket.body.length} bytes, ${ticket.height}px) sha256=${sha256}`,
     );
     return printJobUrl(key);
@@ -463,13 +516,54 @@ export async function GET(
 
   const tenant = publicTenant();
 
-  if (!printerMacAllowed(url.searchParams.get("mac"))) {
-    return notFound();
-  }
+  // Resolve WHICH delivery this GET is for. The job URL we hand out carries the
+  // delivery id as `token`, so a fetch is addressable to a specific hand-over —
+  // which is what lets us count it, and refuse one for a delivery that has been
+  // superseded by a re-offer or already confirmed. The token is unguessable and
+  // scoped to one body, so it authorizes the fetch on its own; the mac is only
+  // required for the bare, tokenless GET a firmware that ignores jobGetUrl makes.
+  const token = url.searchParams.get("token");
+  let job: Order | null;
+  let deliveryId: string | null;
 
-  const job = await currentPrintJob(tenant.tenantId);
-  // Nothing in flight. 404 is the honest answer; the printer re-polls.
-  if (!job) return new Response("", { status: 404 });
+  if (token) {
+    const delivery = await getPrintDelivery(tenant.tenantId, token);
+    if (!delivery) {
+      console.warn(`[cloudprnt] GET token=${token} — no such delivery; 404`);
+      return new Response("", { status: 404 });
+    }
+    if (delivery.confirmedAt !== null) {
+      // The paper already came out and was confirmed. A re-fetch here is the
+      // silent double-print; 410 Gone stops it printing a second time.
+      console.warn(
+        `[cloudprnt] GET token=${token} — delivery already confirmed at ` +
+          `${delivery.confirmedAt}; 410 Gone (refusing a post-confirmation re-fetch)`,
+      );
+      return new Response("", { status: 410 });
+    }
+    const order = await getOrderById(tenant.tenantId, delivery.orderId);
+    if (!order) return new Response("", { status: 404 });
+    if (order.printDeliveryId !== token) {
+      // A newer delivery has superseded this one (the window expired and it was
+      // re-offered). The old handle must not print.
+      console.warn(
+        `[cloudprnt] GET token=${token} — superseded by delivery=` +
+          `${order.printDeliveryId ?? "none"}; 410 Gone`,
+      );
+      return new Response("", { status: 410 });
+    }
+    job = order;
+    deliveryId = token;
+  } else {
+    // Bare Star GET (firmware that ignores jobGetUrl): mac-gated, current job.
+    if (!printerMacAllowed(url.searchParams.get("mac"))) {
+      return notFound();
+    }
+    job = await currentPrintJob(tenant.tenantId);
+    // Nothing in flight. 404 is the honest answer; the printer re-polls.
+    if (!job) return new Response("", { status: 404 });
+    deliveryId = job.printDeliveryId;
+  }
 
   // The printer echoes its chosen media type, and for the extended type that
   // value carries the height declarations as parameters — so this matches on
@@ -507,9 +601,13 @@ export async function GET(
       const body = await getPrintJob(published.jobKey);
       if (body) {
         const sha256 = await payloadHash(body);
+        const fetchCount = deliveryId
+          ? await recordDeliveryFetch(tenant.tenantId, deliveryId)
+          : null;
         console.info(
-          `[cloudprnt] serving ${job.orderNumber} from R2 ${published.jobKey} ` +
-            `(${body.byteLength} bytes) sha256=${sha256}`,
+          `[cloudprnt] serving ${job.orderNumber} delivery=${deliveryId ?? "none"} ` +
+            `from R2 ${published.jobKey} (${body.byteLength} bytes) ` +
+            `fetch_count=${fetchCount ?? "?"} sha256=${sha256}`,
         );
         return logJobResponse(
           job.orderNumber,
@@ -554,9 +652,13 @@ export async function GET(
     // actually returns and compare. Anything that rewrote the body in between
     // — a compression layer, a re-encode, a truncated stream — moves it.
     const sha256 = await payloadHash(ticket.body);
+    const fetchCount = deliveryId
+      ? await recordDeliveryFetch(tenant.tenantId, deliveryId)
+      : null;
     console.info(
-      `[cloudprnt] serving ${job.orderNumber} as ${mediaType} ` +
-        `(${ticket.body.length} bytes, ${ticket.height}px) sha256=${sha256}`,
+      `[cloudprnt] serving ${job.orderNumber} delivery=${deliveryId ?? "none"} ` +
+        `as ${mediaType} (${ticket.body.length} bytes, ${ticket.height}px) ` +
+        `fetch_count=${fetchCount ?? "?"} sha256=${sha256}`,
     );
 
     // Peripheral control rides the response headers, which Star documents for
@@ -615,20 +717,18 @@ function acknowledged(): Response {
  * may reprint, and a duplicate ticket is a far smaller problem than a jammed
  * confirmation loop.
  *
- * EVERY PATH THROUGH THIS FUNCTION LOGS, and that is the point of its current
- * shape. It used to have four ways to return without saying anything: no
- * database, a MAC mismatch, no job in flight, and a markPrinted that matched
- * no row. Order A-003 took the third: the offer cap had already retired it to
- * PRINT_FAILED, PRINTABLE_STATUSES contains only QUEUED, so `currentPrintJob`
- * no longer saw it, and its confirmation was dropped in silence — no warning,
- * no print recorded, and an order that had physically printed left looking as
- * though it never had.
+ * RESOLVES BY DELIVERY ID. The token is the delivery id we handed the printer,
+ * echoed back — so a confirmation closes the EXACT hand-over it belongs to. A
+ * token that names no delivery, or one already confirmed, writes nothing and is
+ * logged as a stale-confirm. There is NO "whatever is in flight now" fallback
+ * any more: that guess is what let A-003's late confirmation mark a DIFFERENT
+ * order printed once the retired order had left the printable set, and
+ * per-delivery identity removes the need for it.
  *
- * Worse than the silence was what the same line would do on a busier evening:
- * with the retired order invisible, `currentPrintJob` returns whatever job is
- * in flight NOW, and A-003's confirmation would have marked a DIFFERENT order
- * printed. Star sends `token` on the DELETE precisely so that cannot happen,
- * and this now resolves by token first.
+ * The close is ONE transaction — delivery confirmed, order closed, pointer
+ * cleared — and the R2 delete happens AFTER it commits. The gap the old
+ * revoke → network → markPrinted sequence left (QUEUED, attempts>0, no stamp,
+ * one poll from a duplicate) cannot exist here. EVERY PATH LOGS.
  */
 async function confirmPrinted(url: URL): Promise<Response> {
   const confirmation = readConfirmation(url);
@@ -646,140 +746,158 @@ async function confirmPrinted(url: URL): Promise<Response> {
 
   const tenant = publicTenant();
 
-  // WHICH order is this about? The token is our own jobToken echoed back, so
-  // when it is present the answer is exact. currentPrintJob is the fallback
-  // for firmware that omits it, and it is only a guess — it answers "what is
-  // in flight now", which is not the same question once a job has been
-  // retired or replaced.
-  let order = confirmation.token
-    ? await findRecentOrderByNumber(tenant.tenantId, confirmation.token)
-    : null;
-  let matchedBy = order ? "token" : "";
-  if (!order) {
-    order = await currentPrintJob(tenant.tenantId);
-    matchedBy = confirmation.token ? "in-flight (token matched no order)" : "in-flight (no token)";
-  }
-
-  if (!order) {
+  // WHICH delivery is this about? The token IS the delivery id we handed out,
+  // echoed back. No token, an unknown token, or one already confirmed all mean
+  // there is nothing to close — logged as a stale-confirm, 200, nothing written.
+  const token = confirmation.token;
+  if (!token) {
     console.warn(
-      `[cloudprnt] DELETE ${described} — NO ORDER MATCHED. Nothing was recorded. ` +
-        "If the printer sent no token, the job it confirmed had already left " +
-        "the printable set and this confirmation cannot be attributed.",
+      `[cloudprnt] stale-confirm token=(absent) ${described} — no delivery to close, nothing recorded`,
     );
     return acknowledged();
   }
 
-  // One line per confirmation, before any branch, carrying the raw code and
-  // the state it arrived into. This is the line whose absence made A-003 a
-  // mystery rather than a five-second read.
+  const delivery = await getPrintDelivery(tenant.tenantId, token);
+  if (!delivery) {
+    console.warn(
+      `[cloudprnt] stale-confirm token=${token} ${described} — no such delivery, nothing recorded`,
+    );
+    return acknowledged();
+  }
+  if (delivery.confirmedAt !== null) {
+    console.warn(
+      `[cloudprnt] stale-confirm token=${token} ${described} — delivery already ` +
+        `confirmed at ${delivery.confirmedAt}, nothing recorded`,
+    );
+    return acknowledged();
+  }
+
+  const order = await getOrderById(tenant.tenantId, delivery.orderId);
+  if (!order) {
+    console.warn(
+      `[cloudprnt] stale-confirm token=${token} ${described} — delivery has no order, nothing recorded`,
+    );
+    return acknowledged();
+  }
+
+  // The delivery must still be the order's CURRENT in-flight one. If a newer
+  // delivery has superseded it — the window expired and we re-offered, or staff
+  // reprinted — this confirmation is for a hand-over we have already given up on
+  // and replaced, so it is stale: the live delivery is the authority, and
+  // honouring this one would clear the live delivery's pointer and could confirm
+  // the wrong hand-over. (Unknown and already-confirmed tokens were caught
+  // above; this catches the superseded case.)
+  if (order.printDeliveryId !== token) {
+    console.warn(
+      `[cloudprnt] stale-confirm token=${token} ${described} — superseded by delivery=` +
+        `${order.printDeliveryId ?? "none"} on ${order.orderNumber} (${order.status}), nothing recorded`,
+    );
+    return acknowledged();
+  }
+
+  // One line per confirmation, before any branch: the raw code, the delivery,
+  // its fetch count, and the state it arrived into.
   console.info(
-    `[cloudprnt] DELETE ${order.orderNumber} ${described} matched-by=${matchedBy} ` +
-      `status=${order.status} attempts=${order.printAttempts}`,
+    `[cloudprnt] DELETE ${order.orderNumber} ${described} delivery=${token} ` +
+      `fetch_count=${delivery.fetchCount} status=${order.status} attempts=${order.printAttempts}`,
   );
 
-  // A CONFIRMATION ALWAYS CLOSES OUT WHAT THE PRINTER WAS HOLDING, whatever
-  // state the order reached and whatever happens to its status below.
-  //
-  // This is the half of the fix that does not depend on getting the timing
-  // right. Suppose the server re-offered a job and the printer's confirmation
-  // for the FIRST hand-over then arrived: without this, the duplicate offer is
-  // still outstanding, the next poll sees a body in flight, and another
-  // copy-set comes out. Clearing the stamp means the next poll finds nothing of
-  // ours outstanding for this order; deleting the R2 object means a printer
-  // holding the stale URL downloads a 404 rather than a second ticket. Neither
-  // depends on the status transition succeeding, which is why this happens here
-  // rather than inside markPrinted — an order staff already advanced past
-  // printing still has to stop being offered.
-  //
-  // Read before the revocation, which clears print_job_key.
-  const { segment, segments, jobKey } = await printSegmentState(
-    tenant.tenantId,
-    order.id,
-  );
-  await revokePrintOffer(tenant.tenantId, order.id);
-  if (jobKey) await deletePrintJob(jobKey);
-  console.info(
-    `[cloudprnt] verdict=revoked ${order.orderNumber} — confirmation received ` +
-      `(${confirmation.verdict}); any outstanding offer for this order is withdrawn` +
-      (jobKey ? ` and ${jobKey} deleted` : ""),
-  );
+  // Decide the outcome and whether to honour it as printed; the close itself is
+  // atomic (delivery + order + pointer in one transaction) inside
+  // confirmPrintDelivery, and the R2 delete happens AFTER it commits.
+  let input: ConfirmDeliveryInput;
 
   if (confirmation.verdict === "failure") {
+    // A reported print failure (e.g. 520 download failed). Close the delivery
+    // and re-arm the order to re-offer; the offer cap still condemns after
+    // enough tries. Correct, and unchanged in spirit from before.
     console.warn(
-      `[cloudprnt] ${order.orderNumber} reported result code ` +
-        `${JSON.stringify(confirmation.code)} — recording a print failure`,
+      `[cloudprnt] ${order.orderNumber} delivery=${token} reported result code ` +
+        `${JSON.stringify(confirmation.code)} — re-arming for re-offer`,
     );
-    await recordPrintAttempt(tenant.tenantId, order.id, {
-      ok: false,
-      error: `printer reported code ${confirmation.code}`,
-    });
-    return acknowledged();
-  }
-
-  // A success for a job we already gave up on. The paper came out; we simply
-  // stopped waiting first, which is our misjudgement rather than the
-  // printer's failure — so inside the grace window this is honoured. Outside
-  // it, staff have had time to act on the board and a confirmation this old
-  // is likelier a replay than news, so it is logged and left failed.
-  if (order.status === "PRINT_FAILED") {
+    input = {
+      code: confirmation.code,
+      outcome: "failure",
+      markPrinted: false,
+      failError: `printer reported code ${confirmation.code}`,
+    };
+  } else if (order.status === "PRINT_FAILED") {
+    // A success for a job we already gave up on. Inside the grace window it is
+    // honoured; outside it the delivery is still closed (so it cannot replay)
+    // but the order is left PRINT_FAILED and visible on the board.
     const agoMs = Date.now() - Date.parse(order.updatedAt);
     const agoSeconds = Number.isFinite(agoMs) ? Math.round(agoMs / 1000) : null;
     const grace = lateConfirmationGraceSeconds();
     const withinGrace = agoSeconds !== null && agoSeconds <= grace;
     if (withinGrace) {
       console.warn(
-        `[cloudprnt] LATE CONFIRMATION: ${order.orderNumber} confirmed ${agoSeconds}s ` +
-          `after we gave up on it (grace ${grace}s) — honouring it as printed. ` +
+        `[cloudprnt] LATE CONFIRMATION: ${order.orderNumber} delivery=${token} confirmed ` +
+          `${agoSeconds}s after we gave up on it (grace ${grace}s) — honouring it as printed. ` +
           "Raise PRINT_OFFER_CAP if this repeats; the printer is slower than our patience.",
       );
+      input = { code: confirmation.code, outcome: "success", markPrinted: true };
     } else {
       console.error(
-        `[cloudprnt] LATE CONFIRMATION: ${order.orderNumber} confirmed ` +
+        `[cloudprnt] LATE CONFIRMATION: ${order.orderNumber} delivery=${token} confirmed ` +
           `${agoSeconds ?? "?"}s after we gave up, outside the ${grace}s grace window — ` +
-          "NOT honouring. The order stays PRINT_FAILED and visible to the board.",
+          "NOT honouring. The order stays PRINT_FAILED; the delivery is closed so it cannot replay.",
       );
-      return acknowledged();
+      input = { code: confirmation.code, outcome: "success", markPrinted: false };
     }
+  } else {
+    input = { code: confirmation.code, outcome: "success", markPrinted: true };
   }
 
-  // A ticket too tall for this printer goes over as consecutive jobs, and the
-  // printer confirms each one separately. So a confirmation only completes the
-  // ORDER when it completes the SEQUENCE; otherwise it advances the cursor and
-  // the next poll hands over the next piece. Half a ticket must never read as
-  // PRINTED — that is the one outcome the board and the alert exist to prevent.
-  if (segments > 1 && segment + 1 < segments) {
-    const next = await advancePrintSegment(tenant.tenantId, order.id, segment);
-    if (next === null) {
-      // The cursor had already moved past this piece, so this is a repeat
-      // confirmation for one we already counted. Acknowledged and dropped:
-      // advancing again would skip the piece that is genuinely next, and
-      // on a two-piece job it would fall through to markPrinted with half
-      // the order on paper.
-      console.warn(
-        `[cloudprnt] ${order.orderNumber} duplicate confirmation for piece ` +
-          `${segment + 1}/${segments} — cursor already moved on, ignoring`,
-      );
-      return acknowledged();
-    }
-    console.info(
-      `[cloudprnt] ${order.orderNumber} piece ${segment + 1}/${segments} printed; ` +
-        `${next + 1}/${segments} next`,
+  const result = await confirmPrintDelivery(tenant.tenantId, token, input);
+
+  if (!result || result.kind === "already") {
+    // A race: another DELETE for the same delivery won between our read and the
+    // transaction. Nothing further to do.
+    console.warn(
+      `[cloudprnt] stale-confirm token=${token} — delivery closed concurrently, nothing further recorded`,
     );
     return acknowledged();
   }
 
-  const printed = await markPrinted(tenant.tenantId, order.id);
-  if (printed) {
-    console.info(`[cloudprnt] ${printed.orderNumber} printed`);
-  } else {
-    // markPrinted only matches QUEUED and PRINT_FAILED, so this is an order
-    // staff already advanced past printing, or a second confirmation for one
-    // already marked. Neither is an error; both were previously invisible.
-    console.warn(
-      `[cloudprnt] ${order.orderNumber} confirmed but not marked printed — its ` +
-        `status was ${order.status}, which markPrinted deliberately will not ` +
-        "drag backwards. Most likely already printed, or advanced by staff.",
-    );
+  // Safe to remove the object now the delivery is closed — AFTER the commit,
+  // never between the two writes. A dangling object is harmless (24h lifecycle
+  // sweeps it); the gap between clearing and closing was the bug.
+  if (result.jobKey) await deletePrintJob(result.jobKey);
+
+  switch (result.kind) {
+    case "printed":
+      console.info(
+        `[cloudprnt] verdict=printed ${result.orderNumber} delivery=${token} — order PRINTED` +
+          (result.jobKey ? `, ${result.jobKey} deleted` : ""),
+      );
+      break;
+    case "advanced":
+      console.info(
+        `[cloudprnt] ${result.orderNumber} delivery=${token} piece ` +
+          `${result.segment + 1}/${result.segments} printed; ` +
+          `${(result.nextSegment ?? result.segment + 1) + 1}/${result.segments} next`,
+      );
+      break;
+    case "failed":
+      console.warn(
+        `[cloudprnt] verdict=failed ${result.orderNumber} delivery=${token} — delivery closed, ` +
+          `order re-armed to re-offer` +
+          (result.jobKey ? `, ${result.jobKey} deleted` : ""),
+      );
+      break;
+    case "closed":
+      console.warn(
+        `[cloudprnt] ${result.orderNumber} delivery=${token} — late confirmation closed the ` +
+          `delivery without printing; order stays ${result.status}`,
+      );
+      break;
+    case "not-printable":
+      console.warn(
+        `[cloudprnt] ${result.orderNumber} delivery=${token} confirmed but not marked printed — ` +
+          `status was ${result.status}, which markPrinted will not drag backwards. ` +
+          "Most likely advanced by staff.",
+      );
+      break;
   }
 
   return acknowledged();

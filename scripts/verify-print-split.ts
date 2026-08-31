@@ -242,6 +242,8 @@ async function main(): Promise<void> {
     // Piece 2 of 3 handed over, window expired, no confirmation.
     const expired = decideOffer({
       now,
+      deliveryId: "d-expired",
+      deliveryExpiresAt: new Date(now - 5000).toISOString(),
       offeredAt: new Date(now - (window + 5) * 1000).toISOString(),
       printAttempts: 2,
       copies: 3,
@@ -260,6 +262,8 @@ async function main(): Promise<void> {
     // Still inside the window: nothing is re-offered, so no duplicate piece.
     const holding = decideOffer({
       now,
+      deliveryId: "d-holding",
+      deliveryExpiresAt: new Date(now + 55000).toISOString(),
       offeredAt: new Date(now - 5000).toISOString(),
       printAttempts: 2,
       copies: 3,
@@ -286,6 +290,8 @@ async function main(): Promise<void> {
     // Continuation pieces get the same hand-over allowance as the first.
     const firstPieceCapped = decideOffer({
       now,
+      deliveryId: "d-expired",
+      deliveryExpiresAt: new Date(now - 5000).toISOString(),
       offeredAt: new Date(now - (window + 5) * 1000).toISOString(),
       printAttempts: 4,
       copies: 3,
@@ -297,6 +303,8 @@ async function main(): Promise<void> {
     });
     const laterPieceNotYet = decideOffer({
       now,
+      deliveryId: "d-expired",
+      deliveryExpiresAt: new Date(now - 5000).toISOString(),
       offeredAt: new Date(now - (window + 5) * 1000).toISOString(),
       printAttempts: 4,
       copies: 3,

@@ -158,16 +158,17 @@ async function slowConfirm(h: Handlers, repo: Repo, businessDate: string): Promi
 
   while (Date.now() - t0 < CONFIRM_AFTER_MS + 12_000) {
     const answer = await poll(h);
-    if (answer.jobReady && answer.token === order.orderNumber) {
+    // jobToken is the delivery id now, not the order number — so isolation is by
+    // a clean queue (main resets between scenarios), and jobReady alone means
+    // "this order's hand-over".
+    if (answer.jobReady) {
       handovers++;
       const bytes = await fetchJob(h);
-      token = answer.token;
+      token = answer.token ?? token;
       console.log(
         `   ${elapsed(t0)}  POST -> jobReady:true   GET -> ${bytes} bytes   ` +
           `HAND-OVER #${handovers}`,
       );
-    } else if (answer.jobReady) {
-      console.log(`   ${elapsed(t0)}  POST -> jobReady:true for ${answer.token} (another order)`);
     }
 
     if (!confirmed && token && Date.now() - t0 >= CONFIRM_AFTER_MS) {
@@ -217,7 +218,7 @@ async function trueDeath(
   const handoverAt: number[] = [];
   while (Date.now() - t0 < RUN_FOR_MS) {
     const answer = await poll(h);
-    if (answer.jobReady && answer.token === order.orderNumber) {
+    if (answer.jobReady) {
       const at = (Date.now() - t0) / 1000;
       handoverAt.push(at);
       const bytes = await fetchJob(h);
@@ -276,7 +277,7 @@ async function guardHasTeeth(h: Handlers, repo: Repo, businessDate: string): Pro
   try {
     while (Date.now() - t0 < RUN_FOR_MS) {
       const answer = await poll(h);
-      if (answer.jobReady && answer.token === order.orderNumber) {
+      if (answer.jobReady) {
         handovers++;
         await fetchJob(h);
         console.log(`   ${elapsed(t0)}  HAND-OVER #${handovers} — a duplicate copy-set`);
@@ -375,9 +376,20 @@ async function main(): Promise<void> {
   const businessDate = businessDateFor("America/Los_Angeles");
   const results: Result[] = [];
 
+  // Each scenario runs against a clean queue: the job token is a delivery id
+  // now, so scenarios isolate by an empty queue rather than by matching the
+  // token to an order number. trueDeath in particular leaves an unconfirmed
+  // order behind that would otherwise be the one guardHasTeeth polled.
+  const reset = async () => {
+    await ordersPool().query("delete from orders where tenant_id = $1", [TENANT]);
+  };
+
   try {
+    await reset();
     results.push(await slowConfirm(route, repo, businessDate));
+    await reset();
     results.push(await trueDeath(route, repo, businessDate, windowSeconds));
+    await reset();
     results.push(await guardHasTeeth(route, repo, businessDate));
   } finally {
     console.log("\nstopping postgres…");

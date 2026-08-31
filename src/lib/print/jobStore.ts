@@ -89,26 +89,32 @@ export function printJobStoreReady(): boolean {
   return Boolean(env.PRINT_JOBS && env.PRINT_JOBS_PUBLIC_BASE);
 }
 
-/** `print-jobs/<token>-<sha256>.bin` */
+/** `print-jobs/<token>-<deliveryId>-s<segment>-<sha256>.bin` */
 export function printJobKeyFor(
   token: string,
+  deliveryId: string,
   sha256: string,
   segment = 0,
 ): string {
-  // The token is an order number we generate (A-017); the hash is hex. Neither
-  // can contain a path separator, but the token is still sanitised because a
-  // key is a URL path segment and this is the only place that is enforced.
+  // The token is an order number we generate (A-017), kept in the key for a
+  // human reading the bucket; the delivery id is the machine identity; the hash
+  // is hex. None can contain a path separator, but both text parts are still
+  // sanitised because a key is a URL path segment and this is the only place
+  // that is enforced.
   const safeToken = token.replace(/[^A-Za-z0-9._-]/g, "");
-  /* THE SEGMENT IS IN THE KEY because the hash alone is not unique per
-     piece. The key is content-addressed, and under the default copy roles
-     every copy's bar text differs so every piece hashes differently — but
-     a configured TICKET_COPY_ROLES with a repeated role (kitchen,kitchen,
-     bag) makes two pieces byte-identical. They would then share a key, and
-     the "delete the object so a stale URL 404s" defence in the DELETE
-     handler would delete an object the NEXT piece is about to re-create at
-     the same address, handing a printer holding the old URL a live body
-     again. Cheap to make impossible. */
-  return `${KEY_PREFIX}${safeToken}-s${segment}-${sha256}.bin`;
+  const safeDelivery = deliveryId.replace(/[^A-Za-z0-9._-]/g, "");
+  /* THE DELIVERY ID IS IN THE KEY so a re-offer produces a genuinely NEW URL:
+     the old body cannot be re-fetched under a stale token, and deleting the
+     confirmed delivery's object cannot collide with the next delivery's. Before
+     this the key was content-addressed alone, so a re-render of the same bytes
+     re-used the same URL and a printer holding the old handle fetched a live
+     body again.
+
+     THE SEGMENT IS ALSO IN THE KEY because the hash alone is not unique per
+     piece: under a configured TICKET_COPY_ROLES with a repeated role
+     (kitchen,kitchen,bag) two pieces are byte-identical and would otherwise
+     share a key. Cheap to make impossible. */
+  return `${KEY_PREFIX}${safeToken}-${safeDelivery}-s${segment}-${sha256}.bin`;
 }
 
 /** The URL the printer will fetch, or null when the store is not configured. */

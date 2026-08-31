@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import { ordersPool, withTransaction } from "@/lib/db/postgres";
 import {
@@ -14,7 +15,49 @@ import {
   type OrderLine,
   type OrderStatus,
   type OrderTotals,
+  type PrintDelivery,
+  type PrintDeliveryReason,
 } from "@/lib/orders/types";
+
+/**
+ * Fallback confirmation window, in seconds, for a hand-over whose caller did
+ * not compute one (the concurrency test claims without config in front of it).
+ * The real offer path always passes the scaled window from
+ * confirmationWindowSeconds(); this is only so a bare claim still stamps a
+ * sane, non-null expiry rather than one in the past.
+ */
+const DEFAULT_CONFIRM_WINDOW_SECONDS = 90;
+
+/** The columns every delivery read returns, and their mapper. */
+const DELIVERY_COLUMNS = `
+  id,
+  order_id,
+  tenant_id,
+  offered_at,
+  expires_at,
+  fetched_at,
+  fetch_count,
+  confirmed_at,
+  confirm_code,
+  reason,
+  actor
+`;
+
+function mapDelivery(row: QueryResultRow): PrintDelivery {
+  return {
+    id: String(row.id),
+    orderId: Number(row.order_id),
+    tenantId: String(row.tenant_id),
+    offeredAt: (row.offered_at as Date).toISOString(),
+    expiresAt: (row.expires_at as Date).toISOString(),
+    fetchedAt: row.fetched_at === null ? null : (row.fetched_at as Date).toISOString(),
+    fetchCount: Number(row.fetch_count),
+    confirmedAt: row.confirmed_at === null ? null : (row.confirmed_at as Date).toISOString(),
+    confirmCode: row.confirm_code === null ? null : String(row.confirm_code),
+    reason: String(row.reason) as PrintDeliveryReason,
+    actor: row.actor === null ? null : String(row.actor),
+  };
+}
 
 /**
  * The only module that knows orders live in Postgres.
@@ -52,6 +95,8 @@ const ORDER_COLUMNS = `
   ready_to,
   print_attempts,
   print_offered_at,
+  print_delivery_id,
+  print_delivery_expires_at,
   printed_at,
   last_print_error,
   alerted_at,
@@ -87,6 +132,12 @@ function mapOrder(row: QueryResultRow): Order {
       row.print_offered_at == null
         ? null
         : (row.print_offered_at as Date).toISOString(),
+    printDeliveryId:
+      row.print_delivery_id == null ? null : String(row.print_delivery_id),
+    printDeliveryExpiresAt:
+      row.print_delivery_expires_at == null
+        ? null
+        : (row.print_delivery_expires_at as Date).toISOString(),
     printedAt: row.printed_at === null ? null : (row.printed_at as Date).toISOString(),
     lastPrintError: row.last_print_error === null ? null : String(row.last_print_error),
     alertedAt: row.alerted_at === null ? null : (row.alerted_at as Date).toISOString(),
@@ -232,38 +283,97 @@ export async function createOrder(
  * A job handed over and never confirmed stays QUEUED so the unprinted-order
  * alert still catches it.
  *
- * `print_offered_at` is stamped in the SAME statement as the attempt counter,
- * and that is deliberate rather than tidy. Every caller of this function goes
- * on to answer the poll with jobReady:true, so counting an attempt and handing
- * over a body are the same event — stamping them separately would leave a
- * window (the R2 publish, ~100ms) in which a second poll saw attempts=1 with
- * nothing in flight and handed the same body over again.
+ * The delivery pointer (print_delivery_id + print_delivery_expires_at) is
+ * stamped in the SAME statement as the attempt counter, and a print_deliveries
+ * row is inserted in the same transaction. Every caller answers the poll with
+ * jobReady:true, so counting an attempt and handing over a body are one event;
+ * stamping them separately would leave a window in which a second poll saw
+ * attempts=1 with nothing identifiably in flight and handed the same body over
+ * again. The whole change is that the offer path now measures against the
+ * delivery identity, not the self-clearing print_offered_at.
  */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * True when a string is a UUID. Confirmation and fetch tokens are now delivery
+ * ids; a token that is not a UUID — an order-number token from firmware still
+ * holding a pre-deploy job, or garbage — resolves to no delivery rather than
+ * making Postgres throw on a bad `uuid` cast.
+ */
+function isDeliveryId(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+/** Insert one hand-over row. Its expires_at matches the order pointer's because
+ *  both are `now() + window` evaluated at the same transaction timestamp. */
+async function insertDelivery(
+  client: PoolClient,
+  params: {
+    id: string;
+    orderId: number;
+    tenantId: string;
+    windowSeconds: number;
+    reason: PrintDeliveryReason;
+    actor: string;
+  },
+): Promise<void> {
+  await client.query(
+    `insert into print_deliveries
+       (id, order_id, tenant_id, offered_at, expires_at, reason, actor)
+     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6)`,
+    [
+      params.id,
+      params.orderId,
+      params.tenantId,
+      params.windowSeconds,
+      params.reason,
+      params.actor,
+    ],
+  );
+}
+
 export async function claimNextPrintJob(
   tenantId: string,
+  windowSeconds: number = DEFAULT_CONFIRM_WINDOW_SECONDS,
 ): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
-    `update orders
-        set print_attempts   = print_attempts + 1,
-            print_offered_at = now(),
-            updated_at       = now()
-      where id = (
-        select id from orders
-         where tenant_id = $1
-           and status = any($2::text[])
-           and print_attempts = 0
-         order by created_at asc
-         for update skip locked
-         limit 1
-      )
-        -- Re-checked here, under this statement's own row lock: this is what
-        -- makes two simultaneous claims impossible, not the subselect.
-        and status = any($2::text[])
-        and print_attempts = 0
-      returning ${ORDER_COLUMNS}`,
-    [tenantId, PRINTABLE_STATUSES],
-  );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return withTransaction(async (client) => {
+    const deliveryId = randomUUID();
+    const { rows } = await client.query(
+      `update orders
+          set print_attempts            = print_attempts + 1,
+              print_offered_at          = now(),
+              print_delivery_id         = $3,
+              print_delivery_expires_at = now() + make_interval(secs => $4),
+              updated_at                = now()
+        where id = (
+          select id from orders
+           where tenant_id = $1
+             and status = any($2::text[])
+             and print_attempts = 0
+           order by created_at asc
+           for update skip locked
+           limit 1
+        )
+          -- Re-checked here, under this statement's own row lock: this is what
+          -- makes two simultaneous claims impossible, not the subselect.
+          and status = any($2::text[])
+          and print_attempts = 0
+        returning ${ORDER_COLUMNS}`,
+      [tenantId, PRINTABLE_STATUSES, deliveryId, windowSeconds],
+    );
+    if (rows.length === 0) return null;
+    const order = mapOrder(rows[0]);
+    await insertDelivery(client, {
+      id: deliveryId,
+      orderId: order.id,
+      tenantId,
+      windowSeconds,
+      reason: "first-offer",
+      actor: "printer",
+    });
+    return order;
+  });
 }
 
 /**
@@ -285,59 +395,282 @@ export async function currentPrintJob(tenantId: string): Promise<Order | null> {
 }
 
 /**
- * Count one more hand-over of a job already in flight, and stamp it.
+ * RE-OFFER a job already in flight under a NEW delivery identity.
  *
- * Separate from `claimNextPrintJob` because that one also selects; this only
- * ticks the counter that eventually trips PRINT_FAILED, and re-arms the
- * confirmation window against the moment the body actually went out.
+ * Replaces the old bumpPrintAttempt. That one only ticked the counter and
+ * re-stamped print_offered_at; the decision then rested on a timestamp the
+ * offer path cleared itself, which could not tell a dead print from a late
+ * confirmation. Now every re-offer is a fresh delivery with its own id and
+ * expiry, so a confirmation for the PREVIOUS hand-over can no longer be
+ * mistaken for this one, and the printer is handed a genuinely new URL.
  *
- * Called ONLY when the poll is about to answer jobReady:true — see the note on
- * claimNextPrintJob for why the counter and the stamp move together.
+ * Called ONLY when the poll is about to answer jobReady:true for a job that is
+ * already claimed (verdict retry, or a continuation piece) — see claimNextPrintJob
+ * for why the counter, the stamp and the delivery move together.
  */
-export async function bumpPrintAttempt(
+export async function reofferPrintDelivery(
   tenantId: string,
   orderId: number,
-): Promise<number> {
+  windowSeconds: number,
+  reason: Exclude<PrintDeliveryReason, "manual_reprint">,
+): Promise<Order | null> {
+  return withTransaction(async (client) => {
+    const deliveryId = randomUUID();
+    const { rows } = await client.query(
+      `update orders
+          set print_attempts            = print_attempts + 1,
+              print_offered_at          = now(),
+              print_delivery_id         = $3,
+              print_delivery_expires_at = now() + make_interval(secs => $4),
+              -- A re-offer publishes a new body under a delivery-scoped key, so
+              -- clear the old one: publishJobBody must re-render for this
+              -- delivery rather than point the printer back at the previous
+              -- delivery's object.
+              print_job_key             = null,
+              updated_at                = now()
+        where tenant_id = $1 and id = $2
+        returning ${ORDER_COLUMNS}`,
+      [tenantId, orderId, deliveryId, windowSeconds],
+    );
+    if (rows.length === 0) return null;
+    const order = mapOrder(rows[0]);
+    await insertDelivery(client, {
+      id: deliveryId,
+      orderId,
+      tenantId,
+      windowSeconds,
+      reason,
+      actor: "printer",
+    });
+    return order;
+  });
+}
+
+/** Read one delivery by id, or null for an unknown/malformed token. */
+export async function getPrintDelivery(
+  tenantId: string,
+  deliveryId: string,
+): Promise<PrintDelivery | null> {
+  if (!isDeliveryId(deliveryId)) return null;
   const { rows } = await ordersPool().query(
-    `update orders
-        set print_attempts   = print_attempts + 1,
-            print_offered_at = now(),
-            updated_at       = now()
-      where tenant_id = $1 and id = $2
-      returning print_attempts`,
-    [tenantId, orderId],
+    `select ${DELIVERY_COLUMNS} from print_deliveries
+      where tenant_id = $1 and id = $2`,
+    [tenantId, deliveryId],
   );
-  return rows.length > 0 ? Number(rows[0].print_attempts) : 0;
+  return rows.length > 0 ? mapDelivery(rows[0]) : null;
 }
 
 /**
- * REVOKE whatever the printer is holding for this order.
+ * Count one fetch of a delivery's body, stamping fetched_at the first time.
  *
- * Called on every success confirmation, before the status is touched and
- * whatever the status turns out to be. It is what makes "a DELETE always wins"
- * true in the one case that produces paper: the server re-offered a job, the
- * printer's confirmation for the FIRST hand-over then arrived, and the
- * duplicate is still in flight. Clearing the stamp and the key means the next
- * poll finds nothing of ours outstanding, and the R2 object the duplicate URL
- * points at is deleted alongside this by the caller — so even a printer holding
- * a stale URL gets a 404 rather than a second copy-set.
+ * This is the write the GET path never made. A printer that fetches the same
+ * body twice on its own — the silent double-print — now shows fetch_count = 2
+ * instead of being invisible. Returns the new count, or null for an unknown
+ * token.
  *
- * Deliberately does NOT touch `status`. markPrinted owns that, and it refuses
- * to drag an order staff have already advanced backwards; revocation has to
- * happen for those orders too.
+ * NOTE this counts only fetches that come THROUGH the Worker (the fallback GET,
+ * and every fetch in the test harness). In production the primary path is a
+ * direct R2 object GET that never reaches the Worker, so a re-fetch there is
+ * counted by R2 access logs, not here — the per-delivery object key and the
+ * delete-on-confirm are what stop it printing twice on that path.
  */
-export async function revokePrintOffer(
+export async function recordDeliveryFetch(
   tenantId: string,
-  orderId: number,
-): Promise<void> {
-  await ordersPool().query(
-    `update orders
-        set print_offered_at = null,
-            print_job_key    = null,
-            updated_at       = now()
-      where tenant_id = $1 and id = $2`,
-    [tenantId, orderId],
+  deliveryId: string,
+): Promise<number | null> {
+  if (!isDeliveryId(deliveryId)) return null;
+  const { rows } = await ordersPool().query(
+    `update print_deliveries
+        set fetch_count = fetch_count + 1,
+            fetched_at  = coalesce(fetched_at, now())
+      where tenant_id = $1 and id = $2
+      returning fetch_count`,
+    [tenantId, deliveryId],
   );
+  return rows.length > 0 ? Number(rows[0].fetch_count) : null;
+}
+
+/** What confirmPrintDelivery did — one line per outcome for the log. */
+export type ConfirmDeliveryKind =
+  | "already" // already confirmed: a stale replay or a race with another DELETE
+  | "printed" // final piece confirmed; the order is now PRINTED
+  | "advanced" // a non-final piece confirmed; the cursor moved to the next
+  | "closed" // delivery closed without printing (late, outside the grace window)
+  | "failed" // failure code; the order is re-armed to re-offer
+  | "not-printable"; // staff had already advanced the order past printing
+
+export interface ConfirmDeliveryResult {
+  kind: ConfirmDeliveryKind;
+  orderNumber: string;
+  status: OrderStatus;
+  /** The R2 object to delete AFTER the transaction commits, or null. */
+  jobKey: string | null;
+  segment: number;
+  segments: number;
+  nextSegment: number | null;
+}
+
+export interface ConfirmDeliveryInput {
+  /** The DELETE's result code, stored verbatim on the delivery. */
+  code: string | null;
+  /** "success" honours the print; "failure" re-arms the order to re-offer. */
+  outcome: "success" | "failure";
+  /**
+   * When false, close the delivery but do NOT mark the order printed — for a
+   * late confirmation outside the grace window, where dragging a PRINT_FAILED
+   * order back to PRINTED is exactly what we do not want.
+   */
+  markPrinted: boolean;
+  /** Recorded on the order for the board when outcome is "failure". */
+  failError?: string;
+}
+
+/**
+ * CLOSE a specific delivery and the order it belongs to, ATOMICALLY.
+ *
+ * This is the half of the fix that does not depend on timing. It replaces the
+ * old revoke → (network R2 delete) → markPrinted sequence, which left the row
+ * for ~one network round-trip in the exact state — QUEUED, attempts>0, no stamp
+ * — that the old offer path re-offered on the very next poll. Everything here
+ * is one transaction: the delivery is marked confirmed, the order is closed
+ * (PRINTED, or the split cursor advanced), and the pointer is cleared, so that
+ * window cannot exist. The R2 delete is the CALLER's job, AFTER this commits;
+ * a dangling object is harmless once the delivery is closed.
+ *
+ * Resolves the delivery by id and confirms ONLY that one. A second DELETE for a
+ * delivery already confirmed returns kind "already" and writes nothing —
+ * confirmations are idempotent by identity, not by "whatever is in flight now".
+ */
+export async function confirmPrintDelivery(
+  tenantId: string,
+  deliveryId: string,
+  input: ConfirmDeliveryInput,
+): Promise<ConfirmDeliveryResult | null> {
+  if (!isDeliveryId(deliveryId)) return null;
+
+  // A fixed fragment (no interpolated input): clears everything that says the
+  // printer is holding a body for this order.
+  const CLEAR_POINTER = `print_job_key             = null,
+              print_offered_at          = null,
+              print_delivery_id         = null,
+              print_delivery_expires_at = null`;
+
+  return withTransaction(async (client) => {
+    const d = await client.query(
+      `select order_id, confirmed_at from print_deliveries
+        where tenant_id = $1 and id = $2 for update`,
+      [tenantId, deliveryId],
+    );
+    if (d.rows.length === 0) return null;
+    const orderId = Number(d.rows[0].order_id);
+
+    const o = await client.query(
+      `select order_number, status, print_segment, print_segments, print_job_key
+         from orders where tenant_id = $1 and id = $2 for update`,
+      [tenantId, orderId],
+    );
+    const orderNumber = o.rows.length > 0 ? String(o.rows[0].order_number) : "?";
+    const status = (o.rows.length > 0 ? String(o.rows[0].status) : "QUEUED") as OrderStatus;
+    const segment = o.rows.length > 0 ? Number(o.rows[0].print_segment) : 0;
+    const segments = o.rows.length > 0 ? Number(o.rows[0].print_segments) : 0;
+    const jobKey =
+      o.rows.length > 0 && o.rows[0].print_job_key !== null
+        ? String(o.rows[0].print_job_key)
+        : null;
+
+    if (d.rows[0].confirmed_at !== null) {
+      return { kind: "already", orderNumber, status, jobKey: null, segment, segments, nextSegment: null };
+    }
+
+    // The delivery has been accounted for on every path from here.
+    await client.query(
+      `update print_deliveries set confirmed_at = now(), confirm_code = $3
+        where tenant_id = $1 and id = $2`,
+      [tenantId, deliveryId, input.code],
+    );
+
+    // TEST-ONLY seam. Holds the transaction open between closing the delivery
+    // and closing the order — the exact window the old route.ts:699→771 sequence
+    // left, where a poll landing in it re-offered the job. A poll arriving here
+    // now reads the PRE-COMMIT snapshot via MVCC (delivery still in flight,
+    // within its window) and correctly holds; the re-offer cannot happen because
+    // these two writes are one transaction. Never set in production
+    // (PRINT_CONFIRM_TEST_DELAY_MS unset -> Number(undefined ?? "0") === 0).
+    const testDelayMs = Number(process.env.PRINT_CONFIRM_TEST_DELAY_MS ?? "0");
+    if (testDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, testDelayMs));
+    }
+
+    if (input.outcome === "failure") {
+      // A reported print failure (e.g. 520 download failed). Re-arm the order —
+      // keep its status so the next poll re-offers a fresh delivery — and record
+      // the error for the board. The offer cap still condemns after enough tries.
+      await client.query(
+        `update orders set last_print_error = $3, ${CLEAR_POINTER}, updated_at = now()
+          where tenant_id = $1 and id = $2`,
+        [tenantId, orderId, input.failError ?? "printer reported a print failure"],
+      );
+      return { kind: "failed", orderNumber, status, jobKey, segment, segments, nextSegment: null };
+    }
+
+    if (!input.markPrinted) {
+      // Late confirmation outside the grace window: close the delivery, clear
+      // the pointer, but leave the order where it is.
+      await client.query(
+        `update orders set ${CLEAR_POINTER}, updated_at = now()
+          where tenant_id = $1 and id = $2`,
+        [tenantId, orderId],
+      );
+      return { kind: "closed", orderNumber, status, jobKey, segment, segments, nextSegment: null };
+    }
+
+    // A split ticket completes the ORDER only on its last piece; an earlier
+    // piece advances the cursor and stays QUEUED so the next poll hands over the
+    // next piece. print_attempts back to 1 so a multi-piece ticket does not
+    // spend its way toward the cap for doing exactly what was asked.
+    if (segments > 1 && segment + 1 < segments) {
+      const adv = await client.query(
+        `update orders
+            set print_segment   = print_segment + 1,
+                print_attempts  = 1,
+                last_print_error = null,
+                ${CLEAR_POINTER},
+                updated_at = now()
+          where tenant_id = $1 and id = $2 and print_segment = $3
+          returning print_segment`,
+        [tenantId, orderId, segment],
+      );
+      const nextSegment = adv.rows.length > 0 ? Number(adv.rows[0].print_segment) : segment + 1;
+      return { kind: "advanced", orderNumber, status, jobKey, segment, segments, nextSegment };
+    }
+
+    const printed = await client.query(
+      `update orders
+          set status = 'PRINTED',
+              printed_at = now(),
+              last_print_error = null,
+              print_segment = 0,
+              print_segments = 0,
+              ${CLEAR_POINTER},
+              updated_at = now()
+        where tenant_id = $1 and id = $2 and status in ('QUEUED', 'PRINT_FAILED')
+        returning status`,
+      [tenantId, orderId],
+    );
+    if (printed.rows.length > 0) {
+      return { kind: "printed", orderNumber, status: "PRINTED", jobKey, segment, segments, nextSegment: null };
+    }
+
+    // markPrinted matched nothing: staff already advanced the order past
+    // printing. Still clear the pointer so it stops being offered, but do not
+    // drag it back to PRINTED.
+    await client.query(
+      `update orders set ${CLEAR_POINTER}, updated_at = now()
+        where tenant_id = $1 and id = $2`,
+      [tenantId, orderId],
+    );
+    return { kind: "not-printable", orderNumber, status, jobKey, segment, segments, nextSegment: null };
+  });
 }
 
 /* ------------------------------------------------- split-ticket sequence -- */
@@ -405,56 +738,6 @@ export async function recordPrintSegments(
 }
 
 /**
- * A piece printed, and it was not the last one.
- *
- * print_attempts goes back to 1 because the offer ceiling counts polls against
- * a job that is NOT progressing, and this one just did. Left climbing, a
- * three-piece ticket would spend its way toward the offer cap for doing
- * exactly what was asked of it. The 1 rather than 0 keeps the order matching
- * `currentPrintJob`, which is what makes the next poll offer the next piece
- * instead of claiming a different order.
- */
-export async function advancePrintSegment(
-  tenantId: string,
-  orderId: number,
-  expectedSegment: number,
-): Promise<number | null> {
-  const { rows } = await ordersPool().query(
-    `update orders
-        set print_segment = print_segment + 1,
-            print_attempts = 1,
-            last_print_error = null,
-            -- The published body was this piece's. The next poll publishes the
-            -- next one; leaving the key would re-offer the piece just printed.
-            print_job_key = null,
-            -- Nothing is in flight any more: the piece that was out has just
-            -- been confirmed. Clearing this re-arms the offer path so the NEXT
-            -- piece goes out on the next poll rather than waiting out a
-            -- confirmation window belonging to a piece that already printed.
-            print_offered_at = null,
-            updated_at = now()
-      where tenant_id = $1 and id = $2
-        -- COMPARE-AND-SWAP, and it is the whole reason a duplicate
-        -- confirmation is survivable. CloudPRNT firmware retries a
-        -- confirmation it cannot get acknowledged, and this route answers
-        -- 200 to every DELETE precisely so it will — so the same piece IS
-        -- confirmed twice in the field. Without this clause the cursor
-        -- advanced once per confirmation rather than once per piece: on a
-        -- 3-piece job a doubled confirmation for piece 1 skipped piece 2
-        -- entirely, and on a 2-piece job it fell through to markPrinted
-        -- with half the order on paper and no way back, because
-        -- currentPrintJob only ever matches QUEUED.
-        and print_segment = $3
-      returning print_segment`,
-    [tenantId, orderId, expectedSegment],
-  );
-  // Null means the cursor had already moved: somebody else advanced it, so
-  // this confirmation is a replay and the caller must not treat it as
-  // completing anything.
-  return rows.length > 0 ? Number(rows[0].print_segment) : null;
-}
-
-/**
  * PAPER IS BACK — put back what the outage broke.
  *
  * Called once, on the blocked→unblocked edge (see healthStore.recordPoll,
@@ -494,6 +777,8 @@ export async function requeueAfterPrinterRestored(
         set status = 'QUEUED',
             print_attempts = 0,
             print_offered_at = null,
+            print_delivery_id = null,
+            print_delivery_expires_at = null,
             print_job_key = null,
             print_segment = 0,
             print_segments = 0,
@@ -535,6 +820,8 @@ export async function markPrinted(
             print_segments = 0,
             print_job_key = null,
             print_offered_at = null,
+            print_delivery_id = null,
+            print_delivery_expires_at = null,
             updated_at = now()
       where tenant_id = $1
         and id = $2
@@ -546,48 +833,71 @@ export async function markPrinted(
   return rows.length > 0 ? mapOrder(rows[0]) : null;
 }
 
-/** Put a printed or failed order back in the queue (staff pressed 重印). */
+/**
+ * Put a printed or failed order back in the queue (staff pressed 重印).
+ *
+ * This is now the ONLY legitimate path to a second ticket, and it says so in
+ * the record: a `manual_reprint` delivery row is written with the actor, so a
+ * second ticket that carries one is explained and a second ticket that does not
+ * is a bug by definition. `printed_at` is deliberately left untouched — the
+ * order really did print once — and previous deliveries are left in place as
+ * the history of that first print.
+ *
+ * The marker is NOT an in-flight hand-over: it does not stamp the order pointer
+ * and its expiry is now(), so it never reads as "a body is in flight". The real
+ * hand-over is made by the next poll's claimNextPrintJob, exactly as for any
+ * fresh order — which is why the order is reset to claimable (attempts 0, no
+ * pointer) here.
+ *
+ * `actor` identifies who reprinted. Today that is only ever "kitchen": the board
+ * is a single shared password with no per-person identity (see
+ * kitchenSession.ts). TODO(confirm) if per-person attribution is ever wanted.
+ */
 export async function requeueForPrint(
   tenantId: string,
   orderId: number,
+  actor = "kitchen",
 ): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
-    // alerted_at and alert_attempts are reset alongside the print counters,
-    // and that is load-bearing rather than tidiness.
-    //
-    // findUnprintedForAlert only ever considers orders with `alerted_at IS
-    // NULL`, and nothing else in the system clears that column — not
-    // updateStatus, not the print path. So an order that was alerted about,
-    // then requeued by staff (重印), kept its stamp forever: if the reprint
-    // ALSO failed to print, the owner was never told a second time. A staff
-    // reprint silently disarmed the one safety net that catches a ticket the
-    // kitchen never saw.
-    //
-    // A requeue is a fresh attempt at printing, so it gets a fresh attempt at
-    // alerting too. alert_attempts goes back to 0 for the same reason: the
-    // send-failure retry budget belongs to this attempt, not to the last one.
-    `update orders
-        set status = 'QUEUED',
-            print_attempts = 0,
-            last_print_error = null,
-            alerted_at = null,
-            alert_attempts = 0,
-            -- Same reasoning: a reprint starts the ticket again from its first
-            -- piece. Left where they were, a requeue after a stalled split
-            -- would resume mid-ticket and print the tail on its own. The
-            -- published body goes with them; a reprint republishes.
-            print_segment = 0,
-            print_segments = 0,
-            print_job_key = null,
-            -- And nothing is in flight: staff pressing 重印 is a decision that
-            -- whatever the printer may still be holding is not going to arrive.
-            print_offered_at = null,
-            updated_at = now()
-      where tenant_id = $1 and id = $2
-      returning ${ORDER_COLUMNS}`,
-    [tenantId, orderId],
-  );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return withTransaction(async (client) => {
+    // alerted_at and alert_attempts are reset alongside the print counters, and
+    // that is load-bearing rather than tidiness. findUnprintedForAlert only
+    // considers orders with `alerted_at IS NULL`, and nothing else clears it —
+    // so a reprint that ALSO fails to print must re-arm the alert, or the owner
+    // is never told a second time.
+    const { rows } = await client.query(
+      `update orders
+          set status = 'QUEUED',
+              print_attempts = 0,
+              last_print_error = null,
+              alerted_at = null,
+              alert_attempts = 0,
+              -- A reprint starts the ticket again from its first piece.
+              print_segment = 0,
+              print_segments = 0,
+              print_job_key = null,
+              -- Nothing is in flight: pressing 重印 decides that whatever the
+              -- printer may still hold is not going to arrive.
+              print_offered_at = null,
+              print_delivery_id = null,
+              print_delivery_expires_at = null,
+              updated_at = now()
+        where tenant_id = $1 and id = $2
+        returning ${ORDER_COLUMNS}`,
+      [tenantId, orderId],
+    );
+    if (rows.length === 0) return null;
+    const order = mapOrder(rows[0]);
+    // The labeled marker. offered_at = expires_at = now() so it is never "in
+    // flight"; it exists to be counted (已重印 ×N) and to explain the second
+    // ticket the next poll is about to produce.
+    await client.query(
+      `insert into print_deliveries
+         (id, order_id, tenant_id, offered_at, expires_at, reason, actor)
+       values ($1, $2, $3, now(), now(), 'manual_reprint', $4)`,
+      [randomUUID(), orderId, tenantId, actor],
+    );
+    return order;
+  });
 }
 
 /**
@@ -784,7 +1094,18 @@ export async function listActiveOrders(
     : ACTIVE_STATUSES;
 
   const { rows } = await ordersPool().query(
-    `select ${ORDER_COLUMNS} from orders
+    `select ${ORDER_COLUMNS},
+            coalesce(d.delivery_count, 0) as delivery_count,
+            coalesce(d.fetch_total, 0)    as fetch_total,
+            coalesce(d.reprint_count, 0)  as reprint_count
+       from orders
+       left join lateral (
+         select count(*)                                          as delivery_count,
+                coalesce(sum(fetch_count), 0)                     as fetch_total,
+                count(*) filter (where reason = 'manual_reprint') as reprint_count
+           from print_deliveries pd
+          where pd.tenant_id = orders.tenant_id and pd.order_id = orders.id
+       ) d on true
       where tenant_id = $1
         and business_date = $2::date
         and status = any($3::text[])
@@ -793,7 +1114,17 @@ export async function listActiveOrders(
                created_at asc`,
     [tenantId, businessDate, statuses],
   );
-  return rows.map(mapOrder);
+  return rows.map(mapActiveOrder);
+}
+
+/** mapOrder plus the board-only delivery aggregates. */
+function mapActiveOrder(row: QueryResultRow): Order {
+  return {
+    ...mapOrder(row),
+    deliveryCount: Number(row.delivery_count),
+    fetchCount: Number(row.fetch_total),
+    reprintCount: Number(row.reprint_count),
+  };
 }
 
 /** Move an order along the board. Returns null when it does not exist. */
@@ -864,7 +1195,7 @@ export async function recordPrintAttempt(
  * failure must never drag an order staff already ACCEPTED back onto the board.
  *
  * NOTE on the counter: `print_attempts` also ticks once per OFFER
- * (`claimNextPrintJob`, `bumpPrintAttempt`), so it counts offers and render
+ * (`claimNextPrintJob`, `reofferPrintDelivery`), so it counts offers and render
  * failures together. With maxAttempts = 3 that works out to roughly two render
  * attempts before the order is condemned, which is the intent. It is one
  * counter on purpose — a second column would have to be kept in lockstep with

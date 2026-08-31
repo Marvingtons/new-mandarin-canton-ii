@@ -24,9 +24,24 @@
  * window expired mid-job and bought the next copy-set.
  *
  * WHAT THIS ASKS INSTEAD. "Does the printer currently hold a body of ours, and
- * if so, has it had long enough to finish it?" That is answerable from state:
- * `print_offered_at` is set when a body goes out and cleared when it comes
- * back, and the window it is measured against scales with the job.
+ * if so, has it had long enough to finish it?" That is answerable from state —
+ * but the state is now an IDENTITY, not a bare timestamp. `print_delivery_id`
+ * names the specific hand-over the printer is holding and is cleared only when
+ * THAT hand-over is confirmed; `print_delivery_expires_at` is its deadline,
+ * stamped in the same statement so the two cannot drift. Offer only when no
+ * delivery is in flight (`print_delivery_id` is null) or the one in flight has
+ * expired. Never while an unexpired, unconfirmed delivery exists.
+ *
+ * WHY IDENTITY AND NOT JUST A TIMESTAMP. A timestamp the offer path clears
+ * itself cannot tell "this print died, re-offer it" apart from "this print
+ * succeeded and the confirmation is merely late" — both leave the same NULL
+ * behind, and the second re-offered a ticket that was already on paper. Tying
+ * the decision to a delivery id the confirmation must name closes that gap: a
+ * lost confirmation now costs a delayed ticket (after expiry), never a
+ * duplicate. The old `print_offered_at IS NULL AND attempts > 0` branch, which
+ * re-offered on the very next poll with no delay, is gone entirely — the state
+ * it recovered from can no longer occur (the confirmation closes the delivery
+ * atomically; there is no window between clearing and closing).
  *
  * THE ASYMMETRY THAT SETS THE NUMBERS. Waiting too long on a print that really
  * died costs one delayed ticket, visible on the kitchen board the whole time
@@ -62,8 +77,24 @@ export interface EntitlementDecision {
 export interface EntitlementInput {
   /** Epoch ms. Injected so a test owns the clock. */
   now: number;
-  /** `print_offered_at` as ISO-8601, or null when nothing is in flight. */
-  offeredAt: string | null;
+  /**
+   * `print_delivery_id` — the delivery the printer is holding, or null when it
+   * holds nothing of ours (never offered, or the last delivery was confirmed,
+   * failed, or advanced past). This, not a timestamp, is what decides whether a
+   * fresh offer is free.
+   */
+  deliveryId: string | null;
+  /**
+   * `print_delivery_expires_at` as ISO-8601 — when the in-flight delivery's
+   * window closes. Null when nothing is in flight. When a delivery is in flight
+   * this is the clock the decision is measured against.
+   */
+  deliveryExpiresAt: string | null;
+  /**
+   * `print_offered_at` as ISO-8601 — informational only, for the "elapsed since
+   * offer" figure in the logs. The decision does not read it. Optional.
+   */
+  offeredAt?: string | null;
   /** `print_attempts` — hand-overs so far, not polls. */
   printAttempts: number;
   /** Copies in this job. A 3-copy job is three times the paper. */
@@ -119,12 +150,12 @@ export function confirmationWindowSeconds(
 /**
  * Hand-overs this PIECE is entitled to.
  *
- * advancePrintSegment leaves print_attempts at 1 rather than 0, so the row
- * keeps matching currentPrintJob and the next poll offers the next piece
- * instead of some other order. The side effect was that piece 1 got the
- * full cap of hand-overs and every later piece got one fewer, which is a
- * silent inequality nobody would find from the outside. One extra for the
- * continuation pieces restores it.
+ * Confirming a non-final piece (confirmPrintDelivery's advance path) leaves
+ * print_attempts at 1 rather than 0, so the row keeps matching currentPrintJob
+ * and the next poll offers the next piece instead of some other order. The side
+ * effect was that piece 1 got the full cap of hand-overs and every later piece
+ * got one fewer, which is a silent inequality nobody would find from the
+ * outside. One extra for the continuation pieces restores it.
  */
 export function pieceDeliveryCap(deliveryCap: number, segmentIndex: number): number {
   return segmentIndex > 0 ? deliveryCap + 1 : deliveryCap;
@@ -149,19 +180,45 @@ export function decideOffer(input: EntitlementInput): EntitlementDecision {
   // — see pieceDeliveryCap.
   const cap = pieceDeliveryCap(input.deliveryCap, input.segmentIndex ?? 0);
 
-  const offeredMs = input.offeredAt === null ? NaN : Date.parse(input.offeredAt);
-  const inFlight = Number.isFinite(offeredMs);
+  const hasDelivery = input.deliveryId !== null && input.deliveryId !== "";
 
-  if (!inFlight) {
-    // No body is out. Either this order has never been handed over, or its
-    // last hand-over was confirmed / revoked / advanced past. Nothing to wait
-    // for, so nothing to weigh.
+  // `offeredAt` is informational — it only shapes the human-readable "elapsed"
+  // in the reason and log. The decision never turns on it.
+  const offeredMs =
+    input.offeredAt == null ? NaN : Date.parse(input.offeredAt);
+  const elapsedSeconds = Number.isFinite(offeredMs)
+    ? Math.max(0, (input.now - offeredMs) / 1000)
+    : null;
+
+  if (!hasDelivery) {
+    // Nothing of ours is in flight. Either this order has never been handed
+    // over, or its last delivery was confirmed / failed / advanced past and its
+    // pointer cleared. Nothing to wait for.
+    //
+    // The cap is checked HERE too, not only on the expiry path. A reported
+    // failure (a 520) clears the pointer to re-arm the order, so a printer that
+    // fails every hand-over would otherwise re-offer forever with no delivery
+    // ever left "in flight to expire". A split continuation is safe from this:
+    // advancing a piece resets print_attempts to 1, so a healthy multi-piece
+    // ticket never accumulates toward the cap — only genuinely stuck re-offers
+    // do. (first-offer is attempts === 0, always below the cap.)
+    if (input.printAttempts >= cap) {
+      return {
+        verdict: "capped",
+        reason:
+          `${input.printAttempts} hand-over(s) and no delivery in flight — at the ` +
+          `${cap} cap with nothing printed, condemning rather than offering again`,
+        holdSeconds: 0,
+        windowSeconds,
+        elapsedSeconds: null,
+      };
+    }
     return {
       verdict: input.printAttempts > 0 ? "retry" : "first-offer",
       reason:
         input.printAttempts > 0
-          ? `no body in flight after ${input.printAttempts} hand-over(s) — ` +
-            "the previous one was confirmed, revoked or advanced; entitled to offer"
+          ? `no delivery in flight after ${input.printAttempts} hand-over(s) — ` +
+            "the previous one was confirmed, failed or advanced; entitled to offer"
           : "never handed over; entitled to offer",
       holdSeconds: 0,
       windowSeconds,
@@ -169,16 +226,43 @@ export function decideOffer(input: EntitlementInput): EntitlementDecision {
     };
   }
 
-  const elapsedSeconds = Math.max(0, (input.now - offeredMs) / 1000);
+  // A delivery IS in flight. The only question left is whether it has expired.
+  // Measured against its stored deadline, not a recomputed one, so a plan that
+  // changed between offer and now cannot move the goalposts. If the deadline is
+  // somehow unreadable, fall back to offered_at + window; if that is missing
+  // too, HOLD — the one thing we must never do on missing state is re-offer,
+  // because that is the duplicate this whole change removes. A genuinely stuck
+  // order is caught by the unprinted-order alert, not by guessing here.
+  const expiresParsed =
+    input.deliveryExpiresAt == null ? NaN : Date.parse(input.deliveryExpiresAt);
+  const expiresMs = Number.isFinite(expiresParsed)
+    ? expiresParsed
+    : Number.isFinite(offeredMs)
+      ? offeredMs + windowSeconds * 1000
+      : NaN;
 
-  if (elapsedSeconds < windowSeconds) {
-    const holdSeconds = Math.ceil(windowSeconds - elapsedSeconds);
+  if (!Number.isFinite(expiresMs)) {
     return {
       verdict: "hold",
       reason:
-        `handed over ${elapsedSeconds.toFixed(1)}s ago and the ${input.copies}-copy ` +
-        `confirmation window is ${windowSeconds}s — the printer is entitled to ` +
-        `still be working; holding ${holdSeconds}s more`,
+        "a delivery is in flight but its expiry is unreadable — holding rather " +
+        "than risk a duplicate; the unprinted-order alert is the net for a " +
+        "genuinely stuck order",
+      holdSeconds: windowSeconds,
+      windowSeconds,
+      elapsedSeconds,
+    };
+  }
+
+  if (input.now < expiresMs) {
+    const holdSeconds = Math.max(1, Math.ceil((expiresMs - input.now) / 1000));
+    const ago =
+      elapsedSeconds === null ? "" : `handed over ${elapsedSeconds.toFixed(1)}s ago and `;
+    return {
+      verdict: "hold",
+      reason:
+        `${ago}the ${input.copies}-copy confirmation window is ${windowSeconds}s — ` +
+        `an unexpired, unconfirmed delivery is in flight; holding ${holdSeconds}s more`,
       holdSeconds,
       windowSeconds,
       elapsedSeconds,
@@ -191,19 +275,21 @@ export function decideOffer(input: EntitlementInput): EntitlementDecision {
       reason:
         `${input.printAttempts} hand-over(s) and the ${windowSeconds}s window has ` +
         `expired again with no confirmation — at the ${cap} cap, ` +
-        "condemning rather than printing a fifth copy-set",
+        "condemning rather than printing another copy-set",
       holdSeconds: 0,
       windowSeconds,
       elapsedSeconds,
     };
   }
 
+  const ago =
+    elapsedSeconds === null ? "the in-flight delivery is " : `handed over ${elapsedSeconds.toFixed(0)}s ago, `;
   return {
     verdict: "retry",
     reason:
-      `handed over ${elapsedSeconds.toFixed(0)}s ago, past the ${windowSeconds}s ` +
-      `confirmation window, still unconfirmed after ${input.printAttempts} ` +
-      "hand-over(s) — presuming the print died; entitled to offer again",
+      `${ago}past the ${windowSeconds}s confirmation window, still unconfirmed ` +
+      `after ${input.printAttempts} hand-over(s) — presuming the print died; ` +
+      "entitled to offer a new delivery",
     holdSeconds: 0,
     windowSeconds,
     elapsedSeconds,

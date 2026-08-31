@@ -148,12 +148,32 @@ export interface Order {
   printAttempts: number;
   /**
    * When a job body was last handed over with jobReady:true, or null when the
-   * printer holds nothing of ours — never offered, confirmed, revoked, or
-   * advanced to the next piece. This is the clock the offer path measures
-   * patience against; `updatedAt` is not, because the offer path's own
-   * bookkeeping moves that one.
+   * printer holds nothing of ours.
+   *
+   * INFORMATIONAL now. The offer path no longer decides from this — it decides
+   * from `printDeliveryId` / `printDeliveryExpiresAt` below. This survives only
+   * to report "elapsed since offer" in the poll logs.
    */
   offeredAt: string | null;
+  /**
+   * IDENTITY of the hand-over the printer is currently holding, or null when it
+   * holds nothing of ours. The offer path re-offers only when this is null or
+   * the delivery it names has expired — never while an unexpired, unconfirmed
+   * delivery exists. It is the token echoed on the confirming DELETE.
+   */
+  printDeliveryId: string | null;
+  /** When the in-flight delivery's confirmation window closes, or null. */
+  printDeliveryExpiresAt: string | null;
+  /**
+   * Board-only aggregates over this order's print_deliveries rows. Populated by
+   * `listActiveOrders`; left undefined on every other read, because the print
+   * path has no use for them and would pay for the join on every poll.
+   */
+  deliveryCount?: number;
+  /** Total fetches across every delivery. > 1 means a body was fetched twice. */
+  fetchCount?: number;
+  /** How many manual 重印 hand-overs this order has had. */
+  reprintCount?: number;
   /** Set only by a CloudPRNT DELETE — the printer's own confirmation. */
   printedAt: string | null;
   lastPrintError: string | null;
@@ -194,4 +214,35 @@ export interface CreateOrderResult {
 /** "A" + 17 -> "A-017". Zero-padded to three, as the counter tickets do. */
 export function formatOrderNumber(prefix: string, seq: number): string {
   return `${prefix}-${String(seq).padStart(3, "0")}`;
+}
+
+/**
+ * Why a hand-over happened.
+ *
+ *   first-offer    — the first time an order is handed to the printer.
+ *   retry          — a confirmation window expired unconfirmed; presumed dead.
+ *   manual_reprint — staff pressed 重印. The ONLY legitimate marker of a second
+ *                    ticket; any second ticket without one is a bug by definition.
+ */
+export type PrintDeliveryReason = "first-offer" | "retry" | "manual_reprint";
+
+export const PRINT_DELIVERY_REASONS: readonly PrintDeliveryReason[] = [
+  "first-offer",
+  "retry",
+  "manual_reprint",
+] as const;
+
+/** One hand-over of a job body to the printer, as the repository returns it. */
+export interface PrintDelivery {
+  id: string;
+  orderId: number;
+  tenantId: string;
+  offeredAt: string;
+  expiresAt: string;
+  fetchedAt: string | null;
+  fetchCount: number;
+  confirmedAt: string | null;
+  confirmCode: string | null;
+  reason: PrintDeliveryReason;
+  actor: string | null;
 }

@@ -33,10 +33,11 @@ import {
  *  - THE DELETE IS DIFFERENT, and this file used to say otherwise. Star's
  *    job-confirmation spec sends `token=<job token>` "present if one was
  *    provided by the server in its POST response", and we always provide one
- *    (the order number). So a confirmation CAN be attributed exactly, and
- *    must be: without it, a DELETE arriving after the offer cap retired its
- *    job lands on whatever job is in flight NOW and marks the wrong order
- *    printed. Alongside `token` the DELETE carries `code`, and optionally
+ *    (the per-delivery id — see lib/orders/repository print_deliveries). So a
+ *    confirmation CAN be attributed exactly, to the specific hand-over rather
+ *    than merely the order: without it, a DELETE arriving after the offer cap
+ *    retired its job lands on whatever job is in flight NOW and marks the wrong
+ *    order printed. Alongside `token` the DELETE carries `code`, and optionally
  *    `retry`, `skip` and `error` counts.
  *  - `code` IS "OK" ON SUCCESS. Star: on correct completion the client sends
  *    DELETE "with the code parameter set to OK"; a failure reports a printer
@@ -425,7 +426,7 @@ export interface PrintConfirmation {
   /** Exactly as it arrived, already percent-decoded by URLSearchParams. */
   code: string | null;
   verdict: ResultVerdict;
-  /** Our own jobToken echoed back — the order number. */
+  /** Our own jobToken echoed back — the delivery id (a UUID). */
   token: string | null;
   /** Diagnostics some models send; logged, never branched on. */
   retry: string | null;

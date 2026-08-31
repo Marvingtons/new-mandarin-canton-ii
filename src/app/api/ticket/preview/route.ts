@@ -95,6 +95,8 @@ function fixtureOrder(taxRateBps: number | null): Order {
     readyTo: new Date(now.getTime() + 30 * 60_000).toISOString(),
     printAttempts: 0,
     offeredAt: null,
+    printDeliveryId: null,
+    printDeliveryExpiresAt: null,
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,

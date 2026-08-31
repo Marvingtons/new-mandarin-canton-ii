@@ -55,6 +55,14 @@ export default function KitchenOrderCard({
   const stale = order.status === "QUEUED" && order.printAttempts > 0 && !waiting;
   const done = order.status === "COMPLETED" || order.status === "CANCELLED";
 
+  // Delivery audit, from print_deliveries (populated on the board read). A
+  // labeled 重印 is the only legitimate second ticket; anything else with more
+  // than one delivery or a body fetched twice is worth a glance at the pass.
+  const fetchCount = order.fetchCount ?? 0;
+  const deliveryCount = order.deliveryCount ?? 0;
+  const reprintCount = order.reprintCount ?? 0;
+  const multiTicket = fetchCount > 1 || deliveryCount > 1;
+
   async function run(action: string) {
     setBusy(action);
     try {
@@ -84,6 +92,25 @@ export default function KitchenOrderCard({
           </div>
           <div className="mt-1 text-sm uppercase tracking-[0.12em] text-ivory/55">
             {STATUS_LABEL[order.status]}
+          </div>
+          {/* Print trail. Next to 已印 PRINTED: how many times it was handed
+              over and how many times a body was actually fetched. */}
+          {order.status === "PRINTED" && (order.printAttempts > 0 || deliveryCount > 0) && (
+            <div className="mt-1 text-xs tracking-[0.08em] text-ivory/45">
+              {order.printAttempts}× 派送 sent · {fetchCount}× 取件 fetched
+            </div>
+          )}
+          <div className="mt-1 flex flex-wrap gap-1">
+            {reprintCount > 0 && (
+              <span className="inline-block rounded-sm bg-gold/20 px-2 py-0.5 text-xs font-bold uppercase tracking-[0.1em] text-gold">
+                已重印 REPRINTED ×{reprintCount}
+              </span>
+            )}
+            {multiTicket && (
+              <span className="inline-block rounded-sm bg-lacquer/70 px-2 py-0.5 text-xs font-bold uppercase tracking-[0.1em] text-ivory">
+                ⚠ 多次派送 {deliveryCount} deliveries · fetched {fetchCount}×
+              </span>
+            )}
           </div>
         </div>
         <div className="text-right">

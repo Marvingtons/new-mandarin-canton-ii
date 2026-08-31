@@ -16,6 +16,7 @@
     "verify:pricing": "tsx --conditions=react-server scripts/verify-pricing.ts",
     "verify:print-codes": "tsx --conditions=react-server scripts/verify-print-codes.ts",
     "verify:print-recurrence": "tsx --conditions=react-server scripts/verify-print-recurrence.ts",
+    "verify:print-deliveries": "tsx --conditions=react-server scripts/verify-print-deliveries.ts",
     "verify:printer-health": "tsx --conditions=react-server scripts/verify-printer-health.ts",
     "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts",
     "build:cf": "opennextjs-cloudflare build",

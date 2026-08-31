@@ -54,9 +54,12 @@ export async function POST(
 
   // 重印 — put the job back in the queue. We do NOT push to the printer:
   // CloudPRNT is pull-based, so "reprint" means making the job claimable again
-  // and letting the next poll (seconds away) collect it.
+  // and letting the next poll (seconds away) collect it. The requeue writes a
+  // labeled manual_reprint delivery so this legitimate second ticket is
+  // distinguishable from a duplicate bug. The actor is "kitchen": the board is
+  // a single shared session with no per-person identity (see kitchenSession.ts).
   if (body.action === "reprint") {
-    const requeued = await requeueForPrint(tenant.tenantId, orderId);
+    const requeued = await requeueForPrint(tenant.tenantId, orderId, "kitchen");
     return Response.json({
       ok: true,
       order: requeued,
