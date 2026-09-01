@@ -1,6 +1,7 @@
 import {
   lateConfirmationGraceSeconds,
   printConfirmFloorSeconds,
+  printFetchViaWorker,
   printOfferCap,
   printRenderCap,
   printSecondsPerCopy,
@@ -314,12 +315,27 @@ export async function POST(
         // delivery with its own id and expiry — never a re-stamp of the old
         // one — so the confirmation for the previous hand-over cannot close
         // this one. The window is the piece-aware one from the decision.
-        job = await reofferPrintDelivery(
+        //
+        // reofferPrintDelivery returns null when the order is no longer
+        // offerable — a confirm flipped it out of QUEUED, or its delivery was
+        // already confirmed, between currentPrintJob's read and this write. That
+        // is the race that reprinted a confirmed order; skip-retry rather than
+        // resurrect it.
+        const superseded = job.printDeliveryId;
+        const reoffered = await reofferPrintDelivery(
           tenant.tenantId,
           job.id,
           decision.windowSeconds,
           "retry",
         );
+        if (!reoffered) {
+          console.warn(
+            `[cloudprnt] skip-retry ${job.orderNumber} delivery=${superseded ?? "none"} ` +
+              "already-confirmed or no longer QUEUED — not re-offering",
+          );
+          return Response.json(NO_JOB);
+        }
+        job = reoffered;
       }
     } else {
       job = await claimNextPrintJob(tenant.tenantId, freshWindow);
@@ -364,6 +380,12 @@ export async function POST(
     const pollUrl = new URL(request.url);
     const selfGetUrl = `${pollUrl.origin}${pollUrl.pathname}?token=${encodeURIComponent(deliveryId)}`;
 
+    // PRIMARY fetch URL. Default: the R2 object directly (proven path; the
+    // Worker never sees the fetch). With PRINT_FETCH_VIA_WORKER on: the Worker's
+    // own GET, so the fetch is counted and gated before a 302 to R2 — see
+    // printFetchViaWorker() for why that is opt-in.
+    const advertisedGetUrl = printFetchViaWorker() ? selfGetUrl : (jobUrl ?? selfGetUrl);
+
     const body: CloudPrntStatusResponse = {
       jobReady: true,
       // With the body already encoded and sitting in R2, the media type is no
@@ -378,11 +400,11 @@ export async function POST(
       deleteMethod: "DELETE",
       // Only the GET moves. `jobConfirmationUrl` is deliberately left unset so
       // confirmations still come back here and the state machine is untouched.
-      jobGetUrl: jobUrl ?? selfGetUrl,
+      jobGetUrl: advertisedGetUrl,
     };
     console.info(
       `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} handed over ` +
-        `at ${jobUrl ?? selfGetUrl}`,
+        `at ${advertisedGetUrl}`,
     );
     return Response.json(body);
   } catch (err) {
@@ -563,6 +585,31 @@ export async function GET(
     // Nothing in flight. 404 is the honest answer; the printer re-polls.
     if (!job) return new Response("", { status: 404 });
     deliveryId = job.printDeliveryId;
+  }
+
+  // Worker-mediated fetch (PRINT_FETCH_VIA_WORKER, opt-in): count the fetch and
+  // 302-redirect the printer to the per-delivery R2 object. This keeps the heavy
+  // body off the Worker — the 520 fix stays intact — while making every fetch
+  // visible (fetch_count) and gate-able (the confirmed/superseded 410 above
+  // already ran). Only the token path (the advertised jobGetUrl) redirects; a
+  // bare GET from firmware that ignores jobGetUrl still streams through below.
+  //
+  // ⚠️ If this printer's firmware does not follow the 302, tickets will stop
+  // printing — flip PRINT_FETCH_VIA_WORKER off (back to R2-direct) or replace
+  // this branch with a stream-through-Worker serve, and verify with `wrangler
+  // tail`. See printFetchViaWorker().
+  if (token && deliveryId && printFetchViaWorker() && printJobStoreReady()) {
+    const state = await printSegmentState(tenant.tenantId, job.id);
+    const r2Url = state.jobKey ? printJobUrl(state.jobKey) : null;
+    if (r2Url) {
+      const fetchCount = await recordDeliveryFetch(tenant.tenantId, deliveryId);
+      console.info(
+        `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} fetch -> 302 R2 ` +
+          `${state.jobKey} fetch_count=${fetchCount ?? "?"}`,
+      );
+      return new Response(null, { status: 302, headers: { location: r2Url } });
+    }
+    // No R2 object published yet — fall through and serve/render through the Worker.
   }
 
   // The printer echoes its chosen media type, and for the extended type that

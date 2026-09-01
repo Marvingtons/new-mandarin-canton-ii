@@ -429,9 +429,26 @@ export async function reofferPrintDelivery(
               print_job_key             = null,
               updated_at                = now()
         where tenant_id = $1 and id = $2
+          -- STATUS GUARD. A re-offer must never resurrect a finished order.
+          -- currentPrintJob filters status at read time, but a confirm can flip
+          -- the row to PRINTED between that read and this write — the exact race
+          -- that reprinted an order 49s after it was confirmed. Re-checking
+          -- status here, under this UPDATE's own row lock, makes the write
+          -- refuse a PRINTED / CANCELLED / PRINT_FAILED order regardless of any
+          -- pointer or timestamp left on it.
+          and status = any($5::text[])
+          -- BELT AND BRACES, the same race seen from the delivery side: never
+          -- re-offer while the delivery being superseded is already confirmed.
+          and not exists (
+            select 1 from print_deliveries d
+             where d.id = orders.print_delivery_id
+               and d.confirmed_at is not null
+          )
         returning ${ORDER_COLUMNS}`,
-      [tenantId, orderId, deliveryId, windowSeconds],
+      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES],
     );
+    // No row matched: the order is no longer offerable (status changed, or its
+    // current delivery was already confirmed). Do NOT create a delivery.
     if (rows.length === 0) return null;
     const order = mapOrder(rows[0]);
     await insertDelivery(client, {

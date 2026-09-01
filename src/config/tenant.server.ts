@@ -496,6 +496,34 @@ export function lateConfirmationGraceSeconds(): number {
   return Number.isFinite(n) && n >= 0 ? n : 300;
 }
 
+/**
+ * Route the printer's job GET through the Worker instead of straight at the R2
+ * object. OFF by default, and deliberately so.
+ *
+ * When ON, the poll advertises the Worker's own GET endpoint (carrying the
+ * delivery token) as jobGetUrl; that handler records the fetch
+ * (fetch_count / fetched_at), refuses a confirmed or superseded delivery with
+ * 410, and then 302-redirects to the per-delivery R2 object — so the heavy body
+ * still never streams through the Worker (the 520 fix stays intact) but every
+ * fetch is finally counted and gated. When OFF, jobGetUrl is the R2 object URL
+ * directly, exactly as today: the printer fetches R2 without the Worker seeing
+ * it (fetch_count stays 0), which is the proven path.
+ *
+ * ⚠️ WHY OFF BY DEFAULT: this changes the critical, 520-sensitive fetch path,
+ * and it rests on an unverified assumption — that this printer's firmware
+ * follows an HTTP 302 on a job GET, which Star does not document. Turn it on
+ * only after confirming with ONE live order and `wrangler tail` that the
+ * redirect is followed and the ticket prints. If it is not, switch the GET
+ * handler to stream the body through the Worker instead (see the note in the
+ * route handler) and re-test. PRINT_JOBS_PUBLIC_BASE stays configured either
+ * way as the fallback.
+ */
+export function printFetchViaWorker(): boolean {
+  const raw = env("PRINT_FETCH_VIA_WORKER");
+  if (raw === null) return false;
+  return raw === "true" || raw === "1" || raw === "on";
+}
+
 export function verifiedPhoneTtlDays(): number {
   const days = intEnv("VERIFIED_PHONE_TTL_DAYS", 90);
   return Number.isFinite(days) && days > 0 ? days : 0;

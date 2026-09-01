@@ -110,8 +110,20 @@ interface Deps {
   createOrder: typeof import("../src/lib/orders/repository").createOrder;
   getOrderById: typeof import("../src/lib/orders/repository").getOrderById;
   requeueForPrint: typeof import("../src/lib/orders/repository").requeueForPrint;
+  reofferPrintDelivery: typeof import("../src/lib/orders/repository").reofferPrintDelivery;
   listActiveOrders: typeof import("../src/lib/orders/repository").listActiveOrders;
   ordersPool: typeof import("../src/lib/db/postgres").ordersPool;
+}
+
+/** GET a full advertised jobGetUrl the way a printer honouring it would. */
+async function getAdvertised(
+  h: Handlers,
+  jobGetUrl: string,
+): Promise<{ status: number; bytes: number }> {
+  const url = `${jobGetUrl}&mac=${encodeURIComponent(MAC)}&type=application/vnd.star.starprnt`;
+  const res = await h.GET(new Request(url), { params });
+  const bytes = res.ok ? (await res.arrayBuffer()).byteLength : 0;
+  return { status: res.status, bytes };
 }
 
 let seq = 0;
@@ -373,6 +385,77 @@ async function s8_manualReprintIsLabeled(h: Handlers, deps: Deps): Promise<void>
   check("the reprint produced a second, explained delivery", (card?.deliveryCount ?? 0) >= 2, `deliveryCount=${card?.deliveryCount}`);
 }
 
+// 9. Confirm then reach the old expiry -> no re-offer (the exact prod sequence).
+async function s9_confirmThenExpire(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n9. after a confirmation, reaching the old expiry does NOT re-offer");
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h);
+  await getByToken(h, p1.token!);
+  await confirm(h, p1.token!); // DELETE D1 -> PRINTED, pointer cleared
+  // Model the "+expires_at" step of the production trace: expire whatever pointer
+  // remains, then poll. A confirmed order must not be re-offered.
+  await expireInFlight(deps, order.id);
+  const p2 = await poll(h);
+  const after = await deps.getOrderById(TENANT, order.id);
+  const ds = await deliveriesFor(deps, order.id);
+  check("order is PRINTED after the confirm", after?.status === "PRINTED", `status=${after?.status}`);
+  check("no re-offer once printed (jobReady:false)", p2.jobReady === false, `jobReady=${p2.jobReady}`);
+  check("no second delivery created", ds.length === 1, `${ds.length} deliveries`);
+  check("print_attempts still 1", after?.printAttempts === 1, `attempts=${after?.printAttempts}`);
+}
+
+// 10. The pointer is nulled in the same step as PRINTED.
+async function s10_pointerCleared(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n10. a confirmation nulls the order's delivery pointer");
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h);
+  await getByToken(h, p1.token!);
+  await confirm(h, p1.token!);
+  const after = await deps.getOrderById(TENANT, order.id);
+  check("print_delivery_id IS NULL after confirm", after?.printDeliveryId === null, `id=${after?.printDeliveryId}`);
+  check("print_delivery_expires_at IS NULL after confirm", after?.printDeliveryExpiresAt === null, `exp=${after?.printDeliveryExpiresAt}`);
+  check("printed_at set and status PRINTED", after?.printedAt !== null && after?.status === "PRINTED");
+}
+
+// 11. The re-offer WRITE itself must refuse a non-QUEUED order (the race guard).
+async function s11_reofferStatusGuard(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n11. re-offer refuses a non-QUEUED order (status guard on the write path)");
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h); // claim D1, QUEUED, attempts=1
+  await getByToken(h, p1.token!);
+  await confirm(h, p1.token!); // -> PRINTED, pointer NULL, attempts 1
+  // A poll that read the order as QUEUED an instant before this confirm would
+  // reach reofferPrintDelivery with a stale row. The WRITE must refuse it — this
+  // is the exact race that printed a second ticket on an order already PRINTED.
+  const reoffered = await deps.reofferPrintDelivery(TENANT, order.id, 90, "retry");
+  const after = await deps.getOrderById(TENANT, order.id);
+  const ds = await deliveriesFor(deps, order.id);
+  check("re-offer of a PRINTED order returns null", reoffered === null, reoffered ? "got an order" : "null");
+  check("no new delivery created", ds.length === 1, `${ds.length} deliveries`);
+  check("print_attempts unchanged (still 1)", after?.printAttempts === 1, `attempts=${after?.printAttempts}`);
+  check("status stays PRINTED, pointer stays NULL", after?.status === "PRINTED" && after?.printDeliveryId === null);
+}
+
+// 12. Fetches via the ADVERTISED jobGetUrl are counted; post-confirm is 410.
+async function s12_fetchViaAdvertisedUrl(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n12. fetches via the advertised jobGetUrl are counted; post-confirm is 410");
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h);
+  check("poll advertises a jobGetUrl", !!p1.jobGetUrl, `url=${p1.jobGetUrl}`);
+  const g1 = await getAdvertised(h, p1.jobGetUrl!);
+  check("first fetch served (200/302)", g1.status === 200 || g1.status === 302, `status=${g1.status}`);
+  check("fetch_count = 1 after one fetch", (await deliveriesFor(deps, order.id))[0].fetch_count === 1, `count=${(await deliveriesFor(deps, order.id))[0].fetch_count}`);
+  await getAdvertised(h, p1.jobGetUrl!);
+  check("fetch_count = 2 after a second fetch", (await deliveriesFor(deps, order.id))[0].fetch_count === 2, `count=${(await deliveriesFor(deps, order.id))[0].fetch_count}`);
+  await confirm(h, p1.token!);
+  const g3 = await getAdvertised(h, p1.jobGetUrl!);
+  check("a fetch after confirmation is 410 Gone", g3.status === 410, `status=${g3.status}`);
+}
+
 /* --------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -431,6 +514,7 @@ async function main(): Promise<void> {
     createOrder: repo.createOrder,
     getOrderById: repo.getOrderById,
     requeueForPrint: repo.requeueForPrint,
+    reofferPrintDelivery: repo.reofferPrintDelivery,
     listActiveOrders: repo.listActiveOrders,
     ordersPool,
   };
@@ -444,6 +528,10 @@ async function main(): Promise<void> {
     await s6_fetchCounted(route, deps);
     await s7_downloadFailedReoffers(route, deps);
     await s8_manualReprintIsLabeled(route, deps);
+    await s9_confirmThenExpire(route, deps);
+    await s10_pointerCleared(route, deps);
+    await s11_reofferStatusGuard(route, deps);
+    await s12_fetchViaAdvertisedUrl(route, deps);
   } finally {
     await closeOrdersPool();
     console.log("\nstopping postgres…");
