@@ -16,6 +16,7 @@
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { resolveModifierZh, resolveSizeZh } from "@/data/menu-overrides";
 import { dishZh } from "@/data/menu";
+import { resolveChoiceLine } from "@/lib/menu/choice";
 import { itemSizes, type MenuItem } from "@/lib/menu/types";
 import type { OrderLine, OrderLineModifier } from "@/lib/orders/types";
 
@@ -53,8 +54,18 @@ export function resolveOrderLine(
     item.modifierGroups.flatMap((g) => g.modifiers).map((m) => [m.id, m]),
   );
 
+  // A name-hidden protein/preparation choice ("Chicken or Beef Chow Fun") is
+  // resolved INTO the line's name here, once — "Beef · Chow Fun (Dry)" — and the
+  // chosen option is then dropped from the stored modifiers, so the kitchen
+  // reads it on the item line and never also as a ● side. The $0 choice was
+  // already summed by resolveLinePrice above, so dropping it here does not touch
+  // the price. Null for every dish without a choice group. See lib/menu/choice.
+  const choice = resolveChoiceLine(item, modifierIds);
+
   const modifiers: OrderLineModifier[] = [];
   for (const id of modifierIds) {
+    // Folded into the name, not printed as a side.
+    if (choice && id === choice.choiceId) continue;
     const mod = byId.get(id);
     // resolveLinePrice already rejected unknown ids; this is belt and braces.
     if (!mod) continue;
@@ -68,8 +79,11 @@ export function resolveOrderLine(
 
   return {
     itemId: item.id,
-    nameEn: item.nameEn,
-    nameZh: resolveItemZh(item),
+    // The chosen option leads the name for a choice item; the canonical
+    // "Chicken or Beef …" is what the website shows, but the ticket and board
+    // read this resolved snapshot.
+    nameEn: choice ? choice.nameEn : item.nameEn,
+    nameZh: choice ? choice.nameZh : resolveItemZh(item),
     sizeId: size.id,
     sizeLabel: size.label,
     sizeLabelZh: resolveSizeZh(size.label),

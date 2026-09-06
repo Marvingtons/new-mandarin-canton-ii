@@ -40,17 +40,20 @@ type Action =
   | { type: "clear" };
 
 /**
- * BUMPED v1 -> v2 when rice became a required choice on most of the menu.
+ * BUMPED v1 -> v2 when rice became a required choice on most of the menu,
+ * and v2 -> v3 when the "or" dishes ("Chicken or Beef Chow Fun", "Steamed or
+ * Fried Dumplings") gained a required protein/preparation choice with NO
+ * default (lib/menu/choice.ts).
  *
  * A cart is JSON in sessionStorage and is rehydrated without revalidation
  * against the current menu, so a tab left open across the deploy would
- * hold lines built before the rice group existed. Those lines carry no
- * rice id, and the server now refuses them (lib/orders/modifierRules) —
- * correct, but the customer would meet that refusal at the Place Order
- * button with no idea why. Changing the key drops the stale cart at the
- * door instead, which is the cheaper of the two disappointments.
+ * hold lines built before the choice group existed. Those lines carry no
+ * protein id, and — because the choice has no defensible default — the
+ * server now REFUSES them (lib/orders/modifierRules), correctly but
+ * confusingly at the Place Order button. Changing the key drops the stale
+ * cart at the door instead, which is the cheaper of the two disappointments.
  */
-const STORAGE_KEY = "nmc-cart-v2";
+const STORAGE_KEY = "nmc-cart-v3";
 
 /** Stable signature for merging identical configurations. */
 function lineSignature(

@@ -14,7 +14,7 @@
 
 import { taxCents } from "../../src/lib/money";
 import { resolveOrderLine } from "../../src/lib/orders/lines";
-import { RICE_FRIED_ID } from "../../src/lib/menu/rice";
+import { RICE_FRIED_ID, RICE_STEAMED_ID } from "../../src/lib/menu/rice";
 import { PREP_STEAMED_ID } from "../../src/lib/menu/preparation";
 import type { MenuItem } from "../../src/lib/menu/types";
 import type { Order, OrderLine } from "../../src/lib/orders/types";
@@ -376,6 +376,53 @@ export async function preparationOrder(): Promise<Order> {
 }
 
 /**
+ * The three "or" dishes, each with a protein/preparation chosen.
+ *
+ * This is the fixture lib/menu/choice.ts exists for: the chosen option must lead
+ * the item line ("Beef · Chow Fun (Dry)" / "牛 · 乾炒河粉"), the "or" must be
+ * gone, and the chosen protein must NOT also appear as a ● side. The Black
+ * Pepper line additionally carries a rice ● side, proving the protein-on-the-
+ * line and the rice-as-a-side stay two different shapes on one ticket.
+ * verify:choice renders this and asserts exactly that; it also lands here so
+ * ticket:sample and verify:orders exercise it.
+ */
+export async function choiceOrder(): Promise<Order> {
+  const all = await catalogueItems();
+  const byId = new Map(all.map((i) => [i.id, i]));
+
+  const chowFun = byId.get("chow-fun-chicken-or-beef");
+  const blackPepper = byId.get("black-pepper-beef-or-chicken");
+  const dumplings = byId.get("steamed-or-fried-dumplings");
+  if (!chowFun || !blackPepper || !dumplings) {
+    throw new Error(
+      "choice fixture: catalogue is missing one of the three 'or' dishes",
+    );
+  }
+
+  const lines = [
+    // Beef chow fun — a Noodles dish, protein is the only required group.
+    resolveOrderLine(chowFun, "individual", ["chow-fun-beef"], 1),
+    // Black Pepper Beef — a Specials entrée, so protein AND a steamed rice side.
+    resolveOrderLine(
+      blackPepper,
+      "individual",
+      ["black-pepper-beef", RICE_STEAMED_ID],
+      2,
+    ),
+    // Steamed dumplings — an appetizer, preparation is the only required group.
+    resolveOrderLine(dumplings, "regular", ["dumplings-steamed"], 1),
+  ];
+
+  return {
+    ...fixtureOrder(),
+    orderNumber: "A-124",
+    items: lines,
+    totals: totalsFor(lines),
+    customer: { name: "Protein Picker", phone: "+16195550124" },
+  };
+}
+
+/**
  * The wrapping torture fixture. Every string here is chosen to break a
  * hand-rolled wrapper in a different way:
  *   - a 52-character English item name, far past one line at 40px
@@ -527,6 +574,7 @@ export async function fixtureOrders(): Promise<NamedOrder[]> {
     { name: "mixed sizes", order: await mixedSizeOrder(), totalsCoherent: true },
     { name: "full-menu breadth", order: await breadthOrder(), totalsCoherent: true },
     { name: "two rices (side + entrée)", order: await preparationOrder(), totalsCoherent: true },
+    { name: "protein/prep choices", order: await choiceOrder(), totalsCoherent: true },
     { name: "wrapping torture", order: tortureOrder(), totalsCoherent: true },
     { name: "sql-shaped", order: sqlShapedOrder(), totalsCoherent: true },
     { name: "malformed", order: malformedOrder(), totalsCoherent: false },

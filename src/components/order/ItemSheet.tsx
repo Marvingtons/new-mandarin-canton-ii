@@ -57,11 +57,21 @@ function ItemSheetInner({
    * multi-select would be choosing on the customer's behalf, not saving
    * them a tap. A lazy initializer, so it costs one evaluation at mount
    * and needs no effect.
+   *
+   * `requireExplicitChoice` groups are EXCLUDED: a protein (Chicken vs
+   * Beef) has no sensible default, so those open blank and Add stays
+   * disabled with a named reason until the customer picks — the same
+   * treatment an unmet required group already gets. See lib/menu/choice.ts.
    */
   const [selected, setSelected] = useState<Record<string, string[]>>(() => {
     const initial: Record<string, string[]> = {};
     for (const g of item.modifierGroups) {
-      if (g.minRequired >= 1 && g.maxAllowed === 1 && g.modifiers[0]) {
+      if (
+        g.minRequired >= 1 &&
+        g.maxAllowed === 1 &&
+        !g.requireExplicitChoice &&
+        g.modifiers[0]
+      ) {
         initial[g.id] = [g.modifiers[0].id];
       }
     }

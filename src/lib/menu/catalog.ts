@@ -12,6 +12,7 @@ import {
 } from "@/data/menu-overrides";
 import { riceGroupForItem } from "@/lib/menu/rice";
 import { preparationGroup } from "@/lib/menu/preparation";
+import { choiceGroup, choiceMeta } from "@/lib/menu/choice";
 import type {
   Menu,
   MenuCategory,
@@ -100,6 +101,14 @@ function modifierGroupsFor(
   // #116 is a Sides dish, not an entrée, so it gets no rice group above.
   if (item.preparationChoice) groups.push(preparationGroup());
 
+  // A protein/preparation choice hidden in the NAME ("Chicken or Beef Chow
+  // Fun"). Required and, unlike rice/prep, with NO default — the customer must
+  // choose. Sits AFTER rice: the Specials "Black Pepper Beef or Chicken" has
+  // both, and the sheet meets the rice (which is prefilled) then the protein
+  // (which is not) as it scrolls toward the disabled Add button. See
+  // lib/menu/choice.ts.
+  if (item.choice) groups.push(choiceGroup(item.choice));
+
   if (item.modifiers?.length) {
     groups.push({
       id: `${item.id}-extras`,
@@ -144,6 +153,11 @@ export function catalogMenu(): Menu {
         sizes: sizesFor(item),
         categoryId: category.id,
         modifierGroups: modifierGroupsFor(item, category.id),
+        // The ticket base name for a name-hidden choice, carried alongside the
+        // injected choice group so resolveOrderLine can store "{chosen} · {base}"
+        // without re-reading the raw spec. Undefined for every dish whose name
+        // states one thing. See lib/menu/choice.ts.
+        choice: item.choice ? choiceMeta(item.choice) : undefined,
         // The printed menu's 🌶 set, straight from the catalogue. No override
         // fallback: a second source for this flag is how it drifts.
         spicy: item.spicy === true,

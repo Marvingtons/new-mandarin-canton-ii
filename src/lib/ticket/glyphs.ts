@@ -122,6 +122,21 @@ export function collectTicketGlyphs(): string {
       if (item.chineseName) parts.push(item.chineseName);
       for (const size of item.sizes ?? []) parts.push(size.label);
       for (const mod of item.modifiers ?? []) parts.push(mod.name);
+      // A name-hidden protein/preparation choice prints "{chosen} · {base}" on
+      // the ticket. The choice group is injected in catalog.ts (like rice), so
+      // its options are NOT in item.modifiers above — collect the option labels
+      // and the base name here. Every glyph is already in the dish's own
+      // chineseName today; this keeps the coverage from silently depending on
+      // that. The group's own label never reaches paper, so it is excluded, the
+      // same discipline rice/preparation apply.
+      if (item.choice) {
+        for (const o of item.choice.options) {
+          parts.push(o.nameEn);
+          parts.push(o.nameZh);
+        }
+        parts.push(item.choice.ticketBaseEn);
+        if (item.choice.ticketBaseZh) parts.push(item.choice.ticketBaseZh);
+      }
     }
   }
 

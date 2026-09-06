@@ -54,6 +54,27 @@ export interface MenuItemModifier {
   priceCents: number;
 }
 
+/**
+ * A required protein/preparation choice hidden in a dish's NAME — the "or" in
+ * "Chicken or Beef Chow Fun (Dry)" or "Steamed or Fried Dumplings (8)".
+ *
+ * Structurally the `ItemChoiceSpec` that lib/menu/choice.ts consumes; kept as a
+ * plain shape here so this file goes on importing nothing. `ticketBase*` is the
+ * dish name with the "or" clause removed — what prints AFTER the chosen option
+ * on the kitchen ticket ("Beef · Chow Fun (Dry)"). No option is a default: the
+ * customer must actively choose. See lib/menu/choice.ts.
+ *
+ * ⚠️ Option and base 中文 add glyphs like any other. All the characters these
+ * use already appear in the dishes' own `chineseName`, so today they cost the
+ * subset nothing — but re-run `npm run build:ticket-font` if that ever changes.
+ */
+export interface MenuItemChoice {
+  kind: "protein" | "preparation";
+  ticketBaseEn: string;
+  ticketBaseZh: string | null;
+  options: { id: string; nameEn: string; nameZh: string; priceCents?: number }[];
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -105,6 +126,15 @@ export interface MenuItem {
    * and the note on `includesRice` above). Unset everywhere else.
    */
   preparationChoice?: boolean;
+  /**
+   * A required protein/preparation choice hidden in this dish's name — the "or"
+   * in "Chicken or Beef Chow Fun". Distinct from `preparationChoice` (#116's
+   * steamed-defaulting rice), because here NO option is a default and the chosen
+   * option leads the ticket line rather than replacing the name. Unset on every
+   * dish whose name states exactly one thing. See MenuItemChoice and
+   * lib/menu/choice.ts.
+   */
+  choice?: MenuItemChoice;
   spicy?: boolean;
   tags?: string[];
 }
@@ -207,6 +237,19 @@ export const menu: MenuCategory[] = [
         priceCents: 2150,
         trayCents: 7500,
         spicy: true,
+        // A Specials entrée, so it ALSO carries the included rice side — the
+        // protein choice and the rice are two separate required groups. Chosen,
+        // the item line reads "Beef · Black Pepper" / "牛 · 黑椒" (the protein
+        // leads for a cook scanning a stack), with the rice as a ● side beneath.
+        choice: {
+          kind: "protein",
+          ticketBaseEn: "Black Pepper",
+          ticketBaseZh: "黑椒",
+          options: [
+            { id: "black-pepper-beef", nameEn: "Beef", nameZh: "牛" },
+            { id: "black-pepper-chicken", nameEn: "Chicken", nameZh: "雞" },
+          ],
+        },
       },
       {
         id: "steamed-fish-filet-special",
@@ -260,6 +303,19 @@ export const menu: MenuCategory[] = [
         name: "Steamed or Fried Dumplings (8)",
         chineseName: "蒸餃或煎餃（8隻）",
         priceCents: 1595,
+        // The "or" is a required preparation pick with NO default: steamed and
+        // fried dumplings are equally the dish, unlike #116 where Steamed rice
+        // is the sensible default. Chosen, the line reads "Steamed · Dumplings
+        // (8)" / "蒸 · 餃（8隻）". An appetizer, so no rice side to double-ask.
+        choice: {
+          kind: "preparation",
+          ticketBaseEn: "Dumplings (8)",
+          ticketBaseZh: "餃（8隻）",
+          options: [
+            { id: "dumplings-steamed", nameEn: "Steamed", nameZh: "蒸" },
+            { id: "dumplings-fried", nameEn: "Fried", nameZh: "煎" },
+          ],
+        },
       },
       {
         // The printed menu says "Fired"; the site's corrected spelling stands.
@@ -1026,6 +1082,18 @@ export const menu: MenuCategory[] = [
         chineseName: "乾炒雞肉或牛肉河粉",
         priceCents: 1995,
         trayCents: 7000,
+        // The "or" is a required protein pick. Same price either way; the ticket
+        // reads "Beef · Chow Fun (Dry)" / "牛 · 乾炒河粉" once chosen. This is a
+        // Noodles dish (no rice side), so the protein is its only required group.
+        choice: {
+          kind: "protein",
+          ticketBaseEn: "Chow Fun (Dry)",
+          ticketBaseZh: "乾炒河粉",
+          options: [
+            { id: "chow-fun-chicken", nameEn: "Chicken", nameZh: "雞" },
+            { id: "chow-fun-beef", nameEn: "Beef", nameZh: "牛" },
+          ],
+        },
       },
       {
         id: "seafood-chow-fun",
@@ -1133,6 +1201,13 @@ const DISH_ALIASES: Record<string, string> = {
 const OFF_CATALOGUE_ZH: Record<string, string> = {
   "Chicken Szechuan Style": "四川雞",
   "Yu-Hsiang Beef": "魚香牛肉",
+  // The two halves of the split lunch "Chicken or Beef Chow Fun" (see the lunch
+  // choices above). The à la carte row names both proteins in one string, so
+  // neither single-protein name resolves through it; both reach a ticket as a
+  // lunch entrée modifier line, so both need their own 中文. Every glyph here is
+  // already in the à la carte "乾炒雞肉或牛肉河粉".
+  "Chicken Chow Fun (Dry)": "乾炒雞肉河粉",
+  "Beef Chow Fun (Dry)": "乾炒牛肉河粉",
 };
 
 let dishIndex: Map<string, string> | null = null;
@@ -1269,7 +1344,14 @@ export const combos: ComboSection[] = [
           // TODO(confirm): price partially obscured on menu photo — owner to confirm
           // (entrée 13: the NAME is partially obscured, not the tier price.)
           { name: "Chicken with Broccoli" },
-          { name: "Chicken or Beef Chow Fun (Dry)", noRiceSide: true },
+          // The à la carte #124 is one dish with a protein selector, but a lunch
+          // entrée is ALREADY a single-select "choose one" — so the cleanest way
+          // to kill this "or" is to list the two proteins as two entrées rather
+          // than nest a selector inside one option (the modifier model is flat).
+          // Both carry the printed menu's "Except Noodle & Rice" rule. Their 中文
+          // is in OFF_CATALOGUE_ZH below (no à la carte row names them singly).
+          { name: "Chicken Chow Fun (Dry)", noRiceSide: true },
+          { name: "Beef Chow Fun (Dry)", noRiceSide: true },
           { name: "Chicken with Vegetable" },
           { name: "Orange Flavor Chicken" },
           { name: "Sweet & Sour Chicken" },

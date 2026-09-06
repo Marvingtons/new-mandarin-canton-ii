@@ -31,6 +31,18 @@ export interface MenuModifierGroup {
   /** Maximum selections allowed. null = unlimited. */
   maxAllowed: number | null;
   modifiers: MenuModifier[];
+  /**
+   * Suppress the item sheet's "preselect the first option" default for a
+   * REQUIRED single-select group, forcing the customer to choose actively.
+   *
+   * Rice and the #116 preparation both preselect Steamed, because Steamed is
+   * the sensible thing the counter gives you if you say nothing. A protein
+   * (Chicken vs Beef) has no such default — picking one FOR the customer is the
+   * kitchen deciding their order — so the "or" selector sets this, and the sheet
+   * opens with a dead Add button and a named reason, exactly like an unmet size
+   * would. See lib/menu/choice.ts and ItemSheet's required-single default.
+   */
+  requireExplicitChoice?: boolean;
 }
 
 /**
@@ -77,6 +89,28 @@ export interface MenuItem {
    * 20–30 minute pickup estimate instead of the standard 15–20.
    */
   longPrep?: boolean;
+  /**
+   * Present when the dish NAME hides a required protein/preparation choice —
+   * "Chicken or Beef Chow Fun", "Steamed or Fried Dumplings". The selector
+   * itself is a modifier group injected into `modifierGroups` (id
+   * CHOICE_GROUP_ID) so the sheet, pricing and validation treat it like any
+   * other required group; this field additionally carries the TICKET BASE NAME
+   * — the dish name with the "or" clause removed — so `resolveOrderLine` can
+   * store the line with the chosen option leading it ("Beef · Chow Fun (Dry)")
+   * rather than repeating the "or". See lib/menu/choice.ts.
+   */
+  choice?: ItemChoiceMeta;
+}
+
+/**
+ * The ticket base name for a choice-bearing item: the dish name with its
+ * "X or Y" clause removed, in both languages. Combined with the chosen option
+ * at order time (see lib/menu/choice.ts, resolveChoiceLine). `nameZh` is null
+ * only for a dish that carries no 中文 at all.
+ */
+export interface ItemChoiceMeta {
+  ticketBaseEn: string;
+  ticketBaseZh: string | null;
 }
 
 export interface MenuCategory {
