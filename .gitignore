@@ -55,3 +55,10 @@ next-env.d.ts
 # public/images/ are what the site serves and what git tracks; these are
 # 28 MB of PNG kept on disk for re-cropping, not for the bundle.
 /photo-originals/
+
+# Impeccable's platform engine binary. 12 MB, Mach-O arm64, and useless on
+# any other machine or in CI. The committed launcher
+# (.claude/skills/impeccable/scripts/impeccable) finds a cached engine in
+# ~/.impeccable/bin/<version>/ and downloads a checksum-verified one there
+# on first use, so ignoring this costs a teammate nothing.
+.claude/skills/impeccable/scripts/bin/
