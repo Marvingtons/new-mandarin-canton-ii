@@ -340,9 +340,15 @@ async function main(): Promise<void> {
     check("getOrderByIdempotencyKey finds it", byKey?.id === created.order.id);
     check(
       "integer cents survive the jsonb round trip",
-      byKey?.totals.totalCents === 2424 &&
+      // Assert the round-trip IDENTITY — what comes back equals what went in —
+      // rather than a hardcoded figure. The magic number here had drifted from
+      // the fixture's own stored total (2447) to a stale 2424, which is exactly
+      // the kind of silent divergence a round-trip test should be immune to.
+      byKey?.totals.totalCents === totals.totalCents &&
         Number.isInteger(byKey?.totals.totalCents) &&
-        byKey?.items[0].nameZh === "宮保雞丁",
+        byKey?.items[0].nameZh === line.nameZh,
+      `stored ${totals.totalCents}/${line.nameZh}, read back ` +
+        `${byKey?.totals.totalCents}/${byKey?.items[0].nameZh}`,
     );
     check(
       "the phone is stored in E.164",
