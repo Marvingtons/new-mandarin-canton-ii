@@ -25,6 +25,12 @@ const eslintConfig = defineConfig([
     ".wrangler/**",
     // Bundler stubs — not source, and one of them parses as binary.
     "scripts/stubs/**",
+    // Agent tooling installed into the repo, not project source. Impeccable
+    // vendors two minified browser bundles (live-browser.js and
+    // modern-screenshot.umd.js) that added 94 warnings to a previously
+    // 1-warning gate the moment they were committed. Same reasoning as the
+    // build-output entries above: nobody wrote this code and nobody can fix it.
+    ".claude/**",
   ]),
   {
     // custom-worker.ts imports two modules that DO NOT EXIST until a build

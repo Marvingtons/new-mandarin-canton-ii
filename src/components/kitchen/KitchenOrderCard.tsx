@@ -78,7 +78,7 @@ export default function KitchenOrderCard({
         failed
           ? "border-lacquer"
           : fresh
-            ? "border-gold shadow-[0_0_0_6px_rgba(201,162,77,0.25)]"
+            ? "border-gold shadow-[0_0_0_6px_color-mix(in_srgb,var(--gold)_25%,transparent)]"
             : done
               ? "border-ivory/15"
               : "border-gold/40"

@@ -62,3 +62,9 @@ next-env.d.ts
 # ~/.impeccable/bin/<version>/ and downloads a checksum-verified one there
 # on first use, so ignoring this costs a teammate nothing.
 .claude/skills/impeccable/scripts/bin/
+
+# Impeccable per-developer overrides and its dedup cache. The SHARED config
+# (.impeccable/config.json) is committed on purpose: it is what holds
+# hook.enabled=false through launch for everyone, not just one machine.
+.impeccable/config.local.json
+.impeccable/hook.cache.json

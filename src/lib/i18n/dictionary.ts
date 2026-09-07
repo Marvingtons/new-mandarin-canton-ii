@@ -478,7 +478,7 @@ export const en = {
      three labels for arrows and an "up next" card that no longer exist,
      removed rather than left as dead strings a translator would have to
      wonder about. */
-  "fav.seeOnMenu": "{name} — see it on the menu",
+  "fav.seeOnMenu": "{name}, see it on the menu",
 } as const;
 
 /** Every key the UI can ask for. Derived from `en`, never written by hand. */
@@ -783,7 +783,7 @@ export const es: Record<TranslationKey, string> = {
   "cart.increaseItem": "Agregar un {name}",
   "fav.intro": "Los platillos por los que regresan nuestros clientes.",
   "fav.seeFullMenu": "Ver el menú completo",
-  "fav.seeOnMenu": "{name} — véalo en el menú",
+  "fav.seeOnMenu": "{name}, véalo en el menú",
 };
 
 const TABLES: Record<Locale, Record<TranslationKey, string>> = {

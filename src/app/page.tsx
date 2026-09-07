@@ -100,7 +100,7 @@ export default async function HomePage() {
                   no third placement. */}
               <p
                 data-rise-item
-                className="mt-6 max-w-xl font-display text-2xl italic leading-snug text-lacquer sm:text-[1.75rem]"
+                className="mt-6 max-w-xl font-display text-2xl italic leading-snug text-lacquer sm:text-3xl"
               >
                 {t("story.threeGenerations")}
               </p>

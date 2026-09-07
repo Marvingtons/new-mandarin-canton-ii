@@ -92,7 +92,7 @@ function PrinterStrip({ printer }: { printer: PrinterPayload | null }) {
     },
     offline: {
       dot: "🔴",
-      text: "PRINTER OFFLINE — no poll for over 60s",
+      text: "PRINTER OFFLINE, no poll for over 60s",
       zh: "打印機離線",
       className: "border-lacquer bg-lacquer text-ivory",
       urgent: true,

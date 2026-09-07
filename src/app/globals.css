@@ -1052,6 +1052,10 @@ footer :focus-visible {
   content: "";
   position: absolute;
   inset: -1px;
+  /* DELIBERATE, and not a ninth brand colour: #fff4d6 is the specular
+     highlight travelling along the rule, i.e. a light source rather than
+     a surface. Deriving it from --gold-light would dull the very thing it
+     exists to do. Reviewed and kept; do not "tokenize" this one. */
   background: linear-gradient(90deg, transparent, #fff4d6, transparent);
   transform: translateX(-110%);
 }
