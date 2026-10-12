@@ -769,14 +769,6 @@ export const menu: MenuCategory[] = [
         spicy: true,
       },
       {
-        id: "yu-hsiang-pork",
-        name: "Yu Hsiang Pork",
-        chineseName: "魚香肉絲",
-        priceCents: 1950,
-        trayCents: 7000,
-        spicy: true,
-      },
-      {
         id: "mandarin-pork",
         name: "Mandarin Pork",
         // TODO(confirm): descriptive translation, family to approve
