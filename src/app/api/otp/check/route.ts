@@ -6,6 +6,7 @@ import { setRememberCookie, setVerifiedCookie } from "@/lib/otp/session";
 import { verifiedPhoneTtlDays } from "@/config/tenant.server";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
+import { previewOrderingBlocked } from "@/lib/http/deployHost";
 
 /**
  * POST /api/otp/check — verify the code and mint the proof-of-phone cookie.
@@ -35,6 +36,10 @@ function bad(message: string, status = 400) {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Not on a preview: verification calls the production Twilio account.
+  const blocked = previewOrderingBlocked(request);
+  if (blocked) return blocked;
+
   const ip = clientIp(request);
 
   const ipLimit = checkRateLimit("otp_check_ip", ip);
