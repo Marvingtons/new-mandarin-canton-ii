@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
+import { Playfair_Display, Lora } from "next/font/google";
 import { INTRO_GATE_SCRIPT } from "@/lib/introSignal";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
@@ -13,6 +13,7 @@ import BackToTop from "@/components/BackToTop";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import SmoothScroll from "@/components/SmoothScroll";
 import StickyOrderBar from "@/components/StickyOrderBar";
+import "./fonts/cjk.css";
 import "./globals.css";
 
 // Serif display face with character — headings only.
@@ -27,13 +28,11 @@ const lora = Lora({
   subsets: ["latin"],
 });
 
-// Chinese serif — bilingual section headings and Chinese dish names.
-// (Traditional characters; glyph chunks load on demand via unicode-range.)
-const notoSerifTC = Noto_Serif_TC({
-  variable: "--font-noto-tc",
-  weight: ["500", "700"],
-  subsets: ["latin"],
-});
+// Chinese serif (Noto Serif TC) is NOT next/font any more: it is
+// self-hosted from ./fonts/cjk.css, cut down to the characters this site
+// prints. Google's full sliced set cost 216 @font-face rules on every page
+// and 1.1 MB of font on the homepage. See scripts/build-site-cjk-font.mjs,
+// and rerun it after any change to Chinese copy or dish names.
 
 export const metadata: Metadata = {
   /* Every relative URL in every page's metadata resolves against this.
@@ -103,7 +102,7 @@ export default async function RootLayout({
   return (
     <html
       lang={htmlLang(locale)}
-      className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
+      className={`${playfair.variable} ${lora.variable} antialiased`}
       // The intro gate writes data-intro-skip here before React loads —
       // that is the whole point of it, and it is an attribute the server
       // could not have rendered, so hydration reports it as a mismatch it

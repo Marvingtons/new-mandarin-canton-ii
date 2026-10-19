@@ -167,7 +167,8 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  /* Fonts wired up via next/font in layout.tsx */
+  /* Fonts wired up via next/font in layout.tsx; --font-noto-tc comes
+     from the self-hosted subset in app/fonts/cjk.css */
   --font-display: var(--font-playfair), serif; /* headings only */
   --font-body: var(--font-lora), serif; /* body copy */
   --font-chinese: var(--font-noto-tc), serif; /* bilingual headings, dish names */

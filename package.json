@@ -9,6 +9,7 @@
     "lint": "eslint",
     "build:app-icons": "tsx scripts/build-app-icons.tsx",
     "build:ticket-font": "tsx scripts/build-ticket-font.ts && npm run build:font-module",
+    "build:site-cjk-font": "node scripts/build-site-cjk-font.mjs",
     "ticket:sample": "tsx --conditions=react-server scripts/ticket-sample.ts",
     "ticket:heights": "tsx --conditions=react-server scripts/ticket-heights.ts",
     "verify:ticket-glyphs": "tsx --conditions=react-server scripts/verify-ticket-glyphs.ts",
