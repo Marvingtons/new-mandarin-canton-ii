@@ -1453,3 +1453,31 @@ footer :focus-visible {
   }
 }
 
+
+/*
+ * THE FOOTER MAP'S STILL (MapFacade). A street grid in the frame's gold on
+ * the footer's ink, with one diagonal for the canyon road, so the box reads
+ * as "a map is here" without a picture of one. Hairline gold at low
+ * opacity: it is a placeholder, and the button on it is the only thing
+ * that should draw the eye.
+ */
+.map-facade {
+  background-color: color-mix(in srgb, var(--ivory) 6%, var(--ink));
+  background-image:
+    linear-gradient(
+      160deg,
+      transparent 52%,
+      color-mix(in srgb, var(--gold) 45%, transparent) 52.5% 54.5%,
+      transparent 55%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--gold) 14%, transparent) 0 1px,
+      transparent 1px 26px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--gold) 14%, transparent) 0 1px,
+      transparent 1px 34px
+    );
+}

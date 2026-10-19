@@ -5,6 +5,7 @@ import {
   restaurant,
 } from "@/data/restaurant";
 import { getT } from "@/lib/i18n/server";
+import MapFacade from "@/components/MapFacade";
 
 interface LocationMapProps {
   /** Aspect ratio of the framed map. */
@@ -17,6 +18,12 @@ interface LocationMapProps {
    * them in one viewport is the redundancy, not the reassurance.
    */
   showDirections?: boolean;
+  /**
+   * Render a still that loads the live embed on tap (see MapFacade).
+   * On in the footer, which every page carries; off on /contact, where
+   * the map is the point of the page.
+   */
+  facade?: boolean;
   className?: string;
 }
 
@@ -33,6 +40,7 @@ export default async function LocationMap({
   aspect = "16/9",
   tone = "dark",
   showDirections = true,
+  facade = false,
   className = "",
 }: LocationMapProps) {
   const t = await getT();
@@ -51,13 +59,22 @@ export default async function LocationMap({
           rounds together and none of them decides on its own. */}
       <div className="frame">
         <div className="overflow-hidden" style={{ aspectRatio: aspect }}>
-          <iframe
-            title={`Map to ${restaurant.name}, ${fullAddress}`}
-            src={mapEmbedUrl}
-            className="h-full w-full border-0"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
+          {facade ? (
+            <MapFacade
+              src={mapEmbedUrl}
+              title={`Map to ${restaurant.name}, ${fullAddress}`}
+              label={t("footer.showMap")}
+              address={fullAddress}
+            />
+          ) : (
+            <iframe
+              title={`Map to ${restaurant.name}, ${fullAddress}`}
+              src={mapEmbedUrl}
+              className="h-full w-full border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          )}
         </div>
       </div>
       {showDirections && (

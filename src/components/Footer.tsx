@@ -204,7 +204,7 @@ export default async function Footer() {
           {/* Directions off: the band above carries that link, and is the
               tappable copy of the address. This one is context for the map,
               so it sits with it — clear of the frame's edge. */}
-          <LocationMap showDirections={false} className="mt-3 max-w-sm" />
+          <LocationMap showDirections={false} facade className="mt-3 max-w-sm" />
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-ivory/60">
             {fullAddress}
           </p>
