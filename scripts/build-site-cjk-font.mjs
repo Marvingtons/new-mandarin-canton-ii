@@ -35,8 +35,8 @@
  * character are touched. The slices are a variable font, so each output
  * keeps the 500..700 weight axis: one file per group covers both weights.
  *
- * Staff screens are out of scope on purpose: they set Chinese in the
- * device's own sans (see the Geist note in app/layout.tsx).
+ * What counts as customer-facing (and why the staff screens do not) is
+ * in site-cjk-scope.mjs, shared with the prebuild check.
  */
 
 import fs from "node:fs";
@@ -44,6 +44,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import subsetFont from "subset-font";
+import { charsOf, customerSourceFiles } from "./site-cjk-scope.mjs";
 
 const ROOT = process.cwd();
 const OUT_DIR = path.join(ROOT, "src/app/fonts/cjk");
@@ -55,7 +56,6 @@ const DEFAULT_SOURCE =
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
-const CJK = /[　-〿㐀-䶿一-鿿豈-﫿＀-￯]/gu;
 
 const PAGES = [
   ["home", "/"],
@@ -65,19 +65,6 @@ const PAGES = [
   ["legal", "/privacy", "/terms"],
 ];
 
-// Customer-facing source for the `rest` group. Everything under src except
-// the staff app, the ticket renderer and server routes.
-const EXCLUDE = [
-  "src/app/[kitchenSlug]",
-  "src/app/api",
-  "src/components/kitchen",
-  "src/lib/kitchen",
-  "src/lib/ticket",
-  "src/lib/print",
-  "src/lib/otp",
-  "src/lib/orders",
-  "src/lib/notify",
-];
 
 function arg(name) {
   const i = process.argv.indexOf(name);
@@ -93,25 +80,12 @@ if (!site) {
   process.exit(1);
 }
 
-const charsOf = (text) => new Set(text.match(CJK) ?? []);
-
 /** Visible text of a page's HTML: no scripts, no styles, no tags. */
 function visibleText(html) {
   return html
     .replace(/<script[\s\S]*?<\/script>/g, "")
     .replace(/<style[\s\S]*?<\/style>/g, "")
     .replace(/<[^>]+>/g, " ");
-}
-
-function walk(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, entry.name);
-    const rel = path.relative(ROOT, p);
-    if (EXCLUDE.some((x) => rel === x || rel.startsWith(x + path.sep))) continue;
-    if (entry.isDirectory()) walk(p, out);
-    else if (/\.(tsx?|css)$/.test(entry.name)) out.push(p);
-  }
-  return out;
 }
 
 async function load(ref, base) {
@@ -166,7 +140,7 @@ for (const [name, chars] of pageChars) {
   groups.push({ name, chars: own });
 }
 const rest = new Set();
-for (const f of walk(path.join(ROOT, "src"))) {
+for (const f of customerSourceFiles(ROOT)) {
   for (const c of charsOf(fs.readFileSync(f, "utf8"))) if (!assigned.has(c)) rest.add(c);
 }
 groups.push({ name: "rest", chars: rest });
