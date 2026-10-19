@@ -43,27 +43,25 @@ export const metadata: Metadata = {
      cannot disagree about what this site's address is. */
   metadataBase: new URL(siteUrl()),
   title: {
-    default: "New Mandarin Canton II | Chinese Restaurant in Chula Vista, CA",
+    /* 56 characters. Leads with what a searcher types ("Chinese food")
+       and where, then the name; the old one was 62 and ran past what a
+       result shows. */
+    default: "Chinese Food in Chula Vista, CA | New Mandarin Canton II",
     template: "%s | New Mandarin Canton II",
   },
   /* The homepage's canonical. Every other page sets its own; none of
      them had one, so a crawler reaching /menu?utm_source=… had nothing
      telling it that was the same page as /menu. */
   alternates: { canonical: "/" },
-  /* 154 characters. The one it replaces was 163 — over the ~160 a
-     result snippet shows — and spent its last 44 on two phone numbers,
-     so the part that got cut was the part a search result exists to
-     carry. Same voice as the family's story now, and the facts are
-     theirs: 1995, family-run, Chula Vista, three cuisines, pickup only.
+  /* 151 characters: cuisine, place, and what to do next. "Since 1995"
+     is the family's own written date (see data/restaurant.ts).
 
-     ⚠️ ENGLISH IN BOTH LOCALES, like every description on the site. Not
-     an oversight and not fixed here: `metadata` is a static export
-     evaluated outside the request, so making it locale-aware is
-     `generateMetadata` on every page, which is a change to how the site
-     renders rather than a change to its copy. Logged in
+     ⚠️ ENGLISH IN BOTH LOCALES, like every description on the site:
+     `metadata` is a static export evaluated outside the request, so a
+     Spanish one is `generateMetadata` on every page. Logged in
      docs/SITE_REVIEW_2.md under P14. */
   description:
-    "Family-run Chinese restaurant in Chula Vista since 1995. Mandarin, Szechuan and Cantonese, cooked to order. Takeout pickup only, no delivery. Open 7 days.",
+    "Family-run Chinese restaurant in Chula Vista since 1995. Cantonese, Mandarin and Szechuan dishes cooked to order. Order pickup online or call us today.",
 };
 
 /**
