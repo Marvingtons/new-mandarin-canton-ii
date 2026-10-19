@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
 /**
  * /order is now /menu.
@@ -12,9 +12,13 @@ import { redirect } from "next/navigation";
  * months, and a 404 on the ordering link is the most expensive 404 this site
  * could serve.
  *
- * NOT a permanent redirect: browsers cache a 308 indefinitely, and where
- * ordering lives is a routing decision that has already changed once.
+ * PERMANENT (308) since the SEO pass. It was a 307 on the grounds that
+ * browsers cache a 308 indefinitely and where ordering lives had already
+ * moved once. The owner chose 308: /menu is where ordering lives, and a
+ * permanent redirect is what tells a search engine to credit /menu with
+ * any link still pointing here. If ordering ever moves again, /menu is the
+ * page that has to forward, not this one.
  */
 export default function OrderPage(): never {
-  redirect("/menu#order");
+  permanentRedirect("/menu#order");
 }
