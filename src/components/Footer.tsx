@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import Established from "@/components/Established";
+import HiddenOn from "@/components/HiddenOn";
 import HoursTable from "@/components/HoursTable";
 import LocationMap from "@/components/LocationMap";
 import OpenNowChip from "@/components/OpenNowChip";
@@ -130,85 +131,89 @@ export default async function Footer() {
             {restaurant.tagline}
           </p>
         </div>
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            {t("footer.hours")}
-          </h2>
-          {/* Summary and table are the same data at two resolutions, which
-              is worth keeping — but the table is the answer, so the line
-              above it is set quieter than the rows it introduces.
+        {/* Hours and Find Us are what /contact IS, so on that page these
+            two columns were the same headings and a second map, twice. */}
+        <HiddenOn paths={["/contact"]}>
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+              {t("footer.hours")}
+            </h2>
+            {/* Summary and table are the same data at two resolutions, which
+                is worth keeping — but the table is the answer, so the line
+                above it is set quieter than the rows it introduces.
 
-              text-sm, not text-xs. The 390 pass found the footer holding
-              every remaining sub-14px sentence on the site — this line,
-              the cutoff note below, the pickup line and the copyright —
-              and unlike the small-caps labels around them, none of them
-              is a label. They are sentences, and 12px running text on a
-              phone is where "quieter" turns into "not read". Quiet is
-              still carried by the opacity, which is what it was for. */}
-          <p className="mt-3 text-sm leading-relaxed text-ivory/50">
-            {weeklyOpeningSummary}
-          </p>
-          <HoursTable tone="dark" dense className="mt-4" />
-          {/* The website's cutoff, under the hours it qualifies.
-              TODAY's, not the week's: the owner set the cutoff to closing
-              time, which made Saturday's 9:00 PM disagree with the rest of
-              the week's 8:30. This line used to read
-              `sharedLastOnlineOrder` and render NOTHING when the days
-              disagreed — a rule written to stop one number standing in for
-              two, which on the day it fired would instead have published
-              no cutoff at all. It names today's and the number is always
-              true. */}
-          {cutoff && (
+                text-sm, not text-xs. The 390 pass found the footer holding
+                every remaining sub-14px sentence on the site — this line,
+                the cutoff note below, the pickup line and the copyright —
+                and unlike the small-caps labels around them, none of them
+                is a label. They are sentences, and 12px running text on a
+                phone is where "quieter" turns into "not read". Quiet is
+                still carried by the opacity, which is what it was for. */}
             <p className="mt-3 text-sm leading-relaxed text-ivory/50">
-              {t("footer.lastOnlineOrder", { time: cutoff.label })}
+              {weeklyOpeningSummary}
             </p>
-          )}
-          {/* HOLIDAY HOURS, and the only place besides /contact that says
-              so. It sits under the hours because that is the claim it
-              qualifies, and it is deliberately NOT a third band on the
-              menu page — the notice card there stays two lines.
+            <HoursTable tone="dark" dense className="mt-4" />
+            {/* The website's cutoff, under the hours it qualifies.
+                TODAY's, not the week's: the owner set the cutoff to closing
+                time, which made Saturday's 9:00 PM disagree with the rest of
+                the week's 8:30. This line used to read
+                `sharedLastOnlineOrder` and render NOTHING when the days
+                disagreed — a rule written to stop one number standing in for
+                two, which on the day it fired would instead have published
+                no cutoff at all. It names today's and the number is always
+                true. */}
+            {cutoff && (
+              <p className="mt-3 text-sm leading-relaxed text-ivory/50">
+                {t("footer.lastOnlineOrder", { time: cutoff.label })}
+              </p>
+            )}
+            {/* HOLIDAY HOURS, and the only place besides /contact that says
+                so. It sits under the hours because that is the claim it
+                qualifies, and it is deliberately NOT a third band on the
+                menu page — the notice card there stays two lines.
 
-              "please call ahead" IS the phone link rather than sitting
-              beside a spelled-out number: this footer already prints both
-              numbers as full-size buttons in the contact band above, and a
-              third copy in the hours column would be the same fact three
-              times in one screen. */}
-          <p className="mt-3 text-sm leading-relaxed text-ivory/50">
-            {t("hours.holidayLead")}{" "}
-            <span aria-hidden="true" className="text-ivory/25">
-              ·
-            </span>{" "}
-            <a
-              href={telHref}
-              className="tap token-colors underline decoration-gold/50 underline-offset-4 hover:text-ivory/85"
-            >
-              {t("hours.holidayCall")}
-            </a>{" "}
-            {/* text-ivory-muted, not ivory/40. At /40 this measured
-                3.53:1 on ink — the one colour-contrast failure in the
-                whole audit. There is no alpha that is both quieter than
-                the /50 line it sits in AND readable, so this stops
-                trying to be quieter than its own sentence: the Noto
-                Serif TC face and the lang switch are what set it apart
-                now, which is the distinction that was doing the work
-                anyway. See --ivory-muted in globals.css. */}
-            <span lang="zh-Hant" className="font-chinese text-ivory-muted">
-              {t("hours.holidayZh")}
-            </span>
-          </p>
-        </div>
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
-            {t("footer.findUs")}
-          </h2>
-          {/* Directions off: the band above carries that link, and is the
-              tappable copy of the address. This one is context for the map,
-              so it sits with it — clear of the frame's edge. */}
-          <LocationMap showDirections={false} facade className="mt-3 max-w-sm" />
-          <p className="mt-3 max-w-sm text-sm leading-relaxed text-ivory/60">
-            {fullAddress}
-          </p>
-        </div>
+                "please call ahead" IS the phone link rather than sitting
+                beside a spelled-out number: this footer already prints both
+                numbers as full-size buttons in the contact band above, and a
+                third copy in the hours column would be the same fact three
+                times in one screen. */}
+            <p className="mt-3 text-sm leading-relaxed text-ivory/50">
+              {t("hours.holidayLead")}{" "}
+              <span aria-hidden="true" className="text-ivory/25">
+                ·
+              </span>{" "}
+              <a
+                href={telHref}
+                className="tap token-colors underline decoration-gold/50 underline-offset-4 hover:text-ivory/85"
+              >
+                {t("hours.holidayCall")}
+              </a>{" "}
+              {/* text-ivory-muted, not ivory/40. At /40 this measured
+                  3.53:1 on ink — the one colour-contrast failure in the
+                  whole audit. There is no alpha that is both quieter than
+                  the /50 line it sits in AND readable, so this stops
+                  trying to be quieter than its own sentence: the Noto
+                  Serif TC face and the lang switch are what set it apart
+                  now, which is the distinction that was doing the work
+                  anyway. See --ivory-muted in globals.css. */}
+              <span lang="zh-Hant" className="font-chinese text-ivory-muted">
+                {t("hours.holidayZh")}
+              </span>
+            </p>
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+              {t("footer.findUs")}
+            </h2>
+            {/* Directions off: the band above carries that link, and is the
+                tappable copy of the address. This one is context for the map,
+                so it sits with it — clear of the frame's edge. */}
+            <LocationMap showDirections={false} facade className="mt-3 max-w-sm" />
+            <p className="mt-3 max-w-sm text-sm leading-relaxed text-ivory/60">
+              {fullAddress}
+            </p>
+          </div>
+        </HiddenOn>
       </div>
 
       <div className="border-t border-ivory/10 px-4 py-7 text-center text-sm leading-relaxed text-ivory/50">
