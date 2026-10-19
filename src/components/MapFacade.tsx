@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { mapEmbedSandbox } from "@/data/restaurant";
 
 interface MapFacadeProps {
   /** The keyless Google Maps embed URL. */
@@ -42,6 +43,7 @@ export default function MapFacade({ src, title, label, note, address }: MapFacad
         src={src}
         className="h-full w-full border-0"
         referrerPolicy="no-referrer-when-downgrade"
+        sandbox={mapEmbedSandbox}
       />
     );
   }

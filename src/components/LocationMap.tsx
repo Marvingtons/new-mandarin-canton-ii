@@ -1,6 +1,7 @@
 import {
   directionsUrl,
   fullAddress,
+  mapEmbedSandbox,
   mapEmbedUrl,
   restaurant,
 } from "@/data/restaurant";
@@ -74,6 +75,7 @@ export default async function LocationMap({
               className="h-full w-full border-0"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
+              sandbox={mapEmbedSandbox}
             />
           )}
         </div>
