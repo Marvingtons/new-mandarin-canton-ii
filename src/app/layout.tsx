@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Playfair_Display, Lora } from "next/font/google";
 import { INTRO_GATE_SCRIPT } from "@/lib/introSignal";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
 import Header from "@/components/Header";
+import PreviewBanner from "@/components/PreviewBanner";
+import { isProductionHost, normalizeHost } from "@/lib/http/deployHost";
 import JsonLd from "@/components/JsonLd";
 import { graph, restaurantNode, websiteNode } from "@/lib/schema";
 import { siteUrl } from "@/lib/siteUrl";
@@ -34,7 +36,7 @@ const lora = Lora({
 // and 1.1 MB of font on the homepage. See scripts/build-site-cjk-font.mjs,
 // and rerun it after any change to Chinese copy or dish names.
 
-export const metadata: Metadata = {
+const siteMetadata: Metadata = {
   /* Every relative URL in every page's metadata resolves against this.
      Without it, Next builds og:image off the REQUEST host — which is
      correct in production by luck and wrong on any preview deployment,
@@ -63,6 +65,22 @@ export const metadata: Metadata = {
   description:
     "Family-run Chinese restaurant in Chula Vista since 1995. Cantonese, Mandarin and Szechuan dishes cooked to order. Order pickup online or call us today.",
 };
+
+/**
+ * The site's metadata, plus noindex everywhere that is not production.
+ *
+ * A preview deployment (any workers.dev branch URL) serves the whole site,
+ * and without this a crawler that found one would index a second copy of
+ * every page. The canonical tags already point at production; noindex is
+ * what keeps the copy out of the index in the first place. The same rule
+ * goes out as an X-Robots-Tag header from custom-worker.ts, which also
+ * covers the API and non-HTML responses. Production gets neither.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const host = normalizeHost((await headers()).get("host"));
+  if (isProductionHost(host)) return siteMetadata;
+  return { ...siteMetadata, robots: { index: false, follow: false } };
+}
 
 /**
  * ⚠️ READING THE LOCALE COOKIE HERE MAKES EVERY ROUTE DYNAMIC, and that
@@ -126,6 +144,7 @@ export default async function RootLayout({
             them. */}
         <JsonLd data={graph(restaurantNode(), websiteNode())} />
         <LocaleProvider locale={locale}>
+          <PreviewBanner />
           <SmoothScroll />
           <LoadingOverlay />
           <Header />
