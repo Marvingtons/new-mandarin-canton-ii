@@ -141,7 +141,14 @@ export function restaurantNode(): Node {
       addressCountry: "US",
     },
     hasMap: directionsUrl,
-    servesCuisine: restaurant.cuisines,
+    // "Chinese" leads because it is what every page calls this place
+    // ("family-run Chinese restaurant") and what a searcher types; the
+    // three regional styles follow as the site publishes them.
+    servesCuisine: ["Chinese", ...restaurant.cuisines],
+    // `hasMenu` is the current property and points at the Menu node /menu
+    // embeds, so the two graphs join on one @id. `menu` is its older name,
+    // kept for readers that only know that one.
+    hasMenu: { "@type": "Menu", "@id": ids.menu(), url: `${base}/menu` },
     menu: `${base}/menu`,
     // Confirmed by the family's own written history. Year only: the
     // month is not recorded anywhere checkable.
@@ -207,6 +214,7 @@ export function menuGraph(): Node {
     "@type": "Menu",
     "@id": ids.menu(),
     name: "Menu",
+    url: `${siteUrl()}/menu`,
     inLanguage: "en",
     hasMenuSection: menu.map((category) => ({
       "@type": "MenuSection",
