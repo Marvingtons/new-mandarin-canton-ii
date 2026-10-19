@@ -66,6 +66,9 @@
 /hero-poster-plate.jpg
   Cache-Control: public, max-age=31536000, immutable
 
+/hero-poster-plate.webp
+  Cache-Control: public, max-age=31536000, immutable
+
 # NOTE: the hero footage is NOT here. It is an R2 object on
 # media.newmandarincantonii.com, and R2 serves whatever cacheControl was
 # written at upload time rather than anything in this file — see

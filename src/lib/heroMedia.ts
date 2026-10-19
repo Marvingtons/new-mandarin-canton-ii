@@ -72,5 +72,9 @@ export const HERO_SOURCES: ReadonlyArray<{ src: string; type: string }> = [
  * paints it as a background-image on .hero-kenburns. It is covered in
  * public/_headers by the same year-long immutable rule as /images/*,
  * under the rename-on-change convention src/data/images.ts documents.
+ *
+ * WebP, re-encoded from the .jpg beside it (q78: 91 KB against 138 KB,
+ * same 1920x1080). A new filename rather than new bytes under the old
+ * one, per that convention. The .jpg stays as the source.
  */
-export const HERO_POSTER = "/hero-poster-plate.jpg";
+export const HERO_POSTER = "/hero-poster-plate.webp";
