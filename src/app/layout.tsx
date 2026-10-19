@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
+import { cookies, headers } from "next/headers";
+import { Playfair_Display, Lora } from "next/font/google";
 import { INTRO_GATE_SCRIPT } from "@/lib/introSignal";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
 import Header from "@/components/Header";
+import PreviewBanner from "@/components/PreviewBanner";
+import { isProductionHost, normalizeHost } from "@/lib/http/deployHost";
 import JsonLd from "@/components/JsonLd";
 import { graph, restaurantNode, websiteNode } from "@/lib/schema";
 import { siteUrl } from "@/lib/siteUrl";
 import Footer from "@/components/Footer";
 import BackToTop from "@/components/BackToTop";
 import LoadingOverlay from "@/components/LoadingOverlay";
-import SmoothScroll from "@/components/SmoothScroll";
+import { SmoothScroll } from "@/components/DeferredMotion";
 import StickyOrderBar from "@/components/StickyOrderBar";
+import "./fonts/cjk.css";
 import "./globals.css";
 
 // Serif display face with character — headings only.
@@ -27,15 +30,13 @@ const lora = Lora({
   subsets: ["latin"],
 });
 
-// Chinese serif — bilingual section headings and Chinese dish names.
-// (Traditional characters; glyph chunks load on demand via unicode-range.)
-const notoSerifTC = Noto_Serif_TC({
-  variable: "--font-noto-tc",
-  weight: ["500", "700"],
-  subsets: ["latin"],
-});
+// Chinese serif (Noto Serif TC) is NOT next/font any more: it is
+// self-hosted from ./fonts/cjk.css, cut down to the characters this site
+// prints. Google's full sliced set cost 216 @font-face rules on every page
+// and 1.1 MB of font on the homepage. See scripts/build-site-cjk-font.mjs,
+// and rerun it after any change to Chinese copy or dish names.
 
-export const metadata: Metadata = {
+const siteMetadata: Metadata = {
   /* Every relative URL in every page's metadata resolves against this.
      Without it, Next builds og:image off the REQUEST host — which is
      correct in production by luck and wrong on any preview deployment,
@@ -44,28 +45,42 @@ export const metadata: Metadata = {
      cannot disagree about what this site's address is. */
   metadataBase: new URL(siteUrl()),
   title: {
-    default: "New Mandarin Canton II | Chinese Restaurant in Chula Vista, CA",
+    /* 56 characters. Leads with what a searcher types ("Chinese food")
+       and where, then the name; the old one was 62 and ran past what a
+       result shows. */
+    default: "Chinese Food in Chula Vista, CA | New Mandarin Canton II",
     template: "%s | New Mandarin Canton II",
   },
   /* The homepage's canonical. Every other page sets its own; none of
      them had one, so a crawler reaching /menu?utm_source=… had nothing
      telling it that was the same page as /menu. */
   alternates: { canonical: "/" },
-  /* 154 characters. The one it replaces was 163 — over the ~160 a
-     result snippet shows — and spent its last 44 on two phone numbers,
-     so the part that got cut was the part a search result exists to
-     carry. Same voice as the family's story now, and the facts are
-     theirs: 1995, family-run, Chula Vista, three cuisines, pickup only.
+  /* 151 characters: cuisine, place, and what to do next. "Since 1995"
+     is the family's own written date (see data/restaurant.ts).
 
-     ⚠️ ENGLISH IN BOTH LOCALES, like every description on the site. Not
-     an oversight and not fixed here: `metadata` is a static export
-     evaluated outside the request, so making it locale-aware is
-     `generateMetadata` on every page, which is a change to how the site
-     renders rather than a change to its copy. Logged in
+     ⚠️ ENGLISH IN BOTH LOCALES, like every description on the site:
+     `metadata` is a static export evaluated outside the request, so a
+     Spanish one is `generateMetadata` on every page. Logged in
      docs/SITE_REVIEW_2.md under P14. */
   description:
-    "Family-run Chinese restaurant in Chula Vista since 1995. Mandarin, Szechuan and Cantonese, cooked to order. Takeout pickup only, no delivery. Open 7 days.",
+    "Family-run Chinese restaurant in Chula Vista since 1995. Cantonese, Mandarin and Szechuan dishes cooked to order. Order pickup online or call us today.",
 };
+
+/**
+ * The site's metadata, plus noindex everywhere that is not production.
+ *
+ * A preview deployment (any workers.dev branch URL) serves the whole site,
+ * and without this a crawler that found one would index a second copy of
+ * every page. The canonical tags already point at production; noindex is
+ * what keeps the copy out of the index in the first place. The same rule
+ * goes out as an X-Robots-Tag header from custom-worker.ts, which also
+ * covers the API and non-HTML responses. Production gets neither.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const host = normalizeHost((await headers()).get("host"));
+  if (isProductionHost(host)) return siteMetadata;
+  return { ...siteMetadata, robots: { index: false, follow: false } };
+}
 
 /**
  * ⚠️ READING THE LOCALE COOKIE HERE MAKES EVERY ROUTE DYNAMIC, and that
@@ -103,7 +118,7 @@ export default async function RootLayout({
   return (
     <html
       lang={htmlLang(locale)}
-      className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
+      className={`${playfair.variable} ${lora.variable} antialiased`}
       // The intro gate writes data-intro-skip here before React loads —
       // that is the whole point of it, and it is an attribute the server
       // could not have rendered, so hydration reports it as a mismatch it
@@ -129,6 +144,7 @@ export default async function RootLayout({
             them. */}
         <JsonLd data={graph(restaurantNode(), websiteNode())} />
         <LocaleProvider locale={locale}>
+          <PreviewBanner />
           <SmoothScroll />
           <LoadingOverlay />
           <Header />
