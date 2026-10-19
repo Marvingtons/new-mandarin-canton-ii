@@ -396,7 +396,8 @@ footer :focus-visible {
  */
 .stamp-out {
   transform: translateY(calc(-100% - var(--stamp-skirt)));
-  transition: transform 0.6s cubic-bezier(0.645, 0.045, 0.355, 1);
+  /* WIPE_MS in LoadingOverlay; the two move together. */
+  transition: transform 0.4s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 .stamp-hem {
   position: absolute;
@@ -438,8 +439,22 @@ footer :focus-visible {
      letter; pull it back so the lockup is optically centred. */
   text-indent: 0.42em;
   color: var(--gold-light);
-  opacity: 0;
+  /* Visible from the first paint. It used to start at 0 and letterpress
+     in at 0.75s, which kept the restaurant's name off screen for the
+     whole opening. */
   white-space: nowrap;
+}
+
+/*
+ * THE HEADER RIDES ABOVE THE CURTAIN. The overlay renders before the
+ * header in the layout, so this sibling rule exists exactly as long as the
+ * overlay does: while the seal plays, the brand lockup and the nav are
+ * on screen and usable instead of under ink, and the curtain lifts away
+ * beneath them. When the overlay unmounts the header drops back to its
+ * own z-50, under the order sheets and dialogs it normally sits under.
+ */
+.stamp ~ [data-site-header] {
+  z-index: 210;
 }
 
 /*
