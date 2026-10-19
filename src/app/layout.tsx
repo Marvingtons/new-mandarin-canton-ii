@@ -11,7 +11,7 @@ import { siteUrl } from "@/lib/siteUrl";
 import Footer from "@/components/Footer";
 import BackToTop from "@/components/BackToTop";
 import LoadingOverlay from "@/components/LoadingOverlay";
-import SmoothScroll from "@/components/SmoothScroll";
+import { SmoothScroll } from "@/components/DeferredMotion";
 import StickyOrderBar from "@/components/StickyOrderBar";
 import "./fonts/cjk.css";
 import "./globals.css";

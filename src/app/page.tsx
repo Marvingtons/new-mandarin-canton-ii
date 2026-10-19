@@ -6,7 +6,7 @@ import FavoritesSpotlight from "@/components/FavoritesSpotlight";
 import GoldCorners from "@/components/GoldCorners";
 import GoldDivider from "@/components/GoldDivider";
 import HeroVideo from "@/components/HeroVideo";
-import HomeChoreography from "@/components/HomeChoreography";
+import { HomeChoreography } from "@/components/DeferredMotion";
 import IncenseSmoke from "@/components/IncenseSmoke";
 import MandarinCluster from "@/components/MandarinCluster";
 import Parallax from "@/components/Parallax";
