@@ -14,7 +14,7 @@ import {
   YUAN_DS,
 } from "@/lib/brand/seal";
 import { restaurant } from "@/data/restaurant";
-import { HERO_POSTER } from "@/lib/heroMedia";
+import { HERO_POSTER, heroVideoSkipped } from "@/lib/heroMedia";
 import {
   INTRO_SESSION_KEY,
   introWillPlay,
@@ -146,15 +146,12 @@ function whenReady(): Promise<void> {
     ? document.fonts.ready.then(() => undefined).catch(() => undefined)
     : Promise.resolve();
 
-  // Under reduced motion HeroVideo never mounts a video at all — those
-  // visitors keep the poster — so waiting on one would park every single
-  // reduced-motion visitor on the 1.8s cap, every time. Measured: 1834ms
-  // hold with the video leg starved, against ~1.2s when it resolves. The
-  // poster leg above is the whole of readiness for them.
-  const reduced =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduced) return Promise.all([poster, fonts]).then(() => undefined);
+  // Under reduced motion or Save-Data HeroVideo never mounts a video at
+  // all — those visitors keep the poster — so waiting on one would park
+  // every one of them on the cap, every time. The poster leg above is the
+  // whole of readiness for them.
+  const noVideo = typeof window !== "undefined" && heroVideoSkipped();
+  if (noVideo) return Promise.all([poster, fonts]).then(() => undefined);
 
   /**
    * POSTER FIRST, MOVIE SECOND, ALWAYS.

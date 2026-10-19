@@ -78,3 +78,17 @@ export const HERO_SOURCES: ReadonlyArray<{ src: string; type: string }> = [
  * one, per that convention. The .jpg stays as the source.
  */
 export const HERO_POSTER = "/hero-poster-plate.webp";
+
+/**
+ * True when the hero should stay on the poster and never mount a video:
+ * prefers-reduced-motion, or Save-Data (a phone in data-saver mode asked
+ * not to be sent ~1.8 MB of footage). HeroVideo uses it to skip the mount
+ * and LoadingOverlay to skip waiting for a first frame that will never
+ * come. Browser only.
+ */
+export function heroVideoSkipped(): boolean {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } })
+    .connection;
+  return connection?.saveData === true;
+}

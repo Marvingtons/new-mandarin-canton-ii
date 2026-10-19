@@ -7,7 +7,7 @@ import OpenNowChip from "@/components/OpenNowChip";
 import OrderTakeout from "@/components/OrderTakeout";
 import { ARC_VIEWBOX, HEM_D } from "@/lib/brand/arc";
 import { useT } from "@/lib/i18n/LocaleContext";
-import { HERO_POSTER, HERO_SOURCES } from "@/lib/heroMedia";
+import { HERO_POSTER, HERO_SOURCES, heroVideoSkipped } from "@/lib/heroMedia";
 import { introWillPlay, onIntroLifted } from "@/lib/introSignal";
 import { primaryPhone, restaurant, telHref } from "@/data/restaurant";
 
@@ -268,10 +268,13 @@ export default function HeroVideo() {
   }, [unveiled]);
 
   // Mount the video client-side only, never under prefers-reduced-motion
-  // (those visitors keep the poster still).
+  // (those visitors keep the poster still), and never with Save-Data on:
+  // a phone in data-saver mode asked not to be sent ~1.8 MB of footage,
+  // and the poster is the same dish. Same path as reduced motion, so the
+  // overlay and the text reveal behave exactly as they do there.
   useEffect(() => {
     if (!HERO_HAS_VIDEO) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (heroVideoSkipped()) return;
     const t = setTimeout(() => setVideo("on"), 0);
     return () => clearTimeout(t);
   }, []);
