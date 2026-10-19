@@ -228,7 +228,9 @@ export const en = {
   "footer.getDirections": "Get Directions",
   /* The footer map is a still until tapped (see MapFacade). Names the
      action, not the widget: what loads is Google Maps, interactive. */
-  "footer.showMap": "Show map",
+  "footer.showMap": "Tap to load map",
+  /* Printed on the still so nobody mistakes the drawn grid for a map. */
+  "footer.mapNote": "Map preview. Google Maps loads when you tap.",
   "footer.pickupOnly": "Takeout pickup only · no delivery",
   "footer.allergyQuestions": "Questions about allergies? Call us.",
   /* ⚠️ THE SECOND SENTENCE HAD TO GO. It read "The dining room stays open
@@ -663,7 +665,8 @@ export const es: Record<TranslationKey, string> = {
   // footer column read "Cómo llegar" twice.
   "footer.findUs": "Dónde estamos",
   "footer.getDirections": "Cómo llegar",
-  "footer.showMap": "Ver el mapa",
+  "footer.showMap": "Toque para cargar el mapa",
+  "footer.mapNote": "Vista previa. Google Maps se carga al tocar.",
   "footer.pickupOnly": "Solo para llevar · sin entrega a domicilio",
   "footer.allergyQuestions": "¿Preguntas sobre alergias? Llámenos.",
   /* Second sentence dropped, like the English: the cutoff is closing time

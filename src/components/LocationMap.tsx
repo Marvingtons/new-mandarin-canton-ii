@@ -64,6 +64,7 @@ export default async function LocationMap({
               src={mapEmbedUrl}
               title={`Map to ${restaurant.name}, ${fullAddress}`}
               label={t("footer.showMap")}
+              note={t("footer.mapNote")}
               address={fullAddress}
             />
           ) : (
