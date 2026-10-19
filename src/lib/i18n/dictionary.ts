@@ -313,8 +313,13 @@ export const en = {
      family's — they say "we'll keep cooking every dish the way we always
      have", in full sentences. Same claim, their rhythm, and the 1995
      they confirmed now stands here too. */
+  /* SEO pass: names the city (the old text never said Chula Vista), two
+     of the House Favorites, and ends on what to do next. Same facts, same
+     room; 66 words.
+     ⚠️ HELD: the owner is confirming the two dish names before this
+     ships. */
   "home.storyBody":
-    "New Mandarin Canton II is a family-run Chinese restaurant on Telegraph Canyon Road: calligraphy on the walls, an altar by the door with incense and fresh tangerines. We opened in 1995, and we cook Mandarin, Szechuan and Cantonese dishes the way we always have.",
+    "New Mandarin Canton II is a family-run Chinese restaurant on Telegraph Canyon Road in Chula Vista, open since 1995. We cook Cantonese, Mandarin and Szechuan dishes to order, from honey walnut shrimp to house soft noodles. Inside you will find calligraphy on the walls and an altar by the door with incense and fresh tangerines. Order pickup online, or call and we will have it ready.",
   "home.readOurStory": "Read our story",
   "home.roomTitle": "The Room",
   "home.roomIntro": "Come in. The room is part of the meal.",
@@ -704,7 +709,7 @@ export const es: Record<TranslationKey, string> = {
      tables in it is the comedor. */
   "home.storyTitle": "Nuestra historia",
   "home.storyBody":
-    "New Mandarin Canton II es un restaurante chino familiar en Telegraph Canyon Road: caligrafía en las paredes, un altar junto a la puerta con incienso y mandarinas frescas. Abrimos en 1995, y cocinamos comida mandarina, sichuanesa y cantonesa como siempre lo hemos hecho.",
+    "New Mandarin Canton II es un restaurante chino familiar en Telegraph Canyon Road, en Chula Vista, abierto desde 1995. Cocinamos al momento comida cantonesa, mandarina y sichuanesa, desde camarones con nuez y miel hasta nuestros fideos suaves de la casa. Adentro encontrará caligrafía en las paredes y un altar junto a la puerta con incienso y mandarinas frescas. Ordene para recoger en línea, o llámenos y se lo tendremos listo.",
   "home.readOurStory": "Lea nuestra historia",
   "home.roomTitle": "El comedor",
   "home.roomIntro": "Pase. El comedor es parte de la comida.",
