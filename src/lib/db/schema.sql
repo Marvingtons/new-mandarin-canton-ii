@@ -104,19 +104,8 @@ create table if not exists orders (
   -- ceiling the claim is left in place and the order stays visible on the
   -- kitchen board instead.
   alert_attempts    int         not null default 0,
-  -- Where the order came from. 'web' is the online checkout; 'phone' and
-  -- 'walk_in' are entered by staff on the POS screen. Same pipeline either way:
-  -- same counter, same server-side pricing, same printer path.
-  channel           text        not null default 'web',
-  -- Free text from the POS, e.g. "paid by phone, card ending 4417". The POS
-  -- never takes a card; this only records what happened on the terminal.
-  payment_note      text,
-  -- Internal staff note. Never printed. Also where a cancellation's reason goes.
-  staff_note        text,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
-
-  constraint orders_channel_check check (channel in ('web', 'phone', 'walk_in')),
 
   constraint orders_status_check check (
     status in (
@@ -145,14 +134,6 @@ create unique index if not exists orders_number_uniq
 -- Drives the /kitchen board query.
 create index if not exists orders_kitchen_idx
   on orders (tenant_id, business_date, status, created_at desc);
-
--- Order history: a date range, newest first, across every status.
-create index if not exists orders_history_idx
-  on orders (tenant_id, business_date, created_at desc);
-
--- Repeat-customer lookup on the POS. The phone lives in the customer jsonb.
-create index if not exists orders_customer_phone_idx
-  on orders (tenant_id, (customer->>'phone'));
 
 -- Drives the CloudPRNT claim and the unprinted-order alert sweep. Partial, so
 -- it stays small: only orders that still need something to happen to them.

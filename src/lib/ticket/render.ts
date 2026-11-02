@@ -511,15 +511,6 @@ export async function composeTicketSvg(
 
   c.text(order.orderNumber, { size: 96, weight: 700, lineHeight: 1.1, marginTop: 2 });
 
-  /* A staff-entered order says so, inverted, under the number: there is no
-     customer refreshing a confirmation page for it, and the person at the
-     counter may be the one who took the call. Web orders print nothing here. */
-  if (order.channel === "phone" || order.channel === "walk_in") {
-    const zh = zhIfPrintable(order.channel === "phone" ? L.phoneOrder : L.walkIn, coverage);
-    const en = order.channel === "phone" ? "PHONE ORDER" : "WALK-IN";
-    c.banner(zh ? `${zh} ${en}` : en, { size: 30, marginTop: 6 });
-  }
-
   c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
     box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
     box.text(pickupLabel, { size: 52, weight: 700 });

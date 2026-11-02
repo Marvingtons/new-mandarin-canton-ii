@@ -154,43 +154,6 @@
   --radius-full: 9999px;
 }
 
-/*
- * ---- THE STAFF AREA'S OWN PALETTE --------------------------------------
- *
- * The board, the POS and the history are a working tool used under bright
- * restaurant light for hours at a time, not the dining room. PRODUCT.md
- * principle 5 already ranks kitchen legibility above consistency with the
- * customer site, and the owner asked for something calmer. So this is a
- * separate, deliberately quiet world: warm off-white ground, white panels on
- * hairlines, near-black text, ONE teal for the action that matters, and
- * status colours used only for status. Nothing here is used outside
- * [data-kitchen-surface].
- *
- * Contrast on white: ink 16.9:1, soft 8.1:1, faint 5.6:1, accent 6.0:1
- * (white on accent 6.0:1), danger 6.2:1, warn 5.9:1.
- */
-@theme {
-  --color-staff-bg: #f3f2ef;
-  --color-staff-panel: #ffffff;
-  --color-staff-sunken: #ebe9e4;
-  --color-staff-line: #e0ddd6;
-  --color-staff-line-strong: #c7c3ba;
-  --color-staff-ink: #1b1a17;
-  --color-staff-soft: #4b4741;
-  --color-staff-faint: #66625b;
-  --color-staff-accent: #0d6b5d;
-  --color-staff-accent-hover: #09564b;
-  --color-staff-accent-tint: #e2f0ec;
-  --color-staff-danger: #b3261e;
-  --color-staff-danger-tint: #fbeae8;
-  --color-staff-warn: #8a5300;
-  --color-staff-warn-tint: #fdf1d8;
-  --color-staff-blue: #2f5486;
-  --color-staff-blue-tint: #e6edf6;
-  --font-staff: var(--font-geist), "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC",
-    "Microsoft JhengHei", system-ui, sans-serif;
-}
-
 @theme inline {
   --color-lacquer: var(--lacquer);
   --color-lacquer-dark: var(--lacquer-dark);
@@ -269,25 +232,6 @@ footer :focus-visible {
 ::selection {
   background: var(--gold);
   color: var(--ink);
-}
-
-/* The staff area paints its own browser surfaces: focus, selection, caret,
-   scrollbars and numerals, from its palette rather than the site's gold. */
-[data-kitchen-surface] {
-  color-scheme: light;
-  caret-color: var(--color-staff-accent);
-  scrollbar-color: var(--color-staff-line-strong) transparent;
-  font-variant-numeric: tabular-nums;
-  -webkit-tap-highlight-color: transparent;
-}
-[data-kitchen-surface] :focus-visible {
-  outline: 3px solid var(--color-staff-accent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-[data-kitchen-surface] ::selection {
-  background: var(--color-staff-accent-tint);
-  color: var(--color-staff-ink);
 }
 
 /*

@@ -58,11 +58,6 @@ export const RATE_LIMITS = {
   otp_check_ip: { windowMs: 15 * 60_000, max: 30 },
   /** Order submission. A real customer submits once, maybe twice. */
   order_ip: { windowMs: 5 * 60_000, max: 10 },
-  /**
-   * Staff POS order entry, keyed by kitchen session. A busy Friday is a few
-   * calls a minute; this only stops a stuck button or a runaway script.
-   */
-  kitchen_order_session: { windowMs: 5 * 60_000, max: 60 },
   /** The printer polls often and legitimately; this only catches a flood. */
   cloudprnt_ip: { windowMs: 60_000, max: 120 },
 } as const satisfies Record<string, RateLimitRule>;

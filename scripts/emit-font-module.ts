@@ -1,11 +1,10 @@
 /**
  * Emit src/lib/ticket/font-data.ts from the committed subset TTFs.
  *
- *   npm run build:ticket-font:module
+ *   npm run build:font-module
  *
- * Run automatically as the second step of `npm run build:ticket-font`
- * (scripts/build-ticket-font.mjs), so the embedded copy can never drift
- * from the subset it was generated with.
+ * Run automatically as the tail of `npm run build:ticket-font`, so the
+ * embedded copy can never drift from the subset it was generated with.
  *
  * WHY THIS EXISTS: Cloudflare Workers have no filesystem. The renderer used to
  * do `readFile(join(process.cwd(), "public/fonts", ...))`, which cannot work
