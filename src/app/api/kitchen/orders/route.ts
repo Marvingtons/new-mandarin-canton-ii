@@ -20,6 +20,7 @@ import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { readPrinterStatus } from "@/lib/print/healthStore";
 import { derivePrinterHealth, type PrinterHealth } from "@/lib/print/printerStatus";
 import { cloudPrntConfigured } from "@/lib/print/status";
+import { previewOrderingBlocked } from "@/lib/http/deployHost";
 
 /** Printer health as the board renders it. Recomputed on every poll. */
 export interface PrinterHealthPayload {
@@ -177,6 +178,11 @@ function refuse(code: StaffOrderError, message: string, status = 400): Response 
  * Clover terminal in words; there is no card field and never will be.
  */
 export async function POST(request: Request): Promise<Response> {
+  // Not on a preview: a POS order is a real order, stored in production's
+  // database and printed on the kitchen printer. See lib/http/deployHost.
+  const blocked = previewOrderingBlocked(request);
+  if (blocked) return blocked;
+
   const sessionKey = kitchenSessionKey(request);
   if (!sessionKey) return refuse("unauthorized", "unauthorized", 401);
 
