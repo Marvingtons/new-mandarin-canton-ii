@@ -501,6 +501,123 @@ async function boardSeesTheTruth(
 
 /* ----------------------------------------------------------------- main -- */
 
+/**
+ * The unprinted-order sweep only ever names orders that can still be helped.
+ *
+ * Production logged "2 order(s) unprinted for over 120s: A-004, A-007" on
+ * every run, about PRINT_FAILED orders from July and August that were never
+ * claimed. Driven through the REAL cron route (no owner phone, so it logs and
+ * returns without texting), and the logged line is what is asserted.
+ */
+async function alertSweepIgnoresDeadOrders(
+  repo: Repo,
+  businessDate: string,
+): Promise<Result[]> {
+  const tenant = scenarioTenant("alert-sweep");
+  const { ordersPool } = await import("../src/lib/db/postgres");
+  const { findUnprintedForAlert } = await import("../src/lib/orders/repository");
+  const cron = await import("../src/app/api/cron/unprinted-alert/route");
+  const out: Result[] = [];
+
+  const set = (id: number, sql: string) =>
+    ordersPool().query(`update orders set ${sql} where id = $1`, [id]);
+
+  const deadFailed = await seedOrder(repo, tenant, businessDate);
+  await set(
+    deadFailed.id,
+    "status = 'PRINT_FAILED', print_attempts = 3, " +
+      "business_date = business_date - 3, created_at = now() - interval '3 days'",
+  );
+  const cancelled = await seedOrder(repo, tenant, businessDate);
+  await set(cancelled.id, "status = 'CANCELLED', created_at = now() - interval '10 minutes'");
+  const live = await seedOrder(repo, tenant, businessDate);
+  await set(live.id, "created_at = now() - interval '3 minutes'");
+  const exhausted = await seedOrder(repo, tenant, businessDate);
+  await set(exhausted.id, "alert_attempts = 5, created_at = now() - interval '3 minutes'");
+  const failedToday = await seedOrder(repo, tenant, businessDate);
+  await set(
+    failedToday.id,
+    "status = 'PRINT_FAILED', print_attempts = 3, created_at = now() - interval '3 minutes'",
+  );
+
+  const due = await findUnprintedForAlert(tenant, 120, businessDate, 5);
+  const ids = new Set(due.map((o) => o.id));
+  const named = due.map((o) => o.orderNumber).join(", ") || "none";
+
+  out.push(check("alert sweep: PRINT_FAILED order 3 days old is ignored", !ids.has(deadFailed.id), `due: ${named}`));
+  out.push(check("alert sweep: CANCELLED order 10 minutes old is ignored", !ids.has(cancelled.id), `due: ${named}`));
+  out.push(check("alert sweep: QUEUED order 3 minutes old is reported", ids.has(live.id), `due: ${named}`));
+  out.push(
+    check("alert sweep: QUEUED order 3 minutes old at alert_attempts = 5 is ignored", !ids.has(exhausted.id), `due: ${named}`),
+  );
+  out.push(
+    check(
+      "alert sweep: PRINT_FAILED order from today is still reported",
+      ids.has(failedToday.id),
+      `due: ${named} (the attempt cap sends nothing itself; this sweep is the only alert)`,
+    ),
+  );
+
+  // The real route, as the Worker's scheduled() calls it.
+  process.env.CRON_SECRET = "verify-printer-health-cron";
+  delete process.env.OWNER_ALERT_PHONE;
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  let body: { found?: number } = {};
+  try {
+    const res = await cron.GET(
+      new Request("https://cron.internal/api/cron/unprinted-alert", {
+        headers: { authorization: "Bearer verify-printer-health-cron" },
+      }),
+    );
+    body = (await res.json()) as { found?: number };
+  } finally {
+    console.warn = warn;
+  }
+  const line = warnings.find((w) => w.includes("unprinted for over")) ?? "";
+  const expected = [live.orderNumber, failedToday.orderNumber].sort().join(", ");
+  out.push(
+    check(
+      "alert sweep: the route's log line names only the live orders",
+      body.found === 2 &&
+        [live.orderNumber, failedToday.orderNumber].every((n) => line.includes(n)) &&
+        ![deadFailed.orderNumber, cancelled.orderNumber, exhausted.orderNumber].some((n) =>
+          line.includes(n),
+        ),
+      `found=${body.found}; expected ${expected}; logged: ${line || "nothing"}`,
+    ),
+  );
+
+  // An idle board: nothing live, nothing logged.
+  await set(live.id, "status = 'PRINTED'");
+  await set(failedToday.id, "status = 'PRINTED'");
+  const idle: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    idle.push(args.map(String).join(" "));
+  };
+  try {
+    await cron.GET(
+      new Request("https://cron.internal/api/cron/unprinted-alert", {
+        headers: { authorization: "Bearer verify-printer-health-cron" },
+      }),
+    );
+  } finally {
+    console.warn = warn;
+  }
+  out.push(
+    check(
+      "alert sweep: an idle board with only dead orders logs nothing",
+      !idle.some((w) => w.includes("unprinted for over")),
+      idle.join(" | ") || "no warnings",
+    ),
+  );
+
+  return out;
+}
+
 async function main(): Promise<void> {
   const dataDir = await mkdtemp(join(tmpdir(), "nmc-health-test-"));
 
@@ -563,6 +680,7 @@ async function main(): Promise<void> {
     results.push(...(await historyCase(route, repo, businessDate, config.printOfferCap())));
     const ordersRoute = await import("../src/app/api/kitchen/orders/route");
     results.push(...(await boardSeesTheTruth(ordersRoute, repo, businessDate)));
+    results.push(...(await alertSweepIgnoresDeadOrders(repo, businessDate)));
   } finally {
     console.log("\nstopping postgres…");
     await pg.stop();

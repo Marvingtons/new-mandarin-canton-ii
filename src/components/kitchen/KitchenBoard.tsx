@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatCents } from "@/lib/money";
-import { formatPickupTime } from "@/lib/orders/businessDate";
 import type { Order } from "@/lib/orders/types";
-import { logoutAction } from "@/app/[kitchenSlug]/actions";
-import KitchenOrderCard from "@/components/kitchen/KitchenOrderCard";
+import { useKT } from "@/components/kitchen/KitchenI18n";
+import KitchenOrderCard, { type CardAction } from "@/components/kitchen/KitchenOrderCard";
+import Icon from "@/components/kitchen/Icon";
+import type { KitchenKey } from "@/lib/kitchen/i18n";
 
 /**
  * The counter-tablet order board.
@@ -51,83 +52,67 @@ interface OrdersResponse {
  * evidence anybody has is that the board looks normal and the kitchen has gone
  * quiet. Nobody thinks to check the roll for twenty minutes. One line at the
  * top of the screen turns that into a glance.
- *
- * Bilingual because the person who notices first is whoever is nearest the
- * tablet, and that is not reliably the person who reads English.
  */
-function PrinterStrip({ printer }: { printer: PrinterPayload | null }) {
+const PRINTER_STATE: Record<
+  PrinterPayload["health"],
+  { label: KitchenKey; dot: string; className: string; urgent: boolean }
+> = {
+  ok: { label: "printer.ok", dot: "bg-staff-accent", className: "", urgent: false },
+  "paper-out": { label: "printer.paperOut", dot: "bg-staff-warn", className: "bg-staff-warn-tint text-staff-warn", urgent: true },
+  "cover-open": { label: "printer.coverOpen", dot: "bg-staff-warn", className: "bg-staff-warn-tint text-staff-warn", urgent: true },
+  offline: { label: "printer.offline", dot: "bg-white", className: "bg-staff-danger text-white", urgent: true },
+  unknown: { label: "printer.unknown", dot: "bg-staff-line-strong", className: "", urgent: false },
+};
+
+/**
+ * Healthy: a quiet chip in the header ("the printer is fine" needs no more
+ * than a dot). Unhealthy: a full-width bar under it, the first thing on the
+ * screen, because that is when it is the answer to "why is nothing printing".
+ * Rendered twice with a `placement`; each placement draws only its own case.
+ */
+function PrinterStrip({
+  printer,
+  placement,
+}: {
+  printer: PrinterPayload | null;
+  placement: "header" | "banner";
+}) {
+  const t = useKT();
   // Before the first poll answers, and when no printer is configured at all —
-  // that second case already has its own banner below and does not need a
-  // second one contradicting it.
+  // that second case already has its own banner below.
   if (!printer || !printer.configured) return null;
 
   const seen =
     printer.secondsSinceSeen === null
       ? null
       : printer.secondsSinceSeen < 90
-        ? `${printer.secondsSinceSeen}s ago`
-        : `${Math.round(printer.secondsSinceSeen / 60)} min ago`;
+        ? t("printer.secondsAgo", { n: printer.secondsSinceSeen })
+        : t("printer.minutesAgo", { n: Math.round(printer.secondsSinceSeen / 60) });
 
-  const state = {
-    ok: {
-      dot: "🟢",
-      text: "Printer OK",
-      zh: "打印機正常",
-      className: "border-gold/40 bg-gold/10 text-ivory/85",
-      urgent: false,
-    },
-    "paper-out": {
-      dot: "🟡",
-      text: "PAPER OUT (printer reporting)",
-      zh: "打印機缺紙",
-      className: "border-gold bg-gold/25 text-ivory",
-      urgent: true,
-    },
-    "cover-open": {
-      dot: "🟡",
-      text: "COVER OPEN (printer reporting)",
-      zh: "打印機蓋未關",
-      className: "border-gold bg-gold/25 text-ivory",
-      urgent: true,
-    },
-    offline: {
-      dot: "🔴",
-      text: "PRINTER OFFLINE — no poll for over 60s",
-      zh: "打印機離線",
-      className: "border-lacquer bg-lacquer text-ivory",
-      urgent: true,
-    },
-    unknown: {
-      dot: "⚪",
-      text: "Printer has not checked in yet",
-      zh: "尚未連線",
-      className: "border-ivory/30 bg-ivory/5 text-ivory/70",
-      urgent: false,
-    },
-  }[printer.health];
+  const state = PRINTER_STATE[printer.health];
+  if ((placement === "banner") !== state.urgent) return null;
+
+  if (!state.urgent) {
+    return (
+      <span role="status" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-staff-line bg-staff-panel px-3 text-sm text-staff-soft">
+        <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${state.dot}`} />
+        {t(state.label)}
+        {seen && <span className="text-staff-faint">· {t("printer.lastSeen", { ago: seen })}</span>}
+      </span>
+    );
+  }
 
   return (
-    <div
-      role={state.urgent ? "alert" : "status"}
-      className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border-2 px-5 py-3 ${state.className} ${
-        state.urgent ? "text-lg font-bold" : "text-base"
-      }`}
-    >
-      <span>
-        {state.dot} {state.text}
+    <div role="alert" className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-5 py-3.5 ${state.className}`}>
+      <span className="flex items-center gap-2 text-lg font-semibold">
+        <Icon name="printer" size={22} />
+        {t(state.label)}
       </span>
-      <span className="font-display text-xl">{state.zh}</span>
-      {seen && <span className="text-sm font-normal opacity-70">last seen {seen}</span>}
-      {state.urgent && printer.statusCode && (
-        <span className="text-sm font-normal opacity-70">
-          reported: {printer.statusCode}
-        </span>
+      {seen && <span className="text-sm opacity-85">{t("printer.lastSeen", { ago: seen })}</span>}
+      {printer.statusCode && (
+        <span className="text-sm opacity-85">{t("printer.reported", { code: printer.statusCode })}</span>
       )}
-      {state.urgent && (
-        <span className="text-sm font-normal opacity-80">
-          Queued orders are waiting, not lost — they print when it recovers.
-        </span>
-      )}
+      <span className="w-full text-sm opacity-90">{t("printer.waitingNote")}</span>
     </div>
   );
 }
@@ -173,6 +158,7 @@ export default function KitchenBoard({
   ordersConfigured,
   printingConfigured,
 }: KitchenBoardProps) {
+  const t = useKT();
   const [orders, setOrders] = useState<Order[]>([]);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -233,7 +219,7 @@ export default function KitchenBoard({
       }
       const data = (await res.json()) as OrdersResponse;
       if (!data.ok) {
-        setError(data.error ?? "Could not load orders.");
+        setError(t("board.errorLoad"));
         return;
       }
 
@@ -259,9 +245,9 @@ export default function KitchenBoard({
       setError(null);
       setLastSync(new Date());
     } catch {
-      setError("Lost connection to the server. Retrying…");
+      setError(t("board.errorConnection"));
     }
-  }, [showCompleted, chime]);
+  }, [showCompleted, chime, t]);
 
   // Subscribe to the server: an immediate fetch so the board is populated on
   // arrival, then every POLL_MS. This is the rule's intended shape — polling
@@ -277,25 +263,33 @@ export default function KitchenBoard({
   }, [poll, ordersConfigured]);
 
   const act = useCallback(
-    async (orderId: number, action: string) => {
+    async (orderId: number, action: CardAction, extra?: { note?: string }) => {
       setNotice(null);
       try {
         const res = await fetch(`/api/kitchen/orders/${orderId}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ action, ...(extra?.note ? { note: extra.note } : {}) }),
         });
-        const data = (await res.json()) as { ok: boolean; error?: string };
+        const data = (await res.json()) as {
+          ok: boolean;
+          code?: string;
+          order?: Order | null;
+        };
         if (!data.ok) {
-          setNotice(data.error ?? "That action did not go through.");
+          setNotice(data.code === "cancelled" ? t("board.cancelledNoReprint") : t("board.actionFailed"));
+        } else if (action === "reprint") {
+          setNotice(t("board.requeued"));
+        } else if (action === "cancel" && data.order) {
+          setNotice(t("board.cancelled", { number: data.order.orderNumber }));
         }
       } catch {
-        setNotice("That action did not reach the server. Please try again.");
+        setNotice(t("board.actionUnreachable"));
       }
       // Refresh regardless: even a failed reprint may have changed the row.
       await poll();
     },
-    [poll],
+    [poll, t],
   );
 
   // Action feedback is transient — long enough to read across the line, short
@@ -309,82 +303,81 @@ export default function KitchenBoard({
   const failedCount = orders.filter((o) => o.status === "PRINT_FAILED").length;
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] px-4 pb-16 pt-4">
+    <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-16">
       {/* ---------------- header ---------------- */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-gold/40 pb-3">
-        <div className="flex items-baseline gap-4">
-          <h1 className="font-display text-3xl text-gold">今日訂單</h1>
-          <span className="text-lg text-ivory/70">{businessDate}</span>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{t("board.title")}</h1>
+          <span className="text-base text-staff-faint">{businessDate}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-ivory/50">
+          <PrinterStrip printer={printer} placement="header" />
+          <span className="px-1 text-sm text-staff-faint">
             {lastSync
-              ? `Updated ${lastSync.toLocaleTimeString("en-US", { timeStyle: "medium" })}`
-              : "…"}
+              ? t("board.updated", {
+                  time: lastSync.toLocaleTimeString("en-US", { timeStyle: "medium" }),
+                })
+              : t("common.busy")}
           </span>
           <button
             onClick={toggleMute}
             aria-pressed={muted}
-            className="min-h-11 rounded-md border-2 border-gold/50 px-4 font-semibold text-ivory transition-colors hover:border-gold"
+            className="flex min-h-12 items-center gap-2 rounded-md border border-staff-line-strong bg-staff-panel px-4 text-sm font-medium text-staff-ink transition-colors hover:bg-staff-sunken"
           >
-            {muted ? "🔕 Muted" : "🔔 Sound on"}
+            <Icon name={muted ? "bellOff" : "bell"} size={18} className={muted ? "text-staff-faint" : ""} />
+            {muted ? t("board.muted") : t("board.soundOn")}
           </button>
-          <button
-            onClick={() => setShowCompleted((v) => !v)}
-            aria-pressed={showCompleted}
-            className={`min-h-11 rounded-md border-2 px-4 font-semibold transition-colors ${
-              showCompleted
-                ? "border-gold bg-gold text-ink"
-                : "border-gold/50 text-ivory hover:border-gold"
-            }`}
-          >
-            {showCompleted ? "全部 All" : "未完成 Active"}
-          </button>
-          <form action={logoutAction}>
-            <button
-              type="submit"
-              className="min-h-11 rounded-md border-2 border-ivory/30 px-4 font-semibold text-ivory/70 transition-colors hover:border-ivory/60"
-            >
-              Sign out
-            </button>
-          </form>
+          <div className="flex gap-1 rounded-lg bg-staff-sunken p-1">
+            {[false, true].map((all) => (
+              <button
+                key={String(all)}
+                onClick={() => setShowCompleted(all)}
+                aria-pressed={showCompleted === all}
+                className={`min-h-12 rounded-md px-4 text-sm font-semibold transition-colors ${
+                  showCompleted === all
+                    ? "bg-staff-panel text-staff-ink shadow-[0_1px_2px_rgba(27,26,23,0.12)]"
+                    : "text-staff-soft hover:text-staff-ink"
+                }`}
+              >
+                {all ? t("board.showAll") : t("board.showActive")}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       {/* ---------------- printer health ---------------- */}
-      {/* First thing under the header, before the queue: when nothing is
-          printing, this is the answer, and it should not be below the fold. */}
-      <PrinterStrip printer={printer} />
+      {/* Only when something is wrong, and then first, above the queue. */}
+      <PrinterStrip printer={printer} placement="banner" />
 
       {/* ---------------- operator banners ---------------- */}
       {!ordersConfigured && (
-        <p className="mt-4 rounded-md border-2 border-lacquer bg-lacquer/25 px-5 py-4 text-lg font-semibold">
-          The order database is not configured. Set{" "}
-          <code className="text-gold">DATABASE_URL</code> — no orders can be
-          stored or shown until you do.
+        <p className="mt-4 flex items-start gap-2 rounded-lg bg-staff-danger-tint px-5 py-3.5 text-base font-medium text-staff-danger">
+          <Icon name="alert" size={20} className="mt-0.5" />
+          {t("board.dbMissing")}
         </p>
       )}
 
       {!printingConfigured && ordersConfigured && (
-        <p className="mt-4 rounded-md border-2 border-gold/40 bg-gold/10 px-5 py-3 text-base text-ivory/85">
-          No printer configured — this board is the only copy of every order.
-          That is a supported setup, not an error.
+        <p className="mt-4 rounded-lg border border-staff-line bg-staff-panel px-5 py-3 text-sm text-staff-soft">
+          {t("board.noPrinter")}
         </p>
       )}
 
       {failedCount > 0 && (
-        <p className="mt-4 animate-pulse rounded-md border-4 border-lacquer bg-lacquer px-5 py-4 text-xl font-bold text-ivory">
-          ⚠ {failedCount} order{failedCount > 1 ? "s" : ""} did not print — read
-          them here and hand-write if needed. 未印出，請在此查看。
+        <p className="mt-4 flex items-center gap-3 rounded-lg bg-staff-danger px-5 py-3.5 text-lg font-semibold text-white">
+          <Icon name="alert" size={22} />
+          {t("board.failedBanner", { n: failedCount })}
         </p>
       )}
 
       {error && (
         <p
           role="alert"
-          className="mt-4 rounded-md border-2 border-lacquer bg-lacquer/25 px-5 py-3 text-base font-semibold"
+          className="mt-4 flex items-start gap-2 rounded-lg bg-staff-danger-tint px-5 py-3 text-base font-medium text-staff-danger"
         >
+          <Icon name="alert" size={20} className="mt-0.5" />
           {error}
         </p>
       )}
@@ -392,27 +385,28 @@ export default function KitchenBoard({
       {notice && (
         <div
           role="status"
-          className="mt-4 flex items-center justify-between gap-4 rounded-md border-2 border-gold bg-gold/15 px-5 py-3 text-base font-semibold text-ivory"
+          className="mt-4 flex items-center justify-between gap-4 rounded-lg bg-staff-ink py-2 pr-2 pl-5 text-base font-medium text-white"
         >
           <span>{notice}</span>
           <button
             onClick={() => setNotice(null)}
-            aria-label="Dismiss"
-            className="min-h-11 rounded-full px-3 text-2xl leading-none text-ivory/70 hover:text-ivory"
+            aria-label={t("common.dismiss")}
+            className="flex h-12 w-12 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white"
           >
-            ×
+            <Icon name="x" size={20} />
           </button>
         </div>
       )}
 
       {/* ---------------- the queue ---------------- */}
       {ordersConfigured && orders.length === 0 && !error && (
-        <p className="mt-16 text-center text-2xl text-ivory/45">
-          No orders yet today. · 今日暫無訂單。
-        </p>
+        <div className="mt-20 flex flex-col items-center gap-3 text-staff-faint">
+          <Icon name="receipt" size={40} className="text-staff-line-strong" />
+          <p className="text-xl">{t("board.empty")}</p>
+        </div>
       )}
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+      <div className="mt-5 grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-3">
         {orders.map((order) => (
           <KitchenOrderCard
             key={order.id}
@@ -428,15 +422,18 @@ export default function KitchenBoard({
         ))}
       </div>
 
-      {/* Running total, so the owner can sanity-check the day at a glance. */}
+      {/* Running total, so the owner can sanity-check the day at a glance.
+          Cancelled orders are not money. */}
       {orders.length > 0 && (
-        <p className="mt-8 text-right text-lg text-ivory/60">
-          {orders.length} order{orders.length > 1 ? "s" : ""} ·{" "}
-          {formatCents(
-            orders.reduce((n, o) => n + o.totals.totalCents, 0),
-          )}{" "}
-          · pickup times shown in{" "}
-          {formatPickupTime(new Date().toISOString(), timezone)} local
+        <p className="mt-8 text-right text-base text-staff-faint">
+          {t("board.footer", {
+            n: orders.filter((o) => o.status !== "CANCELLED").length,
+            total: formatCents(
+              orders
+                .filter((o) => o.status !== "CANCELLED")
+                .reduce((n, o) => n + o.totals.totalCents, 0),
+            ),
+          })}
         </p>
       )}
     </main>

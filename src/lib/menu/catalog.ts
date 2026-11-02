@@ -120,6 +120,7 @@ function modifierGroupsFor(
 }
 
 let cached: Menu | null = null;
+let cachedStaff: Menu | null = null;
 
 /**
  * The full orderable menu. Pure and synchronous — the catalogue is a module in
@@ -128,8 +129,25 @@ let cached: Menu | null = null;
  * every request.
  */
 export function catalogMenu(): Menu {
-  if (cached) return cached;
+  cached ??= buildMenu(false);
+  return cached;
+}
 
+/**
+ * The menu as the staff POS shows it: the same catalogue, the same prices,
+ * the same combos, but hidden (86'd) items KEPT, marked `available: false`.
+ *
+ * Staff need to see what a caller is asking about even when it cannot be
+ * ordered; the POS greys these out. This is DISPLAY ONLY. The staff order
+ * route prices against `getMenu()`, exactly like the web, where hidden items
+ * do not exist, so an 86'd id is refused there whatever a client sends.
+ */
+export function staffCatalogMenu(): Menu {
+  cachedStaff ??= buildMenu(true);
+  return cachedStaff;
+}
+
+function buildMenu(includeHidden: boolean): Menu {
   const categories: MenuCategory[] = catalog.map((category, index) => {
     const items: MenuItem[] = category.items.map((item) => {
       const override = resolveItemOverride(item.id);
@@ -159,7 +177,7 @@ export function catalogMenu(): Menu {
       nameZh: categoryZhByName[overrideKey(category.name)] ?? null,
       sortOrder: index,
       note: category.note ?? null,
-      items: items.filter((item) => item.available !== false),
+      items: includeHidden ? items : items.filter((item) => item.available !== false),
     };
   });
 
@@ -175,12 +193,11 @@ export function catalogMenu(): Menu {
     items: section.items,
   }));
 
-  cached = {
+  return {
     categories: [...categories, ...comboSections].filter(
       (c) => c.items.length > 0,
     ),
     source: "catalog",
     fetchedAt: 0,
   };
-  return cached;
 }

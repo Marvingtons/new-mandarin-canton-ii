@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
-import { Playfair_Display, Lora } from "next/font/google";
+import { Playfair_Display, Lora, Geist } from "next/font/google";
 import { INTRO_GATE_SCRIPT } from "@/lib/introSignal";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
@@ -35,6 +35,17 @@ const lora = Lora({
 // prints. Google's full sliced set cost 216 @font-face rules on every page
 // and 1.1 MB of font on the homepage. See scripts/build-site-cjk-font.mjs,
 // and rerun it after any change to Chinese copy or dish names.
+
+// The staff area's face (order board, POS, history). A working tool, not the
+// dining room: a clean sans with true tabular figures for prices and order
+// numbers. Not preloaded, so customer pages never download it; it arrives
+// only where a kitchen screen asks for it. Chinese falls through to the
+// device's own sans (PingFang TC on iPad, Noto Sans CJK on Android).
+const geist = Geist({
+  variable: "--font-geist",
+  subsets: ["latin"],
+  preload: false,
+});
 
 const siteMetadata: Metadata = {
   /* Every relative URL in every page's metadata resolves against this.
@@ -118,7 +129,7 @@ export default async function RootLayout({
   return (
     <html
       lang={htmlLang(locale)}
-      className={`${playfair.variable} ${lora.variable} antialiased`}
+      className={`${playfair.variable} ${lora.variable} ${geist.variable} antialiased`}
       // The intro gate writes data-intro-skip here before React loads —
       // that is the whole point of it, and it is an attribute the server
       // could not have rendered, so hydration reports it as a mismatch it

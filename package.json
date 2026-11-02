@@ -10,7 +10,9 @@
     "lint": "eslint",
     "test:e2e": "playwright test",
     "build:app-icons": "tsx scripts/build-app-icons.tsx",
-    "build:ticket-font": "tsx scripts/build-ticket-font.ts && npm run build:font-module",
+    "build:ticket-font": "node scripts/build-ticket-font.mjs",
+    "build:ticket-font:subset": "tsx scripts/build-ticket-font.ts",
+    "build:ticket-font:module": "tsx scripts/emit-font-module.ts",
     "build:site-cjk-font": "node scripts/build-site-cjk-font.mjs",
     "ticket:sample": "tsx --conditions=react-server scripts/ticket-sample.ts",
     "ticket:heights": "tsx --conditions=react-server scripts/ticket-heights.ts",
@@ -28,7 +30,6 @@
     "typecheck": "tsc --noEmit",
     "typecheck:worker": "tsc -p tsconfig.worker.json",
     "cf-typegen": "wrangler types",
-    "build:font-module": "tsx scripts/emit-font-module.ts",
     "torture:print": "tsx scripts/print-torture.ts",
     "verify:otp": "tsx --conditions=react-server scripts/verify-otp-cookie.ts",
     "verify:allergy-hint": "tsx scripts/verify-allergy-hint.ts",
@@ -36,6 +37,8 @@
     "verify:rice": "tsx --conditions=react-server scripts/verify-rice.ts",
     "verify:preparation": "tsx --conditions=react-server scripts/verify-preparation.ts",
     "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts",
+    "verify:staff-orders": "tsx --conditions=react-server scripts/verify-staff-orders.ts",
+    "verify:kitchen-i18n": "tsx scripts/verify-kitchen-i18n.ts",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

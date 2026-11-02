@@ -1,7 +1,5 @@
 import { phonesSentence } from "@/data/restaurant";
 import { getMenu } from "@/lib/menu/source";
-import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
-import { taxCents } from "@/lib/money";
 import {
   orderCaps,
   publicTenant,
@@ -12,15 +10,11 @@ import {
   closedMessage,
   isAcceptingOrders,
   isLunchService,
-  lunchClosedMessage,
 } from "@/lib/order/gates";
 import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass";
 import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
-import { resolveOrderLine } from "@/lib/orders/lines";
+import { composeOrder } from "@/lib/orders/compose";
 import { OrderRequestSchema, type OrderRequest } from "@/lib/orders/requestSchema";
-import { checkModifierGroups } from "@/lib/orders/modifierRules";
-import { stripRice } from "@/lib/menu/rice";
-import { applyPreparationDefault } from "@/lib/menu/preparation";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import {
@@ -30,7 +24,6 @@ import {
 import { normalizePhone } from "@/lib/phone";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
-import type { OrderLine } from "@/lib/orders/types";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
 
 /**
@@ -214,129 +207,16 @@ export async function POST(request: Request): Promise<Response> {
     return bad("We couldn't take your order just now. Please try again. · 目前無法接受訂單，請重試。", 503);
   }
 
-  // 6. Recompute the order from the menu — the ONLY source of prices.
-  const menu = await getMenu();
-  const index = indexItems(menu);
-
-  const resolvedLines: OrderLine[] = [];
-  let subtotalCents = 0;
-  for (const line of body.lines) {
-    const item = index.get(line.itemId);
-    // A hidden item (86'd, or removed like Roasted Duck 2026-08) is filtered
-    // out of the catalogue before it is indexed, so a stale cart holding its
-    // id lands HERE — the item is simply absent. The isAvailable() line below
-    // is the belt-and-braces case for an id that is indexed yet unavailable.
-    // Both carry the item_unavailable reason so the checkout can localize.
-    if (!item)
-      return bad(
-        "An item in your cart is no longer available. Please rebuild your cart. · 購物車中有項目已下架，請重新下單。",
-        400,
-        "item_unavailable",
-      );
-    if (!isAvailable(item))
-      return bad(
-        `"${item.nameEn}" is currently unavailable. · 該項目暫時售罄。`,
-        400,
-        "item_unavailable",
-      );
-    // Lunch specials are an 11–3 product. The client hides them outside that
-    // window, but the client's clock is display-only — this is the gate.
-    if (!bypass && item.lunchSpecial && !isLunchService(now, pickupOpts)) {
-      return bad(lunchClosedMessage());
-    }
-    const size = itemSizes(item).find((s) => s.id === line.sizeId);
-    if (!size) return bad(`A size is no longer available for "${item.nameEn}".`);
-
-    /* REQUIRED CHOICES ARE ENFORCED HERE, and were not enforced anywhere
-       before this. minRequired and maxAllowed were read only by the item
-       sheet — the server took whatever modifierIds arrived, priced them,
-       stored them and printed them. A line that simply omitted the field
-       defaulted to [] and sailed through.
-
-       That was survivable while the only required group was the lunch
-       entrée choice, which the sheet always supplied. It is not
-       survivable now that most of the menu has a required rice: the cart
-       lives in sessionStorage, so a customer holding a tab open from
-       before this shipped would submit rice-less lines that priced and
-       printed as if nothing were missing, and the kitchen would get a
-       ticket that does not say which rice. The storage key is bumped for
-       that case too (see lib/cart/CartContext), but a client-side key is
-       a courtesy and this is the guarantee. */
-    /* RICE IS NOT ALWAYS OFFERED. A party tray is the dish alone, and a
-       noodle or rice dish is the starch itself — neither includes a rice
-       side. A line arriving with a rice modifier for such an item/size is
-       stripped here rather than refused: it is not tampering and it is not
-       the customer's mistake — it is a cart built before the rule shipped,
-       sitting in a sessionStorage tab that has been open since yesterday.
-       Refusing it would turn a $0 modifier into a lost order, and leaving
-       it would throw at resolveOrderLine as an unknown modifier.
-
-       Stripped BEFORE the group check, which reads the same size-filtered
-       groups, so the two cannot disagree about what this line may carry.
-       Warn-logged with the item so the frequency is visible; when it stops
-       appearing, the stale carts have aged out. */
-    const { modifierIds: withoutStaleRice, removed } = stripRice(
-      item,
-      line.sizeId,
-      line.modifierIds,
-    );
-    if (removed.length > 0) {
-      console.warn(
-        `[orders] stripped rice from a "${size.label}" line of "${item.nameEn}": ` +
-          `${removed.join(", ")} — this item does not include rice at that size (stale cart)`,
-      );
-    }
-
-    /* A MISSING PREPARATION IS DEFAULTED, NOT REFUSED. Unlike the required
-       rice side above — which the customer must answer — the steamed/fried
-       preparation on #116 is preselected by the sheet, so the only way a line
-       arrives without it is a cart built before the selector shipped. Default
-       to Steamed (the sheet's own default) and warn-log, rather than turning a
-       $3 order into a lost one. Done BEFORE the group check so the defaulted
-       line satisfies the required group. See lib/menu/preparation.ts. */
-    const { modifierIds, defaulted } = applyPreparationDefault(
-      item,
-      withoutStaleRice,
-    );
-    if (defaulted) {
-      console.warn(
-        `[orders] a "${size.label}" line of "${item.nameEn}" arrived with no ` +
-          `preparation choice; defaulted to Steamed (stale cart)`,
-      );
-    }
-
-    const groupError = checkModifierGroups(item, line.sizeId, modifierIds);
-    if (groupError) return bad(groupError);
-
-    let resolved: OrderLine;
-    try {
-      resolved = resolveOrderLine(
-        item,
-        line.sizeId,
-        modifierIds,
-        line.quantity,
-        line.specialInstructions,
-      );
-    } catch {
-      return bad(`An option is no longer available for "${item.nameEn}".`);
-    }
-
-    subtotalCents += resolved.lineCents;
-    resolvedLines.push(resolved);
-  }
-
-  // Prep time: a party tray, family dinner, or big family dinner in the cart
-  // moves the whole order to the longer window. One slow item sets the pace
-  // for the bag, so quoting the standard range would be a promise the kitchen
-  // cannot keep.
-  const hasLongPrep = body.lines.some((line) => {
-    const item = index.get(line.itemId);
-    return (
-      item?.longPrep === true ||
-      (line.sizeId === "party-tray" &&
-        itemSizes(item!).some((s) => s.id === "party-tray"))
-    );
+  // 6. Recompute the order from the menu, the ONLY source of prices. Shared
+  //    with the staff POS (lib/orders/compose), so the two cannot price an
+  //    identical cart differently. The bypass skips the lunch window exactly
+  //    as it skips every other clock.
+  const composed = composeOrder(await getMenu(), body.lines, {
+    taxRateBps: tenant.taxRateBps,
+    lunchAllowed: bypass || isLunchService(now, pickupOpts),
   });
+  if (!composed.ok) return bad(composed.error, 400, composed.reason);
+  const { lines: resolvedLines, hasLongPrep } = composed;
 
   // Computed ONCE, here, and stored. Every surface reads the stored values.
   const ready = readyWindow(
@@ -345,10 +225,6 @@ export async function POST(request: Request): Promise<Response> {
     hasLongPrep,
     body.pickup.time === "asap" ? null : pickupAt,
   );
-
-  const tax = taxCents(subtotalCents, tenant.taxRateBps);
-  const totalCents = subtotalCents + tax;
-  if (totalCents <= 0) return bad("Your cart is empty. · 購物車是空的。");
 
   const timeLabel = pickupLabel(body.pickup.time, pickupOpts);
 
@@ -362,13 +238,8 @@ export async function POST(request: Request): Promise<Response> {
       orderNumberPrefix: tenant.orderNumberPrefix,
       idempotencyKey: body.idempotencyKey,
       items: resolvedLines,
-      totals: {
-        subtotalCents,
-        taxCents: tax,
-        // Payment happens at the counter, so tipping is the register's job.
-        tipCents: 0,
-        totalCents,
-      },
+      totals: composed.totals,
+      channel: "web",
       customer: { name: body.pickup.name, phone: phoneE164 },
       phoneVerifiedAt: new Date(verified.verifiedAt),
       // pickup_at IS the start of the stored window, so the ticket and the

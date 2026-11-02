@@ -64,6 +64,12 @@ export const TICKET_LABELS = {
   tip: "小費",
   total: "合計",
   payAtCounter: "到店付款",
+  /**
+   * Header line on a staff-entered order, so the kitchen knows there is no
+   * customer waiting on the website for it. Web orders print neither.
+   */
+  phoneOrder: "電話訂單",
+  walkIn: "到店",
   /** The copy bar at the top of each ticket. */
   copyKitchen: "廚房",
   copyBag: "袋",

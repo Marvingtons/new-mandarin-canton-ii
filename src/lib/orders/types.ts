@@ -43,6 +43,30 @@ export function isOrderStatus(value: string): value is OrderStatus {
   return (ORDER_STATUSES as readonly string[]).includes(value);
 }
 
+/**
+ * Where an order came from.
+ *
+ *   web:     the online checkout, with an OTP-verified phone.
+ *   phone:   taken by staff on the POS while the customer was on the phone.
+ *   walk_in: taken by staff on the POS with the customer at the counter.
+ *
+ * One pipeline regardless: the same daily number sequence, the same
+ * server-side price recompute, the same printer path. The channel only changes
+ * what the ticket header says and how the board badges the card.
+ */
+export const ORDER_CHANNELS = ["web", "phone", "walk_in"] as const;
+
+export type OrderChannel = (typeof ORDER_CHANNELS)[number];
+
+/** The channels staff can choose on the POS. */
+export const STAFF_CHANNELS = ["phone", "walk_in"] as const satisfies readonly OrderChannel[];
+
+export type StaffChannel = (typeof STAFF_CHANNELS)[number];
+
+export function isOrderChannel(value: string): value is OrderChannel {
+  return (ORDER_CHANNELS as readonly string[]).includes(value);
+}
+
 /** Statuses the kitchen still has work to do on. */
 export const ACTIVE_STATUSES: OrderStatus[] = [
   "QUEUED",
@@ -110,7 +134,10 @@ export interface OrderTotals {
 
 export interface OrderCustomer {
   name: string;
-  /** E.164, e.g. "+16195550148". Normalized before storage, never as typed. */
+  /**
+   * E.164, e.g. "+16195550148". Normalized before storage, never as typed.
+   * Empty string for a walk-in who gave no number; every reader must cope.
+   */
   phone: string;
 }
 
@@ -179,6 +206,12 @@ export interface Order {
   lastPrintError: string | null;
   /** Set once an unprinted-order alert has been sent, so it fires exactly once. */
   alertedAt: string | null;
+  /** Where the order came from. 'web' for every row predating migration 009. */
+  channel: OrderChannel;
+  /** POS payment note, e.g. "paid by phone, card ending 4417". Never a card number field. */
+  paymentNote: string | null;
+  /** Internal staff note. Never printed. */
+  staffNote: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -195,9 +228,16 @@ export interface NewOrderInput {
   items: OrderLine[];
   totals: OrderTotals;
   customer: OrderCustomer;
-  /** Proof the phone was verified. The route supplies it; the client cannot. */
+  /**
+   * Proof the phone was verified. The route supplies it; the client cannot.
+   * For a staff channel it is the moment staff took the order.
+   */
   phoneVerifiedAt: Date;
   pickupAt: Date;
+  /** Defaults to 'web'. */
+  channel?: OrderChannel;
+  paymentNote?: string | null;
+  staffNote?: string | null;
 }
 
 /**
