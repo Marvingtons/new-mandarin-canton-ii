@@ -44,3 +44,34 @@ export const OrderRequestSchema = z
   .strict(); // a top-level `amount`/`total`/`phoneVerified` is a hard reject
 
 export type OrderRequest = z.infer<typeof OrderRequestSchema>;
+
+/**
+ * The staff POS's order. Same lines, same strictness, same absence of any
+ * money field: a POS is not a place where a price can be typed in.
+ *
+ * What differs is who the customer is. There is no OTP: staff on the phone or
+ * at the counter are the verification. A walk-in may give no number at all,
+ * which the route allows for `walk_in` and refuses for `phone`.
+ */
+export const StaffOrderRequestSchema = z
+  .object({
+    lines: z.array(OrderLineSchema).min(1).max(60),
+    channel: z.enum(["phone", "walk_in"]),
+    customer: z
+      .object({
+        name: z.string().trim().min(1).max(80),
+        phone: z.string().max(32).optional(),
+      })
+      .strict(),
+    pickup: z.object({ time: z.string().min(1).max(20) }).strict(),
+    /** Free text such as "paid by phone, card ending 4417". Never a card field. */
+    paymentNote: z.string().max(200).optional(),
+    /** Internal, never printed. */
+    staffNote: z.string().max(500).optional(),
+    /** Staff override: allow lunch specials outside 11:00 to 15:00. */
+    lunchOverride: z.boolean().optional(),
+    idempotencyKey: z.string().min(8).max(200),
+  })
+  .strict();
+
+export type StaffOrderRequest = z.infer<typeof StaffOrderRequestSchema>;

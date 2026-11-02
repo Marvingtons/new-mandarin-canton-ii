@@ -166,6 +166,9 @@ export function fixtureOrder(): Order {
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,
+    channel: "web",
+    paymentNote: null,
+    staffNote: null,
     createdAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
   };
@@ -484,6 +487,9 @@ export function sqlShapedOrder(): Order {
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,
+    channel: "web",
+    paymentNote: null,
+    staffNote: null,
     createdAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
   } as unknown as Order;

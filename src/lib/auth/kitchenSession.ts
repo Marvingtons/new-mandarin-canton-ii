@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 
 /**
@@ -95,15 +95,31 @@ export async function hasKitchenSession(): Promise<boolean> {
   return verifyToken(store.get(COOKIE_NAME)?.value);
 }
 
-/** Same check for route handlers, which get the cookie off the Request. */
-export function hasKitchenSessionFromRequest(request: Request): boolean {
+function sessionTokenFromRequest(request: Request): string | undefined {
   const header = request.headers.get("cookie");
-  if (!header) return false;
+  if (!header) return undefined;
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === COOKIE_NAME) return verifyToken(rest.join("="));
+    if (name === COOKIE_NAME) return rest.join("=");
   }
-  return false;
+  return undefined;
+}
+
+/** Same check for route handlers, which get the cookie off the Request. */
+export function hasKitchenSessionFromRequest(request: Request): boolean {
+  return verifyToken(sessionTokenFromRequest(request));
+}
+
+/**
+ * A stable, non-secret key for THIS session, for rate limiting the POS.
+ *
+ * A hash of the cookie, never the cookie itself, so the limiter's memory holds
+ * nothing that could be replayed. Null when there is no valid session.
+ */
+export function kitchenSessionKey(request: Request): string | null {
+  const token = sessionTokenFromRequest(request);
+  if (!verifyToken(token)) return null;
+  return createHash("sha256").update(String(token)).digest("hex").slice(0, 32);
 }
 
 export async function setKitchenCookie(token: string): Promise<void> {

@@ -7,6 +7,7 @@ import {
 } from "@/config/tenant.server";
 import { restaurant } from "@/data/restaurant";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
+import { businessDateFor } from "@/lib/orders/businessDate";
 import {
   countQueuedOrders,
   findUnprintedForAlert,
@@ -221,7 +222,12 @@ export async function GET(request: Request): Promise<Response> {
 
   let due;
   try {
-    due = await findUnprintedForAlert(tenant.tenantId, THRESHOLD_SECONDS);
+    due = await findUnprintedForAlert(
+      tenant.tenantId,
+      THRESHOLD_SECONDS,
+      businessDateFor(tenant.timezone),
+      MAX_ALERT_ATTEMPTS,
+    );
   } catch (err) {
     console.error(
       "[alert] could not scan for unprinted orders:",

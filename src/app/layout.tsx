@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Playfair_Display, Lora, Noto_Serif_TC } from "next/font/google";
+import { Playfair_Display, Lora, Noto_Serif_TC, Geist } from "next/font/google";
 import { INTRO_GATE_SCRIPT } from "@/lib/introSignal";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import { LOCALE_COOKIE, htmlLang, toLocale } from "@/lib/i18n/locale";
@@ -33,6 +33,17 @@ const notoSerifTC = Noto_Serif_TC({
   variable: "--font-noto-tc",
   weight: ["500", "700"],
   subsets: ["latin"],
+});
+
+// The staff area's face (order board, POS, history). A working tool, not the
+// dining room: a clean sans with true tabular figures for prices and order
+// numbers. Not preloaded, so customer pages never download it; it arrives
+// only where a kitchen screen asks for it. Chinese falls through to the
+// device's own sans (PingFang TC on iPad, Noto Sans CJK on Android).
+const geist = Geist({
+  variable: "--font-geist",
+  subsets: ["latin"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -103,7 +114,7 @@ export default async function RootLayout({
   return (
     <html
       lang={htmlLang(locale)}
-      className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} antialiased`}
+      className={`${playfair.variable} ${lora.variable} ${notoSerifTC.variable} ${geist.variable} antialiased`}
       // The intro gate writes data-intro-skip here before React loads —
       // that is the whole point of it, and it is an attribute the server
       // could not have rendered, so hydration reports it as a mismatch it
