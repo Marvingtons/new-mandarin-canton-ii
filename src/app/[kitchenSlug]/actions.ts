@@ -18,8 +18,7 @@ import { kitchenPath } from "@/lib/kitchenRoute";
  */
 
 export interface LoginState {
-  /** A code the form translates; never prose, so it follows the 中文 / EN toggle. */
-  error: "bad_password" | null;
+  error: string | null;
 }
 
 export async function loginAction(
@@ -31,17 +30,17 @@ export async function loginAction(
   const token = login(submitted);
   if (!token) {
     await loginFailureDelay();
-    // One answer for both "wrong password" and "not configured": an
+    // One message for both "wrong password" and "not configured": an
     // unauthenticated caller learns nothing about which it was.
-    return { error: "bad_password" };
+    return { error: "Incorrect password. · 密碼不正確。" };
   }
 
   await setKitchenCookie(token);
-  revalidatePath(kitchenPath(), "layout");
+  revalidatePath(kitchenPath());
   return { error: null };
 }
 
 export async function logoutAction(): Promise<void> {
   await clearKitchenCookie();
-  revalidatePath(kitchenPath(), "layout");
+  revalidatePath(kitchenPath());
 }

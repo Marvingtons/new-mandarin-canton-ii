@@ -1,8 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "nmc-web",
-	// Marvin's account; nmc-web lives here. Required so deploys from any login land on the right Worker.
-	"account_id": "e28450c2b49e251f9b47c4072e292569",
 	// `main` points at OUR wrapper, not the adapter's generated
 	// `.open-next/worker.js`. The wrapper re-exports the generated fetch handler
 	// unchanged and adds scheduled() for the unprinted-order cron — see
