@@ -340,7 +340,7 @@ async function main(): Promise<void> {
     check("getOrderByIdempotencyKey finds it", byKey?.id === created.order.id);
     check(
       "integer cents survive the jsonb round trip",
-      byKey?.totals.totalCents === 2424 &&
+      byKey?.totals.totalCents === totals.totalCents &&
         Number.isInteger(byKey?.totals.totalCents) &&
         byKey?.items[0].nameZh === "宮保雞丁",
     );
@@ -467,7 +467,7 @@ async function main(): Promise<void> {
     });
 
     // Nothing is old enough yet.
-    const none = await repo.findUnprintedForAlert(tenant, 120);
+    const none = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
     check(
       "a fresh order is not alerted on",
       !none.some((o) => o.id === stale.order.id),
@@ -479,7 +479,7 @@ async function main(): Promise<void> {
       [stale.order.id],
     );
 
-    const due = await repo.findUnprintedForAlert(tenant, 120);
+    const due = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
     check(
       "an order unprinted for >2 minutes is found",
       due.some((o) => o.id === stale.order.id),
@@ -496,7 +496,7 @@ async function main(): Promise<void> {
       `${a} / ${b}`,
     );
 
-    const after = await repo.findUnprintedForAlert(tenant, 120);
+    const after = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
     check(
       "an alerted order is not found again",
       !after.some((o) => o.id === stale.order.id),
@@ -530,6 +530,21 @@ async function main(): Promise<void> {
       "+16195550999",
     );
     check("does not count a different number", other === 0, String(other));
+
+    for (const channel of ["phone", "walk_in"] as const) {
+      await repo.createOrder({
+        ...baseInput,
+        businessDate,
+        idempotencyKey: `cap-staff-${channel}`,
+        channel,
+      });
+    }
+    const afterStaff = await repo.countOrdersForPhone(
+      RUN_TENANT,
+      businessDate,
+      "+16195550100",
+    );
+    check("does not count staff (phone / walk-in) orders", afterStaff === 3, String(afterStaff));
   }
 
   /* ------------------------------- 9. alert retry after a failed send ---- */
@@ -548,7 +563,7 @@ async function main(): Promise<void> {
 
     /** One sweep: claim, then hand the send result back in. */
     async function sweep(orderId: number, sendSucceeds: boolean) {
-      const due = await repo.findUnprintedForAlert(tenant, 120);
+      const due = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       const found = due.some((o) => o.id === orderId);
       if (!found) return { attempted: false, released: false, attempts: -1 };
       const claimedAt = await repo.markAlerted(tenant, orderId);
@@ -574,7 +589,7 @@ async function main(): Promise<void> {
         first.attempted && first.released && first.attempts === 1,
         `attempted=${first.attempted} released=${first.released} attempts=${first.attempts}`,
       );
-      const redue = await repo.findUnprintedForAlert(tenant, 120);
+      const redue = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       check(
         "(a) the order is found again by the next sweep",
         redue.some((x) => x.id === o.order.id),
@@ -608,7 +623,7 @@ async function main(): Promise<void> {
         sixth.attempted === false,
         `attempted=${sixth.attempted}`,
       );
-      const gone = await repo.findUnprintedForAlert(tenant, 120);
+      const gone = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       check(
         "(b) the exhausted order is no longer swept",
         !gone.some((x) => x.id === o.order.id),
@@ -623,7 +638,7 @@ async function main(): Promise<void> {
       // and the one net that catches a ticket the kitchen never saw is gone.
       await repo.requeueForPrint(tenant, o.order.id);
       await age(o.order.id);
-      const rearmed = await repo.findUnprintedForAlert(tenant, 120);
+      const rearmed = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       check(
         "(b2) a requeued order is swept again",
         rearmed.some((x) => x.id === o.order.id),
@@ -648,7 +663,7 @@ async function main(): Promise<void> {
       await repo.requeueForPrint(tenant, o.order.id);
       await age(o.order.id);
       await repo.markPrinted(tenant, o.order.id);
-      const swept = await repo.findUnprintedForAlert(tenant, 120);
+      const swept = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       check(
         "(d) a requeued order that printed is never alerted about",
         !swept.some((x) => x.id === o.order.id),
@@ -699,7 +714,7 @@ async function main(): Promise<void> {
         bogus === null,
         `got ${JSON.stringify(bogus)}`,
       );
-      const still = await repo.findUnprintedForAlert(tenant, 120);
+      const still = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       check(
         "(race) the real claim survives the bogus release",
         !still.some((x) => x.id === o.order.id),

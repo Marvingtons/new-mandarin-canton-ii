@@ -8,9 +8,11 @@ import {
   isOrderStatus,
   ACTIVE_STATUSES,
   PRINTABLE_STATUSES,
+  isOrderChannel,
   type CreateOrderResult,
   type NewOrderInput,
   type Order,
+  type OrderChannel,
   type OrderCustomer,
   type OrderLine,
   type OrderStatus,
@@ -18,6 +20,12 @@ import {
   type PrintDelivery,
   type PrintDeliveryReason,
 } from "@/lib/orders/types";
+import {
+  HISTORY_PAGE_SIZE,
+  type HistoryPage,
+  type HistoryQuery,
+  type HistorySummary,
+} from "@/lib/orders/history";
 
 /**
  * Fallback confirmation window, in seconds, for a hand-over whose caller did
@@ -100,6 +108,9 @@ const ORDER_COLUMNS = `
   printed_at,
   last_print_error,
   alerted_at,
+  channel,
+  payment_note,
+  staff_note,
   created_at,
   updated_at
 `;
@@ -141,6 +152,14 @@ function mapOrder(row: QueryResultRow): Order {
     printedAt: row.printed_at === null ? null : (row.printed_at as Date).toISOString(),
     lastPrintError: row.last_print_error === null ? null : String(row.last_print_error),
     alertedAt: row.alerted_at === null ? null : (row.alerted_at as Date).toISOString(),
+    // An unknown value means a hand-written row. 'web' is the reading that
+    // changes nothing: no channel banner on the ticket, the ordinary badge.
+    channel:
+      typeof row.channel === "string" && isOrderChannel(row.channel)
+        ? row.channel
+        : "web",
+    paymentNote: row.payment_note == null ? null : String(row.payment_note),
+    staffNote: row.staff_note == null ? null : String(row.staff_note),
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
   };
@@ -223,8 +242,9 @@ export async function createOrder(
           `insert into orders (
              tenant_id, order_number, business_date, status, idempotency_key,
              items, totals, customer, phone_verified_at, pickup_at,
-             ready_from, ready_to
-           ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9, $10, $11)
+             ready_from, ready_to, channel, payment_note, staff_note
+           ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9, $10, $11,
+                     $12, $13, $14)
            on conflict (tenant_id, idempotency_key) do nothing
            returning ${ORDER_COLUMNS}`,
           [
@@ -241,6 +261,9 @@ export async function createOrder(
             input.pickupAt,
             input.readyFrom ?? null,
             input.readyTo ?? null,
+            input.channel ?? "web",
+            input.paymentNote ?? null,
+            input.staffNote ?? null,
           ],
         );
 
@@ -899,6 +922,9 @@ export async function requeueForPrint(
               print_delivery_expires_at = null,
               updated_at = now()
         where tenant_id = $1 and id = $2
+          -- A cancelled order is never offered to the printer again, and a
+          -- 重印 tapped on one must not quietly put it back in the queue.
+          and status <> 'CANCELLED'
         returning ${ORDER_COLUMNS}`,
       [tenantId, orderId],
     );
@@ -923,19 +949,33 @@ export async function requeueForPrint(
  * This is the query behind the highest-value safety net in the system: with
  * nothing prepaid, an order nobody printed is a customer who believes they
  * ordered and a kitchen that never saw it.
+ *
+ * PRINT_FAILED stays in on purpose. Hitting the print attempt cap sends
+ * nothing by itself; this sweep is the only thing that tells the owner a
+ * ticket gave up. CANCELLED, PRINTED and every other status never match.
+ *
+ * LOOKBACK. Only today's and yesterday's business dates (`today` is the
+ * restaurant-local business date, not the database's UTC date). Without it, an
+ * order from months ago that was never claimed, for example because no owner
+ * phone was configured at the time, matches on every run forever and buries
+ * the line about a live order under the same log entry.
  */
 export async function findUnprintedForAlert(
   tenantId: string,
   olderThanSeconds: number,
+  today: string,
+  maxAlertAttempts: number,
 ): Promise<Order[]> {
   const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1
         and status in ('QUEUED', 'PRINT_FAILED')
         and alerted_at is null
+        and alert_attempts < $4
+        and business_date >= $3::date - 1
         and created_at < now() - make_interval(secs => $2)
       order by created_at asc`,
-    [tenantId, olderThanSeconds],
+    [tenantId, olderThanSeconds, today, maxAlertAttempts],
   );
   return rows.map(mapOrder);
 }
@@ -1016,7 +1056,14 @@ export async function releaseAlertClaim(
   };
 }
 
-/** How many orders this phone number has placed on a given business date. */
+/**
+ * How many WEB orders this phone number has placed on a given business date.
+ *
+ * Only `channel = 'web'` counts. The cap is abuse control for anonymous online
+ * ordering behind an OTP; a phone or walk-in order was taken by staff talking
+ * to the customer, which is stronger proof than the OTP. Counting those would
+ * let a regular's phone orders lock them out of ordering online.
+ */
 export async function countOrdersForPhone(
   tenantId: string,
   businessDate: string,
@@ -1027,6 +1074,7 @@ export async function countOrdersForPhone(
       where tenant_id = $1
         and business_date = $2::date
         and customer->>'phone' = $3
+        and channel = 'web'
         and status <> 'CANCELLED'`,
     [tenantId, businessDate, phoneE164],
   );
@@ -1243,4 +1291,247 @@ export async function recordRenderFailure(
     status: rows[0].status as OrderStatus,
     attempts: Number(rows[0].print_attempts),
   };
+}
+
+/* ------------------------------------------------------------ staff POS -- */
+
+/**
+ * Cancel an order from the board (取消), recording why.
+ *
+ * CANCELLED is outside PRINTABLE_STATUSES, so neither claimNextPrintJob nor
+ * reofferPrintDelivery can ever hand it to the printer again, and
+ * requeueForPrint refuses it. The in-flight pointer is cleared too, so nothing
+ * reads as "a body is out" for an order nobody is cooking. A body the printer
+ * already holds may still come out; that is paper, not a re-offer, and the
+ * confirmation that follows lands as "not-printable" and changes nothing.
+ *
+ * The note is appended to staff_note rather than replacing it, so a regular's
+ * standing note survives the cancellation of one of their orders.
+ */
+export async function cancelOrder(
+  tenantId: string,
+  orderId: number,
+  note: string | null,
+): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set status = 'CANCELLED',
+            staff_note = case
+              when $3::text is null then staff_note
+              when staff_note is null or staff_note = '' then $3::text
+              else staff_note || E'\n' || $3::text
+            end,
+            print_job_key = null,
+            print_offered_at = null,
+            print_delivery_id = null,
+            print_delivery_expires_at = null,
+            updated_at = now()
+      where tenant_id = $1 and id = $2 and status <> 'CANCELLED'
+      returning ${ORDER_COLUMNS}`,
+    [tenantId, orderId, note && note.trim() ? note.trim() : null],
+  );
+  return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/**
+ * The last few orders placed under a phone number, newest first, for the
+ * POS's repeat-customer autofill. ONE query, scoped by tenant: there is no
+ * customer table and this does not build one.
+ */
+export async function recentOrdersForPhone(
+  tenantId: string,
+  phoneE164: string,
+  limit = 3,
+): Promise<Order[]> {
+  const { rows } = await ordersPool().query(
+    `select ${ORDER_COLUMNS} from orders
+      where tenant_id = $1
+        and customer->>'phone' = $2
+        and status <> 'CANCELLED'
+      order by created_at desc
+      limit $3`,
+    [tenantId, phoneE164, limit],
+  );
+  return rows.map(mapOrder);
+}
+
+/** Escape LIKE metacharacters so a typed % or _ matches itself. */
+function likeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * The WHERE clause every history read shares. One builder, so the page, the
+ * summary and the CSV cannot disagree about which rows are "in range".
+ */
+function historyWhere(
+  tenantId: string,
+  query: HistoryQuery,
+): { sql: string; params: unknown[] } {
+  const params: unknown[] = [tenantId, query.from, query.to];
+  const clauses = [
+    "o.tenant_id = $1",
+    "o.business_date between $2::date and $3::date",
+  ];
+  if (query.statuses.length > 0) {
+    params.push(query.statuses);
+    clauses.push(`o.status = any($${params.length}::text[])`);
+  }
+  if (query.channels.length > 0) {
+    params.push(query.channels);
+    clauses.push(`o.channel = any($${params.length}::text[])`);
+  }
+  const q = query.q.trim();
+  if (q) {
+    params.push(`%${likeLiteral(q)}%`);
+    const text = `$${params.length}`;
+    const ors = [
+      `o.order_number ilike ${text}`,
+      `o.customer->>'name' ilike ${text}`,
+    ];
+    // Phone matches on digits alone, so "555-01", "(619) 555" and "6195550"
+    // all find +16195550148. Three digits minimum, or "A-0" would match every
+    // phone with a zero in it.
+    const digits = q.replace(/\D/g, "");
+    if (digits.length >= 3) {
+      params.push(`%${digits}%`);
+      ors.push(
+        `regexp_replace(coalesce(o.customer->>'phone', ''), '\\D', '', 'g') like $${params.length}`,
+      );
+    }
+    clauses.push(`(${ors.join(" or ")})`);
+  }
+  return { sql: clauses.join(" and "), params };
+}
+
+/** Aggregates over print_deliveries, the same three the board shows. */
+const DELIVERY_AGGREGATES = `
+  left join lateral (
+    select count(*)                                          as delivery_count,
+           coalesce(sum(fetch_count), 0)                     as fetch_total,
+           count(*) filter (where reason = 'manual_reprint') as reprint_count
+      from print_deliveries pd
+     where pd.tenant_id = o.tenant_id and pd.order_id = o.id
+  ) d on true`;
+
+/** Totals for a filtered range. CANCELLED counts only as cancelledCount. */
+export async function summarizeOrders(
+  tenantId: string,
+  query: HistoryQuery,
+): Promise<HistorySummary> {
+  const where = historyWhere(tenantId, query);
+  const { rows } = await ordersPool().query(
+    `select o.channel,
+            count(*) filter (where o.status <> 'CANCELLED')::int as n,
+            coalesce(sum((o.totals->>'totalCents')::bigint)
+                       filter (where o.status <> 'CANCELLED'), 0)::bigint as cents,
+            count(*) filter (where o.status = 'CANCELLED')::int as cancelled
+       from orders o
+      where ${where.sql}
+      group by o.channel`,
+    where.params,
+  );
+  const summary: HistorySummary = {
+    orderCount: 0,
+    salesCents: 0,
+    averageCents: 0,
+    cancelledCount: 0,
+    byChannel: {
+      web: { orderCount: 0, salesCents: 0 },
+      phone: { orderCount: 0, salesCents: 0 },
+      walk_in: { orderCount: 0, salesCents: 0 },
+    },
+  };
+  for (const row of rows) {
+    const channel = isOrderChannel(String(row.channel)) ? (String(row.channel) as OrderChannel) : "web";
+    const n = Number(row.n);
+    const cents = Number(row.cents);
+    summary.byChannel[channel].orderCount += n;
+    summary.byChannel[channel].salesCents += cents;
+    summary.orderCount += n;
+    summary.salesCents += cents;
+    summary.cancelledCount += Number(row.cancelled);
+  }
+  summary.averageCents =
+    summary.orderCount > 0 ? Math.round(summary.salesCents / summary.orderCount) : 0;
+  return summary;
+}
+
+/**
+ * One page of order history, newest first, with the range's totals.
+ *
+ * Kept apart from listActiveOrders on purpose: the board's query is tuned for
+ * a 10-second poll over one day's active orders and is left exactly as it was.
+ */
+export async function listOrders(
+  tenantId: string,
+  query: HistoryQuery,
+  page = 1,
+): Promise<HistoryPage> {
+  const where = historyWhere(tenantId, query);
+  const offset = (Math.max(1, page) - 1) * HISTORY_PAGE_SIZE;
+  const [list, count, summary] = await Promise.all([
+    ordersPool().query(
+      `select ${ORDER_COLUMNS},
+              coalesce(d.delivery_count, 0) as delivery_count,
+              coalesce(d.fetch_total, 0)    as fetch_total,
+              coalesce(d.reprint_count, 0)  as reprint_count
+         from orders o
+         ${DELIVERY_AGGREGATES}
+        where ${where.sql}
+        order by o.created_at desc, o.id desc
+        limit ${HISTORY_PAGE_SIZE} offset ${offset}`,
+      where.params,
+    ),
+    ordersPool().query(
+      `select count(*)::int as n from orders o where ${where.sql}`,
+      where.params,
+    ),
+    summarizeOrders(tenantId, query),
+  ]);
+  return {
+    orders: list.rows.map(mapActiveOrder),
+    total: Number(count.rows[0].n),
+    page: Math.max(1, page),
+    pageSize: HISTORY_PAGE_SIZE,
+    summary,
+  };
+}
+
+/**
+ * Every order in a filtered range, newest first, in batches.
+ *
+ * Keyset-paged on (created_at, id) rather than OFFSET, so the CSV export reads
+ * a busy month in constant memory and a row inserted mid-export cannot shift a
+ * later batch onto a duplicate. The same ordering as listOrders, so the export
+ * and the screen list rows in the same sequence.
+ */
+export async function* iterateOrders(
+  tenantId: string,
+  query: HistoryQuery,
+  batchSize = 500,
+): AsyncGenerator<Order[]> {
+  const where = historyWhere(tenantId, query);
+  let cursor: { createdAt: Date; id: number } | null = null;
+  for (;;) {
+    const params = [...where.params];
+    let keyset = "";
+    if (cursor) {
+      params.push(cursor.createdAt, cursor.id);
+      keyset = `and (o.created_at, o.id) < ($${params.length - 1}::timestamptz, $${params.length}::bigint)`;
+    }
+    const { rows } = await ordersPool().query(
+      `select ${ORDER_COLUMNS}, o.created_at as cursor_at
+         from orders o
+        where ${where.sql} ${keyset}
+        order by o.created_at desc, o.id desc
+        limit ${Math.max(1, Math.floor(batchSize))}`,
+      params,
+    );
+    if (rows.length === 0) return;
+    yield rows.map(mapOrder);
+    const last = rows[rows.length - 1];
+    cursor = { createdAt: last.cursor_at as Date, id: Number(last.id) };
+    if (rows.length < batchSize) return;
+  }
 }

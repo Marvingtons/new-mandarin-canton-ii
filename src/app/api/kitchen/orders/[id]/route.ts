@@ -2,6 +2,7 @@ import { z } from "zod";
 import { publicTenant } from "@/config/tenant.server";
 import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
 import {
+  cancelOrder,
   getOrderById,
   requeueForPrint,
   updateStatus,
@@ -19,6 +20,8 @@ export const runtime = "nodejs";
 const BodySchema = z
   .object({
     action: z.enum(["accept", "complete", "cancel", "reprint", "notify"]),
+    /** Why, for a cancel. Stored on staff_note; never printed. */
+    note: z.string().max(500).optional(),
   })
   .strict();
 
@@ -60,6 +63,13 @@ export async function POST(
   // a single shared session with no per-person identity (see kitchenSession.ts).
   if (body.action === "reprint") {
     const requeued = await requeueForPrint(tenant.tenantId, orderId, "kitchen");
+    // requeueForPrint refuses a CANCELLED order: it is never offered again.
+    if (!requeued) {
+      return Response.json(
+        { ok: false, code: "cancelled", error: "A cancelled order cannot be reprinted." },
+        { status: 409 },
+      );
+    }
     return Response.json({
       ok: true,
       order: requeued,
@@ -77,18 +87,27 @@ export async function POST(
     );
   }
 
-  const nextStatus =
-    body.action === "accept"
-      ? "ACCEPTED"
-      : body.action === "complete"
-        ? "COMPLETED"
-        : "CANCELLED";
+  // 取消: CANCELLED, with the reason on staff_note, and the print pointer
+  // cleared so nothing reads as in flight. Never re-offered to the printer.
+  if (body.action === "cancel") {
+    const cancelled = await cancelOrder(tenant.tenantId, orderId, body.note ?? null);
+    return Response.json({ ok: true, order: cancelled ?? order });
+  }
+
+  const nextStatus = body.action === "accept" ? "ACCEPTED" : "COMPLETED";
 
   const updated = await updateStatus(tenant.tenantId, orderId, nextStatus);
 
   // Courtesy text when the food is ready. Fire and forget: an SMS that does
   // not send must never make the kitchen think 完成 failed.
-  if (updated && body.action === "complete") {
+  //
+  // WEB ORDERS ONLY. A web customer agreed to texts when they verified their
+  // number on the site; a phone or walk-in customer gave a number to a person
+  // and saw no such notice. Owner confirmed: do not text phone or walk-in
+  // customers.
+  // TODO(consent): if the POS ever gets an "ok to text?" checkbox, gate on that
+  // stored consent here, not on the channel. Not built.
+  if (updated && body.action === "complete" && updated.channel === "web") {
     void notifyOrderReady(updated).catch(() => {
       /* already logged inside */
     });

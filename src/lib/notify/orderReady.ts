@@ -22,6 +22,11 @@ export async function notifyOrderReady(
   if (!isSmsConfigured()) {
     return { sent: false, error: "SMS is not configured" };
   }
+  // A walk-in may have given no number. Nothing to send, and not an error
+  // worth a warning line on every 完成.
+  if (!order.customer.phone) {
+    return { sent: false, error: "This order has no phone number." };
+  }
 
   // Tenant name comes from config data, not a literal — see the multi-tenancy
   // rule. Same for the address the customer is being sent to.

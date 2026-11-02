@@ -254,3 +254,50 @@ export function pickupLabel(value: string, opts: PickupOptions): string {
   if (!m) return value;
   return label12h(Number.parseInt(m[1], 10) * 60 + Number.parseInt(m[2], 10));
 }
+
+/* ---------------------------------------------------------- staff POS -- */
+
+/** The POS offers pickup in quarter hours, whatever the web's interval is. */
+export const STAFF_SLOT_MINUTES = 15;
+
+/**
+ * Pickup choices for an order staff are taking at the counter or on the phone.
+ *
+ * Bounded by STORE hours, not the online cutoff: staff are the authority on
+ * what the kitchen can still cook, so a 8:20 PM call for 8:30 is theirs to
+ * accept even after the website has stopped taking orders. What they cannot do
+ * is promise a time the doors are shut. ASAP only while the doors are open;
+ * scheduled slots from the later of opening and now + lead, through closing.
+ *
+ * Shared by the POS (to render the choices) and the staff route (to re-check
+ * the submitted value), like pickupSlots is for the web.
+ */
+export function staffPickupSlots(
+  now: Date,
+  opts: PickupOptions,
+  slotOpts: PickupSlotOptions = {},
+): PickupSlot[] {
+  const asIfOpen = slotOpts.asIfOpen === true;
+  const { day, minutes } = localNow(opts.timezone, now);
+  const w = todaysWindow(day);
+  if (!w && !asIfOpen) return [];
+
+  const slots: PickupSlot[] = [];
+  if (asIfOpen || isOpenNow(now, opts)) {
+    slots.push({ value: "asap", label: `ASAP (~${opts.leadMinutes} min)` });
+  }
+  if (w) {
+    let earliest = Math.max(w.open, minutes + opts.leadMinutes);
+    if (asIfOpen && earliest > w.close) earliest = w.open;
+    let t = Math.ceil(earliest / STAFF_SLOT_MINUTES) * STAFF_SLOT_MINUTES;
+    for (; t <= w.close; t += STAFF_SLOT_MINUTES) {
+      slots.push({ value: hhmm(t), label: label12h(t) });
+    }
+  }
+  return slots;
+}
+
+/** Server-side: would the POS offer this value right now? */
+export function isValidStaffPickup(value: string, now: Date, opts: PickupOptions): boolean {
+  return staffPickupSlots(now, opts).some((s) => s.value === value);
+}
