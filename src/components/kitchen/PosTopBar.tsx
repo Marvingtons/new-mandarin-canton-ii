@@ -5,7 +5,8 @@ import Link from "next/link";
 import { logoutAction } from "@/app/[kitchenSlug]/actions";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
 import { SECTIONS, useKitchenChrome } from "@/components/kitchen/kitchenChrome";
-import Icon, { posIcon } from "@/components/kitchen/Icon";
+import Icon from "@/components/kitchen/Icon";
+import { posIcon } from "@/components/kitchen/posIcon";
 import s from "@/components/kitchen/pos.module.css";
 
 /**

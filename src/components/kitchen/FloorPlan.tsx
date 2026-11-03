@@ -15,7 +15,8 @@ import {
 import type { OpenTable } from "@/lib/orders/types";
 import { formatCents } from "@/lib/money";
 import { useKT } from "@/components/kitchen/KitchenI18n";
-import Icon, { posIcon } from "@/components/kitchen/Icon";
+import Icon from "@/components/kitchen/Icon";
+import { posIcon } from "@/components/kitchen/posIcon";
 import s from "@/components/kitchen/pos.module.css";
 
 /**
@@ -34,6 +35,10 @@ import s from "@/components/kitchen/pos.module.css";
  * Free is white, seated is the brand red with its minutes, past an hour the
  * minutes turn amber. A seated table never offers a new party: tapping it
  * opens its details, with 加菜 or 清台, and 清台 asks first.
+ *
+ * Four pieces: useOpenTables (the polling), Room (the canvas), TablePane
+ * (the list or one table's details) and GuestSheet (how many?). FloorPlan
+ * only holds the step between them.
  */
 
 export interface Seating {
@@ -47,7 +52,6 @@ export interface Seating {
 type Step =
   | { kind: "room" }
   | { kind: "guests"; label: string }
-  | { kind: "pad"; label: string; digits: string }
   | { kind: "seated"; open: OpenTable }
   | { kind: "confirmClear"; open: OpenTable };
 
@@ -63,32 +67,18 @@ function minutesSince(iso: string, now: number): number {
   return Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
 }
 
-export default function FloorPlan({
-  onSeat,
-  onCleared,
-  onBack,
-  placed,
-}: {
-  /** The order just printed (A-012 · sent), shown here because 堂食 returns to the room. */
-  placed: React.ReactNode;
-  onSeat: (seating: Seating) => void;
-  /** After a 清台, so the POS can drop a seating that no longer exists. */
-  onCleared?: (label: string) => void;
-  /** Back to the ticket without changing table; null when there is no table yet. */
-  onBack: (() => void) | null;
-}) {
-  const t = useKT();
+/* ------------------------------------------------------------ polling -- */
+
+function useOpenTables() {
   const [open, setOpen] = useState<OpenTable[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [step, setStep] = useState<Step>({ kind: "room" });
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/kitchen/tables", { cache: "no-store" });
+      if (!res.ok) throw new Error(`tables ${res.status}`);
       const data = (await res.json()) as { ok: boolean; tables?: OpenTable[] };
       if (!data.ok || !data.tables) throw new Error("not ok");
       setOpen(data.tables);
@@ -113,19 +103,28 @@ export default function FloorPlan({
     };
   }, [refresh]);
 
-  /** Which open seating covers each table id. */
-  const byTable = useMemo(() => {
-    const map = new Map<string, OpenTable>();
-    for (const o of open) for (const id of tablesForLabel(o.tableLabel) ?? []) map.set(id, o);
-    return map;
+  /** Which open seating covers each table id, and each seating by its label. */
+  const { byTable, byLabel } = useMemo(() => {
+    const tables = new Map<string, OpenTable>();
+    const labels = new Map<string, OpenTable>();
+    for (const o of open) {
+      labels.set(o.tableLabel, o);
+      for (const id of tablesForLabel(o.tableLabel) ?? []) tables.set(id, o);
+    }
+    return { byTable: tables, byLabel: labels };
   }, [open]);
 
-  const longestFirst = useMemo(() => [...open].sort((a, b) => Date.parse(a.seatedAt) - Date.parse(b.seatedAt)), [open]);
+  return { open, byTable, byLabel, loaded, loadFailed, now, refresh };
+}
 
-  /* ------------------------------------------------------- the canvas -- */
-  // Room units to CSS px: the walls plus their margin, scaled to fill the
-  // pane and centred.
-  const paneRef = useRef<HTMLElement>(null);
+function MinutesPill({ min, label }: { min: number; label: string }) {
+  return min > LONG_MINUTES ? <span className={`${s.pill} ${s.amber}`}>{label}</span> : <span>{label}</span>;
+}
+
+/* -------------------------------------------------------------- room -- */
+
+/** Room units to CSS px: the walls plus their margin, scaled to fill the pane and centred. */
+function useRoomBox(paneRef: React.RefObject<HTMLElement | null>) {
   const [box, setBox] = useState({ scale: 0, left: 0, top: 0 });
   useLayoutEffect(() => {
     const el = paneRef.current;
@@ -148,7 +147,30 @@ export default function FloorPlan({
     const observer = new ResizeObserver(fit);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [paneRef]);
+  return box;
+}
+
+function Room({
+  byTable,
+  byLabel,
+  now,
+  loaded,
+  selected,
+  onFree,
+  onSeated,
+}: {
+  byTable: Map<string, OpenTable>;
+  byLabel: Map<string, OpenTable>;
+  now: number;
+  loaded: boolean;
+  selected: string | null;
+  onFree: (label: string) => void;
+  onSeated: (open: OpenTable) => void;
+}) {
+  const t = useKT();
+  const paneRef = useRef<HTMLElement>(null);
+  const box = useRoomBox(paneRef);
   const k = box.scale;
   const X = (u: number) => (u + PAD) * k;
   const rect = (x: number, y: number, w: number, h: number): React.CSSProperties => ({
@@ -159,140 +181,76 @@ export default function FloorPlan({
   });
   const radius = 14 * k;
 
-  /* ------------------------------------------------------------ actions -- */
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const sheetOpen = step.kind === "guests" || step.kind === "pad";
-  useEffect(() => {
-    if (sheetOpen && !dialogRef.current?.open) dialogRef.current?.showModal();
-  }, [sheetOpen]);
-
-  function closeSheet() {
-    dialogRef.current?.close();
-  }
-
-  function tapFree(label: string) {
-    setNotice(null);
-    setStep({ kind: "guests", label });
-  }
-
-  function tapSeated(o: OpenTable) {
-    setNotice(null);
-    setStep({ kind: "seated", open: o });
-  }
-
-  function seat(label: string, guests: number) {
-    closeSheet();
-    onSeat({ label, guests, addon: false });
-  }
-
-  async function clear(label: string) {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/kitchen/tables", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "clear", label }),
-      });
-      const data = (await res.json()) as { ok: boolean };
-      // A 409 means someone else already cleared it: the outcome staff wanted.
-      if (data.ok || res.status === 409) {
-        setNotice(t("floor.cleared", { table: label }));
-        onCleared?.(label);
-      } else {
-        setNotice(t("floor.clearFailed"));
-      }
-    } catch {
-      setNotice(t("floor.clearFailed"));
-    } finally {
-      setBusy(false);
-      setStep({ kind: "room" });
-      void refresh();
-    }
-  }
-
-  const selected =
-    step.kind === "guests" || step.kind === "pad"
-      ? step.label
-      : step.kind === "seated" || step.kind === "confirmClear"
-        ? step.open.tableLabel
-        : null;
-
-  /* ------------------------------------------------------- the shapes -- */
-  const minutesPill = (o: OpenTable) => {
-    const min = minutesSince(o.seatedAt, now);
-    return min > LONG_MINUTES ? (
-      <span className={`${s.pill} ${s.amber}`}>{t("floor.minShort", { min })}</span>
-    ) : (
-      <span>{t("floor.minShort", { min })}</span>
+  const tableButton = (label: string, style: React.CSSProperties, seated: OpenTable | null) => {
+    const min = seated ? minutesSince(seated.seatedAt, now) : 0;
+    return (
+      <button
+        key={label}
+        type="button"
+        data-table={label}
+        data-state={seated ? "seated" : "free"}
+        onClick={() => (seated ? onSeated(seated) : onFree(label))}
+        aria-label={
+          seated
+            ? t("floor.occupiedTitle", { table: label, n: seated.guestCount ?? 0, min })
+            : `${t("floor.tableTitle", { table: label })}, ${t("floor.free")}`
+        }
+        className={[s.tbl, seated && s.seated, selected === label && s.selected].filter(Boolean).join(" ")}
+        style={style}
+      >
+        <span className={`${s.n} ${s.num}`}>{label}</span>
+        {seated && (
+          <span className={`${s.stt} ${s.num}`}>
+            <MinutesPill min={min} label={t("floor.minShort", { min })} />
+          </span>
+        )}
+      </button>
     );
   };
 
-  const tableButton = (
-    key: string,
-    label: string,
-    style: React.CSSProperties,
-    seatedAt: OpenTable | null,
-  ) => (
-    <button
-      key={key}
-      type="button"
-      data-table={label}
-      data-state={seatedAt ? "seated" : "free"}
-      onClick={() => (seatedAt ? tapSeated(seatedAt) : tapFree(label))}
-      aria-label={
-        seatedAt
-          ? t("floor.occupiedTitle", { table: label, n: seatedAt.guestCount ?? 0, min: minutesSince(seatedAt.seatedAt, now) })
-          : `${t("floor.tableTitle", { table: label })}, ${t("floor.free")}`
-      }
-      className={[s.tbl, seatedAt && s.seated, selected === label && s.selected].filter(Boolean).join(" ")}
-      style={style}
-    >
-      <span className={`${s.n} ${s.num}`}>{label}</span>
-      {seatedAt && <span className={`${s.stt} ${s.num}`}>{minutesPill(seatedAt)}</span>}
-    </button>
-  );
-
   const paired = new Set(TABLE_COMBINATIONS.flatMap((c) => c.ids));
-  const shapes: React.ReactNode[] = [];
-  for (const ft of FLOOR_TABLES) {
-    if (paired.has(ft.id)) continue;
-    shapes.push(tableButton(ft.id, ft.id, { ...rect(ft.x, ft.y, ft.w, ft.h), borderRadius: radius }, byTable.get(ft.id) ?? null));
-  }
-  for (const combo of TABLE_COMBINATIONS) {
-    const [a, b] = combo.ids.map((id) => floorTable(id)) as [FloorTable, FloorTable];
-    const label = tableLabel(combo.ids);
-    const joined = open.find((o) => o.tableLabel === label) ?? null;
+  const shapes: React.ReactNode[] = FLOOR_TABLES.filter((ft) => !paired.has(ft.id)).map((ft) =>
+    tableButton(ft.id, { ...rect(ft.x, ft.y, ft.w, ft.h), borderRadius: radius }, byTable.get(ft.id) ?? null),
+  );
+  for (const combo of TABLE_COMBINATIONS) shapes.push(...pairShapes(combo.ids));
+
+  /** A pair: one long shape when seated together, else two halves, a split line and Combine. */
+  function pairShapes(ids: [string, string]): React.ReactNode[] {
+    const [a, b] = ids.map((id) => floorTable(id)) as [FloorTable, FloorTable];
+    const label = tableLabel(ids);
+    const joined = byLabel.get(label);
     if (joined) {
-      // Seated together: one long table, one shape.
       const x = Math.min(a.x, b.x);
       const y = Math.min(a.y, b.y);
       const w = Math.max(a.x + a.w, b.x + b.w) - x;
       const h = Math.max(a.y + a.h, b.y + b.h) - y;
-      shapes.push(tableButton(label, label, { ...rect(x, y, w, h), borderRadius: radius }, joined));
-      continue;
+      return [tableButton(label, { ...rect(x, y, w, h), borderRadius: radius }, joined)];
     }
     // Two halves of one long table: rounded only on their outer ends.
     const vertical = b.y > a.y;
-    shapes.push(
-      tableButton(a.id, a.id, { ...rect(a.x, a.y, a.w, a.h), borderRadius: vertical ? `${radius}px ${radius}px 0 0` : `${radius}px 0 0 ${radius}px` }, byTable.get(a.id) ?? null),
-      tableButton(b.id, b.id, { ...rect(b.x, b.y, b.w, b.h), borderRadius: vertical ? `0 0 ${radius}px ${radius}px` : `0 ${radius}px ${radius}px 0` }, byTable.get(b.id) ?? null),
-    );
-    shapes.push(
+    const r = `${radius}px`;
+    const out = [
+      tableButton(a.id, { ...rect(a.x, a.y, a.w, a.h), borderRadius: vertical ? `${r} ${r} 0 0` : `${r} 0 0 ${r}` }, byTable.get(a.id) ?? null),
+      tableButton(b.id, { ...rect(b.x, b.y, b.w, b.h), borderRadius: vertical ? `0 0 ${r} ${r}` : `0 ${r} ${r} 0` }, byTable.get(b.id) ?? null),
       <div
         key={`${label}-split`}
         aria-hidden="true"
         className={s.split}
-        style={vertical ? { left: X(a.x), top: X(b.y) - 1, width: a.w * k } : { left: X(b.x) - 1, top: X(a.y), height: a.h * k, borderTop: 0, borderLeft: "2px dashed var(--text-faint)" }}
+        style={
+          vertical
+            ? { left: X(a.x), top: X(b.y) - 1, width: a.w * k }
+            : { left: X(b.x) - 1, top: X(a.y), height: a.h * k, borderTop: 0, borderLeft: "2px dashed var(--text-faint)" }
+        }
       />,
-    );
+    ];
     if (!byTable.has(a.id) && !byTable.has(b.id)) {
-      shapes.push(
+      out.push(
         <button
           key={`${label}-combine`}
           type="button"
           data-combine={label}
-          onClick={() => tapFree(label)}
-          aria-label={t("floor.pick.combined", { a: combo.ids[0], b: combo.ids[1] })}
+          onClick={() => onFree(label)}
+          aria-label={t("floor.pick.combined", { a: ids[0], b: ids[1] })}
           className={`${s.btn} ${s.secondary} ${s.combine}`}
           style={vertical ? { left: X(a.x + a.w / 2), top: X(b.y) } : { left: X(b.x), top: X(a.y + a.h / 2) }}
         >
@@ -300,21 +258,19 @@ export default function FloorPlan({
         </button>,
       );
     }
+    return out;
   }
 
-  const chairs: React.ReactNode[] = [];
-  for (const ft of FLOOR_TABLES) {
-    for (const [side, n] of Object.entries(ft.chairs) as ["t" | "r" | "b" | "l", number][]) {
-      for (let i = 0; i < n; i++) {
+  const chairs = FLOOR_TABLES.flatMap((ft) =>
+    (Object.entries(ft.chairs) as ["t" | "r" | "b" | "l", number][]).flatMap(([side, n]) =>
+      Array.from({ length: n }, (_, i) => {
         const f = (i + 0.5) / n;
-        const cx =
-          side === "l" ? ft.x - CHAIR_GAP - CHAIR / 2 : side === "r" ? ft.x + ft.w + CHAIR_GAP + CHAIR / 2 : ft.x + f * ft.w;
-        const cy =
-          side === "t" ? ft.y - CHAIR_GAP - CHAIR / 2 : side === "b" ? ft.y + ft.h + CHAIR_GAP + CHAIR / 2 : ft.y + f * ft.h;
-        chairs.push(<div key={`${ft.id}${side}${i}`} className={s.chair} style={rect(cx - CHAIR / 2, cy - CHAIR / 2, CHAIR, CHAIR)} />);
-      }
-    }
-  }
+        const cx = side === "l" ? ft.x - CHAIR_GAP - CHAIR / 2 : side === "r" ? ft.x + ft.w + CHAIR_GAP + CHAIR / 2 : ft.x + f * ft.w;
+        const cy = side === "t" ? ft.y - CHAIR_GAP - CHAIR / 2 : side === "b" ? ft.y + ft.h + CHAIR_GAP + CHAIR / 2 : ft.y + f * ft.h;
+        return <div key={`${ft.id}${side}${i}`} className={s.chair} style={rect(cx - CHAIR / 2, cy - CHAIR / 2, CHAIR, CHAIR)} />;
+      }),
+    ),
+  );
 
   const landmarks = FLOOR_LANDMARKS.flatMap((m) =>
     m.kind === "door"
@@ -333,10 +289,275 @@ export default function FloorPlan({
         ],
   );
 
-  /* ---------------------------------------------------------- the pane -- */
-  const details = step.kind === "seated" || step.kind === "confirmClear" ? step.open : null;
+  return (
+    <main ref={paneRef} className={s.roomPane} aria-busy={!loaded} aria-label={t("floor.title")}>
+      {k > 0 && (
+        <div className={s.room} style={{ left: box.left, top: box.top, width: (ROOM_WIDTH + PAD * 2) * k, height: (ROOM_HEIGHT + PAD * 2) * k }}>
+          <div className={s.walls} />
+          {landmarks}
+          {chairs}
+          {shapes}
+        </div>
+      )}
+    </main>
+  );
+}
 
-  const statusLine = (
+/* -------------------------------------------------------------- pane -- */
+
+function TableList({
+  open,
+  now,
+  status,
+  onSeated,
+  onBack,
+}: {
+  open: OpenTable[];
+  now: number;
+  status: React.ReactNode;
+  onSeated: (open: OpenTable) => void;
+  onBack: (() => void) | null;
+}) {
+  const t = useKT();
+  const longestFirst = useMemo(() => [...open].sort((a, b) => Date.parse(a.seatedAt) - Date.parse(b.seatedAt)), [open]);
+  return (
+    <>
+      <div className={s.listH}>
+        <span className={s.zh}>{t("floor.openZh")}</span>
+        <span className={s.en}>{t("floor.openEn")}</span>
+        <span className={`${s.c} ${s.num}`}>{open.length}</span>
+      </div>
+      {longestFirst.map((o) => {
+        const min = minutesSince(o.seatedAt, now);
+        return (
+          <button key={o.tableLabel} type="button" onClick={() => onSeated(o)} className={s.open}>
+            <span className={`${s.tn} ${s.num}`}>{o.tableLabel}</span>
+            <span className={`${s.m} ${s.num}`}>
+              <MinutesPill min={min} label={t("floor.minutes", { min })} />
+            </span>
+          </button>
+        );
+      })}
+      <div className={s.listFoot}>
+        {status}
+        {onBack && (
+          <button type="button" onClick={onBack} className={`${s.btn} ${s.secondary}`}>
+            {t("floor.backToTicket")}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function TableDetails({
+  table,
+  now,
+  confirming,
+  busy,
+  status,
+  onAllTables,
+  onAddItems,
+  onAskClear,
+  onCancelClear,
+  onClear,
+}: {
+  table: OpenTable;
+  now: number;
+  confirming: boolean;
+  busy: boolean;
+  status: React.ReactNode;
+  onAllTables: () => void;
+  onAddItems: () => void;
+  onAskClear: () => void;
+  onCancelClear: () => void;
+  onClear: () => void;
+}) {
+  const t = useKT();
+  const primary = `${s.btn} ${s.primary}`;
+  const secondary = `${s.btn} ${s.secondary}`;
+  return (
+    <>
+      <div className={s.detMain}>
+        <button type="button" onClick={onAllTables} className={`${s.btn} ${s.quiet}`}>
+          <Icon name="chevronLeft" size={posIcon(24)} />
+          {t("floor.allTables")}
+        </button>
+        <div className={s.detH}>
+          <div className={`${s.tn} ${s.num}`}>{t("floor.tableTitle", { table: table.tableLabel })}</div>
+          <div className={`${s.meta} ${s.num}`}>{t("floor.minutes", { min: minutesSince(table.seatedAt, now) })}</div>
+        </div>
+        <div className={`${s.detOrders} ${s.num}`}>
+          {table.orderNumbers.map((n) => (
+            <span key={n}>{n}</span>
+          ))}
+        </div>
+      </div>
+      <div className={s.listFoot}>
+        {status}
+        {confirming ? (
+          <>
+            <p className={s.ask}>{t("floor.clearAsk", { table: table.tableLabel })}</p>
+            <button type="button" disabled={busy} onClick={onClear} className={primary}>
+              {busy ? t("common.busy") : t("floor.clearYes", { table: table.tableLabel })}
+            </button>
+            <button type="button" onClick={onCancelClear} className={secondary}>
+              {t("floor.cancel")}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className={s.detTotal}>
+              <span>{t("pos.totalLabel")}</span>
+              <span className={`${s.v} ${s.num}`}>{formatCents(table.totalCents)}</span>
+            </div>
+            <button type="button" onClick={onAddItems} className={primary}>
+              {t("floor.addItems")}
+            </button>
+            <button type="button" onClick={onAskClear} className={secondary}>
+              {t("floor.clear")}
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------- sheet -- */
+
+/** 幾位? 1 to 12 at 88px, then 13+ opens a keypad. A native modal: Escape closes it. */
+function GuestSheet({ label, onSeat, onClose }: { label: string; onSeat: (guests: number) => void; onClose: () => void }) {
+  const t = useKT();
+  const ref = useRef<HTMLDialogElement>(null);
+  const [digits, setDigits] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ref.current?.open) ref.current?.showModal();
+  }, []);
+  const close = () => ref.current?.close();
+  const key = `${s.btn} ${s.secondary}`;
+  const type = (d: string) => setDigits((v) => ((v ?? "") + d).replace(/^0+/, "").slice(0, 3));
+
+  return (
+    <dialog ref={ref} aria-label={t("floor.guestsEn")} onClose={onClose} className={s.dialog}>
+      {/* The scrim is a button inside the dialog, so the dialog itself
+          carries no click handler; Escape closes it natively. */}
+      <button type="button" aria-hidden="true" tabIndex={-1} className={s.scrim} onClick={close} />
+      <div className={s.sheet}>
+        <div className={s.sheetH}>
+          <span className={s.zh}>{t("floor.guestsZh", { table: label })}</span>
+          <span className={s.en}>{t("floor.guestsEn")}</span>
+        </div>
+        {digits === null ? (
+          <div className={`${s.keys} ${s.num}`}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+              <button key={n} type="button" data-guests={n} onClick={() => onSeat(n)} className={key}>
+                {n}
+              </button>
+            ))}
+            <button type="button" onClick={() => setDigits("")} className={`${key} ${s.wide}`}>
+              {t("floor.moreKey")}
+            </button>
+          </div>
+        ) : (
+          <>
+            <output aria-live="polite" className={`${s.padOut} ${s.num}`}>
+              {digits || "0"}
+            </output>
+            <div className={`${s.keys} ${s.pad} ${s.num}`}>
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+                <button key={d} type="button" onClick={() => type(d)} className={key}>
+                  {d}
+                </button>
+              ))}
+              <button type="button" onClick={() => setDigits(digits.slice(0, -1))} className={`${key} ${s.word}`}>
+                {t("floor.padDelete")}
+              </button>
+              <button type="button" onClick={() => type("0")} className={key}>
+                0
+              </button>
+              <button
+                type="button"
+                disabled={!digits || Number(digits) < 1}
+                onClick={() => onSeat(Number(digits))}
+                className={`${s.btn} ${s.primary} ${s.word}`}
+              >
+                {t("floor.padOk")}
+              </button>
+            </div>
+          </>
+        )}
+        <div className={s.sheetFoot}>
+          <button type="button" onClick={close} className={`${s.btn} ${s.quiet}`}>
+            {t("floor.cancel")}
+          </button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+/* --------------------------------------------------------- the screen -- */
+
+export default function FloorPlan({
+  onSeat,
+  onCleared,
+  onBack,
+  placed,
+}: {
+  /** The order just printed (A-012 · sent), shown here because 堂食 returns to the room. */
+  placed: React.ReactNode;
+  onSeat: (seating: Seating) => void;
+  /** After a 清台, so the POS can drop a seating that no longer exists. */
+  onCleared?: (label: string) => void;
+  /** Back to the ticket without changing table; null when there is no table yet. */
+  onBack: (() => void) | null;
+}) {
+  const t = useKT();
+  const { open, byTable, byLabel, loaded, loadFailed, now, refresh } = useOpenTables();
+  const [step, setStep] = useState<Step>({ kind: "room" });
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function tapFree(label: string) {
+    setNotice(null);
+    setStep({ kind: "guests", label });
+  }
+
+  function tapSeated(o: OpenTable) {
+    setNotice(null);
+    setStep({ kind: "seated", open: o });
+  }
+
+  async function clear(label: string) {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/kitchen/tables", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "clear", label }),
+      });
+      // A 409 means someone else already cleared it: the outcome staff wanted.
+      const cleared = res.status === 409 || (res.ok && ((await res.json()) as { ok: boolean }).ok);
+      if (cleared) {
+        setNotice(t("floor.cleared", { table: label }));
+        onCleared?.(label);
+      } else {
+        setNotice(t("floor.clearFailed"));
+      }
+    } catch {
+      setNotice(t("floor.clearFailed"));
+    } finally {
+      setBusy(false);
+      setStep({ kind: "room" });
+      void refresh();
+    }
+  }
+
+  const details = step.kind === "seated" || step.kind === "confirmClear" ? step.open : null;
+  const selected = step.kind === "guests" ? step.label : (details?.tableLabel ?? null);
+
+  const status = (
     <>
       {placed}
       {(notice || loadFailed) && (
@@ -351,170 +572,31 @@ export default function FloorPlan({
     <>
       <aside aria-label={t("floor.openEn")} className={`${s.list} ${details ? s.details : ""}`}>
         {details ? (
-          <>
-            <div className={s.detMain}>
-              <button type="button" onClick={() => setStep({ kind: "room" })} className={`${s.btn} ${s.quiet}`}>
-                <Icon name="chevronLeft" size={posIcon(24)} />
-                {t("floor.allTables")}
-              </button>
-              <div className={s.detH}>
-                <div className={`${s.tn} ${s.num}`}>{t("floor.tableTitle", { table: details.tableLabel })}</div>
-                <div className={`${s.meta} ${s.num}`}>{t("floor.minutes", { min: minutesSince(details.seatedAt, now) })}</div>
-              </div>
-              <div className={`${s.detOrders} ${s.num}`}>
-                {details.orderNumbers.map((n) => (
-                  <span key={n}>{n}</span>
-                ))}
-              </div>
-            </div>
-            <div className={s.listFoot}>
-              {statusLine}
-              {step.kind === "confirmClear" ? (
-                <>
-                  <p className={s.ask}>{t("floor.clearAsk", { table: details.tableLabel })}</p>
-                  <button type="button" disabled={busy} onClick={() => void clear(details.tableLabel)} className={`${s.btn} ${s.primary}`}>
-                    {busy ? t("common.busy") : t("floor.clearYes", { table: details.tableLabel })}
-                  </button>
-                  <button type="button" onClick={() => setStep({ kind: "seated", open: details })} className={`${s.btn} ${s.secondary}`}>
-                    {t("floor.cancel")}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className={s.detTotal}>
-                    <span>{t("pos.totalLabel")}</span>
-                    <span className={`${s.v} ${s.num}`}>{formatCents(details.totalCents)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onSeat({ label: details.tableLabel, guests: details.guestCount ?? 1, addon: true })}
-                    className={`${s.btn} ${s.primary}`}
-                  >
-                    {t("floor.addItems")}
-                  </button>
-                  <button type="button" onClick={() => setStep({ kind: "confirmClear", open: details })} className={`${s.btn} ${s.secondary}`}>
-                    {t("floor.clear")}
-                  </button>
-                </>
-              )}
-            </div>
-          </>
+          <TableDetails
+            table={details}
+            now={now}
+            confirming={step.kind === "confirmClear"}
+            busy={busy}
+            status={status}
+            onAllTables={() => setStep({ kind: "room" })}
+            onAddItems={() => onSeat({ label: details.tableLabel, guests: details.guestCount ?? 1, addon: true })}
+            onAskClear={() => setStep({ kind: "confirmClear", open: details })}
+            onCancelClear={() => setStep({ kind: "seated", open: details })}
+            onClear={() => void clear(details.tableLabel)}
+          />
         ) : (
-          <>
-            <div className={s.listH}>
-              <span className={s.zh}>{t("floor.openZh")}</span>
-              <span className={s.en}>{t("floor.openEn")}</span>
-              <span className={`${s.c} ${s.num}`}>{open.length}</span>
-            </div>
-            {longestFirst.map((o) => (
-              <button key={o.tableLabel} type="button" onClick={() => tapSeated(o)} className={s.open}>
-                <span className={`${s.tn} ${s.num}`}>{o.tableLabel}</span>
-                <span className={`${s.m} ${s.num}`}>
-                  {minutesSince(o.seatedAt, now) > LONG_MINUTES ? (
-                    <span className={`${s.pill} ${s.amber}`}>{t("floor.minutes", { min: minutesSince(o.seatedAt, now) })}</span>
-                  ) : (
-                    t("floor.minutes", { min: minutesSince(o.seatedAt, now) })
-                  )}
-                </span>
-              </button>
-            ))}
-            <div className={s.listFoot}>
-              {statusLine}
-              {onBack && (
-                <button type="button" onClick={onBack} className={`${s.btn} ${s.secondary}`}>
-                  {t("floor.backToTicket")}
-                </button>
-              )}
-            </div>
-          </>
+          <TableList open={open} now={now} status={status} onSeated={tapSeated} onBack={onBack} />
         )}
       </aside>
 
-      <main ref={paneRef} className={s.roomPane} aria-busy={!loaded} aria-label={t("floor.title")}>
-        {k > 0 && (
-          <div className={s.room} style={{ left: box.left, top: box.top, width: (ROOM_WIDTH + PAD * 2) * k, height: (ROOM_HEIGHT + PAD * 2) * k }}>
-            <div className={s.walls} />
-            {landmarks}
-            {chairs}
-            {shapes}
-          </div>
-        )}
-      </main>
+      <Room byTable={byTable} byLabel={byLabel} now={now} loaded={loaded} selected={selected} onFree={tapFree} onSeated={tapSeated} />
 
-      {sheetOpen && (
-        <dialog
-          ref={dialogRef}
-          aria-label={t("floor.guestsEn")}
-          onClose={() => setStep((st) => (st.kind === "guests" || st.kind === "pad" ? { kind: "room" } : st))}
-          className={s.dialog}
-        >
-          {/* The scrim is a button inside the dialog, so the dialog itself
-              carries no click handler; Escape closes it natively. */}
-          <button type="button" aria-hidden="true" tabIndex={-1} className={s.scrim} onClick={closeSheet} />
-          <div className={s.sheet}>
-            <div className={s.sheetH}>
-              <span className={s.zh}>{t("floor.guestsZh", { table: step.label })}</span>
-              <span className={s.en}>{t("floor.guestsEn")}</span>
-            </div>
-            {step.kind === "guests" ? (
-              <div className={`${s.keys} ${s.num}`}>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
-                  <button key={n} type="button" data-guests={n} onClick={() => seat(step.label, n)} className={`${s.btn} ${s.secondary}`}>
-                    {n}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setStep({ kind: "pad", label: step.label, digits: "" })}
-                  className={`${s.btn} ${s.secondary} ${s.wide}`}
-                >
-                  {t("floor.moreKey")}
-                </button>
-              </div>
-            ) : (
-              <>
-                <output aria-live="polite" className={`${s.padOut} ${s.num}`}>
-                  {step.digits || "0"}
-                </output>
-                <div className={`${s.keys} ${s.pad} ${s.num}`}>
-                  {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setStep({ ...step, digits: (step.digits + d).replace(/^0+/, "").slice(0, 3) })}
-                      className={`${s.btn} ${s.secondary}`}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                  <button type="button" onClick={() => setStep({ ...step, digits: step.digits.slice(0, -1) })} className={`${s.btn} ${s.secondary} ${s.word}`}>
-                    {t("floor.padDelete")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStep({ ...step, digits: (step.digits + "0").replace(/^0+/, "").slice(0, 3) })}
-                    className={`${s.btn} ${s.secondary}`}
-                  >
-                    0
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!step.digits || Number(step.digits) < 1}
-                    onClick={() => seat(step.label, Number(step.digits))}
-                    className={`${s.btn} ${s.primary} ${s.word}`}
-                  >
-                    {t("floor.padOk")}
-                  </button>
-                </div>
-              </>
-            )}
-            <div className={s.sheetFoot}>
-              <button type="button" onClick={closeSheet} className={`${s.btn} ${s.quiet}`}>
-                {t("floor.cancel")}
-              </button>
-            </div>
-          </div>
-        </dialog>
+      {step.kind === "guests" && (
+        <GuestSheet
+          label={step.label}
+          onSeat={(guests) => onSeat({ label: step.label, guests, addon: false })}
+          onClose={() => setStep((st) => (st.kind === "guests" ? { kind: "room" } : st))}
+        />
       )}
     </>
   );

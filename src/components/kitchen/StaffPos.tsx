@@ -16,7 +16,8 @@ import type { OrderLine, StaffTakeoutChannel } from "@/lib/orders/types";
 import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/pos-categories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import StaffItemSheet, { type StaffLineDraft } from "@/components/kitchen/StaffItemSheet";
-import Icon, { posIcon } from "@/components/kitchen/Icon";
+import Icon from "@/components/kitchen/Icon";
+import { posIcon } from "@/components/kitchen/posIcon";
 import FloorPlan, { type Seating } from "@/components/kitchen/FloorPlan";
 import PosTopBar from "@/components/kitchen/PosTopBar";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
@@ -112,7 +113,7 @@ function ZhName({ name }: { name: string }) {
   return (
     <>
       {base}
-      {count && <span className={s.cnt}>{count}</span>}
+      {count !== null ? <span className={s.cnt}>{count}</span> : null}
     </>
   );
 }
