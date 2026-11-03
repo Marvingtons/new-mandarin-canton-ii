@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { logoutAction } from "@/app/[kitchenSlug]/actions";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
-import { SECTIONS, useKitchenChrome } from "@/components/kitchen/KitchenShell";
+import { SECTIONS, useKitchenChrome } from "@/components/kitchen/kitchenChrome";
 import Icon from "@/components/kitchen/Icon";
 
 /**

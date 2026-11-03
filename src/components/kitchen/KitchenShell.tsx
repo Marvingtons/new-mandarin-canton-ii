@@ -1,40 +1,16 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { logoutAction } from "@/app/[kitchenSlug]/actions";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
-import type { KitchenKey } from "@/lib/kitchen/i18n";
 import Icon from "@/components/kitchen/Icon";
+import { KitchenChromeContext, SECTIONS, type KitchenSection } from "@/components/kitchen/kitchenChrome";
 
-export type KitchenSection = "board" | "pos" | "history";
+export type { KitchenSection };
 
 /** Per-device 大字 preference. A tablet at the pass may want it; the office PC may not. */
 const LARGE_TEXT_STORAGE_KEY = "nmc-kitchen-large-text";
-
-export const SECTIONS: { id: KitchenSection; path: string; label: KitchenKey }[] = [
-  { id: "board", path: "", label: "nav.board" },
-  { id: "pos", path: "/pos", label: "nav.pos" },
-  { id: "history", path: "/history", label: "nav.history" },
-];
-
-/**
- * What a screen that draws its own top bar (the POS) needs from the shell:
- * where the other sections live, and the per-device 大字 switch.
- */
-interface KitchenChrome {
-  basePath: string;
-  active: KitchenSection;
-  largeText: boolean;
-  toggleLargeText: () => void;
-}
-const KitchenChromeContext = createContext<KitchenChrome | null>(null);
-
-export function useKitchenChrome(): KitchenChrome {
-  const chrome = useContext(KitchenChromeContext);
-  if (!chrome) throw new Error("useKitchenChrome outside KitchenShell");
-  return chrome;
-}
 
 /**
  * The staff area's top bar: Board · New Order · History, the 中文 / EN toggle,
@@ -80,7 +56,7 @@ export default function KitchenShell({
     if (largeText) surface.setAttribute("data-large-text", "");
     else surface.removeAttribute("data-large-text");
   }, [largeText]);
-  function toggleLargeText() {
+  const toggleLargeText = useCallback(() => {
     setLargeText((on) => {
       try {
         localStorage.setItem(LARGE_TEXT_STORAGE_KEY, on ? "0" : "1");
@@ -89,7 +65,7 @@ export default function KitchenShell({
       }
       return !on;
     });
-  }
+  }, []);
 
   /* The nav's own height, for screens that fill what is left under it (the
      POS panes). Measured rather than assumed, because it changes with the
@@ -105,7 +81,10 @@ export default function KitchenShell({
     return () => observer.disconnect();
   }, []);
 
-  const chrome = { basePath, active, largeText, toggleLargeText };
+  const chrome = useMemo(
+    () => ({ basePath, active, largeText, toggleLargeText }),
+    [basePath, active, largeText, toggleLargeText],
+  );
   if (active === "pos") {
     return <KitchenChromeContext.Provider value={chrome}>{children}</KitchenChromeContext.Provider>;
   }

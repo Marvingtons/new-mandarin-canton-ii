@@ -189,6 +189,17 @@ export default function StaffPos({
   const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsRef = useRef<HTMLDialogElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // A native modal: focus stays inside, Escape and the backdrop close it.
+  useEffect(() => {
+    if (detailsOpen) detailsRef.current?.showModal();
+  }, [detailsOpen]);
+  // Search opens on a tap of its button, so the field takes the keyboard.
+  useEffect(() => {
+    if (searchOpen) searchRef.current?.focus();
+  }, [searchOpen]);
   const [activeCategory, setActiveCategory] = useState<string>(menu.categories[0]?.id ?? "");
 
   const lunchCategoryIds = useMemo(
@@ -609,7 +620,7 @@ export default function StaffPos({
         placeholder={t("pos.search")}
         aria-label={t("pos.search")}
         enterKeyHint="search"
-        autoFocus
+        ref={searchRef}
         className={`${field} h-[2.545rem] min-h-0 pr-14 pl-12 text-base`}
       />
       <button
@@ -923,15 +934,23 @@ export default function StaffPos({
 
       {/* --------------------------------------- customer details + notes -- */}
       {detailsOpen && (
-        <div role="dialog" aria-modal="true" aria-label={mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")} className="fixed inset-0 z-50 flex justify-end">
-          <button aria-hidden="true" tabIndex={-1} className="absolute inset-0 bg-pos-scrim" onClick={() => setDetailsOpen(false)} />
-          <div className="pos-sheet-in relative z-10 flex h-full w-full max-w-[26rem] flex-col bg-pos-bg shadow-pos-raised">
+        <dialog
+          ref={detailsRef}
+          aria-label={mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}
+          onClose={() => setDetailsOpen(false)}
+          // A click that lands on the dialog itself is a click on the backdrop.
+          onClick={(e) => {
+            if (e.target === e.currentTarget) e.currentTarget.close();
+          }}
+          className="pos-sheet-in m-0 ml-auto h-full max-h-none w-full max-w-[26rem] overflow-hidden bg-pos-bg p-0 text-pos-ink shadow-pos-raised backdrop:bg-pos-scrim"
+        >
+          <div className="flex h-full flex-col">
             <div className="flex h-[var(--pos-top)] shrink-0 items-center justify-between gap-4 px-6">
               <h2 className="text-[1.273rem] font-bold">{mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}</h2>
               <button
                 type="button"
                 data-action="details-done"
-                onClick={() => setDetailsOpen(false)}
+                onClick={() => detailsRef.current?.close()}
                 className="flex h-[2.545rem] items-center rounded-xl bg-pos-brand px-5 text-base font-bold text-white hover:bg-pos-brand-hover"
               >
                 {t("pos.details.done")}
@@ -1063,7 +1082,7 @@ export default function StaffPos({
               </label>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
 
       {floorOpen && (
