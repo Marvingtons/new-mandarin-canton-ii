@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS · Floor plan</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kitchen.css">
+</head>
+<body>
+<div class="floor" id="app"></div>
+<script src="shared.js"></script>
+<script>
+// ?view=list (default) | details (table 1 selected) | guests (free table 2 tapped)
+const view = params.get("view") || "list";
+
+// Mirrors src/lib/kitchen/floor-plan.ts, plus the two proposed additions:
+// `chairs` per side, and FLOOR_LANDMARKS. Room units, 1000 x 600.
+const W = 1000, H = 600, PAD = 48;
+const TABLES = {
+  "1": { x: 745, y: 10, w: 125, h: 125, chairs: { r: 2, l: 2 } },
+  "2": { x: 745, y: 190, w: 125, h: 125, chairs: { r: 2, l: 2 } },
+  "3": { x: 745, y: 370, w: 125, h: 130, chairs: { r: 2, l: 2 } },
+  "4": { x: 405, y: 10, w: 150, h: 180, chairs: { t: 1, r: 2, l: 2 } },
+  "5": { x: 405, y: 190, w: 150, h: 180, chairs: { b: 1, r: 2, l: 2 } },
+  "7": { x: 140, y: 110, w: 125, h: 140, chairs: { r: 2, l: 2 } },
+  "8": { x: 140, y: 250, w: 125, h: 140, chairs: { r: 2, l: 2 } },
+  "9": { x: 130, y: 450, w: 135, h: 140, chairs: { t: 1, r: 1, b: 1, l: 1 } },
+  "6": { x: 430, y: 445, w: 140, h: 145, chairs: { r: 2, l: 2 } },
+};
+const PAIRS = [["4", "5"], ["7", "8"]];
+// Proposed: landmarks live in config too. Positions are placeholders until the owner places them.
+const LANDMARKS = [
+  { zh: "櫃檯", en: "Counter", x: -30, y: -30, w: 128, h: 72, box: true },
+  { zh: "神檯", en: "Altar", x: 930, y: 230, w: 100, h: 110, box: true },
+  { zh: "入口", en: "Entrance", x: 890, y: 580, w: 130, h: 0, door: true },
+];
+
+// Live state. Labels are what prints: "4+5" is one seating on the joined table.
+const SEATED = {
+  "3": { g: 4, m: 75, cents: 11840, who: "5 dishes" },
+  "4+5": { g: 8, m: 41, cents: 21265, who: "9 dishes" },
+  "1": { g: 2, m: 24, cents: 4399, who: "2 dishes" },
+  "6": { g: 2, m: 8, cents: 3150, who: "2 dishes" },
+};
+const selected = view === "details" ? "1" : view === "guests" ? "2" : null;
+
+function state(label) {
+  const s = SEATED[label];
+  if (!s) return "";
+  const mins = s.m > 60 ? `<span class="pill amber">${s.m}′</span>` : `<span>${s.m}′</span>`;
+  return `<span class="st num">${mins}</span>`;
+}
+
+function renderRoom() {
+  const pane = $(".room-pane");
+  const cs = getComputedStyle(pane);
+  const pw = pane.clientWidth - parseFloat(cs.paddingLeft) * 2;
+  const ph = pane.clientHeight - parseFloat(cs.paddingTop) * 2;
+  const s = Math.min(pw / (W + PAD * 2), ph / (H + PAD * 2));
+  const X = (u) => (u + PAD) * s;
+  const out = [];
+  const box = (x, y, w, h) => `left:${X(x)}px;top:${X(y)}px;width:${w * s}px;height:${h * s}px`;
+
+  out.push(`<div class="walls"></div>`);
+  for (const m of LANDMARKS) {
+    if (m.door) {
+      out.push(`<div class="door" style="left:${X(m.x)}px;top:${(H + PAD * 2) * s - 3}px;width:${m.w * s}px;height:4px"></div>`);
+      out.push(`<div class="mark" style="${box(m.x, m.y - 40, m.w, 36)}">${m.zh} ${m.en}</div>`);
+    } else {
+      out.push(`<div class="mark box" style="${box(m.x, m.y, m.w, m.h)}">${m.zh}<br>${m.en}</div>`);
+    }
+  }
+  // chairs
+  const C = 26, GAP = 8;
+  for (const t of Object.values(TABLES)) {
+    const put = (n, side) => {
+      for (let i = 0; i < n; i++) {
+        const f = (i + 0.5) / n;
+        let cx, cy;
+        if (side === "t") { cx = t.x + f * t.w; cy = t.y - GAP - C / 2; }
+        if (side === "b") { cx = t.x + f * t.w; cy = t.y + t.h + GAP + C / 2; }
+        if (side === "l") { cx = t.x - GAP - C / 2; cy = t.y + f * t.h; }
+        if (side === "r") { cx = t.x + t.w + GAP + C / 2; cy = t.y + f * t.h; }
+        out.push(`<div class="chair" style="${box(cx - C / 2, cy - C / 2, C, C)}"></div>`);
+      }
+    };
+    for (const [side, n] of Object.entries(t.chairs)) put(n, side);
+  }
+  // tables
+  const R = 14 * s;
+  const paired = new Set(PAIRS.flat());
+  for (const [id, t] of Object.entries(TABLES)) {
+    if (paired.has(id)) continue;
+    const cls = ["tbl", SEATED[id] && "seated", selected === id && "selected"].filter(Boolean).join(" ");
+    out.push(`<button class="${cls}" style="${box(t.x, t.y, t.w, t.h)};border-radius:${R}px"><span class="n num">${id}</span>${state(id)}</button>`);
+  }
+  for (const [a, b] of PAIRS) {
+    const A = TABLES[a], B = TABLES[b], label = `${a}+${b}`;
+    if (SEATED[label]) {
+      out.push(`<button class="tbl seated" style="${box(A.x, A.y, A.w, A.h + B.h)};border-radius:${R}px"><span class="n num">${label}</span>${state(label)}</button>`);
+      continue;
+    }
+    out.push(`<button class="tbl" style="${box(A.x, A.y, A.w, A.h)};border-radius:${R}px ${R}px 0 0"><span class="n num">${a}</span></button>`);
+    out.push(`<button class="tbl" style="${box(B.x, B.y, B.w, B.h)};border-radius:0 0 ${R}px ${R}px"><span class="n num">${b}</span></button>`);
+    out.push(`<div class="split" style="left:${X(A.x)}px;top:${X(B.y) - 1}px;width:${A.w * s}px"></div>`);
+    out.push(`<button class="btn btn-secondary combine" style="left:${X(A.x + A.w / 2)}px;top:${X(B.y)}px">併桌 Combine</button>`);
+  }
+  const room = $(".room");
+  room.style.width = (W + PAD * 2) * s + "px";
+  room.style.height = (H + PAD * 2) * s + "px";
+  room.style.left = (pane.clientWidth - (W + PAD * 2) * s) / 2 + "px";
+  room.style.top = (pane.clientHeight - (H + PAD * 2) * s) / 2 + "px";
+  room.innerHTML = out.join("");
+}
+
+const sorted = Object.entries(SEATED).sort((a, b) => b[1].m - a[1].m);
+const listHtml = `
+  <div class="list-h"><span class="zh">開檯</span><span class="en">Open tables</span><span class="c num">${sorted.length}</span></div>
+  ${sorted.map(([label, s]) => `
+    <button class="open">
+      <span class="tn num">${label}</span>
+      <span class="m num">${s.m > 60 ? `<span class="pill amber">${s.m} min</span>` : `${s.m} min`}</span>
+    </button>`).join("")}`;
+
+const detailsHtml = `
+  <div class="det-main">
+  <button class="btn btn-quiet" style="justify-content:flex-start;width:auto;align-self:flex-start">‹ 所有桌 All tables</button>
+  <div class="det-h"><div class="tn num">桌 1</div><div class="meta num">24 min</div></div>
+  <div class="det-lines">
+    <div class="det-line num"><span class="q">1</span><span class="zh">陳皮雞</span><span>$19.95</span></div>
+    <div class="det-line num"><span class="q">1</span><span class="zh">西蘭花牛肉</span><span>$20.50</span></div>
+  </div>
+  </div>
+  <div class="det-side">
+    <div class="det-total"><span>合計 Total</span><span class="v num">$43.99</span></div>
+    <button class="btn btn-primary">加菜 Add items</button>
+    <div class="row2"><button class="btn btn-secondary">換桌 Move</button><button class="btn btn-secondary">清桌 Clear</button></div>
+  </div>`;
+
+const sheetHtml = `
+  <div class="scrim"><div class="sheet" role="dialog" aria-label="Guests">
+    <div class="sheet-h"><span class="zh">桌 2 · 幾位?</span><span class="en">Guests</span></div>
+    <div class="keys num">
+      ${Array.from({ length: 12 }, (_, i) => `<button class="btn btn-secondary">${i + 1}</button>`).join("")}
+      <button class="btn btn-secondary wide">13+ 更多 More</button>
+    </div>
+    <div class="sheet-foot"><button class="btn btn-quiet">取消 Cancel</button></div>
+  </div></div>`;
+
+$("#app").innerHTML = `
+  ${topBar("dine")}
+  <aside class="list${view === "details" ? " details" : ""}">${view === "details" ? detailsHtml : listHtml}</aside>
+  <main class="room-pane"><div class="room"></div></main>
+  ${view === "guests" ? sheetHtml : ""}`;
+renderRoom();
+addEventListener("resize", renderRoom);
+</script>
+</body>
+</html>

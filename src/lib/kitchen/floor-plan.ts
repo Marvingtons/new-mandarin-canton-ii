@@ -9,10 +9,9 @@
  * COORDINATES are abstract units on a ROOM_WIDTH x ROOM_HEIGHT canvas, origin
  * top-left, matching the owner's drawing (tables 1 to 3 down the right wall,
  * the 4+5 pair in the middle, 7+8 on the left, 9 and 6 along the bottom). The
- * sheet scales the canvas to the screen but never below 1 unit per pixel, so
- * the smallest table here is always at least a 120px tap target once drawn
- * (FloorPlanSheet derives its minimum scale from these sizes). Sizes are
- * rounded up from the drawing to hold that floor.
+ * floor plan (components/kitchen/FloorPlan) scales the canvas, with a margin
+ * for the landmarks, to fill its pane: about 0.9px a unit on an 11" to 13"
+ * tablet, so the smallest table is a 110px+ target.
  *
  * SEATS ARE GUIDANCE, NEVER A CAP. The POS shows them; nothing refuses a party
  * larger than the number.
@@ -42,6 +41,28 @@ export interface FloorTable {
   seats: number;
   /** Tables this one can be pushed together with (the dashed lines). */
   combinableWith?: string[];
+  /**
+   * Chairs drawn on each side: top, right, bottom, left. Drawing only; the
+   * seat guidance is `seats`. TODO(confirm): placed from the drawing, not yet
+   * checked against the room.
+   */
+  chairs: { t?: number; r?: number; b?: number; l?: number };
+}
+
+/**
+ * Fixed things in the room, drawn so staff can orient: the counter, the
+ * altar, the door. A `door` is a gap in the bottom wall with its label above.
+ * TODO(confirm): positions are placeholders until the owner places them.
+ */
+export interface FloorLandmark {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind: "box" | "door";
 }
 
 export interface TableCombination {
@@ -52,15 +73,21 @@ export interface TableCombination {
 }
 
 export const FLOOR_TABLES: FloorTable[] = [
-  { id: "1", x: 745, y: 10, w: 125, h: 125, seats: 4 },
-  { id: "2", x: 745, y: 190, w: 125, h: 125, seats: 4 },
-  { id: "3", x: 745, y: 370, w: 125, h: 130, seats: 4 },
-  { id: "4", x: 405, y: 10, w: 150, h: 180, seats: 4, combinableWith: ["5"] },
-  { id: "5", x: 405, y: 190, w: 150, h: 180, seats: 4, combinableWith: ["4"] },
-  { id: "7", x: 140, y: 110, w: 125, h: 140, seats: 4, combinableWith: ["8"] },
-  { id: "8", x: 140, y: 250, w: 125, h: 140, seats: 4, combinableWith: ["7"] },
-  { id: "9", x: 130, y: 450, w: 135, h: 140, seats: 4 },
-  { id: "6", x: 430, y: 445, w: 140, h: 145, seats: 4 },
+  { id: "1", x: 745, y: 10, w: 125, h: 125, seats: 4, chairs: { r: 2, l: 2 } },
+  { id: "2", x: 745, y: 190, w: 125, h: 125, seats: 4, chairs: { r: 2, l: 2 } },
+  { id: "3", x: 745, y: 370, w: 125, h: 130, seats: 4, chairs: { r: 2, l: 2 } },
+  { id: "4", x: 405, y: 10, w: 150, h: 180, seats: 4, combinableWith: ["5"], chairs: { t: 1, r: 2, l: 2 } },
+  { id: "5", x: 405, y: 190, w: 150, h: 180, seats: 4, combinableWith: ["4"], chairs: { b: 1, r: 2, l: 2 } },
+  { id: "7", x: 140, y: 110, w: 125, h: 140, seats: 4, combinableWith: ["8"], chairs: { r: 2, l: 2 } },
+  { id: "8", x: 140, y: 250, w: 125, h: 140, seats: 4, combinableWith: ["7"], chairs: { r: 2, l: 2 } },
+  { id: "9", x: 130, y: 450, w: 135, h: 140, seats: 4, chairs: { t: 1, r: 1, b: 1, l: 1 } },
+  { id: "6", x: 430, y: 445, w: 140, h: 145, seats: 4, chairs: { r: 2, l: 2 } },
+];
+
+export const FLOOR_LANDMARKS: FloorLandmark[] = [
+  { id: "counter", nameZh: "櫃檯", nameEn: "Counter", x: -30, y: -30, w: 128, h: 72, kind: "box" },
+  { id: "altar", nameZh: "神檯", nameEn: "Altar", x: 930, y: 230, w: 100, h: 110, kind: "box" },
+  { id: "entrance", nameZh: "入口", nameEn: "Entrance", x: 890, y: 580, w: 130, h: 0, kind: "door" },
 ];
 
 export const TABLE_COMBINATIONS: TableCombination[] = [

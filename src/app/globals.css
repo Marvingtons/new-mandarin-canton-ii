@@ -212,8 +212,7 @@
  * 7.1 on sunken, 8.9 on card; brand 9.8 on bg, 11.0 on card; added 7.1 on bg;
  * white on brand 11.0, on added 8.0. Every text pairing clears 7:1.
  *
- * Sizes are rem (1rem is 22px here, 27.5px under 大字), so the zones below
- * grow with the type: 180px rail, 400px ticket, 72px top bar at 22px.
+ * Sizes are rem (1rem is 22px here, 27.5px under 大字).
  */
 @theme {
   --color-pos-bg: #f5f1ea;
@@ -234,73 +233,9 @@
   --radius-pos: 16px;
 }
 
-.pos-root {
-  --pos-top: 3.273rem; /* 72px */
-  --pos-rail: 8.182rem; /* 180px: "Lunch Specials" on one line, all 15 fit at 13" */
-  --pos-ticket: 18.182rem; /* 400px */
-  --pos-gap: 0.727rem; /* 16px */
-  caret-color: var(--color-pos-brand);
-}
-/* Outranks the staff-wide teal ring below: the POS has one accent. */
-[data-kitchen-surface] .pos-root :focus-visible {
-  outline-color: var(--color-pos-brand);
-}
-
-/* The zones. Landscape: top bar, then rail | dishes | ticket. Portrait: the
-   ticket moves under the dishes, its lines beside its total and Print. */
-.pos-root {
-  grid-template-areas:
-    "top top top"
-    "rail dishes ticket";
-  grid-template-columns: var(--pos-rail) minmax(0, 1fr) var(--pos-ticket);
-  grid-template-rows: var(--pos-top) minmax(0, 1fr);
-}
-.pos-ticket {
-  display: flex;
-  flex-direction: column;
-}
-.pos-ticket > :first-child {
-  flex: 1 1 0;
-}
-@media (orientation: portrait) {
-  .pos-root {
-    grid-template-areas:
-      "top top"
-      "rail dishes"
-      "ticket ticket";
-    grid-template-columns: var(--pos-rail) minmax(0, 1fr);
-    grid-template-rows: var(--pos-top) minmax(0, 1fr) minmax(0, 40%);
-  }
-  .pos-ticket {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--pos-ticket);
-  }
-}
-
-/* Dish columns follow the room the grid actually has, so 大字 drops a column
-   instead of squeezing names: 4 at 13" landscape, 3 at 11" landscape, 2 in
-   narrow portrait. rem here is the staff rem, so the thresholds scale too. */
-.pos-dishes {
-  container: pos-dishes / inline-size;
-}
-.pos-grid {
-  display: grid;
-  gap: var(--pos-gap);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-@container pos-dishes (min-width: 26rem) {
-  @media (orientation: landscape) {
-    .pos-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-}
-@container pos-dishes (min-width: 35rem) {
-  .pos-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
+/* The order screen's zones, type and tokens are components/kitchen/
+   pos.module.css (built to docs/kitchen-design.md). What stays here is the
+   palette above and the motion below, which the POS's sheets still use. */
 /* Tap feedback: the card gives under the finger, the count pops. */
 .pos-press {
   transition: transform 120ms cubic-bezier(0.2, 0, 0, 1), box-shadow 120ms;

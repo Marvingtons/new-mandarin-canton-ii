@@ -41,11 +41,16 @@ test.afterAll(async () => {
   await page.close();
 });
 
-/** Add the first orderable dish through its sheet. */
+const ticket = () => page.getByRole("complementary", { name: "單據" });
+
+/** Add the first orderable dish: one tap, or through its sheet when it has a choice to make. */
 async function addDish() {
+  const before = await ticket().locator("[aria-expanded]").count();
   await page.locator("button[data-item]:not([disabled])").first().click();
-  await page.getByRole("button", { name: /加入單據/ }).click();
-  await expect(page.getByRole("button", { name: /加入單據/ })).toHaveCount(0);
+  const sheetAdd = page.getByRole("button", { name: /加入單據/ });
+  if (await sheetAdd.isVisible().catch(() => false)) await sheetAdd.click();
+  await expect(sheetAdd).toHaveCount(0);
+  await expect.poll(() => ticket().locator("[aria-expanded]").count()).toBeGreaterThanOrEqual(Math.max(1, before));
 }
 
 async function print(): Promise<string> {
@@ -55,9 +60,11 @@ async function print(): Promise<string> {
   return (await placed.textContent())!.match(/A-\d{3}/)![0];
 }
 
+/** The floor plan: 堂食's home with no table, or 換桌 from a ticket that has one. */
 async function openFloor() {
-  await page.locator("[data-seating]").click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  const change = page.locator("[data-seating]");
+  if (await change.isVisible().catch(() => false)) await change.click();
+  await expect(table("9")).toBeVisible();
 }
 
 const table = (label: string) => page.locator(`[data-table="${label}"]`);
@@ -78,28 +85,26 @@ test("takeout phone order", async () => {
 
 test("seat a table", async () => {
   await page.locator('[data-mode="dine_in"]').click();
-  // Dine-in goes straight to the floor plan.
-  await expect(page.getByRole("dialog")).toBeVisible();
+  // Dine-in without a table is the floor plan.
   await expect(table("1")).toHaveAttribute("data-state", "free");
   await table("1").click();
   await page.locator('[data-guests="3"]').click();
-  await expect(page.locator('[data-seating="1"]')).toContainText("桌 1 · 3 位");
+  await expect(ticket()).toContainText("桌 1 · 3 位");
   await addDish();
   await shot(page, "pos-dine-in");
   await print();
 
+  // Printed: the table is seated and the floor plan is back.
   await openFloor();
   await expect(table("1")).toHaveAttribute("data-state", "seated");
-  await expect(table("1")).toContainText("3 位");
-  await page.getByRole("button", { name: /關閉/ }).click();
+  await expect(table("1")).toHaveAttribute("aria-label", /3 位/);
 });
 
 test("combine 4+5", async () => {
   await openFloor();
-  await table("4").click();
-  await page.getByRole("button", { name: /4 \+ 5 併桌/ }).click();
+  await page.locator('[data-combine="4+5"]').click();
   await page.locator('[data-guests="9"]').click();
-  await expect(page.locator('[data-seating="4+5"]')).toContainText("桌 4+5 · 9 位");
+  await expect(ticket()).toContainText("桌 4+5 · 9 位");
   await addDish();
   await print();
 
@@ -109,7 +114,6 @@ test("combine 4+5", async () => {
   await expect(table("4")).toHaveCount(0);
   await expect(table("5")).toHaveCount(0);
   await shot(page, "floor-plan-mixed");
-  await page.getByRole("button", { name: /關閉/ }).click();
 });
 
 test("add items to an occupied table", async () => {
@@ -118,7 +122,7 @@ test("add items to an occupied table", async () => {
   // A seated table never offers a new party: only 加菜 or 清台.
   await expect(page.locator("[data-guests]")).toHaveCount(0);
   await page.getByRole("button", { name: /加菜/ }).click();
-  await expect(page.locator('[data-seating="1"]')).toContainText("加菜");
+  await expect(ticket()).toContainText("加菜");
   await addDish();
   await print();
 
@@ -134,12 +138,11 @@ test("clear a table", async () => {
   await table("1").click();
   await page.getByRole("button", { name: /清台/ }).click();
   // Confirm step first: nothing is cleared yet.
-  await expect(table("1")).toHaveCount(0);
+  await expect(table("1")).toHaveAttribute("data-state", "seated");
   await page.getByRole("button", { name: /確定清台/ }).click();
-  await expect(page.getByRole("dialog").getByRole("status")).toContainText("已清台");
+  await expect(page.getByRole("status").filter({ hasText: "已清台" })).toBeVisible();
   await expect(table("1")).toHaveAttribute("data-state", "free");
   await expect(table("4+5")).toHaveAttribute("data-state", "seated");
-  await page.getByRole("button", { name: /關閉/ }).click();
 });
 
 test("preview host: every staff write is 403", async () => {
@@ -179,7 +182,8 @@ test("readability: type floor, 大字, columns", async () => {
   const rootPx = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
   expect(await rootPx()).toBe(22);
 
-  // Every visible text node in the staff area is at least 22px.
+  // Every visible text node is at least the spec's smallest step: 15px, the
+  // English under a 22px Chinese name (docs/kitchen-design.md).
   const smallest = await page.evaluate(() => {
     let min = Infinity;
     const walker = document.createTreeWalker(document.querySelector("[data-kitchen-surface]")!, NodeFilter.SHOW_TEXT);
@@ -190,7 +194,7 @@ test("readability: type floor, 大字, columns", async () => {
     }
     return min;
   });
-  expect(smallest).toBeGreaterThanOrEqual(22);
+  expect(smallest).toBeGreaterThanOrEqual(15);
 
   // The print button is the primary action: 80px or taller.
   const printBox = await page.locator('[data-action="print"]').boundingBox();
@@ -198,15 +202,20 @@ test("readability: type floor, 大字, columns", async () => {
 
   const columns = () =>
     page.evaluate(() => getComputedStyle(document.querySelector("section[id^='pos-cat-'] > div")!).gridTemplateColumns.split(" ").length);
-  expect(await columns()).toBe(3);
+  // 11" landscape: two columns of name tiles (three at 13").
+  expect(await columns()).toBe(2);
 
-  await page.getByRole("button", { name: /大字/ }).click();
+  const largeText = async () => {
+    await page.getByRole("button", { name: "更多" }).click();
+    await page.getByRole("menuitemcheckbox", { name: /大字/ }).click();
+  };
+  await largeText();
   await expect.poll(rootPx).toBe(27.5);
   await shot(page, "pos-large-text");
   await page.reload();
   // Saved per device.
   await expect.poll(rootPx).toBe(27.5);
-  await page.getByRole("button", { name: /大字/ }).click();
+  await largeText();
   await expect.poll(rootPx).toBe(22);
 
   await page.setViewportSize({ width: 820, height: 1180 });

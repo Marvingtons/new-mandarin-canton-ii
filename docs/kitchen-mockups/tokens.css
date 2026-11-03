@@ -1,0 +1,86 @@
+/*
+ * Kitchen POS tokens. THE ONLY PLACE a colour, size, radius, shadow or
+ * duration is defined; components (kitchen.css) only reference these.
+ * docs/kitchen-design.md explains each one and records the contrast numbers.
+ *
+ * 1rem = 16px. 大字 sets the root to 20px, so every token below (all rem)
+ * grows by 1.25 together, layout zones included.
+ */
+:root {
+  /* ---- colour: ground and surfaces ---- */
+  --bg: #f5f1ea;          /* warm off-white app ground */
+  --surface: #ffffff;     /* cards, ticket, panes, sheets */
+  --control: #ebe5da;     /* fill of every secondary control and track */
+  --control-press: #ddd5c7;
+  --floor: #ece5d9;       /* the room's floor plane */
+  --scrim: rgb(28 25 23 / 0.45);
+
+  /* ---- colour: text, four levels ---- */
+  --text-1: #1c1917;      /* names, totals, numbers */
+  --text-2: #36302b;      /* secondary labels */
+  --text-3: #4f4943;      /* English under Chinese, captions */
+  --text-faint: #a39a8e;  /* decoration only: walls, chairs, hairlines. Never text. */
+
+  /* ---- colour: meaning ---- */
+  --brand: #77151a;       /* primary action and selection, nothing else */
+  --brand-press: #5e1015;
+  --on-brand: #ffffff;
+  --added: #185c31;       /* "added" feedback only */
+  --amber: #f2b33d;       /* "seated a long time" only; ink text on it */
+
+  /* ---- colour: category tints ----
+     One light tint per menu category: the dish tiles, the rail swatch and the
+     ticket line's stripe, so a dish is found by colour before it is read.
+     Ink on every tint is 11:1 or better. */
+  --cat-lunch: #e6e0f4;
+  --cat-specials: #f6d8d6;
+  --cat-appetizers: #f7e3bf;
+  --cat-soup: #f4dcc6;
+  --cat-chicken: #f8ecb4;
+  --cat-seafood: #d3e6f3;
+  --cat-beef: #efd3c7;
+  --cat-pork: #f3d6e3;
+  --cat-sizzling: #f2cdb9;
+  --cat-vegetables: #d5ebd2;
+  --cat-rice: #ece2c4;
+  --cat-noodles: #e6dece;
+  --cat-sides: #e2e4de;
+  --cat-family: #dbe0f1;
+  --cat-bigfamily: #d4e9e6;
+  --edge: rgb(28 25 23 / 0.08); /* the hairline that keeps a tint off the ground */
+
+  /* ---- type ---- */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "PingFang TC", "Noto Sans TC", sans-serif;
+  --t-32: 2rem;           /* display: total, table number on the list */
+  --t-26: 1.625rem;       /* title: order context, section heading */
+  --t-22: 1.375rem;       /* Chinese names, prominent values */
+  --t-18: 1.125rem;       /* body, English names on cards, prices */
+  --t-15: 0.9375rem;      /* English under Chinese at 22, captions */
+
+  /* ---- space: 4px grid ---- */
+  --s-1: 0.25rem;  /* 4 */
+  --s-2: 0.5rem;   /* 8 */
+  --s-3: 0.75rem;  /* 12 */
+  --s-4: 1rem;     /* 16 */
+  --s-6: 1.5rem;   /* 24 */
+  --s-8: 2rem;     /* 32 */
+  --s-12: 3rem;    /* 48 */
+
+  /* ---- size: hit targets ---- */
+  --h-control: 3.5rem;    /* 56: every top-bar control, stepper, secondary */
+  --h-tile: 4rem;         /* 64: list rows */
+  --h-hero: 5.5rem;       /* 88: Print, guest-count keys */
+
+  /* ---- shape, depth, motion ---- */
+  --r-card: 1rem;         /* 16 */
+  --r-control: 0.75rem;   /* 12 */
+  --shadow: 0 1px 2px rgb(28 25 23 / 0.06), 0 8px 20px -6px rgb(28 25 23 / 0.16);
+  --motion: 150ms ease-out;
+
+  /* ---- zones ---- */
+  --z-top: 4.5rem;        /* 72: 56 control + 8 above and below */
+  --z-rail: 11rem;        /* 176 */
+  --z-ticket: 26.25rem;   /* 420 */
+  --z-floor-list: 20rem;  /* 320 */
+}
+html.big { font-size: 20px; }

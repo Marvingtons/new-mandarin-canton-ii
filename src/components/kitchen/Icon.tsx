@@ -42,10 +42,19 @@ const PATHS = {
   /** The board: order columns. */
   columns: "M3 4h7v16H3zM14 4h7v16h-7z",
   history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   note: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5",
 } as const;
 
 export type IconName = keyof typeof PATHS;
+
+/**
+ * The POS draws in spec pixels (components/kitchen/pos.module.css, --u), not
+ * the 16px design size: size={posIcon(24)} renders 24px, 30px under 大字.
+ */
+export function posIcon(px: number): number {
+  return (px * 16) / 22;
+}
 
 export default function Icon({
   name,

@@ -1,0 +1,281 @@
+/* Kitchen POS components. Every value comes from tokens.css. */
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: var(--t-18);
+  line-height: 1.3;
+  color: var(--text-1);
+  background: var(--bg);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+.num { font-variant-numeric: tabular-nums; }
+/* "（8隻）" after a dish name: one step smaller, never split across lines. */
+.cnt { font-size: 0.82em; font-weight: 500; color: var(--text-2); white-space: nowrap; }
+.zh { font-weight: 600; }
+.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scroll { overflow-y: auto; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
+
+/* ---- the three button styles ---------------------------------------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+  min-height: var(--h-control); padding: 0 var(--s-4);
+  border-radius: var(--r-control);
+  font-size: var(--t-18); font-weight: 600; white-space: nowrap;
+  transition: background var(--motion), transform var(--motion);
+}
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--brand); color: var(--on-brand); }
+.btn-primary:active { background: var(--brand-press); }
+.btn-secondary { background: var(--control); color: var(--text-1); }
+.btn-secondary:active { background: var(--control-press); }
+.btn-quiet { background: transparent; color: var(--text-1); }
+.btn-quiet:active { background: var(--control); }
+/* Disabled is an empty slot, not a dimmer button: no fill, a control-coloured
+   outline, text-3. It cannot be mistaken for a secondary button. */
+.btn[disabled] { background: transparent; box-shadow: inset 0 0 0 2px var(--control); color: var(--text-3); cursor: default; }
+.btn .sub { font-weight: 500; color: inherit; opacity: 1; }
+.btn-icon { width: var(--h-control); padding: 0; }
+.btn-icon svg { width: 1.5rem; height: 1.5rem; }
+
+/* Segmented: a secondary track; the chosen segment takes the selection fill. */
+.seg {
+  display: inline-flex; padding: var(--s-1); gap: var(--s-1);
+  height: var(--h-control); border-radius: var(--r-control); background: var(--control);
+}
+.seg button {
+  min-width: 4.5rem; padding: 0 var(--s-4); border-radius: calc(var(--r-control) - var(--s-1));
+  display: flex; align-items: center; gap: var(--s-2); white-space: nowrap;
+  font-size: var(--t-18); font-weight: 600; color: var(--text-2);
+}
+.seg button .zh { font-size: var(--t-22); }
+.seg button[aria-pressed="true"] { background: var(--brand); color: var(--on-brand); }
+
+/* ---- top bar --------------------------------------------------------- */
+.top {
+  grid-area: top; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  padding: 0 var(--s-6); gap: var(--s-4); background: var(--bg);
+}
+.brandmark { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
+.brandmark img { height: 2.5rem; width: auto; flex: none; }
+.brandmark span { font-size: var(--t-18); font-weight: 600; }
+.brandmark .k { color: var(--text-3); font-weight: 500; }
+.top-right { display: flex; justify-content: flex-end; gap: var(--s-2); }
+.lang button { min-width: 3.5rem; padding: 0 var(--s-3); justify-content: center; }
+
+/* ---- order screen zones ---------------------------------------------- */
+.pos {
+  height: 100vh; display: grid;
+  grid-template-areas: "top top top" "rail dishes ticket";
+  grid-template-columns: var(--z-rail) minmax(0, 1fr) var(--z-ticket);
+  grid-template-rows: var(--z-top) minmax(0, 1fr);
+}
+
+/* The tint's marker colour: the same hue, deep enough to read as a swatch on the ground. */
+[style*="--c:"] { --c-ink: oklch(from var(--c) calc(l - 0.3) calc(c * 3.2) h); }
+
+/* rail: a tint swatch, the Chinese, the English. */
+.rail-wrap { grid-area: rail; position: relative; min-height: 0; }
+.rail-wrap > .rail { height: 100%; }
+.rail-wrap > .more { background: var(--bg); padding: var(--s-1) var(--s-3) 0 var(--s-6); }
+.rail { padding: var(--s-2) var(--s-3) var(--s-4) var(--s-6); display: flex; flex-direction: column; gap: var(--s-1); }
+.rail button {
+  flex: none; height: var(--h-control); padding: 0 var(--s-3); border-radius: var(--r-control);
+  display: grid; grid-template-columns: var(--s-1) minmax(0, 1fr); column-gap: var(--s-2); align-content: center; text-align: left;
+  color: var(--text-1); transition: background var(--motion);
+}
+.rail button:active { background: var(--control); }
+.rail .sw { grid-row: span 2; align-self: stretch; margin: var(--s-1) 0; border-radius: 0.25rem; background: var(--c-ink); }
+.rail .zh { font-size: var(--t-22); line-height: 1.15; }
+.rail .en { font-size: var(--t-15); line-height: 1.2; color: var(--text-3); max-width: 100%; }
+.rail button[aria-current="true"] { background: var(--brand); color: var(--on-brand); }
+.rail button[aria-current="true"] .en { color: var(--on-brand); }
+.rail button[aria-current="true"] .sw { background: var(--c); }
+
+/* dishes: tinted name tiles. Tap the tile for the first size; a second size is
+   a white chip in the corner. No prices on the tiles: the ticket has them. */
+.dishes { grid-area: dishes; padding: var(--s-2) var(--s-6) var(--s-6) var(--s-3); }
+.section-h { display: flex; align-items: baseline; gap: var(--s-3); padding: var(--s-2) 0 var(--s-4); }
+.section-h .zh { font-size: var(--t-26); font-weight: 700; }
+.section-h .en { font-size: var(--t-18); color: var(--text-3); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: var(--s-3); }
+.tile {
+  position: relative; height: 7rem; border-radius: var(--r-card); background: var(--c);
+  box-shadow: inset 0 0 0 1px var(--edge); text-align: left;
+  display: flex; flex-direction: column; justify-content: flex-start;
+  padding: var(--s-3) var(--s-4); transition: transform var(--motion);
+}
+.tile:active { transform: scale(0.98); }
+.tile .zh { font-size: var(--t-22); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tile .en { font-size: var(--t-15); line-height: 1.3; color: var(--text-2); margin-top: var(--s-1); max-width: 100%;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* A Chinese name on two lines drops the English to one, so every tile is the same size. */
+.tile.long .en { -webkit-line-clamp: 1; }
+.tile.has-q .zh, .tile.has-q .en { padding-right: var(--s-8); }
+.tile.has-alt .en { padding-right: 4.5rem; }
+.alt {
+  position: absolute; right: var(--s-2); bottom: var(--s-2);
+  min-width: 4rem; height: 2.75rem; padding: 0 var(--s-3); border-radius: var(--r-control);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--edge);
+  font-size: var(--t-18); font-weight: 600; display: flex; align-items: center; justify-content: center;
+}
+.qty-badge {
+  position: absolute; top: var(--s-2); right: var(--s-2);
+  min-width: 2rem; height: 2rem; padding: 0 var(--s-2); border-radius: 1rem;
+  background: var(--added); color: #fff; font-size: var(--t-18); font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ticket */
+.ticket {
+  grid-area: ticket; background: var(--surface); box-shadow: -1px 0 0 var(--control);
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0;
+}
+.t-head { padding: var(--s-4) var(--s-6) var(--s-3); min-width: 0; }
+.t-row { display: flex; align-items: center; gap: var(--s-3); }
+.t-ctx { flex: 1; min-width: 0; font-size: var(--t-22); font-weight: 600; line-height: 1.2; display: flex; align-items: baseline; gap: var(--s-2); white-space: nowrap; }
+.t-ctx .key { font-size: var(--t-32); font-weight: 700; }
+.t-ctx .sep { color: var(--text-3); font-weight: 500; }
+.t-ctx .ctx { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.t-head > .btn { width: 100%; margin-top: var(--s-2); justify-content: flex-start; }
+.lines { padding: var(--s-2) var(--s-4); display: flex; flex-direction: column; gap: var(--s-1); }
+/* A line: category stripe, quantity, name, price. Tap it to edit; only the
+   line being edited shows a stepper. */
+.line {
+  display: grid; grid-template-columns: 0.375rem 2.25rem minmax(0, 1fr) auto; column-gap: var(--s-3);
+  align-items: center; padding: var(--s-2) var(--s-2) var(--s-2) 0; border-radius: var(--r-control); text-align: left; width: 100%;
+}
+.line .st { align-self: stretch; border-radius: 0.25rem; background: var(--c-ink); }
+.line .q { font-size: var(--t-22); font-weight: 700; text-align: right; }
+.line .zh { font-size: var(--t-22); line-height: 1.2; display: block; }
+.line .en { font-size: var(--t-15); color: var(--text-3); line-height: 1.35; display: block; }
+.line .lp { font-size: var(--t-18); font-weight: 600; }
+.tag { font-size: 0.82em; font-weight: 600; color: var(--text-1); background: var(--control); border-radius: 0.375rem; padding: 0 var(--s-2); margin-left: var(--s-2); vertical-align: 0.1em; }
+.note { font-size: var(--t-15); color: var(--text-2); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note::before { content: "✎ "; color: var(--text-faint); }
+.line.editing { background: var(--bg); }
+.edit { grid-column: 2 / -1; display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+.edit .btn { flex: 1; }
+.stepper { display: flex; align-items: center; background: var(--control); border-radius: var(--r-control); }
+.stepper .btn { width: 3.5rem; padding: 0; font-size: var(--t-26); font-weight: 500; }
+.stepper .q { width: 2rem; text-align: center; font-size: var(--t-22); font-weight: 700; }
+.lines-wrap { position: relative; min-height: 0; }
+.lines-wrap > .lines { height: 100%; }
+.more { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; padding: var(--s-2) var(--s-6) 0; background: var(--surface); }
+.more .btn { width: 100%; }
+.empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-2); text-align: center; }
+.empty .zh { font-size: var(--t-22); color: var(--text-2); }
+.empty .en { font-size: var(--t-15); color: var(--text-3); }
+
+.t-foot { padding: var(--s-3) var(--s-6) var(--s-6); display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; box-shadow: 0 -1px 0 var(--control); }
+.sums { display: flex; justify-content: flex-end; gap: var(--s-4); font-size: var(--t-15); color: var(--text-3); white-space: nowrap; }
+.total { display: flex; justify-content: space-between; align-items: baseline; white-space: nowrap; gap: var(--s-4); }
+.total .l { font-size: var(--t-22); font-weight: 600; }
+.total .l .en { font-size: var(--t-18); color: var(--text-3); font-weight: 500; }
+.total .v { font-size: var(--t-32); font-weight: 700; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+.print { min-height: var(--h-hero); width: 100%; border-radius: var(--r-control); font-size: var(--t-22); justify-content: space-between; padding: 0 var(--s-6); }
+.print .zh { font-size: var(--t-26); }
+.print[disabled] { justify-content: center; font-size: var(--t-18); font-weight: 600; }
+.print[disabled] .zh { font-size: var(--t-18); }
+
+/* ---- portrait: the same three zones; the ticket narrows and dishes go to
+   two columns, so the rail and the ticket both keep the full height. ---- */
+@media (orientation: portrait) {
+  .pos { --z-ticket: 25rem; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); }
+}
+html.big .brandmark span { display: none; }
+@media (orientation: portrait) { html.big .brandmark span { display: none; } }
+
+/* ---- floor plan ----------------------------------------------------- */
+.floor {
+  height: 100vh; display: grid;
+  grid-template-areas: "top top" "list room";
+  grid-template-columns: var(--z-floor-list) minmax(0, 1fr);
+  grid-template-rows: var(--z-top) minmax(0, 1fr);
+}
+.list { grid-area: list; background: var(--surface); box-shadow: 1px 0 0 var(--control); padding: var(--s-6) var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); min-height: 0; }
+.list-h { display: flex; align-items: baseline; gap: var(--s-2); padding: 0 var(--s-2) var(--s-3); }
+.list-h .zh { font-size: var(--t-26); font-weight: 700; }
+.list-h .en { font-size: var(--t-18); color: var(--text-3); }
+.list-h .c { margin-left: auto; font-size: var(--t-18); font-weight: 600; color: var(--text-2); }
+.open {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+  padding: 0 var(--s-3); border-radius: var(--r-control); width: 100%; min-height: var(--h-tile);
+  transition: background var(--motion);
+}
+.open:active { background: var(--control); }
+.open .tn { font-size: var(--t-32); font-weight: 700; white-space: nowrap; }
+.open .m { font-size: var(--t-18); font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.pill { display: inline-block; padding: 0 var(--s-2); border-radius: 0.375rem; font-weight: 600; line-height: 1.5rem; }
+.pill.amber { background: var(--amber); color: var(--text-1); }
+.det-main { display: flex; flex-direction: column; gap: var(--s-2); }
+.det-side { margin-top: auto; display: flex; flex-direction: column; gap: var(--s-3); }
+
+/* details pane */
+.det-h { padding: 0 var(--s-2); }
+.det-h .tn { font-size: var(--t-32); font-weight: 700; }
+.det-h .meta { font-size: var(--t-18); color: var(--text-2); margin-top: var(--s-1); }
+.det-lines { padding: var(--s-4) var(--s-2); display: flex; flex-direction: column; gap: var(--s-3); }
+.det-line { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: var(--s-2); align-items: baseline; }
+.det-line .q { font-weight: 700; }
+.det-line .zh { font-size: var(--t-22); display: block; line-height: 1.2; }
+.det-line .en { font-size: var(--t-15); color: var(--text-3); }
+.det-total { display: flex; justify-content: space-between; align-items: baseline; padding: var(--s-3) var(--s-2); }
+.det-total .v { font-size: var(--t-26); font-weight: 700; }
+.list .btn { width: 100%; }
+.list .btn-primary { min-height: var(--h-hero); font-size: var(--t-22); }
+
+/* room */
+.room-pane { grid-area: room; position: relative; min-width: 0; min-height: 0; padding: var(--s-6); }
+.room { position: absolute; }
+.walls { position: absolute; inset: 0; background: var(--floor); border: 2px solid var(--text-faint); border-radius: 0.375rem; }
+.door { position: absolute; background: var(--bg); }
+.mark { position: absolute; display: flex; align-items: center; justify-content: center; text-align: center; font-size: var(--t-15); color: var(--text-3); line-height: 1.2; }
+.mark.box { border: 2px dashed var(--text-faint); border-radius: 0.375rem; }
+.chair { position: absolute; border-radius: 50%; background: var(--text-faint); opacity: 0.55; }
+.tbl {
+  position: absolute; background: var(--surface); container-type: inline-size;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-1);
+  transition: transform var(--motion), box-shadow var(--motion);
+}
+.tbl .n { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+.tbl .st { font-size: var(--t-18); font-weight: 600; white-space: nowrap; display: flex; gap: var(--s-1); align-items: center; }
+.tbl.seated { background: var(--brand); color: var(--on-brand); }
+.tbl.selected { box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px var(--brand), var(--shadow); transform: translateY(-3px); z-index: 2; }
+.tbl.seated.selected { box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px var(--text-1), var(--shadow); }
+@container (max-width: 7.5rem) { .tbl .st { flex-direction: column; gap: 0; } .tbl .st .dot { display: none; } }
+.split { position: absolute; border-top: 2px dashed var(--text-faint); }
+.combine { position: absolute; transform: translate(-50%, -50%); min-height: 2.75rem; font-size: var(--t-15); z-index: 3; box-shadow: var(--shadow); background: var(--surface); }
+
+/* portrait floor: the room on top, the list under it */
+@media (orientation: portrait) {
+  .floor {
+    grid-template-areas: "top" "room" "list";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--z-top) auto minmax(0, 1fr);
+  }
+  /* The room takes exactly its own aspect at full width; the list gets the rest. */
+  .room-pane { aspect-ratio: 1096 / 696; }
+  .list { box-shadow: 0 -1px 0 var(--control); }
+  .list:not(.details) { display: grid; grid-template-columns: 1fr 1fr; align-content: start; column-gap: var(--s-6); }
+  .list:not(.details) > .list-h { grid-column: 1 / -1; }
+  .list.details { display: grid; grid-template-columns: minmax(0, 1fr) var(--z-floor-list); column-gap: var(--s-6); }
+  .list.details .det-side { margin-top: 0; justify-content: flex-end; }
+}
+
+/* sheet */
+.scrim { position: fixed; inset: 0; background: var(--scrim); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.sheet { width: 35rem; background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); padding: var(--s-6); }
+.sheet-h { display: flex; align-items: baseline; gap: var(--s-3); }
+.sheet-h .zh { font-size: var(--t-26); font-weight: 700; }
+.sheet-h .en { font-size: var(--t-18); color: var(--text-3); }
+.sheet-sub { font-size: var(--t-18); color: var(--text-2); margin-top: var(--s-1); }
+.keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-3); margin-top: var(--s-6); }
+.keys .btn { min-height: var(--h-hero); font-size: var(--t-32); font-weight: 700; }
+.keys .wide { grid-column: span 4; font-size: var(--t-22); }
+.sheet-foot { display: flex; justify-content: flex-end; margin-top: var(--s-4); }

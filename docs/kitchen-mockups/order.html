@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS · Order</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kitchen.css">
+</head>
+<body>
+<div class="pos" id="app"></div>
+<script src="shared.js"></script>
+<script>
+// ?state=empty (takeout, walk-in, Specials) | full (takeout, customer, 6 lines incl. a tray, Appetizers)
+const full = params.get("state") === "full";
+
+// [zh, en, tint]
+const RAIL = [
+  ["午餐", "Lunch Specials", "lunch"], ["招牌菜", "Specials", "specials"], ["前菜", "Appetizers", "appetizers"], ["湯類", "Soup", "soup"],
+  ["雞類", "Chicken", "chicken"], ["海鮮", "Seafood", "seafood"], ["牛類", "Beef", "beef"], ["豬類", "Pork", "pork"],
+  ["鐵板", "Hot Pot", "sizzling"], ["蔬菜", "Vegetables", "vegetables"], ["炒飯", "Fried Rice", "rice"], ["麵類", "Noodles", "noodles"],
+  ["配菜", "Sides", "sides"], ["家庭餐", "Family Dinners", "family"], ["大家庭", "Big Family", "bigfamily"],
+];
+const tint = (k) => `--c:var(--cat-${k})`;
+
+// [zh, en, secondSize?, qtyInTicket?]. Tapping the tile adds the first size.
+const SPECIALS = [
+  ["招牌大拼盤", "Mandarin Special", "餐盤"], ["海鮮大會", "Oceania", "餐盤"],
+  ["陳皮雞", "Orange Flavored Chicken", "餐盤"], ["椒鹽雞翼", "Salted Pepper Chicken Wings", "餐盤"],
+  ["宮保三鮮", "Kung-Po San Shein", "餐盤"], ["蒙古牛肉", "Mongolian Beef", "餐盤"],
+  ["三鮮兩面黃", "Upside Down Pan Fried Noodles", "餐盤"], ["蜜汁核桃蝦", "Honey Walnut Shrimp", "餐盤"],
+  ["黑椒牛肉或雞肉", "Black Pepper Beef or Chicken", "餐盤"],
+];
+const APPETIZERS = [
+  ["春卷（2條）", "Egg Rolls (2)", null, 3], ["椒鹽雞翼（6隻）", "Salt Pepper Chicken Wings (6)"],
+  ["蜜汁叉燒", "B.B.Q. Pork"], ["燒排骨", "B.B.Q. Spareribs"], ["燒鴨", "Roasted Duck", "一隻"],
+  ["蒸餃或煎餃（8隻）", "Steamed or Fried Dumplings (8)"], ["炸忌廉芝士雲吞（8隻）", "Fried Cream Cheese Wonton (8)"],
+];
+// [zh, en, sizeTag (only when not the regular size), qty, lineCents, tint, note]
+const LINES = [
+  ["招牌大拼盤", "Mandarin Special", "餐盤", 1, 9200, "specials"],
+  ["陳皮雞", "Orange Flavored Chicken", "", 2, 3990, "specials", "少辣 Less spicy"],
+  ["西蘭花牛肉", "Beef with Broccoli", "", 1, 2050, "beef"],
+  ["春卷（2條）", "Egg Rolls (2)", "", 3, 1050, "appetizers"],
+  ["酸辣湯", "Hot & Sour Soup", "", 1, 1695, "soup"],
+  ["招牌炒飯", "House Special Fried Rice", "", 1, 1950, "rice"],
+];
+const EDITING = 1; // the line the mockup shows mid-edit
+
+const name = (zh) => zh.replace(/（(.+)）$/, '<span class="cnt">（$1）</span>');
+
+const active = full ? 2 : 1;
+const dishes = full ? APPETIZERS : SPECIALS;
+const lines = full ? LINES : [];
+const sub = lines.reduce((a, l) => a + l[4], 0);
+const tax = Math.round(sub * 0.0875);
+
+const rail = RAIL.map(([zh, en, k], i) => `
+  <button aria-current="${i === active}" style="${tint(k)}"><span class="sw"></span><span class="zh">${zh}</span><span class="en one">${en}</span></button>`).join("");
+
+const cards = dishes.map(([zh, en, alt, q]) => `
+  <button class="tile${q ? " has-q" : ""}${alt ? " has-alt" : ""}" style="${tint(RAIL[active][2])}">
+    ${q ? `<span class="qty-badge num">${q}</span>` : ""}
+    <span class="zh">${name(zh)}</span><span class="en">${en}</span>
+    ${alt ? `<span class="alt">${alt}</span>` : ""}
+  </button>`).join("");
+
+const lineHtml = lines.map(([zh, en, tag, q, c, k, note], i) => `
+  <div class="line${i === EDITING ? " editing" : ""}" style="${tint(k)}">
+    <span class="st"></span>
+    <span class="q num">${q}</span>
+    <span style="min-width:0"><span class="zh one">${name(zh)}${tag ? `<span class="tag">${tag}</span>` : ""}</span><span class="en one">${en}</span>${note ? `<span class="note">${note}</span>` : ""}</span>
+    <span class="lp num">${money(c)}</span>
+    ${i === EDITING ? `<div class="edit"><div class="stepper"><button class="btn btn-quiet" aria-label="Less">−</button><span class="q num">${q}</span><button class="btn btn-quiet" aria-label="More">+</button></div><button class="btn btn-secondary">備註 Note</button></div>` : ""}
+  </div>`).join("");
+
+$("#app").innerHTML = `
+  ${topBar("takeout")}
+  <div class="rail-wrap"><nav class="rail scroll">${rail}</nav></div>
+  <main class="dishes scroll">
+    <div class="section-h"><span class="zh">${RAIL[active][0]}</span><span class="en">${RAIL[active][1]}</span></div>
+    <div class="grid">${cards}</div>
+  </main>
+  <aside class="ticket">
+    <div class="t-head">
+      <div class="t-row">
+        <div class="t-ctx"><span class="key">外賣</span><span class="ctx">${full ? "陳太 Mrs. Chen" : "Walk-in"}</span></div>
+        ${full ? `<button class="btn btn-quiet btn-icon" aria-label="清除 Clear order">${ICON.clear}</button>` : ""}
+      </div>
+      <button class="btn btn-secondary">${full ? "(626) 555-0148" : "+ 加客人 Add customer"}</button>
+    </div>
+    <div class="lines-wrap"><div class="lines scroll">
+      ${full ? lineHtml : `<div class="empty"><span class="zh">還未點菜</span><span class="en">Tap a dish to add it</span></div>`}
+    </div></div>
+    <div class="t-foot">
+      ${full ? `<div class="sums num"><span>小計 ${money(sub)}</span><span>稅 ${money(tax)}</span></div>` : ""}
+      <div class="total"><span class="l">合計 <span class="en">Total</span></span><span class="v num">${money(sub + tax)}</span></div>
+      ${full
+        ? `<button class="btn btn-primary print"><span><span class="zh">列印</span> Print</span><span class="num">${money(sub + tax)}</span></button>`
+        : `<button class="btn print" disabled><span class="zh">加菜才能列印</span> Add a dish to print</button>`}
+    </div>
+  </aside>`;
+// A list that does not fit: cover from the end of the last whole item down, and
+// say how many are below. A half-visible item is never shown bare. Same rule for
+// the ticket lines and the rail (which only overflows in landscape 大字).
+function moreBar(list, items, label) {
+  if (list.scrollHeight <= list.clientHeight + 1) return;
+  const bar = document.createElement("div");
+  bar.className = "more";
+  bar.innerHTML = '<button class="btn btn-secondary"></button>';
+  list.parentElement.append(bar);
+  const box = list.getBoundingClientRect();
+  const limit = box.bottom - bar.firstChild.offsetHeight - 8; // room for the bar's button
+  const all = [...list.querySelectorAll(items)];
+  const whole = all.filter((l) => l.getBoundingClientRect().bottom <= limit);
+  bar.style.top = (whole[whole.length - 1].getBoundingClientRect().bottom - box.top + 4) + "px";
+  bar.firstChild.textContent = label(all.length - whole.length);
+}
+moreBar($(".lines"), ".line", (n) => `還有 ${n} 項 · ${n} more below ↓`);
+moreBar($(".rail"), "button", (n) => `↓ ${n} more 類`);
+// Mockup stand-in for the app's rule: a two-line Chinese name drops the English to one line.
+for (const t of document.querySelectorAll(".tile")) {
+  const zh = t.querySelector(".zh");
+  if (zh.getClientRects().length && zh.offsetHeight > parseFloat(getComputedStyle(zh).lineHeight) * 1.5) t.classList.add("long");
+}
+</script>
+</body>
+</html>

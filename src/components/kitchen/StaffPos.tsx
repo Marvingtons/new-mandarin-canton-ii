@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Menu, MenuCategory, MenuItem } from "@/lib/menu/types";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
+import { groupsForSize } from "@/lib/menu/rice";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { itemMatches, queryTerms } from "@/lib/menu/search";
 import { formatCents, taxCents } from "@/lib/money";
@@ -12,40 +13,35 @@ import { isLunchService, LUNCH_END_MINUTES, LUNCH_START_MINUTES } from "@/lib/or
 import { resolveSizeZh } from "@/data/menu-overrides";
 import { menuNumber } from "@/data/menu-presentation";
 import type { OrderLine, StaffTakeoutChannel } from "@/lib/orders/types";
+import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/pos-categories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
-import DishName from "@/components/kitchen/DishName";
 import StaffItemSheet, { type StaffLineDraft } from "@/components/kitchen/StaffItemSheet";
-import Icon from "@/components/kitchen/Icon";
-import FloorPlanSheet, { type Seating } from "@/components/kitchen/FloorPlanSheet";
+import Icon, { posIcon } from "@/components/kitchen/Icon";
+import FloorPlan, { type Seating } from "@/components/kitchen/FloorPlan";
 import PosTopBar from "@/components/kitchen/PosTopBar";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
+import s from "@/components/kitchen/pos.module.css";
 
 /**
  * Staff order entry: a phone call, a walk-in, or a table, tapped in and printed.
+ * Built to docs/kitchen-design.md (Revision 2) and its mockups; the styles are
+ * pos.module.css, whose tokens are the spec's.
  *
  * THIS SCREEN PRICES NOTHING. The totals it shows are resolveLinePrice and
  * taxCents, the same pure functions the server uses, purely so staff can quote
  * the caller a number; the order that prints is the one POST /api/kitchen/orders
  * recomputes from the menu. The request carries no money at all.
  *
- * A TILL, NOT A PAGE. Four fixed zones and nothing scrolls but the dishes and
- * the ticket's lines: a 72px top bar (外賣 / 堂食, the context chip, tools), a
- * full-height category rail, the dish grid, and the ticket with its total and
- * Print pinned at the bottom. In portrait the ticket moves under the dishes.
- * Zones and columns are in globals.css (THE POS).
+ * A TILL, NOT A PAGE. Fixed zones and nothing scrolls but the dishes and the
+ * ticket's lines: a 72px top bar, the category rail, the dish tiles of ONE
+ * category, and the ticket with its total and Print pinned at the bottom.
+ * Dine-in without a table shows the floor plan in place of the three zones.
  *
- * TWO SERVICES, ONE SCREEN. Takeout asks phone or walk-in, then who and when,
- * in a sheet opened from the context chip; dine-in asks only which table and
- * how many (the floor plan sheet), and the chip reads 桌 4 · 3 位. The dishes
- * and the Print button are the same for both, and so is the order route: one
- * pipeline (see POST /api/kitchen/orders).
- *
- * READ AT ARM'S LENGTH. The people using this include older staff with poor
- * eyesight. Dish 中文 is the largest type on a card, prices are bold, there are
- * no descriptions and no pale captions, nothing is under 22px, and every
- * control is at least 56px, Print 88px (globals.css sets the staff type
- * scale; 大字 scales it again, and the grid drops a column rather than
- * squeezing names).
+ * NAMES, NOT DETAILS. A dish tile is its 中文 and English on its category's
+ * tint, nothing else: tap it and the regular size goes on the ticket (its
+ * required single choices, like rice, take their defaults); a second size is a
+ * chip in the corner. Only a dish with a real decision (an entrée to choose,
+ * five party sizes) opens the options sheet. Prices are on the ticket.
  *
  * Every dish shows 中文 large and English beneath regardless of the language
  * toggle, because the person taking the call and the person at the wok may
@@ -84,6 +80,149 @@ function isDefaultSize(label: string): boolean {
   return ["individual", "regular", ""].includes(label.toLowerCase());
 }
 
+/**
+ * The line one tap adds, or null when the dish needs its sheet. Required
+ * single-choice groups take their first option, exactly as the sheet would
+ * open (useItemChoice); a required multi-choice group is a decision, so it
+ * goes to the sheet.
+ */
+function quickDraft(item: MenuItem, sizeId: string): StaffLineDraft | null {
+  const modifierIds: string[] = [];
+  for (const g of groupsForSize(item, sizeId)) {
+    if (g.minRequired < 1) continue;
+    if (g.maxAllowed !== 1 || g.minRequired > 1 || !g.modifiers[0]) return null;
+    modifierIds.push(g.modifiers[0].id);
+  }
+  try {
+    resolveLinePrice(item, sizeId, modifierIds, 1);
+  } catch {
+    return null;
+  }
+  return { itemId: item.id, sizeId, modifierIds, quantity: 1 };
+}
+
+/** "春卷（2條）": the count is data, not name, so it is one step smaller. */
+function nameParts(name: string): { base: string; count: string | null } {
+  const m = name.match(/^(.*?)(（.+）)$/);
+  return m ? { base: m[1], count: m[2] } : { base: name, count: null };
+}
+
+function ZhName({ name }: { name: string }) {
+  const { base, count } = nameParts(name);
+  return (
+    <>
+      {base}
+      {count && <span className={s.cnt}>{count}</span>}
+    </>
+  );
+}
+
+/**
+ * When a list outgrows its pane, where the "N more" bar goes: from the end of
+ * the last whole item down, so a half item is never shown bare. Null when
+ * everything fits or the list is scrolled to its end.
+ */
+function useMoreBar(listRef: React.RefObject<HTMLElement | null>, itemSelector: string, deps: unknown[]) {
+  const [bar, setBar] = useState<{ top: number; hidden: number } | null>(null);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const measure = () => {
+      const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 1;
+      if (list.scrollHeight <= list.clientHeight + 1 || atEnd) {
+        setBar(null);
+        return;
+      }
+      const box = list.getBoundingClientRect();
+      // Room for the bar's own 56px button and its 8px gap, in spec pixels.
+      const u = parseFloat(getComputedStyle(document.documentElement).fontSize) / 22;
+      const limit = box.bottom - 64 * u;
+      const items = [...list.querySelectorAll<HTMLElement>(itemSelector)];
+      const whole = items.filter((el) => el.getBoundingClientRect().bottom <= limit);
+      const last = whole[whole.length - 1];
+      setBar({ top: last ? last.getBoundingClientRect().bottom - box.top + 4 : 0, hidden: items.length - whole.length });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    list.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      list.removeEventListener("scroll", measure);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-measure when the caller's content changes
+  }, deps);
+  return bar;
+}
+
+/** A dish tile. Measures its own 中文 so a two-line name drops the English to one. */
+function DishTile({
+  item,
+  tint,
+  count,
+  disabledLabel,
+  altLabel,
+  onTap,
+  onAlt,
+}: {
+  item: MenuItem;
+  tint: CategoryTint;
+  count: number;
+  disabledLabel: string | null;
+  altLabel: string | null;
+  onTap: () => void;
+  onAlt: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const tile = ref.current;
+    const zh = tile?.querySelector<HTMLElement>(`.${s.zh}`);
+    if (!tile || !zh) return;
+    const check = () =>
+      tile.classList.toggle(s.long, zh.offsetHeight > parseFloat(getComputedStyle(zh).lineHeight) * 1.5);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(tile);
+    return () => observer.disconnect();
+  }, []);
+  const zhName = item.nameZh ?? item.nameEn;
+  return (
+    <div
+      ref={ref}
+      style={tintStyle(tint)}
+      className={[s.tile, count > 0 && s.hasQ, altLabel && s.hasAlt, disabledLabel && s.off].filter(Boolean).join(" ")}
+    >
+      <button
+        type="button"
+        data-item={item.id}
+        disabled={disabledLabel !== null}
+        onClick={onTap}
+        aria-label={item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn}
+        className={s.tileMain}
+      />
+      <span lang={item.nameZh ? "zh-Hant" : "en"} className={s.zh}>
+        <ZhName name={zhName} />
+      </span>
+      {item.nameZh && (
+        <span lang="en" className={s.en}>
+          {item.nameEn}
+        </span>
+      )}
+      {count > 0 && (
+        <span key={count} className={`${s.qtyBadge} ${s.num}`}>
+          {count}
+        </span>
+      )}
+      {disabledLabel && <span className={s.state}>{disabledLabel}</span>}
+      {altLabel && !disabledLabel && (
+        <button type="button" data-item-size="alt" onClick={onAlt} className={s.alt}>
+          {altLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function StaffPos({
   menu,
   taxRateBps,
@@ -98,6 +237,15 @@ export default function StaffPos({
 }) {
   const t = useKT();
   const index = useMemo(() => indexItems(menu), [menu]);
+  /** Each dish's category tint, for its tile and its ticket line. */
+  const tintOf = useMemo(() => {
+    const map = new Map<string, CategoryTint>();
+    for (const c of menu.categories) {
+      const { tint } = categoryLook(c);
+      for (const i of c.items) map.set(i.id, tint);
+    }
+    return map;
+  }, [menu]);
 
   /* ---------------------------------------------------------- the clock -- */
   // Client-only, so the server render and hydration agree (no slot list that
@@ -131,6 +279,7 @@ export default function StaffPos({
   const [mode, setMode] = useState<Mode>("takeout");
   const [channel, setChannel] = useState<StaffTakeoutChannel>("phone");
   const [seating, setSeating] = useState<Seating | null>(null);
+  /** Dine-in with a table, choosing another one. */
   const [floorOpen, setFloorOpen] = useState(false);
   const [pickup, setPickup] = useState("asap");
   const [paymentNote, setPaymentNote] = useState("");
@@ -142,9 +291,12 @@ export default function StaffPos({
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [justNow, setJustNow] = useState<Placed | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
+  /** The line showing its stepper and note, if any. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [noteOpen, setNoteOpen] = useState(false);
 
   // A chosen slot that has since passed falls back to the first one offered.
-  const pickupValue = slots.some((s) => s.value === pickup) ? pickup : (slots[0]?.value ?? "");
+  const pickupValue = slots.some((x) => x.value === pickup) ? pickup : (slots[0]?.value ?? "");
 
   const priced = useMemo(
     () =>
@@ -185,8 +337,8 @@ export default function StaffPos({
 
   /* ------------------------------------------------------ menu selection -- */
   const [query, setQuery] = useState("");
-  /** The dish being chosen, and the size its tap zone asked for (a tray). */
-  const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string } | null>(null);
+  /** The dish being chosen, the size its tap asked for, and the line it replaces. */
+  const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string; replace?: string } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsRef = useRef<HTMLDialogElement>(null);
@@ -201,11 +353,7 @@ export default function StaffPos({
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
   const [activeCategory, setActiveCategory] = useState<string>(menu.categories[0]?.id ?? "");
-
-  const lunchCategoryIds = useMemo(
-    () => new Set(menu.categories.filter((c) => c.items.some((i) => i.lunchSpecial)).map((c) => c.id)),
-    [menu],
-  );
+  const category = menu.categories.find((c) => c.id === activeCategory) ?? menu.categories[0];
 
   const results = useMemo(() => {
     const q = query.trim();
@@ -220,8 +368,8 @@ export default function StaffPos({
     }
     const terms = queryTerms(q);
     return all
-      .filter(({ item, category }) =>
-        itemMatches(item, terms, `${category.nameEn} ${category.nameZh ?? ""} ${menuNumber(item.id) ?? ""}`),
+      .filter(({ item, category: c }) =>
+        itemMatches(item, terms, `${c.nameEn} ${c.nameZh ?? ""} ${menuNumber(item.id) ?? ""}`),
       )
       .map(({ item }) => item);
   }, [query, menu]);
@@ -231,48 +379,30 @@ export default function StaffPos({
     [lunchOpen],
   );
 
-  /* The highlighted category follows the scroll, not just the last tap, so
-     the rail always says where the dishes on screen come from. */
   const dishPaneRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const pane = dishPaneRef.current;
-    if (!pane || results) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const top = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (top) setActiveCategory(top.target.id.replace(/^pos-cat-/, ""));
-      },
-      // On a phone the page scrolls, not the pane: watch the viewport then.
-      { root: pane.scrollHeight > pane.clientHeight ? pane : null, rootMargin: "0px 0px -70% 0px" },
-    );
-    for (const c of menu.categories) {
-      const el = document.getElementById(`pos-cat-${c.id}`);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [menu, results]);
-
-  function jumpTo(category: MenuCategory) {
+  function jumpTo(c: MenuCategory) {
     setQuery("");
     setSearchOpen(false);
-    setActiveCategory(category.id);
-    // After the search results unmount, so the section is in the DOM.
-    requestAnimationFrame(() => {
-      document.getElementById(`pos-cat-${category.id}`)?.scrollIntoView({ block: "start" });
-    });
+    setActiveCategory(c.id);
+    dishPaneRef.current?.scrollTo({ top: 0 });
   }
 
-  function openItem(item: MenuItem, sizeId?: string) {
-    setSheetItem({ item, sizeId });
+  /** A tile's tap: straight onto the ticket, or the sheet when there is a choice to make. */
+  function tapDish(item: MenuItem, sizeId?: string) {
+    const sizes = itemSizes(item);
+    const size = sizeId ?? (sizes.length <= 2 ? sizes[0]?.id : undefined);
+    const draft = size ? quickDraft(item, size) : null;
+    if (draft) addLine(draft);
+    else setSheetItem({ item, sizeId });
   }
 
-  function addLine(draft: StaffLineDraft) {
+  const linesRef = useRef<HTMLDivElement>(null);
+  function addLine(draft: StaffLineDraft, replace?: string) {
     setLines((prev) => {
+      const rest = replace ? prev.filter((l) => l.lineId !== replace) : prev;
       // Same dish, same choices, no note: bump the quantity rather than add a
       // second identical row the kitchen has to sum.
-      const same = prev.find(
+      const same = rest.find(
         (l) =>
           !l.specialInstructions &&
           !draft.specialInstructions &&
@@ -281,21 +411,28 @@ export default function StaffPos({
           [...l.modifierIds].sort().join() === [...draft.modifierIds].sort().join(),
       );
       if (same) {
-        return prev.map((l) =>
+        return rest.map((l) =>
           l.lineId === same.lineId ? { ...l, quantity: Math.min(50, l.quantity + draft.quantity) } : l,
         );
       }
-      return [...prev, { ...draft, lineId: newKey() }];
+      return [...rest, { ...draft, lineId: newKey() }];
     });
     setSheetItem(null);
     setPlaced(null);
     setError(null);
+    // The newest line is the one to see.
+    requestAnimationFrame(() => linesRef.current?.scrollTo({ top: linesRef.current.scrollHeight }));
   }
 
   function setQty(lineId: string, quantity: number) {
+    if (quantity < 1) setEditing(null);
     setLines((prev) =>
       quantity < 1 ? prev.filter((l) => l.lineId !== lineId) : prev.map((l) => (l.lineId === lineId ? { ...l, quantity: Math.min(50, quantity) } : l)),
     );
+  }
+
+  function setNote(lineId: string, note: string) {
+    setLines((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, specialInstructions: note || undefined } : l)));
   }
 
   /* --------------------------------------------------- repeat customers -- */
@@ -329,7 +466,7 @@ export default function StaffPos({
     for (const line of order.items) {
       const item = index.get(line.itemId);
       const modifierIds = line.modifiers.map((m) => m.id);
-      let ok = !!item && orderable(item) && itemSizes(item).some((s) => s.id === line.sizeId);
+      let ok = !!item && orderable(item) && itemSizes(item).some((x) => x.id === line.sizeId);
       if (ok && item) {
         try {
           resolveLinePrice(item, line.sizeId, modifierIds, line.quantity);
@@ -371,6 +508,7 @@ export default function StaffPos({
     setReturning(null);
     setClearArmed(false);
     setNotice(null);
+    setEditing(null);
   }
 
   async function submit() {
@@ -470,146 +608,48 @@ export default function StaffPos({
   }
 
   /* ------------------------------------------------------------- render -- */
-  /** How many of each dish are on the ticket, for the +N on its card. */
+  /** How many of each dish are on the ticket, for the badge on its tile. */
   const onTicket = useMemo(() => {
     const counts = new Map<string, number>();
     for (const l of lines) counts.set(l.itemId, (counts.get(l.itemId) ?? 0) + l.quantity);
     return counts;
   }, [lines]);
 
-  const itemCard = (item: MenuItem) => {
-    const num = menuNumber(item.id);
+  const showFloor = mode === "dine_in" && (!seating || floorOpen);
+  const railRef = useRef<HTMLElement>(null);
+  const railBar = useMoreBar(railRef, "button", [menu, showFloor]);
+  const linesBar = useMoreBar(linesRef, `.${s.line}`, [lines, editing, noteOpen, showFloor]);
+
+  const tile = (item: MenuItem) => {
     const sizes = itemSizes(item);
-    const tray = sizes.find((s) => s.id === "party-tray");
-    const eightySixed = !isAvailable(item);
-    const lunchLocked = item.lunchSpecial === true && !lunchOpen;
-    const disabled = eightySixed || lunchLocked;
-    const count = onTicket.get(item.id) ?? 0;
-    // 中文, English, price. No description: read at arm's length, a card is
-    // a name to recognise, not a paragraph to read. The main card is the
-    // regular size; a tray is its own tap zone, so it is never a second step.
+    const disabledLabel = !isAvailable(item)
+      ? t("pos.86d")
+      : item.lunchSpecial === true && !lunchOpen
+        ? t("pos.lunchClosed")
+        : null;
+    const alt = sizes.length === 2 ? sizes[1] : null;
     return (
-      <div
+      <DishTile
         key={item.id}
-        className={`relative flex flex-col rounded-pos ${disabled ? "bg-pos-sunken" : "bg-pos-card shadow-pos-card"}`}
-      >
-        <button
-          type="button"
-          onClick={() => openItem(item)}
-          disabled={disabled}
-          data-item={item.id}
-          className="pos-press flex min-h-[6.5rem] flex-1 flex-col gap-2 rounded-pos p-3.5 text-left disabled:cursor-not-allowed"
-        >
-          <span className="flex min-w-0 flex-col">
-            <span lang={item.nameZh ? "zh-Hant" : "en"} className="text-[1.273rem] leading-snug font-semibold text-balance">
-              {item.nameZh ?? item.nameEn}
-            </span>
-            {item.nameZh && (
-              <span lang="en" className="text-base leading-snug text-pos-muted">
-                {item.nameEn}
-              </span>
-            )}
-          </span>
-          <span className="mt-auto flex flex-wrap items-baseline justify-between gap-x-3">
-            <span className="text-[1.091rem] font-bold tabular-nums">{formatCents(sizes[0].priceCents)}</span>
-            {num !== null && <span className="text-base text-pos-muted tabular-nums">{t("pos.dish.number", { n: num })}</span>}
-          </span>
-          {eightySixed && (
-            <span className="self-start rounded-full bg-pos-brand px-3 text-base font-bold text-white">{t("pos.86d")}</span>
-          )}
-          {!eightySixed && lunchLocked && (
-            <span className="self-start rounded-full bg-pos-card px-3 text-base font-semibold">{t("pos.lunchClosed")}</span>
-          )}
-        </button>
-        {tray && !disabled && (
-          <button
-            type="button"
-            onClick={() => openItem(item, tray.id)}
-            className="pos-press mx-2 mb-2 flex min-h-[2.545rem] flex-wrap items-center justify-between gap-x-2 rounded-xl bg-pos-sunken px-3 py-1 text-left text-base font-semibold hover:bg-pos-gold-tint"
-          >
-            <span>{t("pos.tray")}</span>
-            <span className="font-bold tabular-nums">{formatCents(tray.priceCents)}</span>
-          </button>
-        )}
-        {count > 0 && (
-          <span
-            key={count}
-            title={t("pos.onTicket", { n: count })}
-            className="pos-pop pointer-events-none absolute -top-2 -right-2 flex h-[2.182rem] min-w-[2.182rem] items-center justify-center rounded-full bg-pos-added px-2 text-base font-bold text-white tabular-nums shadow-pos-card"
-          >
-            +{count}
-          </span>
-        )}
-      </div>
+        item={item}
+        tint={tintOf.get(item.id) ?? "sides"}
+        count={onTicket.get(item.id) ?? 0}
+        disabledLabel={disabledLabel}
+        altLabel={alt ? (resolveSizeZh(alt.label) ?? alt.label) : null}
+        onTap={() => tapDish(item)}
+        onAlt={() => alt && tapDish(item, alt.id)}
+      />
     );
   };
 
   const field =
     "min-h-[3rem] w-full rounded-xl bg-pos-card px-4 text-[1.091rem] text-pos-ink shadow-[inset_0_0_0_2px_var(--color-pos-sunken)] outline-none placeholder:text-pos-muted focus:shadow-[inset_0_0_0_2px_var(--color-pos-brand)]";
   const label = "mb-2 block text-base font-semibold text-pos-ink";
-  const stepper =
-    "flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-full bg-pos-sunken text-pos-ink transition-colors hover:bg-pos-gold-tint active:bg-pos-gold-tint";
-  const itemCount = lines.reduce((n, l) => n + l.quantity, 0);
-  const takeoutMissing = mode === "takeout" && (missing.includes("pos.missing.name") || missing.includes("pos.missing.phone"));
   const customerSummary = [name.trim(), phone.trim()].filter(Boolean).join(" · ");
+  const btn = (kind: "primary" | "secondary" | "quiet") => `${s.btn} ${s[kind]}`;
 
-  /* The chip in the middle of the top bar: who this order is for. */
-  const chip = "flex h-[2.545rem] max-w-full min-w-0 items-center gap-2.5 rounded-xl px-3.5 text-base font-semibold whitespace-nowrap transition-colors";
-  const contextChip =
-    mode === "dine_in" ? (
-      // 桌 4 · 3 位. Tap to change table (or to seat one).
-      <button
-        type="button"
-        data-seating={seating?.label ?? ""}
-        onClick={() => setFloorOpen(true)}
-        className={`${chip} ${
-          seating ? "bg-pos-card text-pos-ink shadow-pos-card" : "bg-pos-brand-tint text-pos-brand"
-        }`}
-      >
-        <Icon name="table" size={20} className={seating ? "text-pos-muted" : ""} />
-        {seating ? (
-          <span className="flex min-w-0 items-center gap-2.5 truncate">
-            {seating.addon && (
-              <span className="shrink-0 rounded-lg bg-pos-gold-tint px-2 font-bold">{t("ticket.addon")}</span>
-            )}
-            <span lang="zh-Hant" className="text-[1.182rem] font-bold whitespace-nowrap">
-              {t("pos.table.summaryZh", { table: seating.label, guests: seating.guests })}
-            </span>
-          </span>
-        ) : (
-          <span>{t("pos.table.choose")}</span>
-        )}
-      </button>
-    ) : (
-      <button
-        type="button"
-        data-context="takeout"
-        onClick={() => setDetailsOpen(true)}
-        aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
-        className={`${chip} ${
-          takeoutMissing && lines.length > 0 ? "bg-pos-brand-tint text-pos-brand" : "bg-pos-card text-pos-ink shadow-pos-card"
-        }`}
-      >
-        <Icon name={channel === "phone" ? "phone" : "store"} size={20} className="opacity-80" />
-        {name.trim() || phone.trim() ? (
-          // The name first and whole; the phone only where the bar has room.
-          <span className="flex min-w-0 items-baseline gap-2">
-            {name.trim() && <span className="min-w-0 truncate">{name.trim()}</span>}
-            {phone.trim() && (
-              <span className={`font-normal tabular-nums ${name.trim() ? "hidden text-pos-muted @min-[17rem]/chip:inline" : ""}`}>
-                {phone.trim()}
-              </span>
-            )}
-          </span>
-        ) : (
-          <span>{t("pos.details.add")}</span>
-        )}
-      </button>
-    );
-
-  const searchField = (
-    <div className="relative w-full max-w-[24rem]">
-      <Icon name="search" size={20} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-pos-muted" />
+  const searchField = searchOpen ? (
+    <div className={s.searchField}>
       {/* type="text", not "search": the browser's own clear glyph is tiny
           and doubled up with the 56px one beside it. */}
       <input
@@ -621,7 +661,6 @@ export default function StaffPos({
         aria-label={t("pos.search")}
         enterKeyHint="search"
         ref={searchRef}
-        className={`${field} h-[2.545rem] min-h-0 pr-14 pl-12 text-base`}
       />
       <button
         type="button"
@@ -630,307 +669,390 @@ export default function StaffPos({
           setSearchOpen(false);
         }}
         aria-label={t("pos.searchClose")}
-        className="absolute top-0 right-0 flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-xl text-pos-muted hover:text-pos-ink"
+        className={`${btn("quiet")} ${s.icon}`}
       >
-        <Icon name="x" size={20} />
+        <Icon name="x" size={posIcon(24)} />
       </button>
+    </div>
+  ) : null;
+
+  const look = category ? categoryLook(category) : null;
+
+  /* ---- ticket header: the order type and who or which table, strongest on screen ---- */
+  const placedStatus = placed && (
+    <div role="status" className={s.status}>
+      <Icon name="check" size={posIcon(24)} />
+      <span className={`${s.big} ${s.num}`}>{placed.orderNumber}</span>
+      <span>{t("pos.sent")}</span>
     </div>
   );
 
-  const lunchChip =
-    lunchCategoryIds.size > 0 && !lunchNow ? (
-      <button
-        type="button"
-        aria-pressed={lunchOverride}
-        title={t("pos.lunchOverrideHint")}
-        aria-label={t("pos.lunchOverride")}
-        onClick={() => setLunchOverride((v) => !v)}
-        className={`flex h-[2.545rem] items-center gap-2 rounded-xl px-3 text-base font-semibold whitespace-nowrap transition-colors ${
-          lunchOverride ? "bg-pos-gold-tint text-pos-ink" : "text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className={`relative h-[1.091rem] w-[1.909rem] rounded-full transition-colors ${lunchOverride ? "bg-pos-gold" : "bg-pos-sunken shadow-[inset_0_0_0_2px_var(--color-pos-muted)]"}`}
+  const ticketHead = (
+    <div className={s.tHead}>
+      {placedStatus}
+      {justNow && !placed && (
+        <div className={s.status}>
+          <span>
+            {t("pos.justNow")} <span className={s.num}>{justNow.orderNumber}</span>
+          </span>
+          <button type="button" onClick={() => reprint(justNow)} className={btn("quiet")}>
+            <Icon name="printer" size={posIcon(22)} />
+            {t("pos.reprint")}
+          </button>
+        </div>
+      )}
+      {notice && (
+        <p role="status" className={s.status}>
+          {notice}
+        </p>
+      )}
+      <div className={s.tRow}>
+        <div className={s.tCtx}>
+          <span lang="zh-Hant" className={s.key}>
+            {t(mode === "takeout" ? "pos.mode.takeoutZh" : "pos.mode.dineInZh")}
+          </span>
+          <span className={s.ctx}>
+            {mode === "dine_in" && seating
+              ? t("pos.table.summaryZh", { table: seating.label, guests: seating.guests })
+              : name.trim() || t(`channel.${channel}`)}
+          </span>
+          {mode === "dine_in" && seating?.addon && <span className={s.addonTag}>{t("ticket.addon")}</span>}
+        </div>
+        {(lines.length > 0 || customerSummary) && (
+          <button
+            type="button"
+            aria-label={clearArmed ? t("pos.clearConfirm") : t("pos.clearOrder")}
+            onClick={() => {
+              if (lines.length === 0 || clearArmed) {
+                resetTicket();
+                setPlaced(null);
+                setError(null);
+              } else {
+                setClearArmed(true);
+              }
+            }}
+            className={clearArmed ? btn("quiet") : `${btn("quiet")} ${s.icon}`}
+          >
+            {clearArmed ? t("pos.clearConfirm") : <Icon name="trash" size={posIcon(24)} />}
+          </button>
+        )}
+      </div>
+      {mode === "dine_in" ? (
+        <div className={s.row2}>
+          <button type="button" data-seating={seating?.label ?? ""} onClick={() => setFloorOpen(true)} className={btn("secondary")}>
+            {t("pos.changeTable")}
+          </button>
+          <button type="button" onClick={() => setDetailsOpen(true)} className={btn("secondary")}>
+            {t("pos.notesButton")}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          data-context="takeout"
+          onClick={() => setDetailsOpen(true)}
+          aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
+          className={btn("secondary")}
         >
-          <span
-            className={`absolute top-[0.136rem] h-[0.818rem] w-[0.818rem] rounded-full transition-[left] ${
-              lunchOverride ? "left-[0.955rem] bg-white" : "left-[0.136rem] bg-pos-muted"
-            }`}
-          />
+          {phone.trim() ? <span className={s.num}>{phone.trim()}</span> : t("pos.addCustomer")}
+        </button>
+      )}
+    </div>
+  );
+
+  const ticketLines =
+    lines.length === 0 ? (
+      <div className={s.empty}>
+        <span lang="zh-Hant" className={s.zh}>
+          {t("pos.ticketEmptyZh")}
         </span>
-        {t("pos.lunchChip")}
-      </button>
-    ) : null;
+        <span lang="en" className={s.en}>
+          {t("pos.ticketEmptyEn")}
+        </span>
+      </div>
+    ) : (
+      priced.map(({ line, item, lineCents }) => {
+        const size = item ? itemSizes(item).find((x) => x.id === line.sizeId) : undefined;
+        const tag = size && !isDefaultSize(size.label) ? (resolveSizeZh(size.label) ?? size.label) : null;
+        // Choices worth reading: what a default would not have picked.
+        const defaults = new Set(item ? (quickDraft(item, line.sizeId)?.modifierIds ?? []) : []);
+        const mods = item
+          ? item.modifierGroups
+              .flatMap((g) => g.modifiers)
+              .filter((m) => line.modifierIds.includes(m.id) && !defaults.has(m.id))
+              .map((m) => m.nameZh ?? m.nameEn)
+          : [];
+        const isEditing = editing === line.lineId;
+        const zhName = item?.nameZh ?? item?.nameEn ?? line.itemId;
+        return (
+          <div
+            key={line.lineId}
+            className={`${s.line} ${isEditing ? s.editing : ""}`}
+            style={tintStyle(tintOf.get(line.itemId) ?? "sides")}
+          >
+            <button
+              type="button"
+              aria-expanded={isEditing}
+              onClick={() => {
+                setEditing(isEditing ? null : line.lineId);
+                setNoteOpen(false);
+              }}
+              className={s.lineHit}
+            >
+              <span className={s.st} />
+              <span className={`${s.q} ${s.num}`}>{line.quantity}</span>
+              <span style={{ minWidth: 0 }}>
+                <span lang={item?.nameZh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
+                  <ZhName name={zhName} />
+                  {tag && <span className={s.tag}>{tag}</span>}
+                </span>
+                {item?.nameZh && (
+                  <span lang="en" className={`${s.en} ${s.one}`}>
+                    {[item.nameEn, ...mods].join(" · ")}
+                  </span>
+                )}
+                {line.specialInstructions && <span className={s.note}>{line.specialInstructions}</span>}
+              </span>
+              <span className={`${s.lp} ${s.num}`}>{formatCents(lineCents)}</span>
+            </button>
+            {isEditing && (
+              <div className={s.edit}>
+                <div className={s.stepper}>
+                  <button type="button" aria-label={t("pos.decrease")} onClick={() => setQty(line.lineId, line.quantity - 1)} className={btn("quiet")}>
+                    <Icon name={line.quantity > 1 ? "minus" : "trash"} size={posIcon(24)} />
+                  </button>
+                  <span className={`${s.q} ${s.num}`}>{line.quantity}</span>
+                  <button type="button" aria-label={t("pos.increase")} onClick={() => setQty(line.lineId, line.quantity + 1)} className={btn("quiet")}>
+                    <Icon name="plus" size={posIcon(24)} />
+                  </button>
+                </div>
+                <button type="button" aria-pressed={noteOpen} onClick={() => setNoteOpen((o) => !o)} className={btn("secondary")}>
+                  {t("pos.lineNoteButton")}
+                </button>
+                {item && item.modifierGroups.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSheetItem({ item, sizeId: line.sizeId, replace: line.lineId })}
+                    className={btn("secondary")}
+                  >
+                    {t("pos.options")}
+                  </button>
+                )}
+                {noteOpen && (
+                  <input
+                    value={line.specialInstructions ?? ""}
+                    onChange={(e) => setNote(line.lineId, e.target.value)}
+                    maxLength={200}
+                    placeholder={t("pos.lineNotePlaceholder")}
+                    aria-label={t("pos.lineNoteButton")}
+                    autoComplete="off"
+                    className={s.noteField}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })
+    );
+
+  const printLabel = submitting ? (
+    t("pos.printing")
+  ) : lines.length === 0 ? (
+    <>
+      <span lang="zh-Hant" className={s.zh}>
+        {t("pos.printEmptyZh")}
+      </span>{" "}
+      {t("pos.printEmptyEn")}
+    </>
+  ) : (
+    <>
+      <span>
+        <span lang="zh-Hant" className={s.zh}>
+          {t("pos.printZh")}
+        </span>{" "}
+        {t("pos.printEn")}
+      </span>
+      <span className={s.num}>{formatCents(total)}</span>
+    </>
+  );
 
   return (
-    <main className="pos-root grid h-svh overflow-hidden bg-pos-bg text-pos-ink">
+    <main className={`${s.root} ${showFloor ? s.floorMode : ""}`}>
       <PosTopBar
         mode={mode}
         onMode={(m) => {
           setMode(m);
           setError(null);
-          // Straight to the floor plan: a dine-in order starts at a table.
-          if (m === "dine_in" && !seating) setFloorOpen(true);
+          setFloorOpen(false);
         }}
-        context={searchOpen ? searchField : contextChip}
-        search={searchOpen ? null : () => setSearchOpen(true)}
-        lunch={lunchChip}
+        searchField={searchField}
+        onSearch={() => {
+          if (showFloor) setMode("takeout");
+          setSearchOpen(true);
+        }}
+        lunch={lunchNow ? null : { on: lunchOverride, toggle: () => setLunchOverride((v) => !v) }}
       />
 
-      {/* ---------------------------------------------------- categories -- */}
-      {/* Full height, one column: 中文 large, English under it, the current
-          one filled in the brand red. Scrolls only if the room runs out. */}
-      <nav
-        aria-label={t("pos.categories")}
-        className="flex min-h-0 flex-col overflow-y-auto px-1.5 pb-5 [grid-area:rail] [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]"
-      >
-        {menu.categories.map((c) => {
-          const on = activeCategory === c.id && !results;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => jumpTo(c)}
-              aria-current={on ? "true" : undefined}
-              className={`flex min-h-[2.545rem] shrink-0 grow flex-col justify-center rounded-xl px-2.5 text-left transition-colors ${
-                on ? "bg-pos-brand text-white" : "text-pos-ink hover:bg-pos-sunken"
-              }`}
-            >
-              <span lang={c.nameZh ? "zh-Hant" : "en"} className="text-[1.091rem] leading-[1.05] font-bold">
-                {c.nameZh ?? c.nameEn}
-              </span>
-              {c.nameZh && (
-                <span lang="en" className={`text-base leading-[1.05] ${on ? "text-white/90" : "text-pos-muted"}`}>
-                  {c.nameEn}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* --------------------------------------------------------- dishes -- */}
-      <section ref={dishPaneRef} aria-label={t("pos.title")} className="pos-dishes min-h-0 min-w-0 overflow-y-auto [grid-area:dishes]">
-        {/* Inside the scroller and sticky, so the warning stays on screen for
-            as long as the override does, however far the dishes scroll. */}
-        {lunchOverride && !lunchNow && (
-          <p role="status" className="sticky top-0 z-10 mx-[var(--pos-gap)] mt-1 flex items-center gap-3 rounded-xl bg-pos-gold-tint px-4 py-2 text-base font-medium">
-            <Icon name="alert" size={18} className="shrink-0" />
-            {t("pos.lunchOverrideWarning", lunchLabel)}
-          </p>
-        )}
-
-        {results ? (
-          <div className="px-[var(--pos-gap)] pt-2 pb-8">
-            <h2 className="mb-3 text-base font-semibold text-pos-muted">{t("pos.results")}</h2>
-            {results.length === 0 ? (
-              <p className="py-16 text-center text-[1.091rem] text-pos-muted">{t("pos.noResults", { q: query.trim() })}</p>
-            ) : (
-              <div className="pos-grid">{results.map(itemCard)}</div>
-            )}
-          </div>
-        ) : (
-          menu.categories.map((c) => (
-            <section key={c.id} id={`pos-cat-${c.id}`} className="scroll-mt-2 px-[var(--pos-gap)] pt-2 pb-6">
-              <h2 className="mb-3 flex flex-wrap items-baseline gap-x-3">
-                <span lang={c.nameZh ? "zh-Hant" : "en"} className="text-[1.273rem] font-bold">
-                  {c.nameZh ?? c.nameEn}
-                </span>
-                {c.nameZh && <span className="text-base text-pos-muted">{c.nameEn}</span>}
-                {lunchCategoryIds.has(c.id) && (
-                  <span className="text-base text-pos-muted">· {t("pos.lunchWindow", lunchLabel)}</span>
-                )}
-              </h2>
-              <div className="pos-grid">{c.items.map(itemCard)}</div>
-            </section>
-          ))
-        )}
-      </section>
-
-      {/* ---------------------------------------------------------- ticket -- */}
-      <aside aria-label={t("pos.ticket")} className="pos-ticket min-h-0 min-w-0 bg-pos-card [grid-area:ticket]">
-        <div className="flex min-h-0 flex-col">
-          <div className="flex flex-col gap-3 px-5 pt-4">
-            {placed && (
-              <div role="status" className="flex items-center gap-4 rounded-pos bg-pos-added-tint px-4 py-3">
-                <span className="flex h-[2.182rem] w-[2.182rem] shrink-0 items-center justify-center rounded-full bg-pos-added text-white">
-                  <Icon name="check" size={20} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[1.636rem] leading-none font-bold tracking-tight text-pos-added tabular-nums">
-                    {placed.orderNumber}
-                  </span>
-                  <span className="mt-1 block text-base text-pos-muted">
-                    {t("pos.sent")} · {formatCents(placed.totalCents)}
-                  </span>
-                </span>
-              </div>
-            )}
-            {justNow && (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-base text-pos-muted">
-                  {!placed && (
-                    <>
-                      {t("pos.justNow")} <span className="font-semibold text-pos-ink tabular-nums">{justNow.orderNumber}</span>
-                    </>
-                  )}
-                </span>
+      {showFloor ? (
+        <FloorPlan
+          placed={placedStatus}
+          onBack={seating ? () => setFloorOpen(false) : null}
+          onSeat={(next) => {
+            setSeating(next);
+            setMode("dine_in");
+            setFloorOpen(false);
+            setError(null);
+            setPlaced(null);
+          }}
+          onCleared={(cleared) => {
+            if (seating?.label === cleared) setSeating(null);
+          }}
+        />
+      ) : (
+        <>
+          {/* ---------------------------------------------- categories -- */}
+          <div className={s.railWrap}>
+            <nav ref={railRef} aria-label={t("pos.categories")} className={`${s.rail} ${s.scroll}`}>
+              {menu.categories.map((c) => {
+                const l = categoryLook(c);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => jumpTo(c)}
+                    aria-current={c.id === category?.id && !results ? "true" : undefined}
+                    style={tintStyle(l.tint)}
+                  >
+                    <span className={s.sw} />
+                    <span lang={l.zh ? "zh-Hant" : "en"} className={s.zh}>
+                      {l.zh ?? l.en}
+                    </span>
+                    {l.zh && (
+                      <span lang="en" className={`${s.en} ${s.one}`}>
+                        {l.en}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+            {railBar && (
+              <div className={s.more} style={{ top: railBar.top }}>
                 <button
                   type="button"
-                  onClick={() => reprint(justNow)}
-                  className="flex min-h-[2.545rem] items-center gap-2 rounded-xl px-3 text-base font-semibold text-pos-ink hover:bg-pos-sunken"
+                  onClick={() => railRef.current?.scrollBy({ top: railRef.current.clientHeight * 0.75, behavior: "smooth" })}
+                  className={btn("secondary")}
                 >
-                  <Icon name="printer" size={18} />
-                  {t("pos.reprint")}
+                  {t("pos.moreCategories", { n: railBar.hidden })}
                 </button>
               </div>
             )}
-            {notice && (
-              <p role="status" className="rounded-xl bg-pos-sunken px-4 py-2 text-base">
-                {notice}
+          </div>
+
+          {/* -------------------------------------------------- dishes -- */}
+          <section ref={dishPaneRef} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
+            {lunchOverride && !lunchNow && (
+              <p role="status" className={s.banner}>
+                <Icon name="alert" size={posIcon(22)} />
+                {t("pos.lunchOverrideWarning", lunchLabel)}
               </p>
             )}
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-[1.091rem] font-bold">{t("pos.ticket")}</h2>
-              {itemCount > 0 && <span className="text-base text-pos-muted tabular-nums">{t("pos.itemCount", { n: itemCount })}</span>}
-            </div>
-          </div>
-
-          {lines.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-8 text-center text-pos-muted">
-              <Icon name="receipt" size={36} className="text-pos-gold" />
-              <p className="flex flex-col">
-                <span lang="zh-Hant" className="text-[1.091rem] font-semibold">{t("pos.ticketEmptyZh")}</span>
-                <span lang="en" className="text-base">{t("pos.ticketEmptyEn")}</span>
-              </p>
-            </div>
-          ) : (
-            <ul className="min-h-0 flex-1 divide-y-2 divide-pos-bg overflow-y-auto px-5 pb-2">
-              {priced.map(({ line, item, lineCents }) => {
-                const size = item ? itemSizes(item).find((s) => s.id === line.sizeId) : undefined;
-                const mods = item
-                  ? item.modifierGroups.flatMap((g) => g.modifiers).filter((m) => line.modifierIds.includes(m.id))
-                  : [];
-                return (
-                  <li key={line.lineId} className="py-3.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <DishName nameZh={item?.nameZh ?? null} nameEn={item?.nameEn ?? line.itemId} size="sm" className="pt-1" />
-                      <button
-                        type="button"
-                        aria-label={t("pos.remove")}
-                        onClick={() => setQty(line.lineId, 0)}
-                        className="-mr-2 flex h-[2.545rem] w-[2.545rem] shrink-0 items-center justify-center rounded-full text-pos-muted transition-colors hover:bg-pos-brand-tint hover:text-pos-brand"
-                      >
-                        <Icon name="x" size={20} />
-                      </button>
-                    </div>
-                    {size && !isDefaultSize(size.label) && (
-                      <span className="mt-1 inline-flex gap-1.5 rounded-lg bg-pos-gold-tint px-2 text-base font-semibold">
-                        {resolveSizeZh(size.label) ?? size.label} <span className="font-normal">{size.label}</span>
+            {results ? (
+              <>
+                <h2 className={s.sectionH}>
+                  <span className={s.zh}>{t("pos.results")}</span>
+                </h2>
+                {results.length === 0 ? (
+                  <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
+                ) : (
+                  <div className={s.grid}>{results.map(tile)}</div>
+                )}
+              </>
+            ) : (
+              category &&
+              look && (
+                <section id={`pos-cat-${category.id}`}>
+                  <h2 className={s.sectionH}>
+                    <span lang={look.zh ? "zh-Hant" : "en"} className={s.zh}>
+                      {look.zh ?? look.en}
+                    </span>
+                    {look.zh && (
+                      <span lang="en" className={s.en}>
+                        {category.nameEn}
                       </span>
                     )}
-                    {mods.map((m) => (
-                      <div key={m.id} className="text-base text-pos-muted">
-                        {m.nameZh ?? m.nameEn} {m.nameZh && <span>{m.nameEn}</span>}
-                      </div>
-                    ))}
-                    {line.specialInstructions && (
-                      <div className="mt-1 rounded-lg bg-pos-gold-tint px-2 py-0.5 text-base">
-                        {t("pos.lineNote", { note: line.specialInstructions })}
-                      </div>
+                    {category.items.some((i) => i.lunchSpecial) && (
+                      <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
                     )}
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-1">
-                        <button type="button" aria-label={t("pos.decrease")} onClick={() => setQty(line.lineId, line.quantity - 1)} className={stepper}>
-                          <Icon name="minus" size={22} />
-                        </button>
-                        <span className="w-[2.364rem] text-center text-[1.364rem] font-bold tabular-nums">{line.quantity}</span>
-                        <button type="button" aria-label={t("pos.increase")} onClick={() => setQty(line.lineId, line.quantity + 1)} className={stepper}>
-                          <Icon name="plus" size={22} />
-                        </button>
-                      </div>
-                      <span className="text-[1.091rem] font-bold tabular-nums">{formatCents(lineCents)}</span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                  </h2>
+                  <div className={s.grid}>{category.items.map(tile)}</div>
+                </section>
+              )
+            )}
+          </section>
 
-        {/* ------------------------------------------------- totals + print -- */}
-        <div className="flex flex-col justify-end px-5 pt-3 pb-4 shadow-[0_-1px_0_var(--color-pos-sunken)] portrait:shadow-[-1px_0_0_var(--color-pos-sunken)]">
-          {/* Subtotal and tax share a line: the room is the ticket's. */}
-          <dl className="grid grid-cols-[1fr_auto] gap-x-3 text-base text-pos-muted tabular-nums">
-            <div className="col-span-2 flex flex-wrap justify-between gap-x-4">
-              <span className="flex gap-2">
-                <dt>{t("pos.subtotal")}</dt>
-                <dd>{formatCents(subtotal)}</dd>
-              </span>
-              <span className="flex gap-2">
-                <dt>{t("pos.tax")}</dt>
-                <dd>{formatCents(tax)}</dd>
-              </span>
+          {/* -------------------------------------------------- ticket -- */}
+          <aside aria-label={t("pos.ticket")} className={s.ticket}>
+            {ticketHead}
+            <div className={s.linesWrap}>
+              <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
+                {ticketLines}
+              </div>
+              {linesBar && (
+                <div className={s.more} style={{ top: linesBar.top }}>
+                  <button
+                    type="button"
+                    onClick={() => linesRef.current?.scrollBy({ top: linesRef.current.clientHeight * 0.75, behavior: "smooth" })}
+                    className={btn("secondary")}
+                  >
+                    {t("pos.moreLines", { n: linesBar.hidden })}
+                  </button>
+                </div>
+              )}
             </div>
-            <dt className="mt-1 flex items-baseline gap-3 text-[1.455rem] font-bold text-pos-ink">
-              {t("pos.total")}
-              <span className="text-base font-normal text-pos-muted">{t("pos.payAtCounter")}</span>
-            </dt>
-            <dd className="mt-1 text-right text-[1.455rem] font-bold text-pos-ink">{formatCents(total)}</dd>
-          </dl>
 
-          {error && (
-            <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl bg-pos-brand-tint px-3 py-2 text-base font-medium text-pos-brand">
-              <Icon name="alert" size={18} className="mt-1" />
-              {error}
-            </p>
-          )}
-          {!error && missing.length > 0 && lines.length > 0 && (
-            <p className="mt-2 text-base text-pos-brand">{missing.map((k) => t(k)).join(" · ")}</p>
-          )}
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setDetailsOpen(true)}
-              className="flex min-h-[2.545rem] items-center gap-2 rounded-xl px-2 text-base font-semibold text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
-            >
-              <Icon name="note" size={18} />
-              {t("pos.notes")}
-              {(paymentNote.trim() || staffNote.trim()) && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-pos-gold" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (lines.length === 0 || clearArmed) {
-                  resetTicket();
-                  setPlaced(null);
-                  setError(null);
-                } else {
-                  setClearArmed(true);
-                }
-              }}
-              className={`min-h-[2.545rem] rounded-xl px-3 text-base font-semibold transition-colors ${
-                clearArmed ? "bg-pos-brand-tint text-pos-brand" : "text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
-              }`}
-            >
-              {clearArmed ? t("pos.clearConfirm") : t("pos.clear")}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!canSubmit}
-            data-action="print"
-            className="mt-2 flex h-[4rem] w-full items-center justify-center gap-3 rounded-pos bg-pos-brand px-4 text-[1.364rem] font-bold whitespace-nowrap text-white tabular-nums transition-colors hover:bg-pos-brand-hover disabled:cursor-not-allowed disabled:bg-pos-sunken disabled:text-pos-muted"
-          >
-            <Icon name="printer" size={24} />
-            {submitting ? t("pos.printing") : t("pos.printTotal", { total: formatCents(total) })}
-          </button>
-        </div>
-      </aside>
+            <div className={s.tFoot}>
+              {lines.length > 0 && (
+                <div className={`${s.sums} ${s.num}`}>
+                  <span>
+                    {t("pos.subtotal")} {formatCents(subtotal)}
+                  </span>
+                  <span>
+                    {t("pos.tax")} {formatCents(tax)}
+                  </span>
+                </div>
+              )}
+              <div className={s.total}>
+                <span className={s.l}>
+                  <span lang="zh-Hant">{t("pos.totalZh")}</span>{" "}
+                  <span lang="en" className={s.en}>
+                    {t("pos.totalEn")}
+                  </span>
+                </span>
+                <span className={`${s.v} ${s.num}`}>{formatCents(total)}</span>
+              </div>
+              {error && (
+                <p role="alert" className={s.alert}>
+                  {error}
+                </p>
+              )}
+              {!error && lines.length > 0 && missing.length > 0 && (
+                <p className={s.alert}>{missing.map((k) => t(k)).join(" · ")}</p>
+              )}
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!canSubmit}
+                data-action="print"
+                className={`${s.btn} ${canSubmit ? s.primary : ""} ${s.print}`}
+              >
+                {printLabel}
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
 
       {/* --------------------------------------- customer details + notes -- */}
       {detailsOpen && (
@@ -950,7 +1072,7 @@ export default function StaffPos({
             onClick={() => detailsRef.current?.close()}
           />
           <div className="pos-sheet-in relative flex h-full w-full max-w-[26rem] flex-col bg-pos-bg shadow-pos-raised">
-            <div className="flex h-[var(--pos-top)] shrink-0 items-center justify-between gap-4 px-6">
+            <div className="flex h-[var(--z-top)] shrink-0 items-center justify-between gap-4 px-6">
               <h2 className="text-[1.273rem] font-bold">{mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}</h2>
               <button
                 type="button"
@@ -1052,9 +1174,9 @@ export default function StaffPos({
                     <span className={label}>{t("pos.pickup")}</span>
                     <select value={pickupValue} onChange={(e) => setPickup(e.target.value)} className={field} disabled={slots.length === 0}>
                       {slots.length === 0 && <option value="">{now ? t("pos.noSlots") : t("common.loading")}</option>}
-                      {slots.map((s) => (
-                        <option key={s.value} value={s.value}>
-                          {s.value === "asap" ? t("pos.asap", { n: pickupOptions.leadMinutes }) : s.label}
+                      {slots.map((x) => (
+                        <option key={x.value} value={x.value}>
+                          {x.value === "asap" ? t("pos.asap", { n: pickupOptions.leadMinutes }) : x.label}
                         </option>
                       ))}
                     </select>
@@ -1090,29 +1212,13 @@ export default function StaffPos({
         </dialog>
       )}
 
-      {floorOpen && (
-        <FloorPlanSheet
-          onClose={() => setFloorOpen(false)}
-          onSeat={(next) => {
-            setSeating(next);
-            setMode("dine_in");
-            setFloorOpen(false);
-            setError(null);
-            setPlaced(null);
-          }}
-          onCleared={(label) => {
-            if (seating?.label === label) setSeating(null);
-          }}
-        />
-      )}
-
       {sheetItem && (
         <StaffItemSheet
-          key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}`}
+          key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}:${sheetItem.replace ?? ""}`}
           item={sheetItem.item}
           initialSizeId={sheetItem.sizeId}
           menuNumber={menuNumber(sheetItem.item.id)}
-          onAdd={addLine}
+          onAdd={(draft) => addLine(draft, sheetItem.replace)}
           onClose={() => setSheetItem(null)}
         />
       )}
