@@ -241,7 +241,8 @@
   --pos-gap: 0.727rem; /* 16px */
   caret-color: var(--color-pos-brand);
 }
-.pos-root :focus-visible {
+/* Outranks the staff-wide teal ring below: the POS has one accent. */
+[data-kitchen-surface] .pos-root :focus-visible {
   outline-color: var(--color-pos-brand);
 }
 

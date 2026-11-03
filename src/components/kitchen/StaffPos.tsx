@@ -938,13 +938,18 @@ export default function StaffPos({
           ref={detailsRef}
           aria-label={mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}
           onClose={() => setDetailsOpen(false)}
-          // A click that lands on the dialog itself is a click on the backdrop.
-          onClick={(e) => {
-            if (e.target === e.currentTarget) e.currentTarget.close();
-          }}
-          className="pos-sheet-in m-0 ml-auto h-full max-h-none w-full max-w-[26rem] overflow-hidden bg-pos-bg p-0 text-pos-ink shadow-pos-raised backdrop:bg-pos-scrim"
+          className="m-0 h-full max-h-none w-full max-w-none justify-end overflow-hidden bg-transparent p-0 text-pos-ink open:flex backdrop:bg-transparent"
         >
-          <div className="flex h-full flex-col">
+          {/* The scrim is a button inside the dialog, so the dialog itself
+              carries no click handler; Escape closes it natively. */}
+          <button
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+            className="absolute inset-0 bg-pos-scrim"
+            onClick={() => detailsRef.current?.close()}
+          />
+          <div className="pos-sheet-in relative flex h-full w-full max-w-[26rem] flex-col bg-pos-bg shadow-pos-raised">
             <div className="flex h-[var(--pos-top)] shrink-0 items-center justify-between gap-4 px-6">
               <h2 className="text-[1.273rem] font-bold">{mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}</h2>
               <button
