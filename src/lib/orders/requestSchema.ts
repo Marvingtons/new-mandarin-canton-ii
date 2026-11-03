@@ -45,17 +45,29 @@ export const OrderRequestSchema = z
 
 export type OrderRequest = z.infer<typeof OrderRequestSchema>;
 
+/** Fields every staff order carries, whatever the service. */
+const staffCommon = {
+  lines: z.array(OrderLineSchema).min(1).max(60),
+  /** Free text such as "paid by phone, card ending 4417". Never a card field. */
+  paymentNote: z.string().max(200).optional(),
+  /** Internal, never printed. */
+  staffNote: z.string().max(500).optional(),
+  /** Staff override: allow lunch specials outside 11:00 to 15:00. */
+  lunchOverride: z.boolean().optional(),
+  idempotencyKey: z.string().min(8).max(200),
+};
+
 /**
- * The staff POS's order. Same lines, same strictness, same absence of any
- * money field: a POS is not a place where a price can be typed in.
+ * The staff POS's takeout order. Same lines, same strictness, same absence of
+ * any money field: a POS is not a place where a price can be typed in.
  *
  * What differs is who the customer is. There is no OTP: staff on the phone or
  * at the counter are the verification. A walk-in may give no number at all,
  * which the route allows for `walk_in` and refuses for `phone`.
  */
-export const StaffOrderRequestSchema = z
+export const StaffTakeoutRequestSchema = z
   .object({
-    lines: z.array(OrderLineSchema).min(1).max(60),
+    ...staffCommon,
     channel: z.enum(["phone", "walk_in"]),
     customer: z
       .object({
@@ -64,14 +76,39 @@ export const StaffOrderRequestSchema = z
       })
       .strict(),
     pickup: z.object({ time: z.string().min(1).max(20) }).strict(),
-    /** Free text such as "paid by phone, card ending 4417". Never a card field. */
-    paymentNote: z.string().max(200).optional(),
-    /** Internal, never printed. */
-    staffNote: z.string().max(500).optional(),
-    /** Staff override: allow lunch specials outside 11:00 to 15:00. */
-    lunchOverride: z.boolean().optional(),
-    idempotencyKey: z.string().min(8).max(200),
   })
   .strict();
 
+/**
+ * The staff POS's dine-in order: a table and a party, no customer and no
+ * pickup time. The label is checked against lib/kitchen/floor-plan by the
+ * route, and occupancy by createOrder; this only bounds the shape.
+ *
+ * `addon` is a later round for a party already seated. Its guest count is
+ * taken from the seating, not from here, so `guests` is only required to be
+ * sane.
+ */
+export const StaffDineInRequestSchema = z
+  .object({
+    ...staffCommon,
+    channel: z.literal("dine_in"),
+    table: z
+      .object({
+        label: z.string().min(1).max(16),
+        // Seats are guidance; this is only a typo guard.
+        guests: z.number().int().min(1).max(200),
+      })
+      .strict(),
+    addon: z.boolean().optional(),
+  })
+  .strict();
+
+/** Either service, told apart by `channel`. Both halves are `.strict()`. */
+export const StaffOrderRequestSchema = z.discriminatedUnion("channel", [
+  StaffTakeoutRequestSchema,
+  StaffDineInRequestSchema,
+]);
+
 export type StaffOrderRequest = z.infer<typeof StaffOrderRequestSchema>;
+export type StaffTakeoutRequest = z.infer<typeof StaffTakeoutRequestSchema>;
+export type StaffDineInRequest = z.infer<typeof StaffDineInRequestSchema>;

@@ -8,12 +8,16 @@ import {
   updateStatus,
 } from "@/lib/orders/repository";
 import { notifyOrderReady } from "@/lib/notify/orderReady";
+import { previewOrderingBlocked } from "@/lib/http/deployHost";
 
 /**
  * POST /api/kitchen/orders/[id] — the board's actions: 接單 / 完成 / 重印.
  *
  * Every action re-checks the session server-side. The client never decides
  * what it is allowed to do; it only asks.
+ *
+ * Refused on a preview host before anything else: 重印 queues a real ticket on
+ * the production printer, and 完成 / notify can text a real customer.
  */
 export const runtime = "nodejs";
 
@@ -29,6 +33,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const blocked = previewOrderingBlocked(request);
+  if (blocked) return blocked;
+
   if (!hasKitchenSessionFromRequest(request)) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }

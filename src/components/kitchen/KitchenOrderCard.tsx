@@ -29,18 +29,45 @@ const CHANNEL_STYLE: Record<OrderChannel, { className: string; icon: IconName }>
   web: { className: "border border-staff-line-strong text-staff-soft", icon: "globe" },
   phone: { className: "bg-staff-accent-tint text-staff-accent", icon: "phone" },
   walk_in: { className: "bg-staff-blue-tint text-staff-blue", icon: "store" },
+  dine_in: { className: "bg-staff-ink text-staff-panel", icon: "table" },
 };
 
-/** The 網上 / 電話 / 到店 badge. Shared with the history rows. */
+/** The 網上 / 電話 / 到店 / 堂食 badge. Shared with the history rows. */
 export function ChannelBadge({ channel }: { channel: OrderChannel }) {
   const t = useKT();
   const style = CHANNEL_STYLE[channel];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap ${style.className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-base font-medium whitespace-nowrap ${style.className}`}
     >
-      <Icon name={style.icon} size={14} />
+      <Icon name={style.icon} size={18} />
       {t(`channel.${channel}`)}
+    </span>
+  );
+}
+
+/**
+ * Where a dine-in order goes: 4 號桌 · 3 位, and 加菜 for a later round.
+ * Nothing for takeout. Shared with the history rows.
+ */
+export function TableBadge({ order }: { order: Pick<Order, "channel" | "tableLabel" | "guestCount" | "isAddon"> }) {
+  const t = useKT();
+  if (order.channel !== "dine_in" || !order.tableLabel) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        <Icon name="table" size={20} />
+        {t("board.table", { table: order.tableLabel })}
+      </span>
+      {order.guestCount != null && (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <Icon name="users" size={20} />
+          {t("board.guests", { n: order.guestCount })}
+        </span>
+      )}
+      {order.isAddon && (
+        <span className="rounded-md border-2 border-staff-ink px-2 whitespace-nowrap">{t("ticket.addon")}</span>
+      )}
     </span>
   );
 }
@@ -58,7 +85,7 @@ export const STATUS_PILL: Record<OrderStatus, string> = {
 export function StatusPill({ status }: { status: OrderStatus }) {
   const t = useKT();
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap ${STATUS_PILL[status]}`}>
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-base font-medium whitespace-nowrap ${STATUS_PILL[status]}`}>
       {t(`status.${status}`)}
     </span>
   );
@@ -119,7 +146,7 @@ export default function KitchenOrderCard({
   }
 
   const enOnly = (
-    <span className="ml-2 rounded-sm bg-staff-warn-tint px-1.5 py-0.5 align-middle text-xs font-semibold text-staff-warn">
+    <span className="ml-2 rounded-sm bg-staff-warn-tint px-1.5 py-0.5 align-middle text-base font-semibold text-staff-warn">
       {t("card.enOnly")}
     </span>
   );
@@ -135,23 +162,28 @@ export default function KitchenOrderCard({
           : fresh
             ? "border border-staff-accent ring-4 ring-staff-accent/20"
             : "border border-staff-line"
-      } ${done && onBoard ? "opacity-60" : ""}`}
+      } ${done && onBoard ? "bg-staff-sunken" : ""}`}
     >
       {/* header: number + pickup time, the two things read first */}
       <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3">
         <div className="min-w-0">
           <div className="text-4xl leading-none font-semibold tracking-tight">{order.orderNumber}</div>
+          {order.channel === "dine_in" && (
+            <div className="mt-2 text-2xl">
+              <TableBadge order={order} />
+            </div>
+          )}
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <ChannelBadge channel={order.channel} />
             <StatusPill status={order.status} />
             {reprintCount > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-staff-sunken px-2.5 py-1 text-sm font-medium text-staff-soft">
+              <span className="inline-flex items-center gap-1 rounded-full bg-staff-sunken px-2.5 py-1 text-base font-medium text-staff-soft">
                 <Icon name="repeat" size={14} />
                 {t("card.reprinted", { n: reprintCount })}
               </span>
             )}
             {multiTicket && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-staff-danger-tint px-2.5 py-1 text-sm font-medium text-staff-danger">
+              <span className="inline-flex items-center gap-1 rounded-full bg-staff-danger-tint px-2.5 py-1 text-base font-medium text-staff-danger">
                 {t("card.multiDelivery", { d: deliveryCount, f: fetchCount })}
               </span>
             )}
@@ -159,16 +191,25 @@ export default function KitchenOrderCard({
           {/* Print trail: how many times it was handed over and how many
               times a body was actually fetched. */}
           {(order.printAttempts > 0 || deliveryCount > 0) && order.status === "PRINTED" && (
-            <div className="mt-2 text-xs text-staff-faint">
+            <div className="mt-2 text-base text-staff-faint">
               {t("card.printTrail", { sent: order.printAttempts, fetched: fetchCount })}
             </div>
           )}
         </div>
         <div className="shrink-0 text-right">
-          <div className="text-xs font-medium text-staff-faint">{t("card.pickup")}</div>
-          <div className="mt-0.5 text-2xl font-semibold whitespace-nowrap">{orderReadyLabel(order, timezone)}</div>
+          {order.channel === "dine_in" ? (
+            // A table has no pickup time; when it ordered is what matters.
+            <div className="text-2xl font-semibold whitespace-nowrap">
+              {t("card.placed", { time: formatPickupTime(order.createdAt, timezone) })}
+            </div>
+          ) : (
+            <>
+              <div className="text-base font-medium text-staff-faint">{t("card.pickup")}</div>
+              <div className="mt-0.5 text-2xl font-semibold whitespace-nowrap">{orderReadyLabel(order, timezone)}</div>
+            </>
+          )}
           {!onBoard && (
-            <div className="mt-1 text-xs text-staff-faint">
+            <div className="mt-1 text-base text-staff-faint">
               {t("card.placed", { time: `${order.businessDate} ${formatPickupTime(order.createdAt, timezone)}` })}
             </div>
           )}
@@ -212,7 +253,7 @@ export default function KitchenOrderCard({
                 {!line.nameZh && enOnly}
               </div>
               {line.nameZh && (
-                <div lang="en" className="text-sm text-staff-faint">
+                <div lang="en" className="text-base text-staff-faint">
                   {line.nameEn}
                 </div>
               )}
@@ -221,7 +262,7 @@ export default function KitchenOrderCard({
                 line.sizeLabel.toLowerCase() !== "individual" && (
                   <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-sm bg-staff-accent-tint px-2 py-0.5 text-base font-semibold text-staff-accent">
                     {line.sizeLabelZh ?? line.sizeLabel}
-                    {line.sizeLabelZh ? <span className="text-sm font-normal opacity-80">{line.sizeLabel}</span> : enOnly}
+                    {line.sizeLabelZh ? <span className="text-base font-normal">{line.sizeLabel}</span> : enOnly}
                   </div>
                 )}
 
@@ -232,7 +273,7 @@ export default function KitchenOrderCard({
                       <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 translate-y-[-0.2em] rounded-full bg-staff-line-strong" />
                       <span>
                         {mod.nameZh ?? mod.nameEn}
-                        {mod.nameZh ? <span className="ml-2 text-sm text-staff-faint">{mod.nameEn}</span> : enOnly}
+                        {mod.nameZh ? <span className="ml-2 text-base text-staff-faint">{mod.nameEn}</span> : enOnly}
                       </span>
                     </li>
                   ))}
@@ -241,7 +282,7 @@ export default function KitchenOrderCard({
 
               {line.specialInstructions && (
                 <div className="mt-2 rounded-md bg-staff-warn-tint px-3 py-2">
-                  <div className="text-xs font-semibold text-staff-warn">{t("card.note")}</div>
+                  <div className="text-base font-semibold text-staff-warn">{t("card.note")}</div>
                   <div className="text-lg text-staff-ink">{line.specialInstructions}</div>
                 </div>
               )}
@@ -253,14 +294,21 @@ export default function KitchenOrderCard({
       {/* customer + total */}
       <div className="flex flex-col gap-1 border-t border-staff-line bg-staff-bg/60 px-5 py-3 text-base">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <span className="flex items-center gap-2 font-semibold">
-            <Icon name="user" size={16} className="text-staff-faint" />
-            {order.customer.name}
-          </span>
+          {order.channel === "dine_in" ? (
+            // The table already leads the card, at the top.
+            <span />
+          ) : (
+            <span className="flex items-center gap-2 font-semibold">
+              <Icon name="user" size={16} className="text-staff-faint" />
+              {order.customer.name}
+            </span>
+          )}
           <span className="font-semibold">{formatCents(order.totals.totalCents)}</span>
         </div>
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
-          {order.customer.phone ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-base">
+          {order.channel === "dine_in" ? (
+            <span />
+          ) : order.customer.phone ? (
             <a
               href={`tel:${order.customer.phone.replace(/\D/g, "")}`}
               className="text-staff-accent underline decoration-staff-accent/40 underline-offset-4"
@@ -273,12 +321,12 @@ export default function KitchenOrderCard({
           <span className="text-staff-faint">{t("pos.payAtCounter")}</span>
         </div>
         {order.paymentNote && (
-          <div className="mt-1 text-sm text-staff-soft">
+          <div className="mt-1 text-base text-staff-soft">
             <span className="font-semibold text-staff-ink">{t("card.paymentNote")}</span> {order.paymentNote}
           </div>
         )}
         {order.staffNote && (
-          <div className="mt-1 text-sm whitespace-pre-line text-staff-soft">
+          <div className="mt-1 text-base whitespace-pre-line text-staff-soft">
             <span className="font-semibold text-staff-ink">{t("card.staffNote")}</span> {order.staffNote}
           </div>
         )}
@@ -289,7 +337,7 @@ export default function KitchenOrderCard({
         <div className="flex flex-col gap-3 border-t border-staff-danger/30 bg-staff-danger-tint p-4">
           <div className="text-lg font-semibold text-staff-danger">{t("card.cancelTitle", { number: order.orderNumber })}</div>
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm text-staff-soft">{t("card.cancelReason")}</span>
+            <span className="text-base text-staff-soft">{t("card.cancelReason")}</span>
             <input
               value={cancelNote}
               onChange={(e) => setCancelNote(e.target.value)}
@@ -320,7 +368,7 @@ export default function KitchenOrderCard({
             <button
               onClick={() => run("accept")}
               disabled={busy !== null}
-              className="min-h-12 flex-1 rounded-md bg-staff-accent px-4 text-lg font-semibold text-white transition-colors hover:bg-staff-accent-hover disabled:opacity-50"
+              className="min-h-12 flex-1 basis-[6.5rem] rounded-md bg-staff-accent px-4 text-lg font-semibold whitespace-nowrap text-white transition-colors hover:bg-staff-accent-hover disabled:opacity-50"
             >
               {busy === "accept" ? t("common.busy") : t("card.accept")}
             </button>
@@ -329,7 +377,7 @@ export default function KitchenOrderCard({
             <button
               onClick={() => run("complete")}
               disabled={busy !== null}
-              className={`min-h-12 flex-1 rounded-md px-4 text-lg font-semibold transition-colors disabled:opacity-50 ${
+              className={`min-h-12 flex-1 basis-[6.5rem] rounded-md px-4 text-lg font-semibold whitespace-nowrap transition-colors disabled:opacity-50 ${
                 order.status === "ACCEPTED"
                   ? "bg-staff-accent text-white hover:bg-staff-accent-hover"
                   : "border border-staff-accent text-staff-accent hover:bg-staff-accent-tint"

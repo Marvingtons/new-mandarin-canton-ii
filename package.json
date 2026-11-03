@@ -39,6 +39,7 @@
     "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts",
     "verify:staff-orders": "tsx --conditions=react-server scripts/verify-staff-orders.ts",
     "verify:kitchen-i18n": "tsx scripts/verify-kitchen-i18n.ts",
+    "verify:dine-in": "tsx --conditions=react-server scripts/verify-dine-in.ts",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

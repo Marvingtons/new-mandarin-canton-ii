@@ -9,7 +9,9 @@ import {
   ACTIVE_STATUSES,
   PRINTABLE_STATUSES,
   isOrderChannel,
+  TableConflictError,
   type CreateOrderResult,
+  type OpenTable,
   type NewOrderInput,
   type Order,
   type OrderChannel,
@@ -111,6 +113,10 @@ const ORDER_COLUMNS = `
   channel,
   payment_note,
   staff_note,
+  table_label,
+  guest_count,
+  is_addon,
+  table_cleared_at,
   created_at,
   updated_at
 `;
@@ -160,6 +166,11 @@ function mapOrder(row: QueryResultRow): Order {
         : "web",
     paymentNote: row.payment_note == null ? null : String(row.payment_note),
     staffNote: row.staff_note == null ? null : String(row.staff_note),
+    tableLabel: row.table_label == null ? null : String(row.table_label),
+    guestCount: row.guest_count == null ? null : Number(row.guest_count),
+    isAddon: row.is_addon === true,
+    tableClearedAt:
+      row.table_cleared_at == null ? null : (row.table_cleared_at as Date).toISOString(),
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
   };
@@ -231,6 +242,15 @@ export async function createOrder(
         );
         if (existing) return { order: existing, created: false };
 
+        // Dine-in: is the table in the state this order assumes? Checked
+        // here, after the idempotency fast path (a retried seating is handed
+        // its original order, not refused as "occupied" by itself), and under
+        // a lock, so two tablets seating table 4 at once cannot both win.
+        let guestCount: number | null = null;
+        if (input.dineIn) {
+          guestCount = await checkTable(client, input.tenantId, input.dineIn);
+        }
+
         const seq = await allocateSequence(
           client,
           input.tenantId,
@@ -242,9 +262,10 @@ export async function createOrder(
           `insert into orders (
              tenant_id, order_number, business_date, status, idempotency_key,
              items, totals, customer, phone_verified_at, pickup_at,
-             ready_from, ready_to, channel, payment_note, staff_note
+             ready_from, ready_to, channel, payment_note, staff_note,
+             table_label, guest_count, is_addon
            ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9, $10, $11,
-                     $12, $13, $14)
+                     $12, $13, $14, $15, $16, $17)
            on conflict (tenant_id, idempotency_key) do nothing
            returning ${ORDER_COLUMNS}`,
           [
@@ -264,6 +285,9 @@ export async function createOrder(
             input.channel ?? "web",
             input.paymentNote ?? null,
             input.staffNote ?? null,
+            input.dineIn?.tableLabel ?? null,
+            guestCount,
+            input.dineIn?.isAddon ?? false,
           ],
         );
 
@@ -284,6 +308,117 @@ export async function createOrder(
   throw new Error(
     "Could not store the order after 3 attempts (idempotency contention).",
   );
+}
+
+/**
+ * The open-table rule, enforced inside createOrder's transaction.
+ *
+ * A transaction-scoped advisory lock per tenant serializes every dine-in
+ * insert, so the read below and the insert after it are one decision. Seating
+ * is a handful of writes an hour; the lock costs nothing.
+ *
+ *   - A NEW party may not sit at a table any open label already covers: "4"
+ *     is refused while "4+5" is open, and "4+5" while "4" is.
+ *   - An ADD-ON needs an open seating with exactly its label, and takes that
+ *     seating's guest count rather than trusting the request.
+ *
+ * Returns the guest count to store. Throws TableConflictError otherwise.
+ */
+async function checkTable(
+  client: PoolClient,
+  tenantId: string,
+  dineIn: NonNullable<NewOrderInput["dineIn"]>,
+): Promise<number> {
+  await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [
+    `nmc-tables:${tenantId}`,
+  ]);
+  const { rows } = await client.query(
+    `select table_label, guest_count, is_addon
+       from orders
+      where tenant_id = $1
+        and channel = 'dine_in'
+        and table_cleared_at is null
+        and status <> 'CANCELLED'
+      order by created_at asc`,
+    [tenantId],
+  );
+  const open = rows.map((r) => ({
+    label: String(r.table_label),
+    guests: r.guest_count == null ? null : Number(r.guest_count),
+    isAddon: r.is_addon === true,
+  }));
+
+  if (dineIn.isAddon) {
+    const seating = open.find((o) => o.label === dineIn.tableLabel);
+    if (!seating) throw new TableConflictError("not_open", dineIn.tableLabel);
+    return seating.guests ?? dineIn.guestCount;
+  }
+
+  const wanted = new Set(dineIn.tableIds);
+  const taken = open.find((o) => o.label.split("+").some((id) => wanted.has(id)));
+  if (taken) throw new TableConflictError("occupied", dineIn.tableLabel);
+  return dineIn.guestCount;
+}
+
+/**
+ * Every open table, for the POS floor plan. Derived, never stored: a table is
+ * open while it has a dine-in order with no table_cleared_at. Cancelled orders
+ * do not hold a table, so seating a party in error and cancelling its only
+ * order frees the table without a separate step.
+ */
+export async function listOpenTables(tenantId: string): Promise<OpenTable[]> {
+  const { rows } = await ordersPool().query(
+    `select table_label,
+            (array_agg(guest_count order by is_addon asc, created_at asc))[1] as guest_count,
+            min(created_at)                                         as seated_at,
+            count(*)::int                                           as order_count,
+            array_agg(order_number order by created_at asc)         as order_numbers,
+            coalesce(sum((totals->>'totalCents')::bigint), 0)::bigint as total_cents
+       from orders
+      where tenant_id = $1
+        and channel = 'dine_in'
+        and table_cleared_at is null
+        and status <> 'CANCELLED'
+      group by table_label
+      order by min(created_at) asc`,
+    [tenantId],
+  );
+  return rows.map((r) => ({
+    tableLabel: String(r.table_label),
+    guestCount: r.guest_count == null ? null : Number(r.guest_count),
+    seatedAt: (r.seated_at as Date).toISOString(),
+    orderCount: Number(r.order_count),
+    orderNumbers: (r.order_numbers as unknown[]).map(String),
+    totalCents: Number(r.total_cents),
+  }));
+}
+
+/**
+ * 清台: the party has left. Stamps table_cleared_at on every open order at
+ * this label, which is what frees the table.
+ *
+ * Orders the kitchen has a paper copy of (PRINTED, ACCEPTED) are marked
+ * COMPLETED with it: the food was served, the party paid and went. A QUEUED or
+ * PRINT_FAILED order keeps its status, so clearing a table can never pull a
+ * ticket out of the print queue before it reaches the kitchen. It just stops
+ * holding the table.
+ *
+ * Returns the orders it cleared; an empty list means the table was not open.
+ */
+export async function clearTable(tenantId: string, tableLabelValue: string): Promise<Order[]> {
+  const { rows } = await ordersPool().query(
+    `update orders
+        set table_cleared_at = now(),
+            status = case when status in ('PRINTED', 'ACCEPTED') then 'COMPLETED' else status end,
+            updated_at = now()
+      where tenant_id = $1
+        and channel = 'dine_in'
+        and table_label = $2
+        and table_cleared_at is null
+      returning ${ORDER_COLUMNS}`,
+    [tenantId, tableLabelValue],
+  );
+  return rows.map(mapOrder);
 }
 
 /**
@@ -1440,6 +1575,7 @@ export async function summarizeOrders(
       web: { orderCount: 0, salesCents: 0 },
       phone: { orderCount: 0, salesCents: 0 },
       walk_in: { orderCount: 0, salesCents: 0 },
+      dine_in: { orderCount: 0, salesCents: 0 },
     },
   };
   for (const row of rows) {

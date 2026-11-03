@@ -168,6 +168,11 @@ export const CSV_HEADER = [
   "tax",
   "total",
   "status",
+  // Dine-in (migration 010). Appended, so a spreadsheet built on the first
+  // eleven columns keeps working. Empty for takeout.
+  "table",
+  "guests",
+  "addon",
 ] as const;
 
 /** RFC 4180 quoting, plus a leading-apostrophe guard against formula injection. */
@@ -224,6 +229,9 @@ export function csvRow(order: Order, timezone: string): string {
     dollars(order.totals.taxCents),
     dollars(order.totals.totalCents),
     order.status,
+    order.tableLabel ?? "",
+    order.guestCount ?? "",
+    order.isAddon ? "yes" : "",
   ]
     .map((v) => csvCell(String(v ?? "")))
     .join(",");

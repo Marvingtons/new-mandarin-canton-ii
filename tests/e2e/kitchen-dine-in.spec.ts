@@ -1,0 +1,213 @@
+import { expect, test, type Page } from "@playwright/test";
+import { E2E_BYPASS, E2E_KITCHEN_PASSWORD } from "./env";
+
+/**
+ * The staff POS, driven like a person at the counter: takeout by phone, and
+ * the dine-in floor plan (seat, combine, add items, clear).
+ *
+ * Runs against scripts/e2e-server.ts, a production build on a throwaway
+ * database, so these orders go nowhere. Serial, in order: each step reads the
+ * room the last one left (see playwright.config.ts).
+ *
+ * Set E2E_SHOTS=<dir> to save the screenshots the PR shows.
+ */
+
+test.describe.configure({ mode: "serial" });
+
+const SHOTS = process.env.E2E_SHOTS;
+async function shot(page: Page, name: string) {
+  if (!SHOTS) return;
+  // Off every control, past every colour transition: the resting state.
+  await page.mouse.move(1, 1);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+}
+
+const PREVIEW_HOST = "feat-dine-in-pos-nmc-web.example.workers.dev";
+
+let page: Page;
+
+test.beforeAll(async ({ browser }) => {
+  page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+  // Test mode: pickup times as if the store were open, whatever the clock.
+  await page.goto(`/api/test-mode?key=${E2E_BYPASS}`);
+  await page.goto("/kitchen/pos");
+  await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
+  await page.locator('input[type="password"]').press("Enter");
+  await expect(page.locator('[data-mode="dine_in"]')).toBeVisible();
+});
+
+test.afterAll(async () => {
+  await page.close();
+});
+
+/** Add the first orderable dish through its sheet. */
+async function addDish() {
+  await page.locator("button[data-item]:not([disabled])").first().click();
+  await page.getByRole("button", { name: /加入單據/ }).click();
+  await expect(page.getByRole("button", { name: /加入單據/ })).toHaveCount(0);
+}
+
+async function print(): Promise<string> {
+  await page.locator('[data-action="print"]').click();
+  const placed = page.getByRole("status").filter({ hasText: /A-\d{3}/ });
+  await expect(placed).toBeVisible();
+  return (await placed.textContent())!.match(/A-\d{3}/)![0];
+}
+
+async function openFloor() {
+  await page.locator("[data-seating]").click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+}
+
+const table = (label: string) => page.locator(`[data-table="${label}"]`);
+
+test("takeout phone order", async () => {
+  await expect(page.locator('[data-mode="takeout"]')).toHaveAttribute("aria-pressed", "true");
+  await addDish();
+  await page.locator('[data-channel="phone"]').click();
+  await page.getByLabel("客人姓名").fill("E2E Phone Test");
+  await page.getByLabel("電話", { exact: true }).fill("6195550188");
+  await shot(page, "pos-takeout");
+  const number = await print();
+  expect(number).toMatch(/^A-\d{3}$/);
+});
+
+test("seat a table", async () => {
+  await page.locator('[data-mode="dine_in"]').click();
+  // Dine-in goes straight to the floor plan.
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(table("1")).toHaveAttribute("data-state", "free");
+  await table("1").click();
+  await page.locator('[data-guests="3"]').click();
+  await expect(page.locator('[data-seating="1"]')).toContainText("桌 1 · 3 位");
+  await addDish();
+  await shot(page, "pos-dine-in");
+  await print();
+
+  await openFloor();
+  await expect(table("1")).toHaveAttribute("data-state", "seated");
+  await expect(table("1")).toContainText("3 位");
+  await page.getByRole("button", { name: /關閉/ }).click();
+});
+
+test("combine 4+5", async () => {
+  await openFloor();
+  await table("4").click();
+  await page.getByRole("button", { name: /4 \+ 5 併桌/ }).click();
+  await page.locator('[data-guests="9"]').click();
+  await expect(page.locator('[data-seating="4+5"]')).toContainText("桌 4+5 · 9 位");
+  await addDish();
+  await print();
+
+  await openFloor();
+  // One merged shape; neither half is drawn on its own.
+  await expect(table("4+5")).toHaveAttribute("data-state", "seated");
+  await expect(table("4")).toHaveCount(0);
+  await expect(table("5")).toHaveCount(0);
+  await shot(page, "floor-plan-mixed");
+  await page.getByRole("button", { name: /關閉/ }).click();
+});
+
+test("add items to an occupied table", async () => {
+  await openFloor();
+  await table("1").click();
+  // A seated table never offers a new party: only 加菜 or 清台.
+  await expect(page.locator("[data-guests]")).toHaveCount(0);
+  await page.getByRole("button", { name: /加菜/ }).click();
+  await expect(page.locator('[data-seating="1"]')).toContainText("加菜");
+  await addDish();
+  await print();
+
+  const res = await page.request.get("/api/kitchen/tables");
+  const body = (await res.json()) as { tables: { tableLabel: string; orderCount: number; guestCount: number }[] };
+  const one = body.tables.find((t) => t.tableLabel === "1");
+  expect(one?.orderCount).toBe(2);
+  expect(one?.guestCount).toBe(3);
+});
+
+test("clear a table", async () => {
+  await openFloor();
+  await table("1").click();
+  await page.getByRole("button", { name: /清台/ }).click();
+  // Confirm step first: nothing is cleared yet.
+  await expect(table("1")).toHaveCount(0);
+  await page.getByRole("button", { name: /確定清台/ }).click();
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText("已清台");
+  await expect(table("1")).toHaveAttribute("data-state", "free");
+  await expect(table("4+5")).toHaveAttribute("data-state", "seated");
+  await page.getByRole("button", { name: /關閉/ }).click();
+});
+
+test("preview host: every staff write is 403", async () => {
+  const headers = { host: PREVIEW_HOST, "content-type": "application/json" };
+  const order = await page.request.post("/api/kitchen/orders", {
+    headers,
+    data: { lines: [], channel: "dine_in", table: { label: "9", guests: 2 }, idempotencyKey: "e2e-preview-0001" },
+  });
+  expect(order.status()).toBe(403);
+  expect(((await order.json()) as { reason: string }).reason).toBe("preview_host");
+  const clear = await page.request.post("/api/kitchen/tables", { headers, data: { action: "clear", label: "4+5" } });
+  expect(clear.status()).toBe(403);
+  const action = await page.request.post("/api/kitchen/orders/1", { headers, data: { action: "reprint" } });
+  expect(action.status()).toBe(403);
+
+  // And nothing moved: 4+5 is still seated.
+  const res = await page.request.get("/api/kitchen/tables");
+  const body = (await res.json()) as { tables: { tableLabel: string }[] };
+  expect(body.tables.map((t) => t.tableLabel)).toContain("4+5");
+});
+
+test("board and history show the table", async () => {
+  await page.goto("/kitchen");
+  await expect(page.getByText("4+5 號桌").first()).toBeVisible();
+  await shot(page, "board");
+
+  await page.goto("/kitchen/history");
+  await page.getByRole("group", { name: "服務" }).getByRole("button", { name: "堂食" }).click();
+  await expect(page.getByText("4+5 號桌").first()).toBeVisible();
+  // Only dine-in rows: the takeout phone order is filtered out.
+  await expect(page.getByText("E2E Phone Test")).toHaveCount(0);
+  await shot(page, "history-dine-in");
+});
+
+test("readability: type floor, 大字, columns", async () => {
+  await page.goto("/kitchen/pos");
+  const rootPx = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+  expect(await rootPx()).toBe(22);
+
+  // Every visible text node in the staff area is at least 22px.
+  const smallest = await page.evaluate(() => {
+    let min = Infinity;
+    const walker = document.createTreeWalker(document.querySelector("[data-kitchen-surface]")!, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement;
+      if (!el || !n.textContent?.trim() || el.offsetParent === null) continue;
+      min = Math.min(min, parseFloat(getComputedStyle(el).fontSize));
+    }
+    return min;
+  });
+  expect(smallest).toBeGreaterThanOrEqual(22);
+
+  // The print button is the primary action: 80px or taller.
+  const printBox = await page.locator('[data-action="print"]').boundingBox();
+  expect(printBox!.height).toBeGreaterThanOrEqual(80);
+
+  const columns = () =>
+    page.evaluate(() => getComputedStyle(document.querySelector("section[id^='pos-cat-'] > div")!).gridTemplateColumns.split(" ").length);
+  expect(await columns()).toBe(3);
+
+  await page.getByRole("button", { name: /大字/ }).click();
+  await expect.poll(rootPx).toBe(27.5);
+  await shot(page, "pos-large-text");
+  await page.reload();
+  // Saved per device.
+  await expect.poll(rootPx).toBe(27.5);
+  await page.getByRole("button", { name: /大字/ }).click();
+  await expect.poll(rootPx).toBe(22);
+
+  await page.setViewportSize({ width: 820, height: 1180 });
+  expect(await columns()).toBe(2);
+  await shot(page, "pos-portrait");
+  await page.setViewportSize({ width: 1180, height: 820 });
+});

@@ -56,6 +56,9 @@ import {
   mixedSizeOrder,
   sqlShapedOrder,
   tortureOrder,
+  dineInOrder,
+  dineInAddonOrder,
+  phoneTakeoutOrder,
   typicalOrder,
 } from "./fixtures/orders";
 
@@ -507,6 +510,10 @@ async function main(): Promise<void> {
   console.log(`  (2-copy render took ${Date.now() - t0} ms)`);
   await render("ticket-sample-sql-shaped.png", sqlShaped);
   await render("ticket-sample-malformed.png", malformed);
+  await render("ticket-sample-dine-in.png", dineInOrder());
+  await render("ticket-sample-dine-in-addon.png", dineInAddonOrder());
+  await render("ticket-sample-dine-in-reprint.png", dineInOrder(), true);
+  await render("ticket-sample-takeout-phone.png", phoneTakeoutOrder());
 
   // Geometry is asserted, not eyeballed: nothing may exceed its column or run
   // off the 576px roll. This is the check that a hand-rolled wrapper needs and
@@ -521,6 +528,10 @@ async function main(): Promise<void> {
   await assertNoOverflow("ticket-sample-torture", torture);
   await assertNoOverflow("ticket-sample-sql-shaped", sqlShaped);
   await assertNoOverflow("ticket-sample-malformed", malformed);
+  await assertNoOverflow("ticket-sample-dine-in", dineInOrder());
+  await assertNoOverflow("ticket-sample-dine-in-addon", dineInAddonOrder());
+  await assertNoOverflow("ticket-sample-dine-in-reprint", dineInOrder(), true);
+  await assertNoOverflow("ticket-sample-takeout-phone", phoneTakeoutOrder());
   console.log("  all lines within their columns and inside 576px ✓");
 
   // THE COLUMNS ADD UP. Asserted against what the renderer printed, on every

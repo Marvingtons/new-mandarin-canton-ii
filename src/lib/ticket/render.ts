@@ -495,35 +495,74 @@ export async function composeTicketSvg(
   }
 
   /* ---------------- header ---------------- */
-  const headerTop = c.height;
-  c.text(L.takeout, { size: 44, weight: 700 });
-  if (options.reprint) {
-    // Right-aligned inverted chip, overlaid on the header's own row — the
-    // equivalent of the old justify-content: space-between.
+  /* TWO HEADERS, AND THEY MUST NOT LOOK ALIKE. A dine-in ticket goes to a
+     table, a takeout ticket goes in a bag, and the person at the pass decides
+     which from across the counter. So the very first band differs in kind,
+     not just in words: dine-in opens on a full-width INVERTED bar carrying
+     the table at the largest size that fits; takeout opens on plain black
+     type over white and puts the customer's name and phone up top. */
+  const reprintChip = (top: number) => {
+    // Right-aligned inverted chip, overlaid on a row that is already drawn.
     const label = `${L.reprint} REPRINT`;
     const w = metrics.measure(label, 24, 700) + 20;
-    const h = 24 * 1.2 + 6;
-    c.rect(CONTENT_WIDTH - w, headerTop, w, h);
-    c.place(CONTENT_WIDTH - w, headerTop + 3, w, (chip) => {
+    c.rect(CONTENT_WIDTH - w, top, w, 24 * 1.2 + 6);
+    c.place(CONTENT_WIDTH - w, top + 3, w, (chip) => {
       chip.text(label, { size: 24, weight: 700, color: WHITE, align: "center" });
     });
+  };
+
+  if (order.channel === "dine_in") {
+    const table = order.tableLabel ?? "?";
+    const zhTable = zhIfPrintable(L.table, coverage);
+    const tableLine = zhTable ? `${zhTable} ${table} TABLE ${table}` : `TABLE ${table}`;
+    // The largest size that fits one line, capped where a 4+5 still does.
+    let size = 88;
+    while (size > 40 && metrics.measure(tableLine, size, 700) > CONTENT_WIDTH - 24) size -= 4;
+    c.banner(tableLine, { size, padY: 10 });
+
+    const zhDine = zhIfPrintable(L.dineIn, coverage);
+    const zhGuests = zhIfPrintable(L.guests, coverage);
+    const guests = order.guestCount;
+    const party =
+      guests == null ? "" : ` · ${guests}${zhGuests ? ` ${zhGuests}` : ""} ${guests === 1 ? "guest" : "guests"}`;
+    c.text(`${zhDine ? `${zhDine} ` : ""}DINE IN${party}`, { size: 40, weight: 700, marginTop: 8 });
+
+    if (order.isAddon) {
+      const zhAddon = zhIfPrintable(L.addon, coverage);
+      c.box({ border: 5, padding: 6, marginTop: 8 }, (box) => {
+        box.text(zhAddon ? `${zhAddon} ADD-ON` : "ADD-ON", { size: 48, weight: 700, align: "center" });
+      });
+    }
+
+    const numberTop = c.height + 6;
+    c.text(order.orderNumber, { size: 72, weight: 700, lineHeight: 1.1, marginTop: 6 });
+    if (options.reprint) reprintChip(numberTop);
+  } else {
+    const headerTop = c.height;
+    const zhTakeout = zhIfPrintable(L.takeout, coverage);
+    c.text(zhTakeout ? `${zhTakeout} TAKEOUT` : "TAKEOUT", { size: 44, weight: 700 });
+    if (options.reprint) reprintChip(headerTop);
+
+    c.text(order.orderNumber, { size: 96, weight: 700, lineHeight: 1.1, marginTop: 2 });
+
+    /* A staff-entered order says so, inverted, under the number: there is no
+       customer refreshing a confirmation page for it, and the person at the
+       counter may be the one who took the call. Web orders print nothing here. */
+    if (order.channel === "phone" || order.channel === "walk_in") {
+      const zh = zhIfPrintable(order.channel === "phone" ? L.phoneOrder : L.walkIn, coverage);
+      const en = order.channel === "phone" ? "PHONE ORDER" : "WALK-IN";
+      c.banner(zh ? `${zh} ${en}` : en, { size: 30, marginTop: 6 });
+    }
+
+    // Who to hand the bag to, before what is in it.
+    c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 8 });
+    c.text(`${L.phone} ${order.customer.phone}`, { size: 30, weight: 700, marginTop: 2 });
+
+    c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
+      box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
+      box.text(pickupLabel, { size: 52, weight: 700 });
+    });
   }
-
-  c.text(order.orderNumber, { size: 96, weight: 700, lineHeight: 1.1, marginTop: 2 });
-
-  /* A staff-entered order says so, inverted, under the number: there is no
-     customer refreshing a confirmation page for it, and the person at the
-     counter may be the one who took the call. Web orders print nothing here. */
-  if (order.channel === "phone" || order.channel === "walk_in") {
-    const zh = zhIfPrintable(order.channel === "phone" ? L.phoneOrder : L.walkIn, coverage);
-    const en = order.channel === "phone" ? "PHONE ORDER" : "WALK-IN";
-    c.banner(zh ? `${zh} ${en}` : en, { size: 30, marginTop: 6 });
-  }
-
-  c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
-    box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
-    box.text(pickupLabel, { size: 52, weight: 700 });
-  });
 
   c.rule(5);
 
@@ -532,9 +571,8 @@ export async function composeTicketSvg(
 
   c.rule(5);
 
-  /* ---------------- customer ---------------- */
-  c.text(`${L.customer} ${order.customer.name}`, { size: 30, weight: 700 });
-  c.text(`${L.phone} ${order.customer.phone}`, { size: 30, weight: 700, marginTop: 2 });
+  /* ---------------- placed ---------------- */
+  // The customer moved up into the takeout header; a table has none.
   c.text(`${L.placed} ${placedLabel}`, { size: 21, marginTop: 6 });
 
   /* ---------------- totals ---------------- */

@@ -51,8 +51,17 @@ import { preparationGlyphStrings } from "@/lib/menu/preparation";
  * rather than inline 中文 — that is what keeps the subset honest.
  */
 export const TICKET_LABELS = {
-  /** Header: this is a takeout order. */
-  takeout: "外賣單",
+  /** Header: this is a takeout order (web, phone or walk-in). */
+  takeout: "外賣",
+  /**
+   * Dine-in header: 桌 {n} on the inverted bar, then 堂食 · {n} 位 under it.
+   * The two headers must not be mistakable at arm's length; see render.ts.
+   */
+  table: "桌",
+  dineIn: "堂食",
+  guests: "位",
+  /** A later round for a party already seated. */
+  addon: "加菜",
   reprint: "重印",
   pickup: "取餐時間",
   note: "備註",

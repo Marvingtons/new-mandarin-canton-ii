@@ -22,11 +22,11 @@ export default function KitchenLogin() {
     <main className="mx-auto flex min-h-svh w-full max-w-sm flex-col justify-center px-6">
       <div className="rounded-lg border border-staff-line bg-staff-panel p-6 shadow-[0_8px_24px_-12px_rgba(27,26,23,0.18)]">
         <h1 className="text-2xl font-semibold">{t("login.title")}</h1>
-        <p className="mt-1 text-sm text-staff-faint">{t("login.staffOnly")}</p>
+        <p className="mt-1 text-base text-staff-faint">{t("login.staffOnly")}</p>
 
         <form action={formAction} className="mt-6 flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-staff-soft">{t("login.password")}</span>
+            <span className="text-base font-medium text-staff-soft">{t("login.password")}</span>
             <input
               type="password"
               name="password"
@@ -38,7 +38,7 @@ export default function KitchenLogin() {
           </label>
 
           {state.error && (
-            <p role="alert" className="rounded-md bg-staff-danger-tint px-3 py-2 text-sm font-medium text-staff-danger">
+            <p role="alert" className="rounded-md bg-staff-danger-tint px-3 py-2 text-base font-medium text-staff-danger">
               {t("login.badPassword")}
             </p>
           )}

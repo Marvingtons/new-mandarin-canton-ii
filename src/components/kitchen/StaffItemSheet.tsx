@@ -93,7 +93,7 @@ export default function StaffItemSheet({
     </span>
   );
 
-  const sectionLabel = "mb-2 flex flex-wrap items-baseline gap-2 text-sm font-semibold text-staff-soft";
+  const sectionLabel = "mb-2 flex flex-wrap items-baseline gap-2 text-base font-semibold text-staff-soft";
 
   return (
     <div
@@ -122,8 +122,6 @@ export default function StaffItemSheet({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {item.description && <p className="mb-5 text-sm text-staff-faint">{item.description}</p>}
-
           {sizes.length > 1 && (
             <fieldset className="mb-6">
               <legend className={sectionLabel}>{t("sheet.size")}</legend>
@@ -151,12 +149,12 @@ export default function StaffItemSheet({
                 <span className="text-base text-staff-ink">{g.nameZh ?? g.nameEn}</span>
                 {g.nameZh && <span className="font-normal text-staff-faint">{g.nameEn}</span>}
                 {g.minRequired > 0 && (
-                  <span className="rounded-full bg-staff-warn-tint px-2 py-0.5 text-xs font-semibold text-staff-warn">
+                  <span className="rounded-full bg-staff-warn-tint px-2 py-0.5 text-base font-semibold text-staff-warn">
                     {t("sheet.required")}
                   </span>
                 )}
                 {g.maxAllowed !== null && g.maxAllowed > 1 && (
-                  <span className="text-xs font-normal text-staff-faint">{t("sheet.upTo", { n: g.maxAllowed })}</span>
+                  <span className="text-base font-normal text-staff-faint">{t("sheet.upTo", { n: g.maxAllowed })}</span>
                 )}
               </legend>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -174,10 +172,10 @@ export default function StaffItemSheet({
                         {check(selected)}
                         <span className="flex min-w-0 flex-col">
                           <DishName nameZh={m.nameZh} nameEn={m.nameEn} size="sm" />
-                          {m.note && <span className="text-xs text-staff-faint">{m.note}</span>}
+                          {m.note && <span className="text-base text-staff-faint">{m.note}</span>}
                         </span>
                       </span>
-                      {m.priceCents > 0 && <span className="text-sm font-semibold">+{formatCents(m.priceCents)}</span>}
+                      {m.priceCents > 0 && <span className="text-base font-semibold">+{formatCents(m.priceCents)}</span>}
                     </button>
                   );
                 })}
@@ -199,7 +197,7 @@ export default function StaffItemSheet({
         </div>
 
         {!groupsValid && (
-          <p role="status" className="border-t border-staff-line bg-staff-warn-tint px-6 py-2.5 text-sm font-medium text-staff-warn">
+          <p role="status" className="border-t border-staff-line bg-staff-warn-tint px-6 py-2.5 text-base font-medium text-staff-warn">
             {t("sheet.unmet", {
               groups: unmetGroups.map((g) => g.nameZh ?? g.nameEn).join(" · "),
             })}
