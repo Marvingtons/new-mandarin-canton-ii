@@ -38,6 +38,11 @@ const PATHS = {
   circle: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z",
   chevronDown: "M6 9l6 6 6-6",
   type: "M4 7V4h16v3M9 20h6M12 4v16",
+  more: "M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
+  /** The board: order columns. */
+  columns: "M3 4h7v16H3zM14 4h7v16h-7z",
+  history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
+  note: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5",
 } as const;
 
 export type IconName = keyof typeof PATHS;

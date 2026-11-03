@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { logoutAction } from "@/app/[kitchenSlug]/actions";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
@@ -12,16 +12,39 @@ export type KitchenSection = "board" | "pos" | "history";
 /** Per-device 大字 preference. A tablet at the pass may want it; the office PC may not. */
 const LARGE_TEXT_STORAGE_KEY = "nmc-kitchen-large-text";
 
-const SECTIONS: { id: KitchenSection; path: string; label: KitchenKey }[] = [
+export const SECTIONS: { id: KitchenSection; path: string; label: KitchenKey }[] = [
   { id: "board", path: "", label: "nav.board" },
   { id: "pos", path: "/pos", label: "nav.pos" },
   { id: "history", path: "/history", label: "nav.history" },
 ];
 
 /**
+ * What a screen that draws its own top bar (the POS) needs from the shell:
+ * where the other sections live, and the per-device 大字 switch.
+ */
+interface KitchenChrome {
+  basePath: string;
+  active: KitchenSection;
+  largeText: boolean;
+  toggleLargeText: () => void;
+}
+const KitchenChromeContext = createContext<KitchenChrome | null>(null);
+
+export function useKitchenChrome(): KitchenChrome {
+  const chrome = useContext(KitchenChromeContext);
+  if (!chrome) throw new Error("useKitchenChrome outside KitchenShell");
+  return chrome;
+}
+
+/**
  * The staff area's top bar: Board · New Order · History, the 中文 / EN toggle,
  * and sign out. Sticky, so on a long board or a long history page the way to
  * the order screen is always one tap away.
+ *
+ * The POS is the exception: a till wants every pixel of height, so it draws
+ * one 72px bar of its own (PosTopBar) with Board and History tucked into an
+ * overflow menu, and this header is not rendered there. 大字 and the language
+ * stay one tap away in both.
  *
  * `basePath` is the configured kitchen path (lib/kitchenRoute), passed down
  * from the server: the slug is never written into client code.
@@ -51,7 +74,8 @@ export default function KitchenShell({
     }
   }, []);
   useEffect(() => {
-    const surface = headerRef.current?.closest("[data-kitchen-surface]");
+    // By selector, not from the header: the POS renders no header.
+    const surface = document.querySelector("[data-kitchen-surface]");
     if (!surface) return;
     if (largeText) surface.setAttribute("data-large-text", "");
     else surface.removeAttribute("data-large-text");
@@ -81,8 +105,13 @@ export default function KitchenShell({
     return () => observer.disconnect();
   }, []);
 
+  const chrome = { basePath, active, largeText, toggleLargeText };
+  if (active === "pos") {
+    return <KitchenChromeContext.Provider value={chrome}>{children}</KitchenChromeContext.Provider>;
+  }
+
   return (
-    <>
+    <KitchenChromeContext.Provider value={chrome}>
       <header ref={headerRef} className="sticky top-0 z-30 border-b border-staff-line bg-staff-panel/95 backdrop-blur-sm">
         <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
           <nav
@@ -157,6 +186,6 @@ export default function KitchenShell({
         </div>
       </header>
       {children}
-    </>
+    </KitchenChromeContext.Provider>
   );
 }

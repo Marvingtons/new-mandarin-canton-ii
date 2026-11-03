@@ -17,6 +17,7 @@ import DishName from "@/components/kitchen/DishName";
 import StaffItemSheet, { type StaffLineDraft } from "@/components/kitchen/StaffItemSheet";
 import Icon from "@/components/kitchen/Icon";
 import FloorPlanSheet, { type Seating } from "@/components/kitchen/FloorPlanSheet";
+import PosTopBar from "@/components/kitchen/PosTopBar";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
 
 /**
@@ -27,17 +28,24 @@ import type { KitchenKey } from "@/lib/kitchen/i18n";
  * the caller a number; the order that prints is the one POST /api/kitchen/orders
  * recomputes from the menu. The request carries no money at all.
  *
- * TWO SERVICES, ONE SCREEN. A full-width 外賣 / 堂食 switch at the top. Takeout
- * asks phone or walk-in, then who and when; dine-in asks only which table and
- * how many (the floor plan sheet), and shows that in large type at the top of
- * the ticket. The dishes and the Print button are the same for both, and so
- * is the order route: one pipeline (see POST /api/kitchen/orders).
+ * A TILL, NOT A PAGE. Four fixed zones and nothing scrolls but the dishes and
+ * the ticket's lines: a 72px top bar (外賣 / 堂食, the context chip, tools), a
+ * full-height category rail, the dish grid, and the ticket with its total and
+ * Print pinned at the bottom. In portrait the ticket moves under the dishes.
+ * Zones and columns are in globals.css (THE POS).
+ *
+ * TWO SERVICES, ONE SCREEN. Takeout asks phone or walk-in, then who and when,
+ * in a sheet opened from the context chip; dine-in asks only which table and
+ * how many (the floor plan sheet), and the chip reads 桌 4 · 3 位. The dishes
+ * and the Print button are the same for both, and so is the order route: one
+ * pipeline (see POST /api/kitchen/orders).
  *
  * READ AT ARM'S LENGTH. The people using this include older staff with poor
  * eyesight. Dish 中文 is the largest type on a card, prices are bold, there are
- * no descriptions and no pale captions, and every control is at least 64px
- * (globals.css sets the staff type scale; 大字 in the nav scales it again).
- * Three dish columns on a landscape tablet, two in portrait.
+ * no descriptions and no pale captions, nothing is under 22px, and every
+ * control is at least 56px, Print 88px (globals.css sets the staff type
+ * scale; 大字 scales it again, and the grid drops a column rather than
+ * squeezing names).
  *
  * Every dish shows 中文 large and English beneath regardless of the language
  * toggle, because the person taking the call and the person at the wok may
@@ -65,8 +73,6 @@ interface PastOrder {
 }
 
 const JUST_NOW_MS = 2 * 60_000;
-/** The panes fill the screen under the sticky nav, whose height KitchenShell measures. */
-const NAV_OFFSET = "md:h-[calc(100svh-var(--kitchen-nav-h,6rem))]";
 
 function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -179,9 +185,11 @@ export default function StaffPos({
 
   /* ------------------------------------------------------ menu selection -- */
   const [query, setQuery] = useState("");
-  const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
+  /** The dish being chosen, and the size its tap zone asked for (a tray). */
+  const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>(menu.categories[0]?.id ?? "");
-  const ticketPaneRef = useRef<HTMLElement>(null);
 
   const lunchCategoryIds = useMemo(
     () => new Set(menu.categories.filter((c) => c.items.some((i) => i.lunchSpecial)).map((c) => c.id)),
@@ -237,11 +245,16 @@ export default function StaffPos({
 
   function jumpTo(category: MenuCategory) {
     setQuery("");
+    setSearchOpen(false);
     setActiveCategory(category.id);
     // After the search results unmount, so the section is in the DOM.
     requestAnimationFrame(() => {
       document.getElementById(`pos-cat-${category.id}`)?.scrollIntoView({ block: "start" });
     });
+  }
+
+  function openItem(item: MenuItem, sizeId?: string) {
+    setSheetItem({ item, sizeId });
   }
 
   function addLine(draft: StaffLineDraft) {
@@ -409,11 +422,8 @@ export default function StaffPos({
       // The mode survives: the next order is most likely the same service.
       resetTicket();
       setQuery("");
-      // The order number is the one thing staff must see next, and it sits at
-      // the top of the ticket pane, which is usually scrolled down to the
-      // Print button by now. On a phone the panes stack, so bring it into view.
-      ticketPaneRef.current?.scrollTo({ top: 0 });
-      ticketPaneRef.current?.scrollIntoView({ block: "start" });
+      setSearchOpen(false);
+      setDetailsOpen(false);
     } catch {
       setError(t("pos.error.network"));
     } finally {
@@ -449,6 +459,13 @@ export default function StaffPos({
   }
 
   /* ------------------------------------------------------------- render -- */
+  /** How many of each dish are on the ticket, for the +N on its card. */
+  const onTicket = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const l of lines) counts.set(l.itemId, (counts.get(l.itemId) ?? 0) + l.quantity);
+    return counts;
+  }, [lines]);
+
   const itemCard = (item: MenuItem) => {
     const num = menuNumber(item.id);
     const sizes = itemSizes(item);
@@ -456,506 +473,421 @@ export default function StaffPos({
     const eightySixed = !isAvailable(item);
     const lunchLocked = item.lunchSpecial === true && !lunchOpen;
     const disabled = eightySixed || lunchLocked;
+    const count = onTicket.get(item.id) ?? 0;
     // 中文, English, price. No description: read at arm's length, a card is
-    // a name to recognise, not a paragraph to read.
+    // a name to recognise, not a paragraph to read. The main card is the
+    // regular size; a tray is its own tap zone, so it is never a second step.
     return (
-      <button
+      <div
         key={item.id}
-        type="button"
-        onClick={() => setSheetItem(item)}
-        disabled={disabled}
-        data-item={item.id}
-        className={`flex min-h-36 flex-col gap-2 rounded-xl border-2 p-4 text-left transition-colors ${
-          disabled
-            ? "cursor-not-allowed border-transparent bg-staff-sunken"
-            : "border-staff-line-strong bg-staff-panel hover:border-staff-ink active:bg-staff-accent-tint"
-        }`}
+        className={`relative flex flex-col rounded-pos ${disabled ? "bg-pos-sunken" : "bg-pos-card shadow-pos-card"}`}
       >
-        <DishName nameZh={item.nameZh} nameEn={item.nameEn} />
-        <span className="mt-auto flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <span className="text-lg font-bold">{formatCents(sizes[0].priceCents)}</span>
-          {num !== null && <span className="text-base">{t("pos.dish.number", { n: num })}</span>}
-        </span>
-        {(tray || eightySixed || lunchLocked) && (
-          <span className="flex flex-wrap items-center gap-2">
-            {tray && (
-              <span className="text-base font-semibold">
-                {resolveSizeZh(tray.label) ?? tray.label} {formatCents(tray.priceCents)}
+        <button
+          type="button"
+          onClick={() => openItem(item)}
+          disabled={disabled}
+          data-item={item.id}
+          className="pos-press flex min-h-[6.5rem] flex-1 flex-col gap-2 rounded-pos p-3.5 text-left disabled:cursor-not-allowed"
+        >
+          <span className="flex min-w-0 flex-col">
+            <span lang={item.nameZh ? "zh-Hant" : "en"} className="text-[1.273rem] leading-snug font-semibold text-balance">
+              {item.nameZh ?? item.nameEn}
+            </span>
+            {item.nameZh && (
+              <span lang="en" className="text-base leading-snug text-pos-muted">
+                {item.nameEn}
               </span>
             )}
-            {eightySixed && (
-              <span className="rounded-full bg-staff-danger-tint px-3 py-0.5 text-base font-bold text-staff-danger">{t("pos.86d")}</span>
-            )}
-            {!eightySixed && lunchLocked && (
-              <span className="rounded-full border-2 border-staff-line-strong px-3 py-0.5 text-base font-semibold">{t("pos.lunchClosed")}</span>
-            )}
+          </span>
+          <span className="mt-auto flex flex-wrap items-baseline justify-between gap-x-3">
+            <span className="text-[1.091rem] font-bold tabular-nums">{formatCents(sizes[0].priceCents)}</span>
+            {num !== null && <span className="text-base text-pos-muted tabular-nums">{t("pos.dish.number", { n: num })}</span>}
+          </span>
+          {eightySixed && (
+            <span className="self-start rounded-full bg-pos-brand px-3 text-base font-bold text-white">{t("pos.86d")}</span>
+          )}
+          {!eightySixed && lunchLocked && (
+            <span className="self-start rounded-full bg-pos-card px-3 text-base font-semibold">{t("pos.lunchClosed")}</span>
+          )}
+        </button>
+        {tray && !disabled && (
+          <button
+            type="button"
+            onClick={() => openItem(item, tray.id)}
+            className="pos-press mx-2 mb-2 flex min-h-[2.545rem] flex-wrap items-center justify-between gap-x-2 rounded-xl bg-pos-sunken px-3 py-1 text-left text-base font-semibold hover:bg-pos-gold-tint"
+          >
+            <span>{t("pos.tray")}</span>
+            <span className="font-bold tabular-nums">{formatCents(tray.priceCents)}</span>
+          </button>
+        )}
+        {count > 0 && (
+          <span
+            key={count}
+            title={t("pos.onTicket", { n: count })}
+            className="pos-pop pointer-events-none absolute -top-2 -right-2 flex h-[2.182rem] min-w-[2.182rem] items-center justify-center rounded-full bg-pos-added px-2 text-base font-bold text-white tabular-nums shadow-pos-card"
+          >
+            +{count}
           </span>
         )}
-      </button>
+      </div>
     );
   };
 
   const field =
-    "min-h-12 w-full rounded-md border border-staff-line-strong bg-staff-panel px-3 text-base text-staff-ink outline-none placeholder:text-staff-faint focus:border-staff-accent";
-  const label = "mb-1.5 block text-base font-semibold text-staff-ink";
-  const segment = (on: boolean) =>
-    `flex min-h-14 items-center justify-center gap-2 rounded-lg text-xl font-bold transition-colors ${
-      on ? "bg-staff-ink text-staff-panel" : "text-staff-ink hover:bg-staff-panel"
-    }`;
-  const stepper = "flex h-12 w-12 items-center justify-center text-staff-ink hover:bg-staff-sunken";
+    "min-h-[3rem] w-full rounded-xl bg-pos-card px-4 text-[1.091rem] text-pos-ink shadow-[inset_0_0_0_2px_var(--color-pos-sunken)] outline-none placeholder:text-pos-muted focus:shadow-[inset_0_0_0_2px_var(--color-pos-brand)]";
+  const label = "mb-2 block text-base font-semibold text-pos-ink";
+  const stepper =
+    "flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-full bg-pos-sunken text-pos-ink transition-colors hover:bg-pos-gold-tint active:bg-pos-gold-tint";
   const itemCount = lines.reduce((n, l) => n + l.quantity, 0);
+  const takeoutMissing = mode === "takeout" && (missing.includes("pos.missing.name") || missing.includes("pos.missing.phone"));
+  const customerSummary = [name.trim(), phone.trim()].filter(Boolean).join(" · ");
+
+  /* The chip in the middle of the top bar: who this order is for. */
+  const chip = "flex h-[2.545rem] max-w-full min-w-0 items-center gap-2.5 rounded-xl px-3.5 text-base font-semibold whitespace-nowrap transition-colors";
+  const contextChip =
+    mode === "dine_in" ? (
+      // 桌 4 · 3 位. Tap to change table (or to seat one).
+      <button
+        type="button"
+        data-seating={seating?.label ?? ""}
+        onClick={() => setFloorOpen(true)}
+        className={`${chip} ${
+          seating ? "bg-pos-card text-pos-ink shadow-pos-card" : "bg-pos-brand-tint text-pos-brand"
+        }`}
+      >
+        <Icon name="table" size={20} className={seating ? "text-pos-muted" : ""} />
+        {seating ? (
+          <span className="flex min-w-0 items-center gap-2.5 truncate">
+            {seating.addon && (
+              <span className="shrink-0 rounded-lg bg-pos-gold-tint px-2 font-bold">{t("ticket.addon")}</span>
+            )}
+            <span lang="zh-Hant" className="text-[1.182rem] font-bold whitespace-nowrap">
+              {t("pos.table.summaryZh", { table: seating.label, guests: seating.guests })}
+            </span>
+          </span>
+        ) : (
+          <span>{t("pos.table.choose")}</span>
+        )}
+      </button>
+    ) : (
+      <button
+        type="button"
+        data-context="takeout"
+        onClick={() => setDetailsOpen(true)}
+        aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
+        className={`${chip} ${
+          takeoutMissing && lines.length > 0 ? "bg-pos-brand-tint text-pos-brand" : "bg-pos-card text-pos-ink shadow-pos-card"
+        }`}
+      >
+        <Icon name={channel === "phone" ? "phone" : "store"} size={20} className="opacity-80" />
+        {name.trim() || phone.trim() ? (
+          // The name first and whole; the phone only where the bar has room.
+          <span className="flex min-w-0 items-baseline gap-2">
+            {name.trim() && <span className="min-w-0 truncate">{name.trim()}</span>}
+            {phone.trim() && (
+              <span className={`font-normal tabular-nums ${name.trim() ? "hidden text-pos-muted @min-[17rem]/chip:inline" : ""}`}>
+                {phone.trim()}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span>{t("pos.details.add")}</span>
+        )}
+      </button>
+    );
+
+  const searchField = (
+    <div className="relative w-full max-w-[24rem]">
+      <Icon name="search" size={20} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-pos-muted" />
+      {/* type="text", not "search": the browser's own clear glyph is tiny
+          and doubled up with the 56px one beside it. */}
+      <input
+        type="text"
+        inputMode="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t("pos.search")}
+        aria-label={t("pos.search")}
+        enterKeyHint="search"
+        autoFocus
+        className={`${field} h-[2.545rem] min-h-0 pr-14 pl-12 text-base`}
+      />
+      <button
+        type="button"
+        onClick={() => {
+          setQuery("");
+          setSearchOpen(false);
+        }}
+        aria-label={t("pos.searchClose")}
+        className="absolute top-0 right-0 flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-xl text-pos-muted hover:text-pos-ink"
+      >
+        <Icon name="x" size={20} />
+      </button>
+    </div>
+  );
+
+  const lunchChip =
+    lunchCategoryIds.size > 0 && !lunchNow ? (
+      <button
+        type="button"
+        aria-pressed={lunchOverride}
+        title={t("pos.lunchOverrideHint")}
+        aria-label={t("pos.lunchOverride")}
+        onClick={() => setLunchOverride((v) => !v)}
+        className={`flex h-[2.545rem] items-center gap-2 rounded-xl px-3 text-base font-semibold whitespace-nowrap transition-colors ${
+          lunchOverride ? "bg-pos-gold-tint text-pos-ink" : "text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
+        }`}
+      >
+        <span
+          aria-hidden="true"
+          className={`relative h-[1.091rem] w-[1.909rem] rounded-full transition-colors ${lunchOverride ? "bg-pos-gold" : "bg-pos-sunken shadow-[inset_0_0_0_2px_var(--color-pos-muted)]"}`}
+        >
+          <span
+            className={`absolute top-[0.136rem] h-[0.818rem] w-[0.818rem] rounded-full transition-[left] ${
+              lunchOverride ? "left-[0.955rem] bg-white" : "left-[0.136rem] bg-pos-muted"
+            }`}
+          />
+        </span>
+        {t("pos.lunchChip")}
+      </button>
+    ) : null;
 
   return (
-    <main
-      className={`mx-auto grid w-full max-w-[1600px] grid-cols-1 md:grid-cols-[minmax(0,1fr)_18rem] md:grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_21rem] ${NAV_OFFSET}`}
-    >
-      {/* ------------------------------------------------- 外賣 | 堂食 -- */}
-      <div role="group" aria-label={t("pos.mode")} className="grid grid-cols-2 gap-2 border-b border-staff-line bg-staff-panel p-2 md:col-span-2">
-        {(["takeout", "dine_in"] as const).map((m) => {
-          const on = mode === m;
+    <main className="pos-root grid h-svh overflow-hidden bg-pos-bg text-pos-ink">
+      <PosTopBar
+        mode={mode}
+        onMode={(m) => {
+          setMode(m);
+          setError(null);
+          // Straight to the floor plan: a dine-in order starts at a table.
+          if (m === "dine_in" && !seating) setFloorOpen(true);
+        }}
+        context={searchOpen ? searchField : contextChip}
+        search={searchOpen ? null : () => setSearchOpen(true)}
+        lunch={lunchChip}
+      />
+
+      {/* ---------------------------------------------------- categories -- */}
+      {/* Full height, one column: 中文 large, English under it, the current
+          one filled in the brand red. Scrolls only if the room runs out. */}
+      <nav
+        aria-label={t("pos.categories")}
+        className="flex min-h-0 flex-col overflow-y-auto px-1.5 pb-5 [grid-area:rail] [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]"
+      >
+        {menu.categories.map((c) => {
+          const on = activeCategory === c.id && !results;
           return (
             <button
-              key={m}
+              key={c.id}
               type="button"
-              aria-pressed={on}
-              data-mode={m}
-              onClick={() => {
-                setMode(m);
-                setError(null);
-                // Straight to the floor plan: a dine-in order starts at a table.
-                if (m === "dine_in" && !seating) setFloorOpen(true);
-              }}
-              className={`flex min-h-14 items-center justify-center gap-3 rounded-xl border-2 text-2xl font-bold transition-colors ${
-                on
-                  ? "border-staff-ink bg-staff-ink text-staff-panel"
-                  : "border-staff-line-strong bg-staff-panel text-staff-ink hover:bg-staff-sunken"
+              onClick={() => jumpTo(c)}
+              aria-current={on ? "true" : undefined}
+              className={`flex min-h-[2.545rem] shrink-0 grow flex-col justify-center rounded-xl px-2.5 text-left transition-colors ${
+                on ? "bg-pos-brand text-white" : "text-pos-ink hover:bg-pos-sunken"
               }`}
             >
-              <Icon name={m === "takeout" ? "store" : "table"} size={28} />
-              {t(m === "takeout" ? "pos.mode.takeout" : "pos.mode.dineIn")}
+              <span lang={c.nameZh ? "zh-Hant" : "en"} className="text-[1.091rem] leading-[1.05] font-bold">
+                {c.nameZh ?? c.nameEn}
+              </span>
+              {c.nameZh && (
+                <span lang="en" className={`text-base leading-[1.05] ${on ? "text-white/90" : "text-pos-muted"}`}>
+                  {c.nameEn}
+                </span>
+              )}
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {/* --------------------------------------------------------- dishes -- */}
-      <section ref={dishPaneRef} className="min-w-0 md:overflow-y-auto">
-        <div className="sticky top-0 z-10 flex flex-col gap-2 bg-staff-bg px-3 pt-3 pb-2">
-          {/* The category rail: one row of large chips across the dishes, the
-              current one solid black, so it reads without colour. */}
-          <nav aria-label={t("pos.categories")} className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1">
-            {menu.categories.map((c) => {
-              const on = activeCategory === c.id && !results;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => jumpTo(c)}
-                  aria-current={on ? "true" : undefined}
-                  className={`flex min-h-14 shrink-0 flex-col justify-center rounded-xl border-2 px-4 py-1 text-left transition-colors ${
-                    on
-                      ? "border-staff-ink bg-staff-ink text-staff-panel"
-                      : "border-staff-line-strong bg-staff-panel text-staff-ink hover:bg-staff-sunken"
-                  }`}
-                >
-                  <span lang={c.nameZh ? "zh-Hant" : "en"} className="text-xl leading-tight font-bold whitespace-nowrap">
-                    {c.nameZh ?? c.nameEn}
-                  </span>
-                  {c.nameZh && <span className="text-base leading-tight whitespace-nowrap">{c.nameEn}</span>}
-                </button>
-              );
-            })}
-          </nav>
-          <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:w-auto sm:min-w-48 sm:flex-1">
-            <Icon name="search" size={20} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-staff-faint" />
-            {/* type="text", not "search": the browser's own clear glyph is tiny
-                and doubled up with the 48px one beside it. */}
-            <input
-              type="text"
-              inputMode="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("pos.search")}
-              aria-label={t("pos.search")}
-              enterKeyHint="search"
-              className={`${field} pr-12 pl-10 text-lg`}
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label={t("pos.searchClear")}
-                className="absolute top-0 right-0 flex h-12 w-12 items-center justify-center text-staff-faint hover:text-staff-ink"
-              >
-                <Icon name="x" size={20} />
-              </button>
-            )}
-          </div>
-          {lunchCategoryIds.size > 0 && !lunchNow && (
-            <button
-              type="button"
-              aria-pressed={lunchOverride}
-              title={t("pos.lunchOverrideHint")}
-              onClick={() => setLunchOverride((v) => !v)}
-              className={`flex min-h-12 items-center gap-2.5 rounded-md border px-3 text-base font-medium transition-colors ${
-                lunchOverride
-                  ? "border-staff-warn bg-staff-warn-tint text-staff-warn"
-                  : "border-staff-line-strong bg-staff-panel text-staff-soft hover:text-staff-ink"
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className={`relative h-5 w-9 rounded-full transition-colors ${lunchOverride ? "bg-staff-warn" : "bg-staff-line-strong"}`}
-              >
-                <span
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-[left] ${lunchOverride ? "left-[1.125rem]" : "left-0.5"}`}
-                />
-              </span>
-              {t("pos.lunchOverride")}
-            </button>
-          )}
-          {/* Inside the sticky bar, so the warning stays on screen for as
-              long as the override does, however far the dishes scroll. */}
-          {lunchOverride && !lunchNow && (
-            <p role="status" className="flex w-full items-center gap-2 rounded-md bg-staff-warn-tint px-3 py-2 text-base font-medium text-staff-warn">
-              <Icon name="alert" size={18} />
-              {t("pos.lunchOverrideWarning", lunchLabel)}
-            </p>
-          )}
-          </div>
-        </div>
+      <section ref={dishPaneRef} aria-label={t("pos.title")} className="pos-dishes min-h-0 min-w-0 overflow-y-auto [grid-area:dishes]">
+        {/* Inside the scroller and sticky, so the warning stays on screen for
+            as long as the override does, however far the dishes scroll. */}
+        {lunchOverride && !lunchNow && (
+          <p role="status" className="sticky top-0 z-10 mx-[var(--pos-gap)] mt-1 flex items-center gap-3 rounded-xl bg-pos-gold-tint px-4 py-2 text-base font-medium">
+            <Icon name="alert" size={18} className="shrink-0" />
+            {t("pos.lunchOverrideWarning", lunchLabel)}
+          </p>
+        )}
 
         {results ? (
-          <div className="px-3 pb-6">
-            <h2 className="mt-2 mb-2 text-base font-semibold text-staff-soft">{t("pos.results")}</h2>
+          <div className="px-[var(--pos-gap)] pt-2 pb-8">
+            <h2 className="mb-3 text-base font-semibold text-pos-muted">{t("pos.results")}</h2>
             {results.length === 0 ? (
-              <p className="py-16 text-center text-lg text-staff-faint">{t("pos.noResults", { q: query.trim() })}</p>
+              <p className="py-16 text-center text-[1.091rem] text-pos-muted">{t("pos.noResults", { q: query.trim() })}</p>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{results.map(itemCard)}</div>
+              <div className="pos-grid">{results.map(itemCard)}</div>
             )}
           </div>
         ) : (
           menu.categories.map((c) => (
-            <section key={c.id} id={`pos-cat-${c.id}`} className="scroll-mt-48 px-3 pt-4 pb-2">
+            <section key={c.id} id={`pos-cat-${c.id}`} className="scroll-mt-2 px-[var(--pos-gap)] pt-2 pb-6">
               <h2 className="mb-3 flex flex-wrap items-baseline gap-x-3">
-                <span className="text-2xl font-bold">{c.nameZh ?? c.nameEn}</span>
-                {c.nameZh && <span className="text-lg">{c.nameEn}</span>}
+                <span lang={c.nameZh ? "zh-Hant" : "en"} className="text-[1.273rem] font-bold">
+                  {c.nameZh ?? c.nameEn}
+                </span>
+                {c.nameZh && <span className="text-base text-pos-muted">{c.nameEn}</span>}
                 {lunchCategoryIds.has(c.id) && (
-                  <span className="text-base text-staff-faint">· {t("pos.lunchWindow", lunchLabel)}</span>
+                  <span className="text-base text-pos-muted">· {t("pos.lunchWindow", lunchLabel)}</span>
                 )}
               </h2>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{c.items.map(itemCard)}</div>
+              <div className="pos-grid">{c.items.map(itemCard)}</div>
             </section>
           ))
         )}
       </section>
 
       {/* ---------------------------------------------------------- ticket -- */}
-      <aside
-        ref={ticketPaneRef}
-        aria-label={t("pos.ticket")}
-        className="flex min-w-0 flex-col border-t border-staff-line bg-staff-panel md:overflow-y-auto md:border-t-0 md:border-l"
-      >
-        <div className="flex-1 p-4">
-          {/* 桌 4 · 3 位: the table, at the top, as large as the order number.
-              Tap to change (or to seat one). */}
-          {mode === "dine_in" && (
-            <button
-              type="button"
-              data-seating={seating?.label ?? ""}
-              onClick={() => setFloorOpen(true)}
-              className={`mb-4 flex w-full flex-col items-start gap-1 rounded-xl px-4 py-3 text-left transition-colors ${
-                seating
-                  ? "bg-staff-ink text-staff-panel hover:bg-staff-soft"
-                  : "border-4 border-dashed border-staff-ink bg-staff-panel text-staff-ink hover:bg-staff-sunken"
-              }`}
-            >
-              {seating ? (
-                <>
-                  {seating.addon && (
-                    <span className="rounded-md bg-staff-panel px-2 text-xl font-bold text-staff-ink">
-                      {t("ticket.addon")}
-                    </span>
+      <aside aria-label={t("pos.ticket")} className="pos-ticket min-h-0 min-w-0 bg-pos-card [grid-area:ticket]">
+        <div className="flex min-h-0 flex-col">
+          <div className="flex flex-col gap-3 px-5 pt-4">
+            {placed && (
+              <div role="status" className="flex items-center gap-4 rounded-pos bg-pos-added-tint px-4 py-3">
+                <span className="flex h-[2.182rem] w-[2.182rem] shrink-0 items-center justify-center rounded-full bg-pos-added text-white">
+                  <Icon name="check" size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[1.636rem] leading-none font-bold tracking-tight text-pos-added tabular-nums">
+                    {placed.orderNumber}
+                  </span>
+                  <span className="mt-1 block text-base text-pos-muted">
+                    {t("pos.sent")} · {formatCents(placed.totalCents)}
+                  </span>
+                </span>
+              </div>
+            )}
+            {justNow && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-base text-pos-muted">
+                  {!placed && (
+                    <>
+                      {t("pos.justNow")} <span className="font-semibold text-pos-ink tabular-nums">{justNow.orderNumber}</span>
+                    </>
                   )}
-                  <span lang="zh-Hant" className="text-4xl leading-tight font-bold">
-                    {t("pos.table.summaryZh", { table: seating.label, guests: seating.guests })}
-                  </span>
-                  <span lang="en" className="text-2xl leading-tight font-bold">
-                    {t("pos.table.summaryEn", { table: seating.label, guests: seating.guests })}
-                  </span>
-                  <span className="text-base">{t("pos.table.change")}</span>
-                </>
-              ) : (
-                <span className="flex min-h-14 items-center gap-3 text-3xl font-bold">
-                  <Icon name="table" size={32} />
-                  {t("pos.table.choose")}
                 </span>
-              )}
-            </button>
-          )}
-
-          {placed && (
-            <div role="status" className="mb-4 flex items-center gap-4 rounded-lg bg-staff-accent-tint px-4 py-3.5">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-staff-accent text-white">
-                <Icon name="check" size={22} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-4xl leading-none font-semibold tracking-tight text-staff-accent">{placed.orderNumber}</span>
-                <span className="mt-1 block text-base font-medium text-staff-soft">
-                  {t("pos.sent")} · {formatCents(placed.totalCents)}
-                </span>
-              </span>
+                <button
+                  type="button"
+                  onClick={() => reprint(justNow)}
+                  className="flex min-h-[2.545rem] items-center gap-2 rounded-xl px-3 text-base font-semibold text-pos-ink hover:bg-pos-sunken"
+                >
+                  <Icon name="printer" size={18} />
+                  {t("pos.reprint")}
+                </button>
+              </div>
+            )}
+            {notice && (
+              <p role="status" className="rounded-xl bg-pos-sunken px-4 py-2 text-base">
+                {notice}
+              </p>
+            )}
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-[1.091rem] font-bold">{t("pos.ticket")}</h2>
+              {itemCount > 0 && <span className="text-base text-pos-muted tabular-nums">{t("pos.itemCount", { n: itemCount })}</span>}
             </div>
-          )}
-
-          {justNow && !placed && (
-            <div className="mb-4 flex items-center justify-between gap-2 rounded-md bg-staff-sunken py-1 pr-1 pl-3">
-              <span className="text-base text-staff-soft">
-                {t("pos.justNow")} <span className="ml-1 text-base font-semibold text-staff-ink">{justNow.orderNumber}</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => reprint(justNow)}
-                className="flex min-h-12 items-center gap-2 rounded-md px-3 text-base font-medium text-staff-ink hover:bg-staff-panel"
-              >
-                <Icon name="printer" size={18} />
-                {t("pos.reprint")}
-              </button>
-            </div>
-          )}
-          {justNow && placed && (
-            <div className="-mt-2 mb-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => reprint(justNow)}
-                className="flex min-h-12 items-center gap-2 rounded-md px-3 text-base font-medium text-staff-soft hover:bg-staff-sunken hover:text-staff-ink"
-              >
-                <Icon name="printer" size={18} />
-                {t("pos.reprint")}
-              </button>
-            </div>
-          )}
-
-          {notice && (
-            <p role="status" className="mb-4 rounded-md bg-staff-sunken px-3 py-2 text-base text-staff-soft">
-              {notice}
-            </p>
-          )}
-
-          <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">{t("pos.ticket")}</h2>
-            {itemCount > 0 && <span className="text-base text-staff-faint">{t("pos.itemCount", { n: itemCount })}</span>}
           </div>
+
           {lines.length === 0 ? (
-            <p className="flex min-h-24 items-center justify-center rounded-md border border-dashed border-staff-line-strong px-3 text-center text-base text-staff-faint">
-              {t("pos.ticketEmpty")}
-            </p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-8 text-center text-pos-muted">
+              <Icon name="receipt" size={36} className="text-pos-gold" />
+              <p className="flex flex-col">
+                <span lang="zh-Hant" className="text-[1.091rem] font-semibold">{t("pos.ticketEmptyZh")}</span>
+                <span lang="en" className="text-base">{t("pos.ticketEmptyEn")}</span>
+              </p>
+            </div>
           ) : (
-            <ul className="divide-y divide-staff-line rounded-md border border-staff-line">
+            <ul className="min-h-0 flex-1 divide-y-2 divide-pos-bg overflow-y-auto px-5 pb-2">
               {priced.map(({ line, item, lineCents }) => {
                 const size = item ? itemSizes(item).find((s) => s.id === line.sizeId) : undefined;
                 const mods = item
                   ? item.modifierGroups.flatMap((g) => g.modifiers).filter((m) => line.modifierIds.includes(m.id))
                   : [];
                 return (
-                  <li key={line.lineId} className="px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <DishName nameZh={item?.nameZh ?? null} nameEn={item?.nameEn ?? line.itemId} size="sm" />
-                      <span className="shrink-0 text-lg font-bold">{formatCents(lineCents)}</span>
+                  <li key={line.lineId} className="py-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <DishName nameZh={item?.nameZh ?? null} nameEn={item?.nameEn ?? line.itemId} size="sm" className="pt-1" />
+                      <button
+                        type="button"
+                        aria-label={t("pos.remove")}
+                        onClick={() => setQty(line.lineId, 0)}
+                        className="-mr-2 flex h-[2.545rem] w-[2.545rem] shrink-0 items-center justify-center rounded-full text-pos-muted transition-colors hover:bg-pos-brand-tint hover:text-pos-brand"
+                      >
+                        <Icon name="x" size={20} />
+                      </button>
                     </div>
                     {size && !isDefaultSize(size.label) && (
-                      <span className="mt-1 inline-flex gap-1.5 rounded-sm bg-staff-accent-tint px-1.5 py-0.5 text-base font-semibold text-staff-accent">
+                      <span className="mt-1 inline-flex gap-1.5 rounded-lg bg-pos-gold-tint px-2 text-base font-semibold">
                         {resolveSizeZh(size.label) ?? size.label} <span className="font-normal">{size.label}</span>
                       </span>
                     )}
                     {mods.map((m) => (
-                      <div key={m.id} className="text-base text-staff-soft">
-                        {m.nameZh ?? m.nameEn} {m.nameZh && <span className="text-staff-faint">{m.nameEn}</span>}
+                      <div key={m.id} className="text-base text-pos-muted">
+                        {m.nameZh ?? m.nameEn} {m.nameZh && <span>{m.nameEn}</span>}
                       </div>
                     ))}
                     {line.specialInstructions && (
-                      <div className="mt-1 rounded-sm bg-staff-warn-tint px-2 py-1 text-base text-staff-warn">
+                      <div className="mt-1 rounded-lg bg-pos-gold-tint px-2 py-0.5 text-base">
                         {t("pos.lineNote", { note: line.specialInstructions })}
                       </div>
                     )}
-                    <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center overflow-hidden rounded-md border border-staff-line-strong">
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1">
                         <button type="button" aria-label={t("pos.decrease")} onClick={() => setQty(line.lineId, line.quantity - 1)} className={stepper}>
-                          <Icon name="minus" size={18} />
+                          <Icon name="minus" size={22} />
                         </button>
-                        <span className="w-14 text-center text-2xl font-bold">{line.quantity}</span>
+                        <span className="w-[2.364rem] text-center text-[1.364rem] font-bold tabular-nums">{line.quantity}</span>
                         <button type="button" aria-label={t("pos.increase")} onClick={() => setQty(line.lineId, line.quantity + 1)} className={stepper}>
-                          <Icon name="plus" size={18} />
+                          <Icon name="plus" size={22} />
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setQty(line.lineId, 0)}
-                        className="min-h-12 rounded-md px-3 text-base font-medium text-staff-faint hover:bg-staff-danger-tint hover:text-staff-danger"
-                      >
-                        {t("pos.remove")}
-                      </button>
+                      <span className="text-[1.091rem] font-bold tabular-nums">{formatCents(lineCents)}</span>
                     </div>
                   </li>
                 );
               })}
             </ul>
           )}
-
-          {/* ------------------------------------------------- customer -- */}
-          <div className="mt-6 flex flex-col gap-4 border-t border-staff-line pt-5">
-            {mode === "takeout" && (
-              <>
-                <div role="group" aria-label={t("pos.takeoutKind")} className="grid grid-cols-2 gap-1 rounded-xl bg-staff-sunken p-1">
-                  {(["phone", "walk_in"] as const).map((c) => (
-                    <button key={c} type="button" data-channel={c} aria-pressed={channel === c} onClick={() => setChannel(c)} className={segment(channel === c)}>
-                      <Icon name={c === "phone" ? "phone" : "store"} size={24} />
-                      {t(`channel.${c}`)}
-                    </button>
-                  ))}
-                </div>
-
-                <label>
-                  <span className={label}>{t("pos.customerName")}</span>
-                  <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" className={`${field} text-lg`} />
-                </label>
-
-                <label>
-                  <span className={label}>{channel === "phone" ? t("pos.phone") : t("pos.phoneOptional")}</span>
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="off"
-                    value={phone}
-                    onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
-                    aria-invalid={phoneBad}
-                    className={`${field} text-lg ${phoneBad ? "border-staff-danger" : ""}`}
-                  />
-                  {phoneBad && <span className="mt-1 block text-base font-medium text-staff-danger">{t("pos.phoneInvalid")}</span>}
-                </label>
-
-                {returningHere && (
-                  <div className="rounded-md border border-staff-line bg-staff-bg p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="flex items-center gap-2 text-base">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-staff-blue-tint text-staff-blue">
-                          <Icon name="user" size={15} />
-                        </span>
-                        <span>
-                          <span className="text-staff-faint">{t("pos.returning")}</span>{" "}
-                          <span className="font-semibold text-staff-ink">{returningHere.name}</span>
-                        </span>
-                      </span>
-                      {returningHere.name && name.trim() !== returningHere.name && (
-                        <button
-                          type="button"
-                          onClick={() => setName(returningHere.name ?? "")}
-                          className="min-h-12 rounded-md px-3 text-base font-semibold text-staff-accent hover:bg-staff-accent-tint"
-                        >
-                          {t("pos.useName")}
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-2 text-base font-medium text-staff-faint">{t("pos.recentOrders")}</div>
-                    <ul className="mt-1.5 flex flex-col gap-1.5">
-                      {returningHere.orders.map((o) => (
-                        <li key={o.id} className="flex items-center justify-between gap-2 rounded-md bg-staff-panel py-1.5 pr-1.5 pl-3">
-                          <span className="min-w-0 text-base">
-                            <span className="block text-staff-faint">
-                              {o.businessDate} · {o.orderNumber} · {formatCents(o.totalCents)}
-                            </span>
-                            <span lang="zh-Hant" className="block truncate font-medium text-staff-ink">
-                              {o.items.map((l) => `${l.quantity}× ${l.nameZh ?? l.nameEn}`).join("、")}
-                            </span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => reorder(o)}
-                            className="flex min-h-12 shrink-0 items-center gap-1.5 rounded-md border border-staff-accent px-3 text-base font-semibold text-staff-accent hover:bg-staff-accent-tint"
-                          >
-                            <Icon name="repeat" size={16} />
-                            {t("pos.reorder")}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <label>
-                  <span className={label}>{t("pos.pickup")}</span>
-                  <select value={pickupValue} onChange={(e) => setPickup(e.target.value)} className={field} disabled={slots.length === 0}>
-                    {slots.length === 0 && <option value="">{now ? t("pos.noSlots") : t("common.loading")}</option>}
-                    {slots.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.value === "asap" ? t("pos.asap", { n: pickupOptions.leadMinutes }) : s.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-              </>
-            )}
-
-            <label>
-              <span className={label}>{t("pos.paymentNote")}</span>
-              <input
-                value={paymentNote}
-                onChange={(e) => setPaymentNote(e.target.value)}
-                maxLength={200}
-                placeholder={t("pos.paymentNotePlaceholder")}
-                autoComplete="off"
-                className={field}
-              />
-            </label>
-
-            <label>
-              <span className={label}>{t("pos.staffNote")}</span>
-              <textarea
-                value={staffNote}
-                onChange={(e) => setStaffNote(e.target.value)}
-                maxLength={500}
-                rows={2}
-                placeholder={t("pos.staffNotePlaceholder")}
-                className={`${field} resize-none py-2`}
-              />
-            </label>
-          </div>
         </div>
 
         {/* ------------------------------------------------- totals + print -- */}
-        <div className="sticky bottom-0 border-t border-staff-line bg-staff-panel p-4">
-          <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-base text-staff-soft">
-            <dt>{t("pos.subtotal")}</dt>
-            <dd className="text-right">{formatCents(subtotal)}</dd>
-            <dt>{t("pos.tax")}</dt>
-            <dd className="text-right">{formatCents(tax)}</dd>
-            <dt className="mt-1 text-2xl font-bold text-staff-ink">{t("pos.total")}</dt>
-            <dd className="mt-1 text-right text-2xl font-bold text-staff-ink">{formatCents(total)}</dd>
+        <div className="flex flex-col justify-end px-5 pt-3 pb-4 shadow-[0_-1px_0_var(--color-pos-sunken)] portrait:shadow-[-1px_0_0_var(--color-pos-sunken)]">
+          {/* Subtotal and tax share a line: the room is the ticket's. */}
+          <dl className="grid grid-cols-[1fr_auto] gap-x-3 text-base text-pos-muted tabular-nums">
+            <div className="col-span-2 flex flex-wrap justify-between gap-x-4">
+              <span className="flex gap-2">
+                <dt>{t("pos.subtotal")}</dt>
+                <dd>{formatCents(subtotal)}</dd>
+              </span>
+              <span className="flex gap-2">
+                <dt>{t("pos.tax")}</dt>
+                <dd>{formatCents(tax)}</dd>
+              </span>
+            </div>
+            <dt className="mt-1 flex items-baseline gap-3 text-[1.455rem] font-bold text-pos-ink">
+              {t("pos.total")}
+              <span className="text-base font-normal text-pos-muted">{t("pos.payAtCounter")}</span>
+            </dt>
+            <dd className="mt-1 text-right text-[1.455rem] font-bold text-pos-ink">{formatCents(total)}</dd>
           </dl>
-          <div className="text-base text-staff-faint">{t("pos.payAtCounter")}</div>
 
           {error && (
-            <p role="alert" className="mt-3 flex items-start gap-2 rounded-md bg-staff-danger-tint px-3 py-2 text-base font-medium text-staff-danger">
-              <Icon name="alert" size={18} className="mt-px" />
+            <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl bg-pos-brand-tint px-3 py-2 text-base font-medium text-pos-brand">
+              <Icon name="alert" size={18} className="mt-1" />
               {error}
             </p>
           )}
           {!error && missing.length > 0 && lines.length > 0 && (
-            <p className="mt-2 text-base text-staff-faint">{missing.map((k) => t(k)).join(" · ")}</p>
+            <p className="mt-2 text-base text-pos-brand">{missing.map((k) => t(k)).join(" · ")}</p>
           )}
 
-          <div className="mt-3 flex gap-2">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={submit}
-              disabled={!canSubmit}
-              data-action="print"
-              className="flex min-h-16 flex-1 items-center justify-center gap-3 rounded-xl bg-staff-accent px-4 text-2xl font-bold text-white transition-colors hover:bg-staff-accent-hover disabled:cursor-not-allowed disabled:bg-staff-sunken disabled:text-staff-soft"
+              onClick={() => setDetailsOpen(true)}
+              className="flex min-h-[2.545rem] items-center gap-2 rounded-xl px-2 text-base font-semibold text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
             >
-              <Icon name="printer" size={28} />
-              {submitting ? t("pos.printing") : t("pos.print")}
+              <Icon name="note" size={18} />
+              {t("pos.notes")}
+              {(paymentNote.trim() || staffNote.trim()) && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-pos-gold" />}
             </button>
             <button
               type="button"
@@ -968,30 +900,170 @@ export default function StaffPos({
                   setClearArmed(true);
                 }
               }}
-              className={`min-h-16 rounded-xl px-4 text-lg font-semibold transition-colors ${
-                clearArmed
-                  ? "bg-staff-danger text-white"
-                  : "border-2 border-staff-line-strong text-staff-ink hover:bg-staff-sunken"
+              className={`min-h-[2.545rem] rounded-xl px-3 text-base font-semibold transition-colors ${
+                clearArmed ? "bg-pos-brand-tint text-pos-brand" : "text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
               }`}
             >
               {clearArmed ? t("pos.clearConfirm") : t("pos.clear")}
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            data-action="print"
+            className="mt-2 flex h-[4rem] w-full items-center justify-center gap-3 rounded-pos bg-pos-brand px-4 text-[1.364rem] font-bold whitespace-nowrap text-white tabular-nums transition-colors hover:bg-pos-brand-hover disabled:cursor-not-allowed disabled:bg-pos-sunken disabled:text-pos-muted"
+          >
+            <Icon name="printer" size={24} />
+            {submitting ? t("pos.printing") : t("pos.printTotal", { total: formatCents(total) })}
+          </button>
         </div>
       </aside>
 
-      {/* Phones only: the panes stack, so the ticket is a long scroll below
-          the menu. A sticky bar keeps the count and total in view and jumps
-          to it. Tablets see the ticket pane all the time and never get this. */}
-      {lines.length > 0 && (
-        <button
-          type="button"
-          onClick={() => ticketPaneRef.current?.scrollIntoView({ block: "start" })}
-          className="sticky bottom-0 z-20 flex min-h-14 items-center justify-between gap-3 bg-staff-accent px-4 text-base font-semibold text-white md:hidden"
-        >
-          <span>{t("pos.viewTicket", { n: itemCount })}</span>
-          <span>{formatCents(total)}</span>
-        </button>
+      {/* --------------------------------------- customer details + notes -- */}
+      {detailsOpen && (
+        <div role="dialog" aria-modal="true" aria-label={mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")} className="fixed inset-0 z-50 flex justify-end">
+          <button aria-hidden="true" tabIndex={-1} className="absolute inset-0 bg-pos-scrim" onClick={() => setDetailsOpen(false)} />
+          <div className="pos-sheet-in relative z-10 flex h-full w-full max-w-[26rem] flex-col bg-pos-bg shadow-pos-raised">
+            <div className="flex h-[var(--pos-top)] shrink-0 items-center justify-between gap-4 px-6">
+              <h2 className="text-[1.273rem] font-bold">{mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}</h2>
+              <button
+                type="button"
+                data-action="details-done"
+                onClick={() => setDetailsOpen(false)}
+                className="flex h-[2.545rem] items-center rounded-xl bg-pos-brand px-5 text-base font-bold text-white hover:bg-pos-brand-hover"
+              >
+                {t("pos.details.done")}
+              </button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-2 pb-8">
+              {mode === "takeout" && (
+                <>
+                  <div role="group" aria-label={t("pos.takeoutKind")} className="grid grid-cols-2 gap-1 rounded-2xl bg-pos-sunken p-1">
+                    {(["phone", "walk_in"] as const).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        data-channel={c}
+                        aria-pressed={channel === c}
+                        onClick={() => setChannel(c)}
+                        className={`flex h-[2.545rem] items-center justify-center gap-2 rounded-xl text-base font-bold transition-colors ${
+                          channel === c ? "bg-pos-brand text-white shadow-pos-card" : "text-pos-ink hover:bg-pos-card/60"
+                        }`}
+                      >
+                        <Icon name={c === "phone" ? "phone" : "store"} size={20} />
+                        {t(`channel.${c}`)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label>
+                    <span className={label}>{t("pos.customerName")}</span>
+                    <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" className={field} />
+                  </label>
+
+                  <label>
+                    <span className={label}>{channel === "phone" ? t("pos.phone") : t("pos.phoneOptional")}</span>
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="off"
+                      value={phone}
+                      onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
+                      aria-invalid={phoneBad}
+                      className={`${field} tabular-nums ${phoneBad ? "shadow-[inset_0_0_0_2px_var(--color-pos-brand)]" : ""}`}
+                    />
+                    {phoneBad && <span className="mt-1 block text-base font-medium text-pos-brand">{t("pos.phoneInvalid")}</span>}
+                  </label>
+
+                  {returningHere && (
+                    <div className="flex flex-col gap-3 rounded-pos bg-pos-card p-4 shadow-pos-card">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="flex items-center gap-2 text-base">
+                          <Icon name="user" size={18} className="text-pos-gold" />
+                          <span>
+                            <span className="text-pos-muted">{t("pos.returning")}</span>{" "}
+                            <span className="font-semibold">{returningHere.name}</span>
+                          </span>
+                        </span>
+                        {returningHere.name && name.trim() !== returningHere.name && (
+                          <button
+                            type="button"
+                            onClick={() => setName(returningHere.name ?? "")}
+                            className="min-h-[2.545rem] rounded-xl px-3 text-base font-semibold text-pos-brand hover:bg-pos-brand-tint"
+                          >
+                            {t("pos.useName")}
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-base font-medium text-pos-muted">{t("pos.recentOrders")}</div>
+                      <ul className="flex flex-col gap-2">
+                        {returningHere.orders.map((o) => (
+                          <li key={o.id} className="flex items-center justify-between gap-2 rounded-xl bg-pos-bg py-2 pr-2 pl-3">
+                            <span className="min-w-0 text-base">
+                              <span className="block text-pos-muted tabular-nums">
+                                {o.businessDate} · {o.orderNumber} · {formatCents(o.totalCents)}
+                              </span>
+                              <span lang="zh-Hant" className="block truncate font-medium">
+                                {o.items.map((l) => `${l.quantity}× ${l.nameZh ?? l.nameEn}`).join("、")}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => reorder(o)}
+                              className="flex min-h-[2.545rem] shrink-0 items-center gap-1.5 rounded-xl bg-pos-brand-tint px-3 text-base font-semibold text-pos-brand hover:bg-pos-sunken"
+                            >
+                              <Icon name="repeat" size={16} />
+                              {t("pos.reorder")}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <label>
+                    <span className={label}>{t("pos.pickup")}</span>
+                    <select value={pickupValue} onChange={(e) => setPickup(e.target.value)} className={field} disabled={slots.length === 0}>
+                      {slots.length === 0 && <option value="">{now ? t("pos.noSlots") : t("common.loading")}</option>}
+                      {slots.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.value === "asap" ? t("pos.asap", { n: pickupOptions.leadMinutes }) : s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
+
+              <label>
+                <span className={label}>{t("pos.paymentNote")}</span>
+                <input
+                  value={paymentNote}
+                  onChange={(e) => setPaymentNote(e.target.value)}
+                  maxLength={200}
+                  placeholder={t("pos.paymentNotePlaceholder")}
+                  autoComplete="off"
+                  className={field}
+                />
+              </label>
+
+              <label>
+                <span className={label}>{t("pos.staffNote")}</span>
+                <textarea
+                  value={staffNote}
+                  onChange={(e) => setStaffNote(e.target.value)}
+                  maxLength={500}
+                  rows={2}
+                  placeholder={t("pos.staffNotePlaceholder")}
+                  className={`${field} resize-none py-3`}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
       )}
 
       {floorOpen && (
@@ -1012,9 +1084,10 @@ export default function StaffPos({
 
       {sheetItem && (
         <StaffItemSheet
-          key={sheetItem.id}
-          item={sheetItem}
-          menuNumber={menuNumber(sheetItem.id)}
+          key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}`}
+          item={sheetItem.item}
+          initialSizeId={sheetItem.sizeId}
+          menuNumber={menuNumber(sheetItem.item.id)}
           onAdd={addLine}
           onClose={() => setSheetItem(null)}
         />

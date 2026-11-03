@@ -65,9 +65,12 @@ const table = (label: string) => page.locator(`[data-table="${label}"]`);
 test("takeout phone order", async () => {
   await expect(page.locator('[data-mode="takeout"]')).toHaveAttribute("aria-pressed", "true");
   await addDish();
+  // The customer fields live in the sheet behind the context chip.
+  await page.locator('[data-context="takeout"]').click();
   await page.locator('[data-channel="phone"]').click();
   await page.getByLabel("客人姓名").fill("E2E Phone Test");
   await page.getByLabel("電話", { exact: true }).fill("6195550188");
+  await page.locator('[data-action="details-done"]').click();
   await shot(page, "pos-takeout");
   const number = await print();
   expect(number).toMatch(/^A-\d{3}$/);

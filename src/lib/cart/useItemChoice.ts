@@ -16,9 +16,12 @@ import { resolveLinePrice } from "@/lib/cart/pricing";
  *
  * Mount it under a component keyed by item id, so a new item starts clean.
  */
-export function useItemChoice(item: MenuItem) {
+export function useItemChoice(item: MenuItem, initialSizeId?: string) {
   const sizes = itemSizes(item);
-  const [sizeId, setSizeId] = useState<string>(sizes[0]?.id ?? "");
+  // A caller that already knows the size (the POS tray button) opens on it.
+  const [sizeId, setSizeId] = useState<string>(() =>
+    sizes.some((s) => s.id === initialSizeId) ? initialSizeId! : (sizes[0]?.id ?? ""),
+  );
 
   /**
    * Single-choice REQUIRED groups open on their first option.
