@@ -166,8 +166,12 @@
  * status colours used only for status. Nothing here is used outside
  * [data-kitchen-surface].
  *
- * Contrast on white: ink 16.9:1, soft 8.1:1, faint 5.6:1, accent 6.0:1
- * (white on accent 6.0:1), danger 6.2:1, warn 5.9:1.
+ * READABILITY FLOOR (the people using this include older staff with poor
+ * eyesight, on a tablet at arm's length): every text colour here is at least
+ * 7:1 on every staff background, its own tint included. Worst case is on
+ * `sunken`: ink 14.3, soft and faint 7.6, accent 7.3, danger 7.3, warn 7.4,
+ * blue 7.9; tinted pills 7.5 or more; white on accent 8.8, on danger 8.9.
+ * `faint` is no longer lighter than `soft`: there are no pale captions.
  */
 @theme {
   --color-staff-bg: #f3f2ef;
@@ -177,18 +181,39 @@
   --color-staff-line-strong: #c7c3ba;
   --color-staff-ink: #1b1a17;
   --color-staff-soft: #4b4741;
-  --color-staff-faint: #66625b;
-  --color-staff-accent: #0d6b5d;
-  --color-staff-accent-hover: #09564b;
+  --color-staff-faint: #4b4741;
+  --color-staff-accent: #08544a;
+  --color-staff-accent-hover: #063f38;
   --color-staff-accent-tint: #e2f0ec;
-  --color-staff-danger: #b3261e;
+  --color-staff-danger: #8f1d17;
   --color-staff-danger-tint: #fbeae8;
-  --color-staff-warn: #8a5300;
+  --color-staff-warn: #6a3f00;
   --color-staff-warn-tint: #fdf1d8;
-  --color-staff-blue: #2f5486;
+  --color-staff-blue: #264670;
   --color-staff-blue-tint: #e6edf6;
   --font-staff: var(--font-geist), "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC",
     "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+/*
+ * ---- STAFF TYPE SCALE ----------------------------------------------------
+ *
+ * Every size in the staff area is in rem, so the floor is set once, here: on
+ * a page that renders the kitchen surface, 1rem is 22px. That makes the
+ * smallest text the components use (text-base) 22px, dish Chinese (text-2xl)
+ * 33px, and a 3rem control 66px, past the 64px tap-target floor, without a
+ * pixel value in any component. Media queries are unaffected: their rem is
+ * the browser's initial 16px, so md/lg still mean tablet portrait/landscape.
+ *
+ * LARGE TEXT (a per-device toggle in the nav, KitchenShell) multiplies
+ * that by 1.25: 27.5px. Same mechanism, so every control grows with its type.
+ * The customer site never renders [data-kitchen-surface], so it is untouched.
+ */
+html:has([data-kitchen-surface]) {
+  font-size: 137.5%;
+}
+html:has([data-kitchen-surface][data-large-text]) {
+  font-size: 171.875%;
 }
 
 @theme inline {

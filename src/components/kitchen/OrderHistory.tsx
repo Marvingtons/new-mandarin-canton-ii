@@ -13,12 +13,18 @@ import {
 } from "@/lib/orders/history";
 import {
   ORDER_CHANNELS,
+  TAKEOUT_CHANNELS,
   ORDER_STATUSES,
   type OrderChannel,
   type OrderStatus,
 } from "@/lib/orders/types";
 import { useKT } from "@/components/kitchen/KitchenI18n";
-import KitchenOrderCard, { ChannelBadge, StatusPill, type CardAction } from "@/components/kitchen/KitchenOrderCard";
+import KitchenOrderCard, {
+  ChannelBadge,
+  StatusPill,
+  TableBadge,
+  type CardAction,
+} from "@/components/kitchen/KitchenOrderCard";
 import Icon from "@/components/kitchen/Icon";
 
 /**
@@ -129,21 +135,24 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const multiDay = range.from !== range.to;
   const chip = (on: boolean) =>
-    `min-h-12 rounded-full border px-4 text-sm font-medium whitespace-nowrap transition-colors ${
+    `min-h-12 rounded-full border px-4 text-base font-medium whitespace-nowrap transition-colors ${
       on
         ? "border-staff-ink bg-staff-ink text-white"
         : "border-staff-line-strong bg-staff-panel text-staff-soft hover:text-staff-ink"
     }`;
   const segment = (on: boolean) =>
-    `min-h-12 rounded-md px-4 text-sm font-semibold whitespace-nowrap transition-colors ${
+    `min-h-12 rounded-md px-4 text-base font-semibold whitespace-nowrap transition-colors ${
       on ? "bg-staff-panel text-staff-ink shadow-[0_1px_2px_rgba(27,26,23,0.12)]" : "text-staff-soft hover:text-staff-ink"
     }`;
   const secondary =
-    "flex min-h-12 items-center gap-2 rounded-md border border-staff-line-strong bg-staff-panel px-4 text-sm font-medium text-staff-ink transition-colors hover:bg-staff-sunken disabled:opacity-40";
+    "flex min-h-12 items-center gap-2 rounded-md border border-staff-line-strong bg-staff-panel px-4 text-base font-medium text-staff-ink transition-colors hover:bg-staff-sunken disabled:opacity-40";
   const dateInput =
     "min-h-12 rounded-md border border-staff-line-strong bg-staff-panel px-3 text-base text-staff-ink outline-none focus:border-staff-accent";
+  // One row per order from a landscape tablet up; stacked below that. Sized
+  // in rem against the staff type scale (1rem is 22px), so the customer
+  // column keeps room at 1024px.
   const columns =
-    "md:grid-cols-[5.5rem_6.5rem_minmax(0,1fr)_7rem_4rem_6.5rem_8rem_6rem]";
+    "lg:grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_5.5rem_2.5rem_5rem_6rem_4.5rem]";
 
   return (
     <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-16">
@@ -167,7 +176,7 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
           </div>
           {preset === "custom" && (
             <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 text-sm text-staff-soft">
+              <label className="flex items-center gap-2 text-base text-staff-soft">
                 {t("history.from")}
                 <input
                   type="date"
@@ -180,7 +189,7 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
                   className={dateInput}
                 />
               </label>
-              <label className="flex items-center gap-2 text-sm text-staff-soft">
+              <label className="flex items-center gap-2 text-base text-staff-soft">
                 {t("history.to")}
                 <input
                   type="date"
@@ -212,7 +221,7 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div role="group" aria-label={t("history.status")} className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-sm font-medium text-staff-faint">{t("history.status")}</span>
+            <span className="mr-1 text-base font-medium text-staff-faint">{t("history.status")}</span>
             {ORDER_STATUSES.map((s) => (
               <button
                 key={s}
@@ -228,8 +237,36 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
               </button>
             ))}
           </div>
+          {/* Service: the two halves of the POS, as one tap each. Sets the same
+              channel filter as the chips below, so the server reads one rule. */}
+          <div role="group" aria-label={t("history.service")} className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-base font-medium text-staff-faint">{t("history.service")}</span>
+            {(
+              [
+                ["all", [] as OrderChannel[], "history.all"],
+                ["dineIn", ["dine_in"] as OrderChannel[], "history.service.dineIn"],
+                ["takeout", [...TAKEOUT_CHANNELS] as OrderChannel[], "history.service.takeout"],
+              ] as const
+            ).map(([id, set, label]) => {
+              const on = set.length === channels.length && set.every((c) => channels.includes(c));
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => {
+                    setChannels([...set]);
+                    setPage(1);
+                  }}
+                  className={chip(on)}
+                >
+                  {t(label)}
+                </button>
+              );
+            })}
+          </div>
           <div role="group" aria-label={t("history.channel")} className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-sm font-medium text-staff-faint">{t("history.channel")}</span>
+            <span className="mr-1 text-base font-medium text-staff-faint">{t("history.channel")}</span>
             {ORDER_CHANNELS.map((c) => (
               <button
                 key={c}
@@ -258,13 +295,13 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
             { label: t("history.summary.cancelled"), value: String(data.summary.cancelledCount), tone: "text-staff-faint" },
           ].map((stat) => (
             <div key={stat.label} className="border-b border-staff-line px-4 py-3 sm:border-r lg:border-b-0">
-              <dt className="text-sm text-staff-faint">{stat.label}</dt>
+              <dt className="text-base text-staff-faint">{stat.label}</dt>
               <dd className={`mt-0.5 text-2xl font-semibold ${stat.tone}`}>{stat.value}</dd>
             </div>
           ))}
           <div className="col-span-2 flex flex-col justify-center gap-1.5 px-4 py-3 sm:col-span-4 lg:col-span-1">
             {ORDER_CHANNELS.map((c) => (
-              <div key={c} className="flex items-center justify-between gap-3 text-sm">
+              <div key={c} className="flex items-center justify-between gap-3 text-base">
                 <ChannelBadge channel={c} />
                 <span className="text-staff-soft">
                   {data.summary.byChannel[c].orderCount} · <span className="font-semibold text-staff-ink">{formatCents(data.summary.byChannel[c].salesCents)}</span>
@@ -289,7 +326,7 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
 
       {/* -------------------------------------------------------- rows -- */}
       <div className="mt-5 overflow-hidden rounded-lg border border-staff-line bg-staff-panel" aria-busy={loading}>
-        <div className={`hidden gap-3 border-b border-staff-line bg-staff-bg px-4 py-2.5 text-xs font-semibold text-staff-faint md:grid ${columns}`}>
+        <div className={`hidden gap-3 border-b border-staff-line bg-staff-bg px-4 py-2.5 text-base font-semibold text-staff-faint lg:grid ${columns}`}>
           <span>{t("history.col.number")}</span>
           <span>{t("history.col.time")}</span>
           <span>{t("history.col.customer")}</span>
@@ -325,30 +362,34 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
                   }`}
                 >
                   <span className="text-lg font-semibold">{o.orderNumber}</span>
-                  <span className="text-sm text-staff-soft">
+                  <span className="text-base text-staff-soft">
                     {multiDay ? `${o.businessDate.slice(5)} ` : ""}
                     {formatPickupTime(o.createdAt, timezone)}
                   </span>
-                  <span className="col-span-3 min-w-0 md:col-span-1">
-                    <span className="block truncate text-base font-medium">{o.customer.name}</span>
-                    {o.customer.phone && (
-                      <span className="block truncate text-sm text-staff-faint">{formatPhoneNational(o.customer.phone)}</span>
+                  <span className="col-span-3 min-w-0 lg:col-span-1">
+                    {o.channel === "dine_in" ? (
+                      <TableBadge order={o} />
+                    ) : (
+                      <span className="block truncate text-base font-medium">{o.customer.name}</span>
+                    )}
+                    {o.channel !== "dine_in" && o.customer.phone && (
+                      <span className="block truncate text-base text-staff-faint">{formatPhoneNational(o.customer.phone)}</span>
                     )}
                   </span>
                   <span>
                     <ChannelBadge channel={o.channel} />
                   </span>
-                  <span className="text-sm text-staff-soft">{t("history.itemsCount", { n: itemCount })}</span>
+                  <span className="text-base text-staff-soft">{t("history.itemsCount", { n: itemCount })}</span>
                   <span className={`text-right text-base font-semibold ${o.status === "CANCELLED" ? "text-staff-faint line-through" : ""}`}>
                     {formatCents(o.totals.totalCents)}
                   </span>
                   <span>
                     <StatusPill status={o.status} />
                   </span>
-                  <span className="flex flex-wrap items-center gap-1 text-sm text-staff-faint">
+                  <span className="flex flex-wrap items-center gap-1 text-base text-staff-faint">
                     {deliveries > 0 && t("history.sent", { n: deliveries })}
                     {multi && (
-                      <span className="rounded-full bg-staff-danger-tint px-2 py-0.5 text-xs font-semibold text-staff-danger">
+                      <span className="rounded-full bg-staff-danger-tint px-2 py-0.5 text-base font-semibold text-staff-danger">
                         {t("card.multiDelivery", { d: deliveries, f: o.fetchCount ?? 0 })}
                       </span>
                     )}
@@ -370,7 +411,7 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
       {/* ---------------------------------------------------- paging -- */}
       {data && data.total > 0 && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm text-staff-faint">
+          <span className="text-base text-staff-faint">
             {t("history.totalRows", { n: data.total })} · {t("history.page", { page, pages })}
           </span>
           <div className="flex gap-2">

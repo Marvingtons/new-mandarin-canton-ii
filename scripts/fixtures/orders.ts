@@ -169,6 +169,10 @@ export function fixtureOrder(): Order {
     channel: "web",
     paymentNote: null,
     staffNote: null,
+    tableLabel: null,
+    guestCount: null,
+    isAddon: false,
+    tableClearedAt: null,
     createdAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
   };
@@ -490,6 +494,10 @@ export function sqlShapedOrder(): Order {
     channel: "web",
     paymentNote: null,
     staffNote: null,
+    tableLabel: null,
+    guestCount: null,
+    isAddon: false,
+    tableClearedAt: null,
     createdAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
   } as unknown as Order;
@@ -538,3 +546,52 @@ export async function fixtureOrders(): Promise<NamedOrder[]> {
     { name: "malformed", order: malformedOrder(), totalsCoherent: false },
   ];
 }
+
+/**
+ * A party of three at table 4: the dine-in header (inverted 桌 4 TABLE 4, then
+ * 堂食 DINE IN · 3 位 guests), no customer block, no pickup box.
+ */
+export function dineInOrder(): Order {
+  const base = fixtureOrder();
+  return {
+    ...base,
+    id: 2,
+    orderNumber: "A-021",
+    channel: "dine_in",
+    customer: { name: "Table 4", phone: "" },
+    tableLabel: "4",
+    guestCount: 3,
+    items: base.items.slice(0, 3),
+    totals: totalsFor(base.items.slice(0, 3)),
+  };
+}
+
+/** A second round for the combined 4+5: the widest table label, plus 加菜 ADD-ON. */
+export function dineInAddonOrder(): Order {
+  const base = fixtureOrder();
+  return {
+    ...dineInOrder(),
+    id: 3,
+    orderNumber: "A-024",
+    tableLabel: "4+5",
+    guestCount: 9,
+    isAddon: true,
+    items: base.items.slice(0, 1),
+    totals: totalsFor(base.items.slice(0, 1)),
+  };
+}
+
+/** A staff phone order: 外賣 TAKEOUT, the customer up top, the 電話訂單 tag. */
+export function phoneTakeoutOrder(): Order {
+  const base = fixtureOrder();
+  return {
+    ...base,
+    id: 4,
+    orderNumber: "A-022",
+    channel: "phone",
+    customer: { name: "Mrs. Chan", phone: "+16195550177" },
+    items: base.items.slice(0, 3),
+    totals: totalsFor(base.items.slice(0, 3)),
+  };
+}
+

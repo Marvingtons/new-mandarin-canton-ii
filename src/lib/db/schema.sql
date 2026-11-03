@@ -113,10 +113,22 @@ create table if not exists orders (
   payment_note      text,
   -- Internal staff note. Never printed. Also where a cancellation's reason goes.
   staff_note        text,
+  -- Dine-in (migration 010). The table as staff call it, "4" or "4+5" for two
+  -- pushed together; the labels a room allows live in lib/kitchen/floor-plan.ts.
+  table_label       text,
+  -- Party size. Guidance on the ticket, never a cap.
+  guest_count       int,
+  -- A later round of dishes for a party already seated. Prints 加菜 ADD-ON.
+  is_addon          boolean     not null default false,
+  -- When staff cleared the table. A dine_in row with this NULL is an open
+  -- table; occupancy is derived from exactly that.
+  table_cleared_at  timestamptz,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
-  constraint orders_channel_check check (channel in ('web', 'phone', 'walk_in')),
+  constraint orders_channel_check check (channel in ('web', 'phone', 'walk_in', 'dine_in')),
+
+  constraint orders_guest_count_check check (guest_count is null or guest_count >= 1),
 
   constraint orders_status_check check (
     status in (
@@ -153,6 +165,12 @@ create index if not exists orders_history_idx
 -- Repeat-customer lookup on the POS. The phone lives in the customer jsonb.
 create index if not exists orders_customer_phone_idx
   on orders (tenant_id, (customer->>'phone'));
+
+-- Table occupancy on the POS floor plan: open dine-in rows only, so it stays
+-- tiny however long the history grows.
+create index if not exists orders_open_tables_idx
+  on orders (tenant_id, table_label)
+  where channel = 'dine_in' and table_cleared_at is null;
 
 -- Drives the CloudPRNT claim and the unprinted-order alert sweep. Partial, so
 -- it stays small: only orders that still need something to happen to them.

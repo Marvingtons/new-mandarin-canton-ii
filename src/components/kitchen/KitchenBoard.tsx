@@ -94,7 +94,7 @@ function PrinterStrip({
 
   if (!state.urgent) {
     return (
-      <span role="status" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-staff-line bg-staff-panel px-3 text-sm text-staff-soft">
+      <span role="status" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-staff-line bg-staff-panel px-3 text-base text-staff-soft">
         <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${state.dot}`} />
         {t(state.label)}
         {seen && <span className="text-staff-faint">· {t("printer.lastSeen", { ago: seen })}</span>}
@@ -108,11 +108,11 @@ function PrinterStrip({
         <Icon name="printer" size={22} />
         {t(state.label)}
       </span>
-      {seen && <span className="text-sm opacity-85">{t("printer.lastSeen", { ago: seen })}</span>}
+      {seen && <span className="text-base opacity-85">{t("printer.lastSeen", { ago: seen })}</span>}
       {printer.statusCode && (
-        <span className="text-sm opacity-85">{t("printer.reported", { code: printer.statusCode })}</span>
+        <span className="text-base opacity-85">{t("printer.reported", { code: printer.statusCode })}</span>
       )}
-      <span className="w-full text-sm opacity-90">{t("printer.waitingNote")}</span>
+      <span className="w-full text-base opacity-90">{t("printer.waitingNote")}</span>
     </div>
   );
 }
@@ -313,7 +313,7 @@ export default function KitchenBoard({
 
         <div className="flex flex-wrap items-center gap-2">
           <PrinterStrip printer={printer} placement="header" />
-          <span className="px-1 text-sm text-staff-faint">
+          <span className="px-1 text-base text-staff-faint">
             {lastSync
               ? t("board.updated", {
                   time: lastSync.toLocaleTimeString("en-US", { timeStyle: "medium" }),
@@ -323,7 +323,7 @@ export default function KitchenBoard({
           <button
             onClick={toggleMute}
             aria-pressed={muted}
-            className="flex min-h-12 items-center gap-2 rounded-md border border-staff-line-strong bg-staff-panel px-4 text-sm font-medium text-staff-ink transition-colors hover:bg-staff-sunken"
+            className="flex min-h-12 items-center gap-2 rounded-md border border-staff-line-strong bg-staff-panel px-4 text-base font-medium text-staff-ink transition-colors hover:bg-staff-sunken"
           >
             <Icon name={muted ? "bellOff" : "bell"} size={18} className={muted ? "text-staff-faint" : ""} />
             {muted ? t("board.muted") : t("board.soundOn")}
@@ -334,7 +334,7 @@ export default function KitchenBoard({
                 key={String(all)}
                 onClick={() => setShowCompleted(all)}
                 aria-pressed={showCompleted === all}
-                className={`min-h-12 rounded-md px-4 text-sm font-semibold transition-colors ${
+                className={`min-h-12 rounded-md px-4 text-base font-semibold transition-colors ${
                   showCompleted === all
                     ? "bg-staff-panel text-staff-ink shadow-[0_1px_2px_rgba(27,26,23,0.12)]"
                     : "text-staff-soft hover:text-staff-ink"
@@ -360,7 +360,7 @@ export default function KitchenBoard({
       )}
 
       {!printingConfigured && ordersConfigured && (
-        <p className="mt-4 rounded-lg border border-staff-line bg-staff-panel px-5 py-3 text-sm text-staff-soft">
+        <p className="mt-4 rounded-lg border border-staff-line bg-staff-panel px-5 py-3 text-base text-staff-soft">
           {t("board.noPrinter")}
         </p>
       )}

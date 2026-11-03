@@ -10,6 +10,7 @@ import { getMenu } from "@/lib/menu/source";
 import { composeOrder, staffLunchAllowed } from "@/lib/orders/compose";
 import {
   StaffOrderRequestSchema,
+  type StaffDineInRequest,
   type StaffOrderRequest,
 } from "@/lib/orders/requestSchema";
 import { isValidStaffPickup, type PickupOptions } from "@/lib/order/pickup";
@@ -17,6 +18,9 @@ import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass
 import { readyWindow } from "@/lib/order/readyWindow";
 import { normalizePhone } from "@/lib/phone";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
+import { previewOrderingBlocked } from "@/lib/http/deployHost";
+import { tablesForLabel } from "@/lib/kitchen/floor-plan";
+import { TableConflictError } from "@/lib/orders/types";
 import { readPrinterStatus } from "@/lib/print/healthStore";
 import { derivePrinterHealth, type PrinterHealth } from "@/lib/print/printerStatus";
 import { cloudPrntConfigured } from "@/lib/print/status";
@@ -146,6 +150,9 @@ export type StaffOrderError =
   | "phone_invalid"
   | "pickup_invalid"
   | "item_unavailable"
+  | "table_invalid"
+  | "table_occupied"
+  | "table_not_open"
   | "rejected"
   | "unavailable";
 
@@ -154,7 +161,7 @@ function refuse(code: StaffOrderError, message: string, status = 400): Response 
 }
 
 /**
- * POST /api/kitchen/orders: a phone or walk-in order from the staff POS.
+ * POST /api/kitchen/orders: a phone, walk-in or dine-in order from the staff POS.
  *
  * ONE PIPELINE. This is the web checkout minus the OTP, and nothing else:
  *
@@ -175,8 +182,21 @@ function refuse(code: StaffOrderError, message: string, status = 400): Response 
  *
  * Payment is always PAY AT COUNTER. `paymentNote` records what happened on the
  * Clover terminal in words; there is no card field and never will be.
+ *
+ * DINE-IN is the same pipeline again, with a table instead of a customer and
+ * no pickup time: the label must be a seat in lib/kitchen/floor-plan, and
+ * createOrder refuses a table that is taken (or, for an add-on, not open)
+ * inside its own transaction. Not gated on store hours: the party is already
+ * sitting down.
+ *
+ * NOT ON A PREVIEW. Before the session, the rate limiter, the body or the
+ * database: a preview deployment shares production's database and printer, so
+ * an order placed there is cooked. See lib/http/deployHost.
  */
 export async function POST(request: Request): Promise<Response> {
+  const blocked = previewOrderingBlocked(request);
+  if (blocked) return blocked;
+
   const sessionKey = kitchenSessionKey(request);
   if (!sessionKey) return refuse("unauthorized", "unauthorized", 401);
 
@@ -188,6 +208,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   let body: StaffOrderRequest;
+  // Narrowed below; the dine-in branch leaves early.
   try {
     body = StaffOrderRequestSchema.parse(await request.json());
   } catch {
@@ -199,6 +220,8 @@ export async function POST(request: Request): Promise<Response> {
     console.error("[kitchen-orders] tax rate is not configured (TENANT_TAX_RATE_BPS)");
     return refuse("unavailable", "Tax rate is not configured. · 稅率未設定。", 503);
   }
+
+  if (body.channel === "dine_in") return placeDineIn(request, body, tenant.taxRateBps);
 
   // The customer. A phone order must have a callable number; a walk-in may
   // leave it blank, but anything typed must still be a real number.
@@ -302,6 +325,108 @@ export async function POST(request: Request): Promise<Response> {
   } catch (err) {
     console.error(
       "[kitchen-orders] could not store the order:",
+      err instanceof Error ? err.message : "unknown error",
+    );
+    return refuse("unavailable", "Could not save the order. Please try again. · 無法儲存訂單，請重試。", 503);
+  }
+}
+
+/**
+ * The dine-in half of POST. Same compose, same createOrder, same printer; the
+ * only new rule is the table, and createOrder enforces that.
+ */
+async function placeDineIn(
+  request: Request,
+  body: StaffDineInRequest,
+  taxRateBps: number,
+): Promise<Response> {
+  const tenant = publicTenant();
+  const tableIds = tablesForLabel(body.table.label);
+  if (!tableIds) {
+    return refuse("table_invalid", "That table is not on the floor plan. · 平面圖上沒有這張桌。");
+  }
+
+  const pickupOpts: PickupOptions = {
+    timezone: tenant.timezone,
+    leadMinutes: tenant.pickupLeadMinutes,
+    intervalMinutes: tenant.pickupSlotIntervalMinutes,
+  };
+  const now = new Date();
+  const bypass = isGateBypassRequest(request);
+
+  const composed = composeOrder(await getMenu(), body.lines, {
+    taxRateBps,
+    lunchAllowed: staffLunchAllowed({
+      now,
+      opts: pickupOpts,
+      override: body.lunchOverride === true,
+      bypass,
+    }),
+  });
+  if (!composed.ok) {
+    return refuse(composed.reason === "item_unavailable" ? "item_unavailable" : "rejected", composed.error);
+  }
+
+  // No pickup: the window is "now", so the board's timing reads sensibly.
+  const ready = readyWindow(now, pickupOpts, composed.hasLongPrep, null);
+  const clean = (value: string | undefined) => {
+    const trimmed = (value ?? "").trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  try {
+    const result = await createOrder({
+      tenantId: tenant.tenantId,
+      businessDate: businessDateFor(tenant.timezone, now),
+      orderNumberPrefix: tenant.orderNumberPrefix,
+      idempotencyKey: `pos:${body.idempotencyKey}`,
+      items: composed.lines,
+      totals: composed.totals,
+      // No customer at a table. A name every reader can print and search.
+      customer: { name: `Table ${body.table.label}`, phone: "" },
+      phoneVerifiedAt: now,
+      pickupAt: ready.from,
+      readyFrom: ready.from,
+      readyTo: ready.to,
+      channel: "dine_in",
+      paymentNote: clean(body.paymentNote),
+      staffNote: clean(body.staffNote),
+      dineIn: {
+        tableLabel: body.table.label,
+        tableIds,
+        guestCount: body.table.guests,
+        isAddon: body.addon === true,
+      },
+    });
+    return Response.json({
+      ok: true,
+      order: {
+        id: result.order.id,
+        orderNumber: result.order.orderNumber,
+        totalCents: result.order.totals.totalCents,
+        channel: result.order.channel,
+        tableLabel: result.order.tableLabel,
+        guestCount: result.order.guestCount,
+        isAddon: result.order.isAddon,
+      },
+      duplicate: !result.created,
+    });
+  } catch (err) {
+    if (err instanceof TableConflictError) {
+      return err.conflict === "occupied"
+        ? refuse(
+            "table_occupied",
+            `Table ${err.tableLabel} is taken. Clear it first. · ${err.tableLabel} 號桌有人，請先清台。`,
+            409,
+          )
+        : refuse(
+            "table_not_open",
+            `Table ${err.tableLabel} is not seated. · ${err.tableLabel} 號桌沒有客人。`,
+            409,
+          );
+    }
+    console.error(
+      "[kitchen-orders] could not store the dine-in order:",
       err instanceof Error ? err.message : "unknown error",
     );
     return refuse("unavailable", "Could not save the order. Please try again. · 無法儲存訂單，請重試。", 503);

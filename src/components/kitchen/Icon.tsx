@@ -3,6 +3,7 @@
  * stroke, no fill), so they sit together; replaces the emoji the board used
  * to lean on, which render differently on every tablet. Decorative by
  * default: the control around an icon carries the accessible name.
+ * `size` is the 16px-root design size; see the style below.
  */
 
 const PATHS = {
@@ -29,6 +30,14 @@ const PATHS = {
   repeat: "M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3",
   user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
   dot: "M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
+  /** A table seen from the side: top, two legs. */
+  table: "M3 8h18M5 8v12M19 8v12M3 8l2-3h14l2 3",
+  users:
+    "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
+  /** Free table: an empty circle, so "free" is a shape and not only a colour. */
+  circle: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z",
+  chevronDown: "M6 9l6 6 6-6",
+  type: "M4 7V4h16v3M9 20h6M12 4v16",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -45,8 +54,10 @@ export default function Icon({
   return (
     <svg
       aria-hidden="true"
-      width={size}
-      height={size}
+      // In rem, at the 16px design size: an icon drawn at 20 renders 1.25rem,
+      // so it grows with the staff type scale and with 大字 like the text
+      // beside it (globals.css, STAFF TYPE SCALE).
+      style={{ width: `${size / 16}rem`, height: `${size / 16}rem` }}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
