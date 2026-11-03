@@ -5,6 +5,7 @@ import { startVerification } from "@/lib/otp/twilio";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
 import { twilioConfig } from "@/config/tenant.server";
+import { previewOrderingBlocked } from "@/lib/http/deployHost";
 
 /**
  * POST /api/otp/start — send an SMS verification code.
@@ -25,6 +26,11 @@ export const runtime = "nodejs";
 const BodySchema = z.object({ phone: z.string().min(1).max(32) }).strict();
 
 export async function POST(request: Request): Promise<Response> {
+  // Not on a preview: this sends a real text on the production Twilio
+  // account. See lib/http/deployHost.
+  const blocked = previewOrderingBlocked(request);
+  if (blocked) return blocked;
+
   const ip = clientIp(request);
 
   const ipLimit = checkRateLimit("otp_start_ip", ip);

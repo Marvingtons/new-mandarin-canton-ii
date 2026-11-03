@@ -24,6 +24,7 @@ import {
 import { normalizePhone } from "@/lib/phone";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
+import { previewOrderingBlocked } from "@/lib/http/deployHost";
 
 /**
  * POST /api/orders — submit a pickup order.
@@ -71,6 +72,11 @@ function bad(message: string, status = 400, reason?: OrderRejection) {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // 0. Not on a preview. Before the rate limiter, the body, the database or
+  //    the printer: a preview shares all of production's bindings.
+  const blocked = previewOrderingBlocked(request);
+  if (blocked) return blocked;
+
   const limit = checkRateLimit("order_ip", clientIp(request));
   if (!limit.ok) return rateLimitResponse(limit);
 

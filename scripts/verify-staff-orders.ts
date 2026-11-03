@@ -121,7 +121,8 @@ let ipSeq = 0;
 async function webPost(m: Mods, lines: CartLine[], phone: string) {
   const e164 = `+1${phone.replace(/\D/g, "")}`;
   const res = await m.webOrders.POST(
-    new Request("https://example.test/api/orders", {
+    // localhost: POST /api/orders refuses any other host (lib/http/deployHost).
+    new Request("http://localhost/api/orders", {
       method: "POST",
       headers: {
         "content-type": "application/json",
