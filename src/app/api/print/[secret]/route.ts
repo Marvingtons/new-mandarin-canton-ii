@@ -327,11 +327,13 @@ export async function POST(
           job.id,
           decision.windowSeconds,
           "retry",
+          superseded,
         );
         if (!reoffered) {
           console.warn(
             `[cloudprnt] skip-retry ${job.orderNumber} delivery=${superseded ?? "none"} ` +
-              "already-confirmed or no longer QUEUED — not re-offering",
+              "already-confirmed, no longer QUEUED, superseded by another poll, or " +
+              "still inside its window — not re-offering",
           );
           return Response.json(NO_JOB);
         }

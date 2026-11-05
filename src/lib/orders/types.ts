@@ -207,6 +207,15 @@ export interface Order {
   fetchCount?: number;
   /** How many manual 重印 hand-overs this order has had. */
   reprintCount?: number;
+  /**
+   * Board only. When the CURRENT attempt to get this ticket on paper began
+   * (the order arriving, or the last 重印), if no delivery since then has been
+   * confirmed. Null once the printer confirms. The board shows a red "did not
+   * print" banner when this is more than 2 minutes old.
+   */
+  printPendingSince?: string | null;
+  /** Board only. True when printPendingSince is over 2 minutes old (server clock). */
+  printStuck?: boolean;
   /** Set only by a CloudPRNT DELETE — the printer's own confirmation. */
   printedAt: string | null;
   lastPrintError: string | null;

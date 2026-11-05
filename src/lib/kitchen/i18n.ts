@@ -78,6 +78,8 @@ const zhHant = {
   "board.actionUnreachable": "操作未能送達伺服器，請重試。",
   "board.requeued": "已重新排隊，打印機下次輪詢時會列印。",
   "board.cancelledNoReprint": "已取消的訂單不能重印。",
+  "board.printingNoReprint": "打印機正在列印這張單，請等一分鐘，仍未出單再重印。",
+  "board.stuckBanner": "{number} 單未印出。要重印嗎？",
   "board.cancelled": "訂單 {number} 已取消。",
 
   "printer.ok": "打印機正常",
@@ -350,6 +352,8 @@ const en: Record<KitchenKey, string> = {
   "board.actionUnreachable": "That action did not reach the server. Please try again.",
   "board.requeued": "Re-queued. The printer will pick it up on its next poll.",
   "board.cancelledNoReprint": "A cancelled order cannot be reprinted.",
+  "board.printingNoReprint": "The printer is printing this ticket now. Wait a minute, then reprint if it does not come out.",
+  "board.stuckBanner": "Ticket {number} did not print. Reprint?",
   "board.cancelled": "Order {number} cancelled.",
 
   "printer.ok": "Printer OK",

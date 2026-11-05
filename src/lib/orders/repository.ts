@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
-import { ordersPool, withTransaction } from "@/lib/db/postgres";
+import { lockedRead, ordersPool, withTransaction } from "@/lib/db/postgres";
 import {
   formatOrderNumber,
   isOrderStatus,
@@ -184,9 +184,11 @@ async function selectByIdempotencyKey(
   tenantId: string,
   idempotencyKey: string,
 ): Promise<Order | null> {
+  // FOR SHARE: a locking read is never answered from Hyperdrive's cache.
   const { rows } = await client.query(
     `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and idempotency_key = $2`,
+      where tenant_id = $1 and idempotency_key = $2
+      for share`,
     [tenantId, idempotencyKey],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
@@ -339,7 +341,9 @@ async function checkTable(
         and channel = 'dine_in'
         and table_cleared_at is null
         and status <> 'CANCELLED'
-      order by created_at asc`,
+      order by created_at asc
+      -- Locking, so it is never a cached answer: seating decides on this.
+      for share`,
     [tenantId],
   );
   const open = rows.map((r) => ({
@@ -367,18 +371,24 @@ async function checkTable(
  * order frees the table without a separate step.
  */
 export async function listOpenTables(tenantId: string): Promise<OpenTable[]> {
-  const { rows } = await ordersPool().query(
+  // The floor plan seats parties from this, so it must be fresh: the rows are
+  // read with FOR SHARE (in a subquery, since a grouped query cannot lock).
+  const { rows } = await lockedRead(
     `select table_label,
             (array_agg(guest_count order by is_addon asc, created_at asc))[1] as guest_count,
             min(created_at)                                         as seated_at,
             count(*)::int                                           as order_count,
             array_agg(order_number order by created_at asc)         as order_numbers,
             coalesce(sum((totals->>'totalCents')::bigint), 0)::bigint as total_cents
-       from orders
-      where tenant_id = $1
-        and channel = 'dine_in'
-        and table_cleared_at is null
-        and status <> 'CANCELLED'
+       from (
+         select table_label, guest_count, is_addon, created_at, order_number, totals
+           from orders
+          where tenant_id = $1
+            and channel = 'dine_in'
+            and table_cleared_at is null
+            and status <> 'CANCELLED'
+          for share
+       ) open_orders
       group by table_label
       order by min(created_at) asc`,
     [tenantId],
@@ -540,13 +550,19 @@ export async function claimNextPrintJob(
  * confirmation gets the SAME ticket rather than a second one.
  */
 export async function currentPrintJob(tenantId: string): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
+  // FOR UPDATE: the poll's offer/hold/cap decision is made from this row. A
+  // cached copy of it (Hyperdrive served this query from a 60s cache) showed
+  // an already-replaced, expired delivery, and every poll re-offered the
+  // ticket. A locking read always goes to the database, and it waits for an
+  // in-progress confirmation to commit rather than reading around it.
+  const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1
         and status = any($2::text[])
         and print_attempts > 0
       order by created_at asc
-      limit 1`,
+      limit 1
+      for update`,
     [tenantId, PRINTABLE_STATUSES],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
@@ -571,6 +587,13 @@ export async function reofferPrintDelivery(
   orderId: number,
   windowSeconds: number,
   reason: Exclude<PrintDeliveryReason, "manual_reprint">,
+  /**
+   * The delivery the caller decided to replace: the print_delivery_id it read
+   * (null when nothing was in flight). The write only happens if that is still
+   * the order's delivery. This is what makes a decision taken on a stale read
+   * harmless: if anything re-offered or confirmed since, nothing is written.
+   */
+  supersedes: string | null,
 ): Promise<Order | null> {
   return withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -602,8 +625,15 @@ export async function reofferPrintDelivery(
              where d.id = orders.print_delivery_id
                and d.confirmed_at is not null
           )
+          -- COMPARE-AND-SET on the delivery identity. Only replace the delivery
+          -- the caller actually saw; a second poll that decided from an older
+          -- picture finds a different id here and writes nothing.
+          and print_delivery_id is not distinct from $6::uuid
+          -- And never inside a live window, whatever the caller believed: the
+          -- delivery being replaced must have expired (or there is none).
+          and (print_delivery_id is null or print_delivery_expires_at <= now())
         returning ${ORDER_COLUMNS}`,
-      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES],
+      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES, supersedes],
     );
     // No row matched: the order is no longer offerable (status changed, or its
     // current delivery was already confirmed). Do NOT create a delivery.
@@ -627,9 +657,12 @@ export async function getPrintDelivery(
   deliveryId: string,
 ): Promise<PrintDelivery | null> {
   if (!isDeliveryId(deliveryId)) return null;
-  const { rows } = await ordersPool().query(
+  // Locking read: "already confirmed?" decides whether the printer gets the
+  // body again, so it must never be a cached answer.
+  const { rows } = await lockedRead(
     `select ${DELIVERY_COLUMNS} from print_deliveries
-      where tenant_id = $1 and id = $2`,
+      where tenant_id = $1 and id = $2
+      for share`,
     [tenantId, deliveryId],
   );
   return rows.length > 0 ? mapDelivery(rows[0]) : null;
@@ -867,9 +900,10 @@ export async function printSegmentState(
   tenantId: string,
   orderId: number,
 ): Promise<PrintSegmentState> {
-  const { rows } = await ordersPool().query(
+  const { rows } = await lockedRead(
     `select print_segment, print_segments, print_job_key from orders
-      where tenant_id = $1 and id = $2`,
+      where tenant_id = $1 and id = $2
+      for share`,
     [tenantId, orderId],
   );
   if (rows.length === 0) return { segment: 0, segments: 0, jobKey: null };
@@ -972,9 +1006,10 @@ export async function requeueAfterPrinterRestored(
 
 /** How many orders are waiting for the printer right now. */
 export async function countQueuedOrders(tenantId: string): Promise<number> {
-  const { rows } = await ordersPool().query(
-    `select count(*)::int as n from orders
-      where tenant_id = $1 and status = 'QUEUED'`,
+  const { rows } = await lockedRead(
+    `select count(*)::int as n from (
+       select 1 from orders where tenant_id = $1 and status = 'QUEUED' for share
+     ) queued`,
     [tenantId],
   );
   return rows.length > 0 ? Number(rows[0].n) : 0;
@@ -1033,6 +1068,9 @@ export async function requeueForPrint(
   orderId: number,
   actor = "kitchen",
 ): Promise<Order | null> {
+  // Returns null when refused: the order is CANCELLED, or a delivery is in
+  // flight and still inside its window (see the WHERE below). The caller can
+  // tell which from a fresh getOrderById.
   return withTransaction(async (client) => {
     // alerted_at and alert_attempts are reset alongside the print counters, and
     // that is load-bearing rather than tidiness. findUnprintedForAlert only
@@ -1060,6 +1098,16 @@ export async function requeueForPrint(
           -- A cancelled order is never offered to the printer again, and a
           -- 重印 tapped on one must not quietly put it back in the queue.
           and status <> 'CANCELLED'
+          -- Never while the printer holds a live copy. Resetting here threw
+          -- away the delivery the printer was printing (A-001, 15 Oct: 重印
+          -- one second after the offer), so its confirmation could no longer
+          -- land and the order looked unprinted. Exactly one delivery at a
+          -- time: wait for this one to confirm or expire.
+          and not (
+            status = 'QUEUED'
+            and print_delivery_id is not null
+            and print_delivery_expires_at > now()
+          )
         returning ${ORDER_COLUMNS}`,
       [tenantId, orderId],
     );
@@ -1101,7 +1149,7 @@ export async function findUnprintedForAlert(
   today: string,
   maxAlertAttempts: number,
 ): Promise<Order[]> {
-  const { rows } = await ordersPool().query(
+  const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1
         and status in ('QUEUED', 'PRINT_FAILED')
@@ -1109,7 +1157,8 @@ export async function findUnprintedForAlert(
         and alert_attempts < $4
         and business_date >= $3::date - 1
         and created_at < now() - make_interval(secs => $2)
-      order by created_at asc`,
+      order by created_at asc
+      for share`,
     [tenantId, olderThanSeconds, today, maxAlertAttempts],
   );
   return rows.map(mapOrder);
@@ -1204,13 +1253,17 @@ export async function countOrdersForPhone(
   businessDate: string,
   phoneE164: string,
 ): Promise<number> {
-  const { rows } = await ordersPool().query(
-    `select count(*)::int as n from orders
-      where tenant_id = $1
-        and business_date = $2::date
-        and customer->>'phone' = $3
-        and channel = 'web'
-        and status <> 'CANCELLED'`,
+  // Decides whether an order is accepted, so never a cached count.
+  const { rows } = await lockedRead(
+    `select count(*)::int as n from (
+       select 1 from orders
+        where tenant_id = $1
+          and business_date = $2::date
+          and customer->>'phone' = $3
+          and channel = 'web'
+          and status <> 'CANCELLED'
+        for share
+     ) placed`,
     [tenantId, businessDate, phoneE164],
   );
   return Number(rows[0].n);
@@ -1220,9 +1273,10 @@ export async function getOrderByIdempotencyKey(
   tenantId: string,
   idempotencyKey: string,
 ): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
+  const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and idempotency_key = $2`,
+      where tenant_id = $1 and idempotency_key = $2
+      for share`,
     [tenantId, idempotencyKey],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
@@ -1243,11 +1297,12 @@ export async function findRecentOrderByNumber(
   tenantId: string,
   orderNumber: string,
 ): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
+  const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1 and order_number = $2
       order by created_at desc
-      limit 1`,
+      limit 1
+      for share`,
     [tenantId, orderNumber],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
@@ -1258,9 +1313,10 @@ export async function getOrderByNumber(
   businessDate: string,
   orderNumber: string,
 ): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
+  const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and business_date = $2::date and order_number = $3`,
+      where tenant_id = $1 and business_date = $2::date and order_number = $3
+      for share`,
     [tenantId, businessDate, orderNumber],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
@@ -1270,12 +1326,23 @@ export async function getOrderById(
   tenantId: string,
   orderId: number,
 ): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
-    `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2`,
+  // Locking read. The print confirmation compares this row's delivery id with
+  // the printer's token; a cached copy from before a reprint made every
+  // confirmation of the reprint look superseded, and it was dropped.
+  const { rows } = await lockedRead(
+    `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2
+      for share`,
     [tenantId, orderId],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
 }
+
+/**
+ * How long a ticket may go unconfirmed before the board says it did not print.
+ * A healthy print confirms in about 30 seconds (3 copies), so 2 minutes is
+ * well past normal and well before anyone at the pass would notice.
+ */
+export const PRINT_STUCK_SECONDS = 120;
 
 /**
  * The kitchen board query.
@@ -1293,26 +1360,50 @@ export async function listActiveOrders(
     ? [...ACTIVE_STATUSES, "COMPLETED", "CANCELLED"]
     : ACTIVE_STATUSES;
 
-  const { rows } = await ordersPool().query(
+  const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS},
             coalesce(d.delivery_count, 0) as delivery_count,
             coalesce(d.fetch_total, 0)    as fetch_total,
-            coalesce(d.reprint_count, 0)  as reprint_count
+            coalesce(d.reprint_count, 0)  as reprint_count,
+            p.pending_since               as print_pending_since,
+            (p.pending_since is not null
+              and p.pending_since < now() - make_interval(secs => $4)) as print_stuck
        from orders
        left join lateral (
          select count(*)                                          as delivery_count,
                 coalesce(sum(fetch_count), 0)                     as fetch_total,
-                count(*) filter (where reason = 'manual_reprint') as reprint_count
+                count(*) filter (where reason = 'manual_reprint') as reprint_count,
+                max(offered_at) filter (where reason = 'manual_reprint') as last_reprint_at
            from print_deliveries pd
           where pd.tenant_id = orders.tenant_id and pd.order_id = orders.id
        ) d on true
+       -- The current attempt began when the order arrived or at the last 重印.
+       -- It is pending while the order still waits for paper and nothing
+       -- offered since then has been confirmed.
+       left join lateral (
+         select case
+                  when orders.status in ('QUEUED', 'PRINT_FAILED')
+                   and not exists (
+                     select 1 from print_deliveries c
+                      where c.tenant_id = orders.tenant_id
+                        and c.order_id = orders.id
+                        and c.reason <> 'manual_reprint'
+                        and c.confirmed_at is not null
+                        and c.offered_at >= coalesce(d.last_reprint_at, orders.created_at)
+                   )
+                  then greatest(orders.created_at, coalesce(d.last_reprint_at, orders.created_at))
+                end as pending_since
+       ) p on true
       where tenant_id = $1
         and business_date = $2::date
         and status = any($3::text[])
       order by (status = 'PRINT_FAILED') desc,
                (status = 'QUEUED') desc,
-               created_at asc`,
-    [tenantId, businessDate, statuses],
+               created_at asc
+      -- Fresh, never cached: staff reprint and accept from this screen, and
+      -- the "did not print" banner is computed from it.
+      for share of orders`,
+    [tenantId, businessDate, statuses, PRINT_STUCK_SECONDS],
   );
   return rows.map(mapActiveOrder);
 }
@@ -1324,6 +1415,9 @@ function mapActiveOrder(row: QueryResultRow): Order {
     deliveryCount: Number(row.delivery_count),
     fetchCount: Number(row.fetch_total),
     reprintCount: Number(row.reprint_count),
+    printPendingSince:
+      row.print_pending_since == null ? null : (row.print_pending_since as Date).toISOString(),
+    printStuck: row.print_stuck === true,
   };
 }
 

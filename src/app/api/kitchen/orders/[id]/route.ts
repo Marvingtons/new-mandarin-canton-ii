@@ -70,10 +70,22 @@ export async function POST(
   // a single shared session with no per-person identity (see kitchenSession.ts).
   if (body.action === "reprint") {
     const requeued = await requeueForPrint(tenant.tenantId, orderId, "kitchen");
-    // requeueForPrint refuses a CANCELLED order: it is never offered again.
+    // requeueForPrint refuses a CANCELLED order (never offered again) and an
+    // order the printer is printing right now (one live delivery at a time).
     if (!requeued) {
+      const now = await getOrderById(tenant.tenantId, orderId);
+      if (now?.status === "CANCELLED") {
+        return Response.json(
+          { ok: false, code: "cancelled", error: "A cancelled order cannot be reprinted." },
+          { status: 409 },
+        );
+      }
       return Response.json(
-        { ok: false, code: "cancelled", error: "A cancelled order cannot be reprinted." },
+        {
+          ok: false,
+          code: "printing",
+          error: "The printer is printing this ticket now. Wait a minute, then reprint if it does not come out.",
+        },
         { status: 409 },
       );
     }

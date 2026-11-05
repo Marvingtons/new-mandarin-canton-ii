@@ -122,7 +122,9 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
               : null
             : body.code === "cancelled"
               ? t("board.cancelledNoReprint")
-              : t("board.actionFailed"),
+              : body.code === "printing"
+                ? t("board.printingNoReprint")
+                : t("board.actionFailed"),
         );
       } catch {
         setNotice(t("board.actionUnreachable"));

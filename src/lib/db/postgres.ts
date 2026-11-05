@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { Pool, type PoolClient } from "pg";
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import {
   connectionSource,
   ordersConnectionString,
@@ -234,3 +234,32 @@ export async function closeOrdersPool(): Promise<void> {
   nodePool = null;
   await p.end();
 }
+
+/**
+ * A read whose answer decides a write or a printer answer. Always fresh.
+ *
+ * Production reaches Postgres through Hyperdrive, and Hyperdrive can answer a
+ * plain SELECT from its query cache (60s by default, never invalidated by our
+ * own writes). A probe against the nmc-db config on 5 Nov 2026 showed a plain
+ * read of printer_status pinned to one value for 60s while the printer was
+ * updating it every 3s, and the same read with FOR SHARE inside a transaction
+ * fresh on every sample. Stale reads of the print state are what re-offered
+ * tickets every few seconds and dropped reprint confirmations.
+ *
+ * So: the SQL must carry a locking clause (FOR UPDATE / FOR SHARE, possibly in
+ * a subquery), and it runs inside its own transaction. That holds whatever the
+ * Hyperdrive caching setting is. Display-only reads (history, summaries) do not
+ * need this and should not pay for the lock.
+ */
+const LOCKING_CLAUSE = /\bfor\s+(update|no\s+key\s+update|share|key\s+share)\b/i;
+
+export async function lockedRead<R extends QueryResultRow = QueryResultRow>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<QueryResult<R>> {
+  if (!LOCKING_CLAUSE.test(sql)) {
+    throw new Error("lockedRead: the query must lock (FOR UPDATE or FOR SHARE) to bypass the read cache");
+  }
+  return withTransaction((client) => client.query<R>(sql, params));
+}
+
