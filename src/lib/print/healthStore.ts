@@ -1,6 +1,6 @@
 import "server-only";
 
-import { ordersPool } from "@/lib/db/postgres";
+import { lockedRead, ordersPool } from "@/lib/db/postgres";
 import type { PrinterCondition } from "@/lib/print/printerStatus";
 import { printerBlockedReason } from "@/lib/print/printerStatus";
 
@@ -206,11 +206,14 @@ export async function recordPoll(
 export async function readPrinterStatus(
   tenantId: string,
 ): Promise<PrinterStatusRow | null> {
-  const { rows } = await ordersPool().query(
+  // Locking read: the board and the offline/paper alerts act on this row, and
+  // a plain read of it was served from Hyperdrive's cache for 60s at a time.
+  const { rows } = await lockedRead(
     `select last_seen_at, online, paper_out, cover_open, paper_low,
             status_code, status_raw, blocked_since,
             offline_alerted_at, paper_alerted_at
-       from printer_status where tenant_id = $1`,
+       from printer_status where tenant_id = $1
+       for share`,
     [tenantId],
   );
   return rows.length > 0 ? mapRow(rows[0] as RawRow) : null;
