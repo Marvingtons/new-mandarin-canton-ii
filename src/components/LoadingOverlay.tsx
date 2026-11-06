@@ -14,7 +14,7 @@ import {
   YUAN_DS,
 } from "@/lib/brand/seal";
 import { restaurant } from "@/data/restaurant";
-import { HERO_POSTER } from "@/lib/heroMedia";
+import { HERO_POSTER, heroVideoSkipped } from "@/lib/heroMedia";
 import {
   INTRO_SESSION_KEY,
   introWillPlay,
@@ -27,24 +27,31 @@ import {
  * A chop is pressed, not drawn, so the whole moment is built around one
  * physical hit rather than a sequence of reveals:
  *
- *   0.00-0.45  the frame DRAWS. One continuous stroke on the bracket
+ *   0.00-0.30  the frame DRAWS. One continuous stroke on the bracket
  *              path, dasharray/offset, measured (FRAME_LENGTH) rather
  *              than guessed. The path's own start point sits at the top
  *              edge, so running the offset to zero lands the last units
  *              back at the top — the flourish before the press happens
  *              where the eye already is.
- *   0.45-0.53  the PRESS. Red ground and both characters snap 0 -> 1 in
+ *   0.30-0.38  the PRESS. Red ground and both characters snap 0 -> 1 in
  *              80ms together — one object arriving, not three fading —
  *              while the whole mark settles 1.06 -> 1.00 and -0.6deg -> 0
  *              on power4.out. No elastic: a stamp does not bounce back,
  *              it stops.
- *   0.45-0.75  the INK. A displaced duplicate of the red ground at 15%,
- *              gone over ~300ms, so the hit is rough and the rest clean.
- *   0.75-1.10  the WORDMARK letterpresses up 6px in the display face.
- *   ready      the CURTAIN lifts, its leading edge the hero's own hem
+ *   0.30-0.55  the INK. A displaced duplicate of the red ground at 15%,
+ *              gone over ~250ms, so the hit is rough and the rest clean.
+ *   0.60-1.00  the CURTAIN lifts, its leading edge the hero's own hem
  *              (HEM_D) — the ink screen tears away along exactly the line
  *              the hero settles on. The mark rides up with the screen; it
  *              never fades on its own.
+ *
+ * THE NAME IS NEVER HIDDEN. The wordmark under the seal is there from the
+ * first paint rather than letterpressed in at 0.75s, and the site header
+ * (brand lockup and nav) sits ABOVE the curtain while it is up (see
+ * `.stamp ~ [data-site-header]` in globals.css), so the restaurant's name
+ * is on screen from the first frame and the seal animates around it. The
+ * whole opening is ~1s; it used to be 1.75s at best and 2.4s at the cap,
+ * with the name behind ink for all of it.
  *
  * WHAT IT REFUSES: progress %, tagline, sound, particles, spinner, and —
  * the one that matters — a minimum display time. The old version of this
@@ -75,11 +82,11 @@ import {
  */
 
 /** Hard cap. Reveal regardless — the poster covers whatever is missing. */
-const CAP_MS = 1800;
-/** The timeline's own length, press to wordmark settled. */
-const READY_AT_MS = 1150;
-/** Curtain. */
-const WIPE_MS = 600;
+const CAP_MS = 800;
+/** The timeline's own length, draw to press settled. */
+const READY_AT_MS = 600;
+/** Curtain. Matches the transition on .stamp-out in globals.css. */
+const WIPE_MS = 400;
 /** Reduced motion gets the finished mark, faded, over the same gating. */
 const RM_FADE_MS = 300;
 
@@ -107,13 +114,12 @@ const RM_FADE_MS = 300;
  * this file already made for gating on HAVE_CURRENT_DATA instead of
  * canplaythrough; this applies it one step further out.
  *
- * 400ms is chosen against the timeline, not by feel: poster in the first
- * flight lands around 400-600ms, so poster + this grace still resolves
- * under READY_AT_MS and the animation stays the thing that decides when
- * the curtain lifts. Raising it past ~550 makes the video the decider
- * again on exactly the connections that can least afford it.
+ * 200ms since the opening was cut to ~1s: poster in the first flight
+ * lands around 400-600ms, so poster + this grace sits at or under CAP_MS
+ * and the cap, not the video, is the most that can ever decide the lift.
+ * (It was 400 against the old 1150ms timeline.)
  */
-const VIDEO_GRACE_MS = 400;
+const VIDEO_GRACE_MS = 200;
 
 const emptySubscribe = (): (() => void) => () => {};
 
@@ -146,15 +152,12 @@ function whenReady(): Promise<void> {
     ? document.fonts.ready.then(() => undefined).catch(() => undefined)
     : Promise.resolve();
 
-  // Under reduced motion HeroVideo never mounts a video at all — those
-  // visitors keep the poster — so waiting on one would park every single
-  // reduced-motion visitor on the 1.8s cap, every time. Measured: 1834ms
-  // hold with the video leg starved, against ~1.2s when it resolves. The
-  // poster leg above is the whole of readiness for them.
-  const reduced =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduced) return Promise.all([poster, fonts]).then(() => undefined);
+  // Under reduced motion or Save-Data HeroVideo never mounts a video at
+  // all — those visitors keep the poster — so waiting on one would park
+  // every one of them on the cap, every time. The poster leg above is the
+  // whole of readiness for them.
+  const noVideo = typeof window !== "undefined" && heroVideoSkipped();
+  if (noVideo) return Promise.all([poster, fonts]).then(() => undefined);
 
   /**
    * POSTER FIRST, MOVIE SECOND, ALWAYS.
@@ -341,7 +344,6 @@ export default function LoadingOverlay() {
       const press = root.querySelectorAll(".stamp-press");
       const mark = root.querySelector<SVGSVGElement>(".stamp-mark");
       const ink = root.querySelector<SVGGElement>(".stamp-ink");
-      const word = root.querySelector<HTMLElement>(".stamp-word");
 
       const t = gsap.timeline();
       tl = t;
@@ -354,7 +356,7 @@ export default function LoadingOverlay() {
         });
         t.to(frame, {
           strokeDashoffset: 0,
-          duration: 0.45,
+          duration: 0.3,
           ease: "power2.inOut",
         });
       }
@@ -367,7 +369,8 @@ export default function LoadingOverlay() {
       // draw — a red ghost under a frame that has not been pressed yet —
       // and the mark drew at 1.06 and then shrank. Measured, not guessed:
       // the ink layer read 0.15 at t+94ms against a press at t+450ms.
-      t.to(press, { opacity: 1, duration: 0.08, ease: "none" }, 0.45);
+      const PRESS_AT = 0.3;
+      t.to(press, { opacity: 1, duration: 0.08, ease: "none" }, PRESS_AT);
       if (mark) {
         t.fromTo(
           mark,
@@ -375,12 +378,12 @@ export default function LoadingOverlay() {
           {
             scale: 1,
             rotate: 0,
-            duration: 0.5,
+            duration: 0.3,
             ease: "power4.out",
             transformOrigin: "50% 50%",
             immediateRender: false,
           },
-          0.45,
+          PRESS_AT,
         );
       }
       if (ink) {
@@ -389,27 +392,14 @@ export default function LoadingOverlay() {
           { opacity: 0.15 },
           {
             opacity: 0,
-            duration: 0.3,
+            duration: 0.25,
             ease: "power2.out",
             immediateRender: false,
           },
-          0.45,
+          PRESS_AT,
         );
       }
-      if (word) {
-        t.fromTo(
-          word,
-          { opacity: 0, y: 6 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: 0.35,
-            ease: "power2.out",
-            immediateRender: false,
-          },
-          0.75,
-        );
-      }
+      // No wordmark tween: the name is on screen from the first paint.
     });
 
     // The gate. The timeline and the download race; whichever finishes

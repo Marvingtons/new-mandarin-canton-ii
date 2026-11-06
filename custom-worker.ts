@@ -2,6 +2,7 @@
 import handler from "./.open-next/worker.js";
 // @ts-ignore — wrangler compiles .wasm to a WebAssembly.Module at build time
 import resvgWasm from "@resvg/resvg-wasm/index_bg.wasm";
+import { isProductionHost } from "./src/lib/http/deployHost";
 
 /**
  * THE WASM HAND-OFF, and why it has to happen here.
@@ -72,9 +73,25 @@ interface CronEnv {
 }
 
 export default {
-  // Unchanged. The generated fetch never references `this`, so passing it
-  // through unbound is safe.
-  fetch: handler.fetch,
+  /*
+   * The adapter's fetch handler, untouched on production. Everywhere else
+   * (every workers.dev preview) each response also says noindex, nofollow,
+   * so a crawler that finds a branch URL never indexes a copy of the site.
+   * The root layout sends the same rule as a meta tag; this header also
+   * covers API and other non-HTML responses. Static files served straight
+   * from Workers Assets never reach this function and do not get it.
+   */
+  async fetch(
+    request: Request,
+    env: Parameters<typeof handler.fetch>[1],
+    ctx: ExecutionContext,
+  ): Promise<Response> {
+    const response = await handler.fetch(request, env, ctx);
+    if (isProductionHost(new URL(request.url).hostname)) return response;
+    const tagged = new Response(response.body, response);
+    tagged.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return tagged;
+  },
 
   async scheduled(
     controller: ScheduledController,
