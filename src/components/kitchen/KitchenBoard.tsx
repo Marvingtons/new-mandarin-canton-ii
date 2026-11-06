@@ -277,7 +277,13 @@ export default function KitchenBoard({
           order?: Order | null;
         };
         if (!data.ok) {
-          setNotice(data.code === "cancelled" ? t("board.cancelledNoReprint") : t("board.actionFailed"));
+          setNotice(
+            data.code === "cancelled"
+              ? t("board.cancelledNoReprint")
+              : data.code === "printing"
+                ? t("board.printingNoReprint")
+                : t("board.actionFailed"),
+          );
         } else if (action === "reprint") {
           setNotice(t("board.requeued"));
         } else if (action === "cancel" && data.order) {
@@ -301,6 +307,9 @@ export default function KitchenBoard({
   }, [notice]);
 
   const failedCount = orders.filter((o) => o.status === "PRINT_FAILED").length;
+  // Every ticket with no confirmed print 2+ minutes into its current attempt.
+  // Decided on the server (its clock, its fresh read), shown here first.
+  const stuck = orders.filter((o) => o.printStuck === true);
 
   return (
     <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-16">
@@ -363,6 +372,29 @@ export default function KitchenBoard({
         <p className="mt-4 rounded-lg border border-staff-line bg-staff-panel px-5 py-3 text-base text-staff-soft">
           {t("board.noPrinter")}
         </p>
+      )}
+
+      {stuck.length > 0 && (
+        <div role="alert" className="mt-4 flex flex-col gap-2">
+          {stuck.map((o) => (
+            <div
+              key={o.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-staff-danger py-2 pr-2 pl-5 text-white"
+            >
+              <span className="flex items-center gap-3 text-lg font-semibold">
+                <Icon name="alert" size={22} />
+                {t("board.stuckBanner", { number: o.orderNumber })}
+              </span>
+              <button
+                onClick={() => void act(o.id, "reprint")}
+                className="flex min-h-14 items-center gap-2 rounded-md bg-white px-5 text-lg font-semibold text-staff-danger hover:bg-white/90"
+              >
+                <Icon name="printer" size={20} />
+                {t("card.reprint")}
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {failedCount > 0 && (

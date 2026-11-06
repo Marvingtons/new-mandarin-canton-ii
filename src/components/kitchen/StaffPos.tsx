@@ -601,8 +601,14 @@ export default function StaffPos({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "reprint" }),
       });
-      const data = (await res.json()) as { ok: boolean };
-      setNotice(data.ok ? t("pos.reprinted", { number: order.orderNumber }) : t("board.actionFailed"));
+      const data = (await res.json()) as { ok: boolean; code?: string };
+      setNotice(
+        data.ok
+          ? t("pos.reprinted", { number: order.orderNumber })
+          : data.code === "printing"
+            ? t("board.printingNoReprint")
+            : t("board.actionFailed"),
+      );
     } catch {
       setNotice(t("board.actionUnreachable"));
     }

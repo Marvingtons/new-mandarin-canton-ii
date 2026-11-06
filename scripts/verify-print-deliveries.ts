@@ -430,7 +430,7 @@ async function s11_reofferStatusGuard(h: Handlers, deps: Deps): Promise<void> {
   // A poll that read the order as QUEUED an instant before this confirm would
   // reach reofferPrintDelivery with a stale row. The WRITE must refuse it — this
   // is the exact race that printed a second ticket on an order already PRINTED.
-  const reoffered = await deps.reofferPrintDelivery(TENANT, order.id, 90, "retry");
+  const reoffered = await deps.reofferPrintDelivery(TENANT, order.id, 90, "retry", p1.token);
   const after = await deps.getOrderById(TENANT, order.id);
   const ds = await deliveriesFor(deps, order.id);
   check("re-offer of a PRINTED order returns null", reoffered === null, reoffered ? "got an order" : "null");
