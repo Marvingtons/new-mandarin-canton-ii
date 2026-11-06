@@ -163,6 +163,7 @@ export function fixtureOrder(): Order {
     offeredAt: null,
     printDeliveryId: null,
     printDeliveryExpiresAt: null,
+    printPrinterId: null,
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,

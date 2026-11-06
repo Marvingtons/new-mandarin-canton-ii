@@ -141,7 +141,7 @@ export default function PosTopBar({
                   href={`${basePath}${s.path}`}
                   className="flex min-h-[2.545rem] items-center gap-3 rounded-xl px-3 text-base font-semibold text-pos-ink hover:bg-pos-sunken"
                 >
-                  <Icon name={s.id === "board" ? "columns" : "history"} size={20} className="text-pos-muted" />
+                  <Icon name={s.id === "board" ? "columns" : s.id === "printers" ? "printer" : "history"} size={20} className="text-pos-muted" />
                   {t(s.label)}
                 </Link>
               ))}

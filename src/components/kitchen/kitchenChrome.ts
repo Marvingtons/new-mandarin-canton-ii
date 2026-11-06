@@ -9,12 +9,13 @@ import type { KitchenKey } from "@/lib/kitchen/i18n";
  * export components only and Fast Refresh can keep their state.
  */
 
-export type KitchenSection = "board" | "pos" | "history";
+export type KitchenSection = "board" | "pos" | "history" | "printers";
 
 export const SECTIONS: { id: KitchenSection; path: string; label: KitchenKey }[] = [
   { id: "board", path: "", label: "nav.board" },
   { id: "pos", path: "/pos", label: "nav.pos" },
   { id: "history", path: "/history", label: "nav.history" },
+  { id: "printers", path: "/printers", label: "nav.printers" },
 ];
 
 /**

@@ -7,6 +7,12 @@ import { useKT } from "@/components/kitchen/KitchenI18n";
 import KitchenOrderCard, { type CardAction } from "@/components/kitchen/KitchenOrderCard";
 import Icon from "@/components/kitchen/Icon";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
+import type { PrinterHealth } from "@/lib/print/printerStatus";
+import {
+  channelWaiting,
+  type BoardPrintersPayload,
+} from "@/lib/print/printerPayload";
+import { useKitchenChrome } from "@/components/kitchen/kitchenChrome";
 
 /**
  * The counter-tablet order board.
@@ -30,18 +36,9 @@ interface KitchenBoardProps {
   printingConfigured: boolean;
 }
 
-interface PrinterPayload {
-  health: "ok" | "paper-out" | "cover-open" | "offline" | "unknown";
-  secondsSinceSeen: number | null;
-  statusCode: string | null;
-  blocked: boolean;
-  configured: boolean;
-}
-
-interface OrdersResponse {
+interface OrdersResponse extends Partial<BoardPrintersPayload> {
   ok: boolean;
   orders?: Order[];
-  printer?: PrinterPayload;
   error?: string;
 }
 
@@ -52,68 +49,95 @@ interface OrdersResponse {
  * evidence anybody has is that the board looks normal and the kitchen has gone
  * quiet. Nobody thinks to check the roll for twenty minutes. One line at the
  * top of the screen turns that into a glance.
+ *
+ * One entry per active printer since migration 011, each NAMED, because "the
+ * printer is offline" no longer says which station has stopped. A down printer
+ * whose tickets another printer is carrying says so: nothing is waiting, the
+ * tickets just come out somewhere else marked 轉印 REROUTED.
  */
 const PRINTER_STATE: Record<
-  PrinterPayload["health"],
+  PrinterHealth,
   { label: KitchenKey; dot: string; className: string; urgent: boolean }
 > = {
-  ok: { label: "printer.ok", dot: "bg-staff-accent", className: "", urgent: false },
-  "paper-out": { label: "printer.paperOut", dot: "bg-staff-warn", className: "bg-staff-warn-tint text-staff-warn", urgent: true },
-  "cover-open": { label: "printer.coverOpen", dot: "bg-staff-warn", className: "bg-staff-warn-tint text-staff-warn", urgent: true },
-  offline: { label: "printer.offline", dot: "bg-white", className: "bg-staff-danger text-white", urgent: true },
-  unknown: { label: "printer.unknown", dot: "bg-staff-line-strong", className: "", urgent: false },
+  ok: { label: "printer.state.ok", dot: "bg-staff-accent", className: "", urgent: false },
+  "paper-out": { label: "printer.state.paperOut", dot: "bg-staff-warn", className: "bg-staff-warn-tint text-staff-warn", urgent: true },
+  "cover-open": { label: "printer.state.coverOpen", dot: "bg-staff-warn", className: "bg-staff-warn-tint text-staff-warn", urgent: true },
+  offline: { label: "printer.state.offline", dot: "bg-white", className: "bg-staff-danger text-white", urgent: true },
+  unknown: { label: "printer.state.unknown", dot: "bg-staff-line-strong", className: "", urgent: false },
 };
 
+function seenText(t: ReturnType<typeof useKT>, seconds: number | null): string | null {
+  if (seconds === null) return null;
+  return seconds < 90
+    ? t("printer.secondsAgo", { n: seconds })
+    : t("printer.minutesAgo", { n: Math.round(seconds / 60) });
+}
+
 /**
- * Healthy: a quiet chip in the header ("the printer is fine" needs no more
- * than a dot). Unhealthy: a full-width bar under it, the first thing on the
- * screen, because that is when it is the answer to "why is nothing printing".
- * Rendered twice with a `placement`; each placement draws only its own case.
+ * Healthy: a quiet chip per printer in the header ("the printer is fine"
+ * needs no more than a dot). Unhealthy: a full-width bar under it, the first
+ * thing on the screen, because that is when it is the answer to "why is
+ * nothing printing". Rendered twice with a `placement`; each placement draws
+ * only its own cases.
  */
 function PrinterStrip({
-  printer,
+  printing,
   placement,
 }: {
-  printer: PrinterPayload | null;
+  printing: BoardPrintersPayload | null;
   placement: "header" | "banner";
 }) {
   const t = useKT();
   // Before the first poll answers, and when no printer is configured at all —
   // that second case already has its own banner below.
-  if (!printer || !printer.configured) return null;
+  if (!printing || !printing.printer.configured) return null;
 
-  const seen =
-    printer.secondsSinceSeen === null
-      ? null
-      : printer.secondsSinceSeen < 90
-        ? t("printer.secondsAgo", { n: printer.secondsSinceSeen })
-        : t("printer.minutesAgo", { n: Math.round(printer.secondsSinceSeen / 60) });
-
-  const state = PRINTER_STATE[printer.health];
-  if ((placement === "banner") !== state.urgent) return null;
-
-  if (!state.urgent) {
+  // Configured, but no printer has ever polled: the single "not connected
+  // yet" chip the board has always shown.
+  if (printing.printers.length === 0) {
+    if (placement !== "header") return null;
     return (
       <span role="status" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-staff-line bg-staff-panel px-3 text-base text-staff-soft">
-        <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${state.dot}`} />
-        {t(state.label)}
-        {seen && <span className="text-staff-faint">· {t("printer.lastSeen", { ago: seen })}</span>}
+        <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-staff-line-strong" />
+        {t("printer.unknown")}
       </span>
     );
   }
 
   return (
-    <div role="alert" className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-5 py-3.5 ${state.className}`}>
-      <span className="flex items-center gap-2 text-lg font-semibold">
-        <Icon name="printer" size={22} />
-        {t(state.label)}
-      </span>
-      {seen && <span className="text-base opacity-85">{t("printer.lastSeen", { ago: seen })}</span>}
-      {printer.statusCode && (
-        <span className="text-base opacity-85">{t("printer.reported", { code: printer.statusCode })}</span>
-      )}
-      <span className="w-full text-base opacity-90">{t("printer.waitingNote")}</span>
-    </div>
+    <>
+      {printing.printers.map((p) => {
+        const state = PRINTER_STATE[p.health];
+        if ((placement === "banner") !== state.urgent) return null;
+        const seen = seenText(t, p.secondsSinceSeen);
+
+        if (!state.urgent) {
+          return (
+            <span key={p.id} role="status" data-printer-chip={p.role} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-staff-line bg-staff-panel px-3 text-base text-staff-soft">
+              <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${state.dot}`} />
+              {t("printer.named", { name: p.label, state: t(state.label) })}
+              {seen && <span className="text-staff-faint">· {t("printer.lastSeen", { ago: seen })}</span>}
+            </span>
+          );
+        }
+
+        return (
+          <div key={p.id} role="alert" className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-5 py-3.5 ${state.className}`}>
+            <span className="flex items-center gap-2 text-lg font-semibold">
+              <Icon name="printer" size={22} />
+              {t("printer.named", { name: p.label, state: t(state.label) })}
+            </span>
+            {seen && <span className="text-base opacity-85">{t("printer.lastSeen", { ago: seen })}</span>}
+            {p.statusCode && (
+              <span className="text-base opacity-85">{t("printer.reported", { code: p.statusCode })}</span>
+            )}
+            <span className="w-full text-base opacity-90">
+              {p.coveredBy ? t("printer.coveredBy", { other: p.coveredBy }) : t("printer.waitingNote")}
+            </span>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -174,7 +198,8 @@ export default function KitchenBoard({
   const [muted, setMuted] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [freshIds, setFreshIds] = useState<Set<number>>(new Set());
-  const [printer, setPrinter] = useState<PrinterPayload | null>(null);
+  const [printing, setPrinting] = useState<BoardPrintersPayload | null>(null);
+  const { basePath } = useKitchenChrome();
 
   // Ids seen in a previous poll. Seeded on the first poll so a page refresh
   // mid-service does not chime for every order already on the board.
@@ -241,7 +266,16 @@ export default function KitchenBoard({
       }
 
       setOrders(next);
-      setPrinter(data.printer ?? null);
+      setPrinting(
+        data.printer
+          ? {
+              printer: data.printer,
+              printers: data.printers ?? [],
+              routes: data.routes ?? {},
+              unassignedRecent: data.unassignedRecent ?? 0,
+            }
+          : null,
+      );
       setError(null);
       setLastSync(new Date());
     } catch {
@@ -321,7 +355,7 @@ export default function KitchenBoard({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <PrinterStrip printer={printer} placement="header" />
+          <PrinterStrip printing={printing} placement="header" />
           <span className="px-1 text-base text-staff-faint">
             {lastSync
               ? t("board.updated", {
@@ -358,7 +392,18 @@ export default function KitchenBoard({
 
       {/* ---------------- printer health ---------------- */}
       {/* Only when something is wrong, and then first, above the queue. */}
-      <PrinterStrip printer={printer} placement="banner" />
+      <PrinterStrip printing={printing} placement="banner" />
+
+      {printing && printing.unassignedRecent > 0 && (
+        <a
+          href={`${basePath}/printers`}
+          data-unassigned-printers
+          className="mt-4 flex min-h-12 items-center gap-2 rounded-lg border border-staff-line bg-staff-panel px-5 py-3 text-base text-staff-soft hover:bg-staff-sunken"
+        >
+          <Icon name="printer" size={20} />
+          {t("printer.unassigned", { n: printing.unassignedRecent })}
+        </a>
+      )}
 
       {/* ---------------- operator banners ---------------- */}
       {!ordersConfigured && (
@@ -448,7 +493,9 @@ export default function KitchenBoard({
             // A QUEUED order under a dead printer is WAITING, not stuck. The
             // distinction matters at the pass: one means "do nothing, it will
             // print", the other means "go and read this card out loud".
-            waitingForPrinter={printer?.blocked === true}
+            // Since 011: waiting only if THIS order's printer is down and no
+            // other printer is carrying its tickets.
+            waitingForPrinter={channelWaiting(printing, order.channel)}
             onAction={act}
           />
         ))}

@@ -1,4 +1,5 @@
 import {
+  cloudPrntPrinterMac,
   lateConfirmationGraceSeconds,
   printConfirmFloorSeconds,
   printFetchViaWorker,
@@ -14,7 +15,14 @@ import {
   decideOffer,
 } from "@/lib/print/entitlement";
 import { readPrinterCondition } from "@/lib/print/printerStatus";
-import { recordPoll } from "@/lib/print/healthStore";
+import {
+  findPrinterByMac,
+  markSilentPrintersDown,
+  normalizeMac,
+  printerLabel,
+  recordPrinterPoll,
+  type PrinterRecord,
+} from "@/lib/print/printers";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
   NO_JOB,
@@ -24,7 +32,6 @@ import {
   matchOfferedMediaType,
   payloadHash,
   peripheralHeaders,
-  printerMacAllowed,
   logPollBody,
   logPrinterLimits,
   readConfirmation,
@@ -35,11 +42,13 @@ import {
   type CloudPrntStatusResponse,
 } from "@/lib/print/cloudprnt";
 import {
-  claimNextPrintJob,
+  claimForPrinter,
   confirmPrintDelivery,
+  countReroutedAwaySince,
   currentPrintJob,
   getOrderById,
   getPrintDelivery,
+  latestDeliveryCopyRoles,
   printSegmentState,
   recordDeliveryFetch,
   recordPrintAttempt,
@@ -58,7 +67,8 @@ import {
   printJobUrl,
   putPrintJob,
 } from "@/lib/print/jobStore";
-import type { Order } from "@/lib/orders/types";
+import type { Order, PrintDelivery } from "@/lib/orders/types";
+import { TICKET_COPY_PROFILES, type TicketCopyRole } from "@/lib/ticket/copies";
 import { renderTicketJob, TICKET_WIDTH_PX } from "@/lib/ticket/render";
 import { maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
@@ -79,9 +89,12 @@ import { isOrdersDbConfigured } from "@/lib/db/postgres";
  * kitchen never saw is the worst outcome in this system, so an unconfirmed job
  * must stay visible to both the board and the unprinted-order alert.
  *
- * IDENTITY: the printer never sends a job id. GET and DELETE say only which
- * PRINTER is calling, so the server owns "which job is in flight" — hence
- * `currentPrintJob` rather than any token lookup.
+ * IDENTITY: the printer never sends a job id. The poll says which PRINTER is
+ * calling (printerMAC), and since migration 011 that matters: every MAC is a
+ * row in `printers`, each printer has its own job in flight, and which printer
+ * takes which ticket is decided by claimForPrinter (routing by channel, with
+ * failover to the other printer when one is down). The GET and the confirming
+ * DELETE carry the delivery id we handed out, which names the printer too.
  *
  * Node runtime: satori and resvg both need it.
  */
@@ -145,8 +158,11 @@ export async function POST(
   // this firmware volunteers it anyway.
   logPollBody(poll);
 
-  if (!printerMacAllowed(poll.printerMAC)) {
-    console.warn("[cloudprnt] poll from an unexpected printer MAC — ignoring");
+  // WHO is polling. Since 011 the MAC is the printer's identity, not just a
+  // gate: no usable MAC, no printer, no job.
+  const mac = normalizeMac(poll.printerMAC);
+  if (!mac) {
+    console.warn("[cloudprnt] poll without a usable printerMAC — ignoring");
     return Response.json(NO_JOB);
   }
 
@@ -166,37 +182,88 @@ export async function POST(
     // so it was handed jobs it could not print until the retry budget ran out
     // and the orders were condemned. Paper came back to an empty queue.
     const condition = readPrinterCondition(poll);
-    const transition = await recordPoll(
-      tenant.tenantId,
-      condition,
-      poll.printerMAC ?? null,
-    );
+    const reg = await recordPrinterPoll(tenant.tenantId, mac, condition, {
+      pinnedMac: cloudPrntPrinterMac(),
+    });
+
+    if (reg.outcome === "capped" || !reg.printer || !reg.transition) {
+      console.warn(
+        `[cloudprnt] poll from unknown printer ${mac} — not stored, the unassigned-printer ` +
+          "list is full. Assign or clear printers on the printers page.",
+      );
+      return Response.json(NO_JOB);
+    }
+    const printer: PrinterRecord = reg.printer;
+    const transition = reg.transition;
+    const name = printerLabel(printer);
+    const tag = `[printer ${name}]`;
+
+    if (reg.outcome === "bootstrapped") {
+      console.warn(
+        `${tag} first printer this restaurant has seen (${mac}) — registered as the active ` +
+          "'takeout' printer with every channel routed to it.",
+      );
+    } else if (reg.outcome === "registered-unknown") {
+      console.warn(
+        `[cloudprnt] UNKNOWN printer ${mac} polled — stored as unassigned and given no ` +
+          "jobs. Assign it a role on the printers page to start printing on it.",
+      );
+    }
+
+    // An unassigned or deactivated printer is recorded (so /printers shows it
+    // polling) and given nothing. Quiet after its first poll.
+    if (!printer.active || printer.role === null) {
+      return Response.json(NO_JOB);
+    }
 
     // EDGES ONLY. A line every three seconds for the life of the deployment
     // buries everything worth reading; a line when the paper runs out is the
     // one somebody needs.
-    if (transition.firstEver) {
-      console.info(
-        `[printer] first poll from this printer — status ${JSON.stringify(condition.statusCode)}`,
-      );
+    if (transition.firstEver && reg.outcome === "known") {
+      console.info(`${tag} first poll — status ${JSON.stringify(condition.statusCode)}`);
     } else if (transition.returnedFromSilence) {
       console.warn(
-        `[printer] BACK after ${Math.round(transition.secondsSincePreviousPoll ?? 0)}s of silence ` +
+        `${tag} BACK after ${Math.round(transition.secondsSincePreviousPoll ?? 0)}s of silence ` +
           `— status ${JSON.stringify(condition.statusCode)}`,
       );
     }
     if (transition.blocked) {
       console.warn(
-        `[printer] ${transition.blockedReason?.toUpperCase()} — status ` +
+        `${tag} ${transition.blockedReason?.toUpperCase()} — status ` +
           `${JSON.stringify(condition.statusCode)} raw=${JSON.stringify(condition.statusRaw)}. ` +
-          "Withholding jobs until it clears; no retry budget will be spent.",
+          "Withholding jobs; after 60s its tickets go to the other printer, REROUTED.",
+      );
+    }
+    if (transition.wentDown) {
+      console.warn(
+        `${tag} DOWN — ${transition.blockedReason} for 60s. New tickets for it now print on ` +
+          "another printer with a 轉印 REROUTED header.",
+      );
+    }
+    if (transition.backFromDownSince) {
+      const moved = await countReroutedAwaySince(
+        tenant.tenantId,
+        printer.id,
+        new Date(transition.backFromDownSince),
+      );
+      console.warn(
+        `${tag} UP again after being down since ${transition.backFromDownSince}; ` +
+          `${moved} ticket(s) printed on another printer meanwhile. Routing back to normal.`,
+      );
+    }
+
+    // Another printer gone silent for 60s: stamp it down, once per outage.
+    for (const gone of await markSilentPrintersDown(tenant.tenantId)) {
+      console.warn(
+        `[printer ${gone.label}] DOWN — no poll for 60s. Its tickets now print on ` +
+          `${name} with a 轉印 REROUTED header.`,
       );
     }
 
     /* ---------------- paper is back ---------------- */
     if (transition.unblocked) {
       console.warn(
-        `[printer] RECOVERED from ${transition.previousBlockedReason} — status ` +
+        `${tag} RECOVERED from ${transition.previousBlockedReason} — status ` +
           `${JSON.stringify(condition.statusCode)}`,
       );
       // The edge is reported by a single atomic statement, so this runs once
@@ -209,6 +276,7 @@ export async function POST(
           tenant.tenantId,
           since,
           PAPER_RESTORE_LEAD_SECONDS,
+          printer.id,
         );
         if (restored.length > 0) {
           console.warn(
@@ -255,17 +323,33 @@ export async function POST(
     }
 
     // Config read once. The fresh-claim window assumes a whole ticket (one
-    // piece); a re-offer uses the decision's window, which knows the split.
-    const copies = ticketCopies();
+    // piece) of the CHANNEL's copy set; a re-offer uses the decision's window,
+    // which knows the split.
+    const defaultRoles = ticketCopyRoles();
     const floor = printConfirmFloorSeconds();
     const perCopy = printSecondsPerCopy();
     const cap = printOfferCap();
-    const freshWindow = confirmationWindowSeconds(copies, floor, perCopy, 1);
+    const claimOptions = {
+      windowFor: (n: number) => confirmationWindowSeconds(n, floor, perCopy, 1),
+      defaultCopyRoles: defaultRoles as string[],
+    };
+    const claim = async (): Promise<Order | null> => {
+      const claimed = await claimForPrinter(tenant.tenantId, printer.id, claimOptions);
+      if (claimed && claimed.kind !== "normal") {
+        console.warn(
+          `${tag} ${claimed.kind === "stranded" ? "TOOK OVER" : "REROUTED"} ` +
+            `${claimed.order.orderNumber} (${claimed.order.channel}) from the ` +
+            `${claimed.reroutedFromRole ?? "unassigned"} printer, which is down — prints 轉印 REROUTED`,
+        );
+      }
+      return claimed?.order ?? null;
+    };
 
-    // A job already handed over and not yet confirmed wins: re-offering the
-    // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
-    // while the first is unaccounted for would double-print.
-    let job = await currentPrintJob(tenant.tenantId);
+    // A job already handed over BY THIS PRINTER and not yet confirmed wins:
+    // re-offering the same ticket is correct WHEN WE ARE ENTITLED TO, and
+    // handing out a second while the first is unaccounted for would
+    // double-print.
+    let job = await currentPrintJob(tenant.tenantId, printer.id);
 
     // ENTITLEMENT — the thing that stops one order printing its copy-set over
     // and over. The rule and its reasoning live in lib/print/entitlement.ts;
@@ -278,6 +362,7 @@ export async function POST(
       // number of hand-overs. Read before the decision because both terms
       // depend on it.
       const inFlight = await printSegmentState(tenant.tenantId, job.id);
+      const copies = ((await latestDeliveryCopyRoles(tenant.tenantId, job.id)) ?? defaultRoles).length;
       const decision = decideOffer({
         now: Date.now(),
         deliveryId: job.printDeliveryId,
@@ -309,7 +394,7 @@ export async function POST(
           ok: false,
           error: `no print confirmation after ${job.printAttempts} hand-overs`,
         });
-        job = await claimNextPrintJob(tenant.tenantId, freshWindow);
+        job = await claim();
       } else {
         // retry (an expired delivery, or the next piece of a split). A NEW
         // delivery with its own id and expiry — never a re-stamp of the old
@@ -328,6 +413,7 @@ export async function POST(
           decision.windowSeconds,
           "retry",
           superseded,
+          printer.id,
         );
         if (!reoffered) {
           console.warn(
@@ -340,7 +426,7 @@ export async function POST(
         job = reoffered;
       }
     } else {
-      job = await claimNextPrintJob(tenant.tenantId, freshWindow);
+      job = await claim();
     }
 
     if (!job) return Response.json(NO_JOB);
@@ -405,7 +491,7 @@ export async function POST(
       jobGetUrl: advertisedGetUrl,
     };
     console.info(
-      `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} handed over ` +
+      `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} printer=${name} handed over ` +
         `at ${advertisedGetUrl}`,
     );
     return Response.json(body);
@@ -441,6 +527,33 @@ function logJobResponse(orderNumber: string, response: Response): Response {
 }
 
 /**
+ * What a delivery prints: its copy set (fixed at claim time from the channel's
+ * route, see claimForPrinter) and, when it went to a printer that is not the
+ * order's home, the 轉印 REROUTED header. A delivery from before 011, or no
+ * delivery at all, prints the environment's copies exactly as before.
+ */
+function ticketOptionsFor(
+  tenant: { timezone: string },
+  delivery: PrintDelivery | null,
+): {
+  timezone: string;
+  copies: number;
+  copyRoles: TicketCopyRole[];
+  rerouted: { fromRole: "takeout" | "pos" | null } | null;
+} {
+  const known = (delivery?.copyRoles ?? []).filter(
+    (r): r is TicketCopyRole => r in TICKET_COPY_PROFILES,
+  );
+  const copyRoles = known.length > 0 ? known : ticketCopyRoles();
+  return {
+    timezone: tenant.timezone,
+    copies: known.length > 0 ? known.length : ticketCopies(),
+    copyRoles,
+    rerouted: delivery?.reroutedFromRole ? { fromRole: delivery.reroutedFromRole } : null,
+  };
+}
+
+/**
  * Make sure a body exists in R2 for the piece currently on offer, and return
  * the URL the printer should fetch.
  *
@@ -466,9 +579,10 @@ async function publishJobBody(
   if (jobKey && jobKey.includes(deliveryId)) return printJobUrl(jobKey);
 
   try {
+    const delivery = await getPrintDelivery(tenant.tenantId, deliveryId);
     const ticket = await renderTicketJob(
       job,
-      { timezone: tenant.timezone, copies: ticketCopies(), copyRoles: ticketCopyRoles() },
+      ticketOptionsFor(tenant, delivery),
       {
         format: "starprnt",
         // Star's 512KB GET cap, expressed as rows. Applies to the R2 object
@@ -549,9 +663,10 @@ export async function GET(
   const token = url.searchParams.get("token");
   let job: Order | null;
   let deliveryId: string | null;
+  let delivery: PrintDelivery | null = null;
 
   if (token) {
-    const delivery = await getPrintDelivery(tenant.tenantId, token);
+    delivery = await getPrintDelivery(tenant.tenantId, token);
     if (!delivery) {
       console.warn(`[cloudprnt] GET token=${token} — no such delivery; 404`);
       return new Response("", { status: 404 });
@@ -576,17 +691,20 @@ export async function GET(
       );
       return new Response("", { status: 410 });
     }
+    await warnOnMacMismatch(tenant.tenantId, delivery, url, "GET");
     job = order;
     deliveryId = token;
   } else {
-    // Bare Star GET (firmware that ignores jobGetUrl): mac-gated, current job.
-    if (!printerMacAllowed(url.searchParams.get("mac"))) {
-      return notFound();
-    }
-    job = await currentPrintJob(tenant.tenantId);
+    // Bare Star GET (firmware that ignores jobGetUrl): the MAC names the
+    // printer, and only an active, assigned printer's own job is served.
+    const mac = normalizeMac(url.searchParams.get("mac"));
+    const printer = mac ? await findPrinterByMac(tenant.tenantId, mac) : null;
+    if (!printer || !printer.active || printer.role === null) return notFound();
+    job = await currentPrintJob(tenant.tenantId, printer.id);
     // Nothing in flight. 404 is the honest answer; the printer re-polls.
     if (!job) return new Response("", { status: 404 });
     deliveryId = job.printDeliveryId;
+    delivery = deliveryId ? await getPrintDelivery(tenant.tenantId, deliveryId) : null;
   }
 
   // Worker-mediated fetch (PRINT_FETCH_VIA_WORKER, opt-in): count the fetch and
@@ -681,7 +799,7 @@ export async function GET(
       format === "starprnt" ? maxStarPrntRows(TICKET_WIDTH_PX) : limits.monoLen;
     const ticket = await renderTicketJob(
       job,
-      { timezone: tenant.timezone, copies: ticketCopies(), copyRoles: ticketCopyRoles() },
+      ticketOptionsFor(tenant, delivery),
       { format, maxHeight: ceiling, segment },
     );
 
@@ -743,6 +861,28 @@ export async function GET(
   }
 }
 
+/**
+ * The delivery names the printer it was handed to. A GET or confirm carrying a
+ * different printer's MAC is LOGGED, never refused: the token is unguessable
+ * and scoped to one body, so it is the authorization, and refusing a real
+ * confirmation is how a printed ticket turns into a duplicate.
+ */
+async function warnOnMacMismatch(
+  tenantId: string,
+  delivery: PrintDelivery,
+  url: URL,
+  verb: "GET" | "DELETE",
+): Promise<void> {
+  const callerMac = normalizeMac(url.searchParams.get("mac"));
+  if (!callerMac || !delivery.printerId) return;
+  const caller = await findPrinterByMac(tenantId, callerMac);
+  if (caller?.id === delivery.printerId) return;
+  console.warn(
+    `[cloudprnt] ${verb} token=${delivery.id} from ${callerMac}, but that delivery went to ` +
+      `printer ${delivery.printerId} — honouring it by token`,
+  );
+}
+
 /* ---------------------------------------------------------------- DELETE -- */
 
 export async function DELETE(
@@ -788,11 +928,6 @@ async function confirmPrinted(url: URL): Promise<Response> {
     return acknowledged();
   }
 
-  if (!printerMacAllowed(url.searchParams.get("mac"))) {
-    console.warn(`[cloudprnt] DELETE ${described} — unexpected printer MAC, ignoring`);
-    return acknowledged();
-  }
-
   const tenant = publicTenant();
 
   // WHICH delivery is this about? The token IS the delivery id we handed out,
@@ -828,6 +963,8 @@ async function confirmPrinted(url: URL): Promise<Response> {
     );
     return acknowledged();
   }
+
+  await warnOnMacMismatch(tenant.tenantId, delivery, url, "DELETE");
 
   // The delivery must still be the order's CURRENT in-flight one. If a newer
   // delivery has superseded it — the window expired and we re-offered, or staff

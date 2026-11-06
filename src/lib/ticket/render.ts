@@ -388,6 +388,13 @@ export interface RenderTicketOptions {
   copyRoles?: TicketCopyRole[] | null;
   /** Printed in the header so a reprint is obvious at the pass. */
   reprint?: boolean;
+  /**
+   * Set when this ticket is printing on a printer that is NOT its home,
+   * because home was down (migration 011 failover). Prints a boxed
+   * 轉印 REROUTED block under the copy bar, naming the printer it was meant
+   * for, so staff know where it belongs and that home may have printed it too.
+   */
+  rerouted?: { fromRole: "takeout" | "pos" | null } | null;
 }
 
 /** What a composed ticket actually printed in money terms. */
@@ -491,6 +498,32 @@ export async function composeTicketSvg(
      bottom as a tear check: if the bottom label is missing, paper is missing. */
   if (profile.labelEn) {
     c.banner(copyLabel, { size: 30, padY: 8 });
+    c.space(10);
+  }
+
+  /* ---------------- rerouted ---------------- */
+  /* Before the header, boxed rather than inverted so it cannot be mistaken
+     for the copy bar above it. The second line says which station the ticket
+     was meant for: a web order rerouted to the POS printer still goes in a
+     takeout bag. */
+  if (options.rerouted) {
+    const zhRerouted = zhIfPrintable(L.rerouted, coverage);
+    const from = options.rerouted.fromRole;
+    const zhTakeout = zhIfPrintable(L.takeout, coverage);
+    const fromLine =
+      from === "takeout"
+        ? `FROM ${zhTakeout ? `${zhTakeout} ` : ""}TAKEOUT PRINTER`
+        : from === "pos"
+          ? "FROM POS PRINTER"
+          : null;
+    c.box({ border: 5, padding: 6, marginTop: 0 }, (box) => {
+      box.text(zhRerouted ? `${zhRerouted} REROUTED` : "REROUTED", {
+        size: 48,
+        weight: 700,
+        align: "center",
+      });
+      if (fromLine) box.text(fromLine, { size: 26, weight: 700, align: "center", marginTop: 2 });
+    });
     c.space(10);
   }
 

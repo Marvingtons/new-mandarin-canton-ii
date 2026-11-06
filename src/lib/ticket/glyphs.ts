@@ -63,6 +63,8 @@ export const TICKET_LABELS = {
   /** A later round for a party already seated. */
   addon: "加菜",
   reprint: "重印",
+  /** Printed on a ticket its home printer could not take (failover). */
+  rerouted: "轉印",
   pickup: "取餐時間",
   note: "備註",
   customer: "客人",

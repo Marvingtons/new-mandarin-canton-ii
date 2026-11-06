@@ -23,7 +23,14 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { Client } from "pg";
 
-import { E2E_BYPASS, E2E_DB_PORT, E2E_KITCHEN_PASSWORD, E2E_PORT } from "../tests/e2e/env";
+import {
+  E2E_BYPASS,
+  E2E_DB_PORT,
+  E2E_KITCHEN_PASSWORD,
+  E2E_OWNER_PIN,
+  E2E_PORT,
+  E2E_PRINT_SECRET,
+} from "../tests/e2e/env";
 const DB_NAME = "nmc_e2e";
 
 async function main(): Promise<void> {
@@ -66,7 +73,10 @@ async function main(): Promise<void> {
       ORDER_GATE_BYPASS: E2E_BYPASS,
       // Signs the test-mode and phone cookies. A test value, like the rest.
       OTP_SIGNING_SECRET: "e2e-otp-signing-secret-0123456789abcdef0123456789",
-      CLOUDPRNT_SECRET: "e2e-print-secret-not-a-printer",
+      CLOUDPRNT_SECRET: E2E_PRINT_SECRET,
+      // Unpinned: the first simulated printer bootstraps, as on a fresh install.
+      CLOUDPRNT_PRINTER_MAC: "",
+      OWNER_PIN: E2E_OWNER_PIN,
       TWILIO_ACCOUNT_SID: "",
       TWILIO_AUTH_TOKEN: "",
       TWILIO_VERIFY_SERVICE_SID: "",

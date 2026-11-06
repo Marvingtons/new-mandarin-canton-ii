@@ -97,6 +97,7 @@ function fixtureOrder(taxRateBps: number | null): Order {
     offeredAt: null,
     printDeliveryId: null,
     printDeliveryExpiresAt: null,
+    printPrinterId: null,
     printedAt: null,
     lastPrintError: null,
     alertedAt: null,

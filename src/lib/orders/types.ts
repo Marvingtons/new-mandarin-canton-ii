@@ -198,6 +198,13 @@ export interface Order {
   /** When the in-flight delivery's confirmation window closes, or null. */
   printDeliveryExpiresAt: string | null;
   /**
+   * The printer currently responsible for this order's ticket (migration 011),
+   * or null before any printer has claimed it. Set at claim, kept across
+   * retries and split pieces, moved only by a failover reroute, and cleared by
+   * 重印 so the next claim routes it afresh.
+   */
+  printPrinterId: string | null;
+  /**
    * Board-only aggregates over this order's print_deliveries rows. Populated by
    * `listActiveOrders`; left undefined on every other read, because the print
    * path has no use for them and would pay for the join on every poll.
@@ -345,4 +352,31 @@ export interface PrintDelivery {
   confirmCode: string | null;
   reason: PrintDeliveryReason;
   actor: string | null;
+  /** The printer this hand-over went to (migration 011); null on older rows. */
+  printerId: string | null;
+  /**
+   * Set when the hand-over went to a printer that is not the order's home,
+   * because home was down. The ROLE is what the 轉印 REROUTED header prints;
+   * the printer id is null when the role had no active printer at all.
+   */
+  reroutedFromPrinterId: string | null;
+  reroutedFromRole: PrinterRole | null;
+  /** The copy set this hand-over prints; null on rows from before 011. */
+  copyRoles: string[] | null;
+}
+
+/**
+ * What a printer is FOR (migration 011). Routing points at a role, never at a
+ * printer, so a dead unit is replaced by giving the new MAC the old role.
+ *
+ *   takeout — printer A, 外賣機: web orders.
+ *   pos     — printer B: everything entered on the POS (phone, walk_in,
+ *             dine_in, add-ons).
+ */
+export const PRINTER_ROLES = ["takeout", "pos"] as const;
+
+export type PrinterRole = (typeof PRINTER_ROLES)[number];
+
+export function isPrinterRole(value: unknown): value is PrinterRole {
+  return typeof value === "string" && (PRINTER_ROLES as readonly string[]).includes(value);
 }

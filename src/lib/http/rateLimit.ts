@@ -63,8 +63,19 @@ export const RATE_LIMITS = {
    * calls a minute; this only stops a stuck button or a runaway script.
    */
   kitchen_order_session: { windowMs: 5 * 60_000, max: 60 },
-  /** The printer polls often and legitimately; this only catches a flood. */
-  cloudprnt_ip: { windowMs: 60_000, max: 120 },
+  /**
+   * The printers poll often and legitimately; this only catches a flood. Keyed
+   * by IP, and since migration 011 there are two printers behind the
+   * restaurant's one IP, so the ceiling doubled with them.
+   */
+  cloudprnt_ip: { windowMs: 60_000, max: 240 },
+  /**
+   * Owner-PIN attempts on the printers page, per IP. Generous enough for a
+   * whole setup session (assign, four routes, copies); the lockout that holds
+   * across Worker isolates is the database count of WRONG PINs
+   * (lib/print/printers.ts, recentPinFailures).
+   */
+  owner_pin: { windowMs: 15 * 60_000, max: 20 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

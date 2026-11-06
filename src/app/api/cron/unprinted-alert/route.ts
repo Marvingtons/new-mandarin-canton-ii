@@ -10,15 +10,21 @@ import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { businessDateFor } from "@/lib/orders/businessDate";
 import {
   countQueuedOrders,
+  countReroutedAwaySince,
   findUnprintedForAlert,
   markAlerted,
   releaseAlertClaim,
 } from "@/lib/orders/repository";
 import {
-  claimPrinterAlert,
-  readPrinterStatus,
-  releasePrinterAlert,
-} from "@/lib/print/healthStore";
+  claimAllDownAlert,
+  claimPrinterDownAlert,
+  clearAllDownAlert,
+  listPrinters,
+  markSilentPrintersDown,
+  releaseAllDownAlert,
+  releasePrinterDownAlert,
+  type PrinterView,
+} from "@/lib/print/printers";
 import { cloudPrntConfigured } from "@/lib/print/status";
 import { sendSms } from "@/lib/otp/twilio";
 
@@ -43,20 +49,26 @@ export const dynamic = "force-dynamic";
 const THRESHOLD_SECONDS = 120;
 
 /**
- * How long a printer may be gone, or out of paper, before the owner hears —
- * PROVIDED something is waiting on it.
+ * PRINTER TEXTS (migration 011, owner decision 5 Nov 2026). "Down" is the
+ * routing rule's: silent for 60s and not mid-print, or paper-out / cover-open
+ * for 60s.
  *
- * Five minutes, and the "with orders waiting" condition is the important half.
- * A printer switched off at closing time is not an incident; a printer switched
- * off with four tickets queued behind it is. Alerting on the printer alone
- * would text the owner every night and train them to ignore it, which is the
- * failure mode that matters more than a slightly late alert.
+ *   ONE printer down, another up and carrying its tickets: one text naming it
+ *   after 5 minutes. Once per down spell; a paper-out that turns into offline
+ *   is the same spell. Only if at least one ticket was actually rerouted away
+ *   from it: switching the POS printer off at night while the takeout printer
+ *   stays on must not text anyone.
  *
- * Deliberately shorter than the 120s-per-order threshold above compounds to:
- * that sweep waits for an individual order to age, and with the printer known
- * to be down there is nothing to wait for.
+ *   EVERY active printer down: an URGENT text after 2 minutes, repeated every
+ *   10 minutes until one recovers. Only with orders waiting: a restaurant
+ *   switched off at closing time is not an incident. With a single printer,
+ *   that printer down is this case.
  */
-const PRINTER_ALERT_SECONDS = 300;
+const ONE_DOWN_ALERT_SECONDS = 300;
+const ALL_DOWN_ALERT_SECONDS = 120;
+const ALL_DOWN_REPEAT_SECONDS = 600;
+/** Cron jitter: a sweep a few seconds early must not skip a whole repeat. */
+const REPEAT_SLACK_SECONDS = 15;
 
 /**
  * Alert sends attempted per order before the claim is left in place for good.
@@ -111,88 +123,119 @@ function authorized(request: Request): boolean {
 }
 
 /**
- * THE PRINTER ITSELF, checked once per sweep.
+ * THE PRINTERS THEMSELVES, checked once per sweep.
  *
- * The per-order alert above catches an order that did not print. This catches
- * the cause a few minutes earlier — and, more usefully, catches it ONCE for
- * the whole outage instead of once per order. Ten orders behind a dead printer
- * should be one text saying the printer is dead, not ten saying ten tickets
- * are missing.
+ * The per-order alert below catches an order that did not print. This catches
+ * the cause a few minutes earlier, and catches it ONCE for the whole outage
+ * instead of once per order. Ten orders behind a dead printer should be one
+ * text saying the printer is dead, not ten saying ten tickets are missing.
  *
- * Alert-once has its own stamp per condition (offline_alerted_at,
- * paper_alerted_at), claimed by the same conditional UPDATE the order sweep
- * uses. The stamps are cleared by the poll route the moment the condition
- * clears, so this is once per OUTAGE and not once ever.
- *
- * Returns a description for the sweep's JSON, or null when there is nothing to
- * say. No-ops entirely when there is no printer configured, no status row yet,
- * or nothing queued.
+ * Every claim is a conditional UPDATE (printer_health.down_alerted_at,
+ * print_alert_state.all_down_alerted_at), so overlapping sweeps send one text,
+ * and a failed send gives the claim back for the next sweep.
  */
-async function alertOnPrinter(
+interface PrinterAlertSummary {
+  kind: "one-down" | "all-down";
+  printers: string[];
+  minutes: number;
+  sent: boolean;
+}
+
+function condition(p: PrinterView): string {
+  if (p.paperOut && !(p.secondsSinceSeen === null || p.secondsSinceSeen > 60)) return "out of paper";
+  if (p.coverOpen && !(p.secondsSinceSeen === null || p.secondsSinceSeen > 60)) return "cover open";
+  return "offline";
+}
+
+async function alertOnPrinters(
   tenantId: string,
   owner: string | null,
   smsReady: boolean,
-): Promise<{ condition: string; queued: number; sent: boolean } | null> {
+): Promise<PrinterAlertSummary[] | null> {
   if (!cloudPrntConfigured()) return null;
 
-  const row = await readPrinterStatus(tenantId);
-  if (!row) return null;
+  // A silent printer cannot stamp itself down; the sweep does it too, so a
+  // restaurant whose only printer died still gets its down_since.
+  await markSilentPrintersDown(tenantId);
+  const active = (await listPrinters(tenantId)).filter((p) => p.active && p.role !== null);
+  if (active.length === 0) return null;
 
-  const silentFor = (Date.now() - Date.parse(row.lastSeenAt)) / 1000;
-  const blockedFor =
-    row.blockedSince === null
-      ? 0
-      : (Date.now() - Date.parse(row.blockedSince)) / 1000;
+  const now = Date.now();
+  const downFor = (p: PrinterView) =>
+    p.downStartedAt ? Math.max(0, (now - Date.parse(p.downStartedAt)) / 1000) : 0;
+  const down = active.filter((p) => p.down);
+  const out: PrinterAlertSummary[] = [];
 
-  // Offline wins when both are true: a printer that is not answering cannot be
-  // fixed by putting paper in it, and the owner should be told the bigger fact.
-  const kind: "offline" | "paper" | null =
-    silentFor > PRINTER_ALERT_SECONDS
-      ? "offline"
-      : (row.paperOut || row.coverOpen) && blockedFor > PRINTER_ALERT_SECONDS
-        ? "paper"
-        : null;
-  if (kind === null) return null;
+  /* ---------------- every printer down ---------------- */
+  if (down.length === active.length) {
+    // Measured from the LAST printer to go down: that is when nothing could
+    // print any more.
+    const allFor = Math.min(...down.map(downFor));
+    if (allFor < ALL_DOWN_ALERT_SECONDS) return out;
+    const queued = await countQueuedOrders(tenantId);
+    if (queued === 0) return out;
 
-  // The condition that makes it an incident rather than a closed restaurant.
-  const queued = await countQueuedOrders(tenantId);
-  if (queued === 0) return null;
+    const minutes = Math.round(allFor / 60);
+    const names = down.map((p) => `${p.label} (${condition(p)})`);
+    console.warn(
+      `[alert] ALL printers down for ${minutes} min with ${queued} order(s) waiting: ${names.join(", ")}`,
+    );
+    const summary: PrinterAlertSummary = { kind: "all-down", printers: names, minutes, sent: false };
+    out.push(summary);
+    if (!owner || !smsReady) return out;
 
-  const condition =
-    kind === "offline"
-      ? `offline for ${Math.round(silentFor / 60)} min`
-      : `${row.paperOut ? "out of paper" : "cover open"} for ${Math.round(blockedFor / 60)} min`;
-
-  // Loud in the log whether or not a text can go out — the same rule the order
-  // sweep follows, for the same reason.
-  console.warn(
-    `[alert] printer ${condition} with ${queued} order(s) queued behind it.`,
-  );
-
-  if (!owner || !smsReady) return { condition, queued, sent: false };
-
-  // Claim before sending. A concurrent sweep that loses the claim stays quiet.
-  if (!(await claimPrinterAlert(tenantId, kind))) {
-    return { condition, queued, sent: false };
+    const claim = await claimAllDownAlert(tenantId, ALL_DOWN_REPEAT_SECONDS - REPEAT_SLACK_SECONDS);
+    if (!claim.claimed) return out;
+    const body =
+      `URGENT ${restaurant.name}: ${active.length === 1 ? "the printer is" : "ALL printers are"} down ` +
+      `(${names.join(", ")}) for ${minutes} min and ${queued} order` +
+      `${queued === 1 ? " is" : "s are"} waiting. Nothing is printing. Check paper, power and ` +
+      "network, and read orders off the kitchen screen.";
+    const result = await sendSms(owner, body);
+    if (result.sent) {
+      summary.sent = true;
+    } else {
+      await releaseAllDownAlert(tenantId, claim.previous);
+      console.error(`[alert] could not text the owner that all printers are down: ${result.error}`);
+    }
+    return out;
   }
 
-  const body =
-    `${restaurant.name}: the printer is ${condition} and ${queued} order` +
-    `${queued === 1 ? " is" : "s are"} waiting. Check paper, power and network, ` +
-    "then open the kitchen screen.";
+  /* ---------------- one printer down, another covering ---------------- */
+  await clearAllDownAlert(tenantId);
+  const covering = active.find((p) => !p.down);
 
-  const result = await sendSms(owner, body);
-  if (result.sent) return { condition, queued, sent: true };
+  for (const p of down) {
+    const seconds = downFor(p);
+    if (seconds < ONE_DOWN_ALERT_SECONDS || !p.downStartedAt) continue;
+    if (p.downAlertedAt !== null) continue;
+    // Gate: it is only an incident if tickets actually went elsewhere.
+    const moved = await countReroutedAwaySince(tenantId, p.id, new Date(p.downStartedAt));
+    if (moved === 0) continue;
 
-  // Nobody was told, so the claim is a lie. Give it back for the next sweep —
-  // uncapped on purpose, unlike the per-order retry: the condition is ongoing
-  // and self-clearing, so a failed send retries only while the printer is
-  // still down rather than forever.
-  await releasePrinterAlert(tenantId, kind);
-  console.error(
-    `[alert] could not text the owner about the printer (${condition}): ${result.error}`,
-  );
-  return { condition, queued, sent: false };
+    const minutes = Math.round(seconds / 60);
+    console.warn(
+      `[alert] ${p.label} down (${condition(p)}) for ${minutes} min; ${moved} ticket(s) ` +
+        `printed on ${covering?.label ?? "another printer"} instead.`,
+    );
+    const summary: PrinterAlertSummary = { kind: "one-down", printers: [p.label], minutes, sent: false };
+    out.push(summary);
+    if (!owner || !smsReady) continue;
+    if (!(await claimPrinterDownAlert(p.id))) continue;
+
+    const body =
+      `${restaurant.name}: ${p.label} has been down (${condition(p)}) for ${minutes} min. ` +
+      `Its tickets are printing on ${covering?.label ?? "the other printer"}, marked REROUTED. ` +
+      "Check its paper, power and network.";
+    const result = await sendSms(owner, body);
+    if (result.sent) {
+      summary.sent = true;
+    } else {
+      await releasePrinterDownAlert(p.id);
+      console.error(`[alert] could not text the owner about ${p.label}: ${result.error}`);
+    }
+  }
+  return out;
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -212,7 +255,7 @@ export async function GET(request: Request): Promise<Response> {
   // minutes, and a failure in either half must not silence the other.
   let printerAlert = null;
   try {
-    printerAlert = await alertOnPrinter(tenant.tenantId, owner, isSmsConfigured());
+    printerAlert = await alertOnPrinters(tenant.tenantId, owner, isSmsConfigured());
   } catch (err) {
     console.error(
       "[alert] printer health check failed:",

@@ -9,6 +9,7 @@ import {
   ACTIVE_STATUSES,
   PRINTABLE_STATUSES,
   isOrderChannel,
+  isPrinterRole,
   TableConflictError,
   type CreateOrderResult,
   type OpenTable,
@@ -21,6 +22,7 @@ import {
   type OrderTotals,
   type PrintDelivery,
   type PrintDeliveryReason,
+  type PrinterRole,
 } from "@/lib/orders/types";
 import {
   HISTORY_PAGE_SIZE,
@@ -50,7 +52,11 @@ const DELIVERY_COLUMNS = `
   confirmed_at,
   confirm_code,
   reason,
-  actor
+  actor,
+  printer_id,
+  rerouted_from_printer_id,
+  rerouted_from_role,
+  copy_roles
 `;
 
 function mapDelivery(row: QueryResultRow): PrintDelivery {
@@ -66,6 +72,11 @@ function mapDelivery(row: QueryResultRow): PrintDelivery {
     confirmCode: row.confirm_code === null ? null : String(row.confirm_code),
     reason: String(row.reason) as PrintDeliveryReason,
     actor: row.actor === null ? null : String(row.actor),
+    printerId: row.printer_id == null ? null : String(row.printer_id),
+    reroutedFromPrinterId:
+      row.rerouted_from_printer_id == null ? null : String(row.rerouted_from_printer_id),
+    reroutedFromRole: isPrinterRole(row.rerouted_from_role) ? row.rerouted_from_role : null,
+    copyRoles: Array.isArray(row.copy_roles) ? (row.copy_roles as unknown[]).map(String) : null,
   };
 }
 
@@ -107,6 +118,7 @@ const ORDER_COLUMNS = `
   print_offered_at,
   print_delivery_id,
   print_delivery_expires_at,
+  print_printer_id,
   printed_at,
   last_print_error,
   alerted_at,
@@ -155,6 +167,7 @@ function mapOrder(row: QueryResultRow): Order {
       row.print_delivery_expires_at == null
         ? null
         : (row.print_delivery_expires_at as Date).toISOString(),
+    printPrinterId: row.print_printer_id == null ? null : String(row.print_printer_id),
     printedAt: row.printed_at === null ? null : (row.printed_at as Date).toISOString(),
     lastPrintError: row.last_print_error === null ? null : String(row.last_print_error),
     alertedAt: row.alerted_at === null ? null : (row.alerted_at as Date).toISOString(),
@@ -474,7 +487,12 @@ function isDeliveryId(value: string): boolean {
 }
 
 /** Insert one hand-over row. Its expires_at matches the order pointer's because
- *  both are `now() + window` evaluated at the same transaction timestamp. */
+ *  both are `now() + window` evaluated at the same transaction timestamp.
+ *
+ *  `inherit` (re-offers): the copy set and the reroute marker are carried from
+ *  this order's latest automatic delivery ON THE SAME PRINTER, so the next
+ *  piece of a split ticket, or a retry, prints the same plan with the same
+ *  header as the hand-over it replaces. */
 async function insertDelivery(
   client: PoolClient,
   params: {
@@ -484,12 +502,30 @@ async function insertDelivery(
     windowSeconds: number;
     reason: PrintDeliveryReason;
     actor: string;
+    printerId?: string | null;
+    copyRoles?: string[] | null;
+    reroutedFromPrinterId?: string | null;
+    reroutedFromRole?: PrinterRole | null;
+    inherit?: boolean;
   },
 ): Promise<void> {
   await client.query(
-    `insert into print_deliveries
-       (id, order_id, tenant_id, offered_at, expires_at, reason, actor)
-     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6)`,
+    `with prev as (
+       select copy_roles, rerouted_from_printer_id, rerouted_from_role
+         from print_deliveries
+        where tenant_id = $3 and order_id = $2 and reason <> 'manual_reprint'
+          and printer_id is not distinct from $7::uuid
+          and $11::boolean
+        order by offered_at desc, created_at desc
+        limit 1
+     )
+     insert into print_deliveries
+       (id, order_id, tenant_id, offered_at, expires_at, reason, actor,
+        printer_id, copy_roles, rerouted_from_printer_id, rerouted_from_role)
+     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6, $7,
+             coalesce($8::text[], (select copy_roles from prev)),
+             coalesce($9::uuid, (select rerouted_from_printer_id from prev)),
+             coalesce($10::text, (select rerouted_from_role from prev)))`,
     [
       params.id,
       params.orderId,
@@ -497,6 +533,11 @@ async function insertDelivery(
       params.windowSeconds,
       params.reason,
       params.actor,
+      params.printerId ?? null,
+      params.copyRoles ?? null,
+      params.reroutedFromPrinterId ?? null,
+      params.reroutedFromRole ?? null,
+      params.inherit === true,
     ],
   );
 }
@@ -549,7 +590,15 @@ export async function claimNextPrintJob(
  * not yet confirmed by a DELETE. Returned so a repeated poll or GET before the
  * confirmation gets the SAME ticket rather than a second one.
  */
-export async function currentPrintJob(tenantId: string): Promise<Order | null> {
+export async function currentPrintJob(
+  tenantId: string,
+  /**
+   * The printer asking (migration 011). Each printer has its OWN head of line,
+   * so A and B print in parallel while "one delivery at a time" still holds per
+   * printer. Omitted only by the single-printer tests that predate 011.
+   */
+  printerId?: string,
+): Promise<Order | null> {
   // FOR UPDATE: the poll's offer/hold/cap decision is made from this row. A
   // cached copy of it (Hyperdrive served this query from a 60s cache) showed
   // an already-replaced, expired delivery, and every poll re-offered the
@@ -560,12 +609,261 @@ export async function currentPrintJob(tenantId: string): Promise<Order | null> {
       where tenant_id = $1
         and status = any($2::text[])
         and print_attempts > 0
+        and ($3::uuid is null or print_printer_id = $3::uuid)
       order by created_at asc
       limit 1
       for update`,
-    [tenantId, PRINTABLE_STATUSES],
+    [tenantId, PRINTABLE_STATUSES, printerId ?? null],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
+}
+
+/* ------------------------------------------------- routing (migration 011) -- */
+
+/**
+ * How long a printer may be silent, or blocked (paper-out / cover-open), before
+ * it is DOWN and its tickets go to another printer. The same 60s the board has
+ * always called "offline".
+ */
+export const PRINTER_DOWN_AFTER_SECONDS = 60;
+
+/** What claimForPrinter handed over, and why. */
+export interface PrinterClaim {
+  order: Order;
+  /**
+   * normal   — the order's home printer is the one asking.
+   * failover — an unclaimed order whose home printer is down (or missing).
+   * stranded — an order another printer claimed, then went down holding it;
+   *            its delivery has expired, so it is taken over from piece 1.
+   */
+  kind: "normal" | "failover" | "stranded";
+  /** The role it was rerouted away from, or null for a normal claim. */
+  reroutedFromRole: PrinterRole | null;
+  /** The copy set this delivery prints (route's, or the default). */
+  copyRoles: string[];
+  windowSeconds: number;
+}
+
+/**
+ * "Is printer X up?", as SQL, for use INSIDE a locking statement. Kept as one
+ * fragment so the claim and the board never disagree about what down means:
+ *
+ *   up   = active
+ *          and (polled within 60s  OR  holding a live delivery: busy printing)
+ *          and not (paper-out / cover-open for 60s or more)
+ *
+ * $1 is the tenant, $3 the down threshold in seconds.
+ */
+const PRINTERS_UP_CTE = `
+  pr as (
+    select p.id, p.role,
+           ( (h.last_seen_at is not null
+               and h.last_seen_at >= now() - make_interval(secs => $3))
+             or exists (
+               select 1 from orders lo
+                where lo.tenant_id = p.tenant_id
+                  and lo.print_printer_id = p.id
+                  and lo.status = 'QUEUED'
+                  and lo.print_delivery_id is not null
+                  and lo.print_delivery_expires_at > now())
+           )
+           and not coalesce(h.blocked_since <= now() - make_interval(secs => $3), false)
+             as up
+      from printers p
+      left join printer_health h on h.printer_id = p.id
+     where p.tenant_id = $1 and p.active
+  )`;
+
+/**
+ * Claim the next order FOR ONE PRINTER, routing and failing over in the same
+ * transaction that locks the row.
+ *
+ * Every input to the routing decision (routes, which printers are active, when
+ * each last polled, whether it is blocked, whether it is holding a live
+ * delivery) is read inside this transaction, under `FOR UPDATE OF o SKIP
+ * LOCKED`. A Hyperdrive-cached copy of any of it cannot decide where a ticket
+ * goes, and two printers polling at the same instant get different orders or
+ * nothing.
+ *
+ * Oldest first across three cases (see PrinterClaim.kind). An order already
+ * rerouted to this printer stays here when its home comes back: bouncing it is
+ * how a ticket prints twice.
+ */
+export async function claimForPrinter(
+  tenantId: string,
+  printerId: string,
+  options: {
+    /** The confirmation window for a delivery of `copies` copies. */
+    windowFor: (copies: number) => number;
+    /** The copy set when the route names none (the environment's). */
+    defaultCopyRoles: string[];
+  },
+): Promise<PrinterClaim | null> {
+  return withTransaction(async (client) => {
+    const pick = await client.query(
+      `with ${PRINTERS_UP_CTE}
+       select o.id, o.print_attempts, o.print_printer_id,
+              r.role                     as home_role,
+              r.copy_roles               as copy_roles,
+              home.id                    as home_id,
+              coalesce(home.up, false)   as home_up
+         from orders o
+         left join print_routes r on r.tenant_id = o.tenant_id and r.channel = o.channel
+         left join pr home on home.role = r.role
+        where o.tenant_id = $1
+          and o.status = 'QUEUED'
+          and (
+            -- unclaimed: mine, or its home is down / has no printer
+            (o.print_attempts = 0
+              and (home.id = $2::uuid or not coalesce(home.up, false)))
+            or
+            -- stranded on a printer that went down; its delivery has expired
+            (o.print_attempts > 0
+              and o.print_printer_id is distinct from $2::uuid
+              and not coalesce((select x.up from pr x where x.id = o.print_printer_id), false)
+              and (o.print_delivery_id is null or o.print_delivery_expires_at <= now()))
+          )
+        order by o.created_at asc
+        limit 1
+        for update of o skip locked`,
+      [tenantId, printerId, PRINTER_DOWN_AFTER_SECONDS],
+    );
+    if (pick.rows.length === 0) return null;
+
+    const row = pick.rows[0];
+    const orderId = Number(row.id);
+    const stranded = Number(row.print_attempts) > 0;
+    const previousPrinter = row.print_printer_id == null ? null : String(row.print_printer_id);
+    const homeRole = isPrinterRole(row.home_role) ? row.home_role : null;
+    const homeId = row.home_id == null ? null : String(row.home_id);
+    // Rerouted when the order HAS a home role and this printer is not it.
+    const rerouted = homeRole !== null && homeId !== printerId;
+    const copyRoles =
+      Array.isArray(row.copy_roles) && row.copy_roles.length > 0
+        ? (row.copy_roles as unknown[]).map(String)
+        : options.defaultCopyRoles;
+    const windowSeconds = options.windowFor(copyRoles.length);
+    const deliveryId = randomUUID();
+
+    const { rows } = stranded
+      ? await client.query(
+          // Taken over from a printer that went down: the WHOLE ticket again,
+          // from piece 1. Half a ticket on each printer is worse than either.
+          `update orders
+              set print_attempts            = 1,
+                  print_offered_at          = now(),
+                  print_delivery_id         = $3,
+                  print_delivery_expires_at = now() + make_interval(secs => $4),
+                  print_printer_id          = $5,
+                  print_segment             = 0,
+                  print_segments            = 0,
+                  print_job_key             = null,
+                  updated_at                = now()
+            where tenant_id = $1 and id = $2
+              and status = 'QUEUED'
+              and print_attempts > 0
+              and print_printer_id is not distinct from $6::uuid
+              and (print_delivery_id is null or print_delivery_expires_at <= now())
+            returning ${ORDER_COLUMNS}`,
+          [tenantId, orderId, deliveryId, windowSeconds, printerId, previousPrinter],
+        )
+      : await client.query(
+          `update orders
+              set print_attempts            = print_attempts + 1,
+                  print_offered_at          = now(),
+                  print_delivery_id         = $3,
+                  print_delivery_expires_at = now() + make_interval(secs => $4),
+                  print_printer_id          = $5,
+                  updated_at                = now()
+            where tenant_id = $1 and id = $2
+              and status = 'QUEUED'
+              and print_attempts = 0
+            returning ${ORDER_COLUMNS}`,
+          [tenantId, orderId, deliveryId, windowSeconds, printerId],
+        );
+    if (rows.length === 0) return null;
+    const order = mapOrder(rows[0]);
+
+    await insertDelivery(client, {
+      id: deliveryId,
+      orderId,
+      tenantId,
+      windowSeconds,
+      reason: stranded ? "retry" : "first-offer",
+      actor: "printer",
+      printerId,
+      copyRoles,
+      reroutedFromPrinterId: rerouted ? homeId : null,
+      reroutedFromRole: rerouted ? homeRole : null,
+    });
+
+    return {
+      order,
+      kind: stranded ? "stranded" : rerouted ? "failover" : "normal",
+      reroutedFromRole: rerouted ? homeRole : null,
+      copyRoles,
+      windowSeconds,
+    };
+  });
+}
+
+/**
+ * The copy set of the order's latest automatic hand-over on this printer, for
+ * the poll's window decision on a job already in flight. Null when nothing was
+ * handed over yet or the row predates 011 (the caller uses the default).
+ */
+export async function latestDeliveryCopyRoles(
+  tenantId: string,
+  orderId: number,
+): Promise<string[] | null> {
+  const { rows } = await lockedRead(
+    `select copy_roles from print_deliveries
+      where tenant_id = $1 and order_id = $2 and reason <> 'manual_reprint'
+      order by offered_at desc, created_at desc
+      limit 1
+      for share`,
+    [tenantId, orderId],
+  );
+  if (rows.length === 0 || !Array.isArray(rows[0].copy_roles)) return null;
+  const roles = (rows[0].copy_roles as unknown[]).map(String);
+  return roles.length > 0 ? roles : null;
+}
+
+/** Hand-overs rerouted AWAY from a printer since a moment: the owner-text gate
+ *  and the BACK log line ("3 tickets printed on the POS printer meanwhile"). */
+export async function countReroutedAwaySince(
+  tenantId: string,
+  printerId: string,
+  since: Date,
+): Promise<number> {
+  const { rows } = await lockedRead(
+    `select count(*)::int as n from (
+       select 1 from print_deliveries
+        where tenant_id = $1
+          and rerouted_from_printer_id = $2
+          and offered_at >= $3::timestamptz
+        for share
+     ) d`,
+    [tenantId, printerId, since.toISOString()],
+  );
+  return rows.length > 0 ? Number(rows[0].n) : 0;
+}
+
+/** Orders waiting to print whose HOME is a given role (for the board/alerts). */
+export async function countQueuedForRole(
+  tenantId: string,
+  role: PrinterRole,
+): Promise<number> {
+  const { rows } = await lockedRead(
+    `select count(*)::int as n from (
+       select 1 from orders o
+         join print_routes r on r.tenant_id = o.tenant_id and r.channel = o.channel
+        where o.tenant_id = $1 and o.status = 'QUEUED' and r.role = $2
+        for share of o
+     ) q`,
+    [tenantId, role],
+  );
+  return rows.length > 0 ? Number(rows[0].n) : 0;
 }
 
 /**
@@ -594,6 +892,12 @@ export async function reofferPrintDelivery(
    * harmless: if anything re-offered or confirmed since, nothing is written.
    */
   supersedes: string | null,
+  /**
+   * The printer re-offering (migration 011). The write only happens if the
+   * order is still THIS printer's: after a failover reroute the order belongs
+   * to the other printer, and the old one must not hand it out again.
+   */
+  printerId?: string,
 ): Promise<Order | null> {
   return withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -632,8 +936,10 @@ export async function reofferPrintDelivery(
           -- And never inside a live window, whatever the caller believed: the
           -- delivery being replaced must have expired (or there is none).
           and (print_delivery_id is null or print_delivery_expires_at <= now())
+          -- PRINTER CAS (011): still this printer's order, not rerouted away.
+          and ($7::uuid is null or print_printer_id = $7::uuid)
         returning ${ORDER_COLUMNS}`,
-      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES, supersedes],
+      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES, supersedes, printerId ?? null],
     );
     // No row matched: the order is no longer offerable (status changed, or its
     // current delivery was already confirmed). Do NOT create a delivery.
@@ -646,6 +952,8 @@ export async function reofferPrintDelivery(
       windowSeconds,
       reason,
       actor: "printer",
+      printerId: printerId ?? null,
+      inherit: true,
     });
     return order;
   });
@@ -949,7 +1257,7 @@ export async function recordPrintSegments(
 /**
  * PAPER IS BACK — put back what the outage broke.
  *
- * Called once, on the blocked→unblocked edge (see healthStore.recordPoll,
+ * Called once, on the blocked→unblocked edge (see printers.recordPrinterPoll,
  * which reports that edge atomically so two polls cannot both fire this).
  *
  * WHICH ORDERS. Everything condemned to PRINT_FAILED since the outage began,
@@ -980,6 +1288,12 @@ export async function requeueAfterPrinterRestored(
   tenantId: string,
   since: Date,
   graceSeconds: number,
+  /**
+   * The printer whose paper came back (migration 011). Only orders condemned ON
+   * THAT PRINTER are revived: paper back on A must not resurrect an order B
+   * gave up on. Their printer is cleared so the next claim routes them afresh.
+   */
+  printerId?: string,
 ): Promise<string[]> {
   const { rows } = await ordersPool().query(
     `update orders
@@ -994,12 +1308,16 @@ export async function requeueAfterPrinterRestored(
             last_print_error = null,
             alerted_at = null,
             alert_attempts = 0,
+            print_printer_id = null,
             updated_at = now()
       where tenant_id = $1
         and status = 'PRINT_FAILED'
         and updated_at >= $2::timestamptz - make_interval(secs => $3)
+        -- This printer's condemned orders, and any no printer ever claimed
+        -- (condemned before 011, or by staff): those are nobody else's.
+        and ($4::uuid is null or print_printer_id = $4::uuid or print_printer_id is null)
       returning order_number`,
-    [tenantId, since.toISOString(), graceSeconds],
+    [tenantId, since.toISOString(), graceSeconds, printerId ?? null],
   );
   return rows.map((r) => String(r.order_number));
 }
@@ -1093,6 +1411,8 @@ export async function requeueForPrint(
               print_offered_at = null,
               print_delivery_id = null,
               print_delivery_expires_at = null,
+              -- Routed afresh by the next claim: home if home is up now.
+              print_printer_id = null,
               updated_at = now()
         where tenant_id = $1 and id = $2
           -- A cancelled order is never offered to the printer again, and a
