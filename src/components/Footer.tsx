@@ -263,12 +263,12 @@ export default async function Footer() {
             ·
           </span>
           <a
-            href="https://norvix.ai"
+            href="https://modalor.com"
             target="_blank"
             rel="noopener"
             className="tap text-ivory/60 transition-colors hover:text-ivory/85"
           >
-            Website by Norvix
+            Made by Modalor
           </a>
         </p>
       </div>
