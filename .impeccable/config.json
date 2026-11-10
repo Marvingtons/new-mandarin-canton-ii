@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "docs/kitchen-mockups/order.html"
+        ],
+        "createdAt": "2026-11-03T11:41:21.643Z",
+        "reason": "User's brief for the /kitchen/pos redesign explicitly specifies a 'warm off-white app bg'; matches existing --color-pos-bg #f5f1ea"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "docs/kitchen-mockups/floor.html"
+        ],
+        "createdAt": "2026-11-03T11:41:21.664Z",
+        "reason": "User's brief for the /kitchen/pos redesign explicitly specifies a 'warm off-white app bg'; matches existing --color-pos-bg #f5f1ea"
+      }
+    ]
+  }
+}
