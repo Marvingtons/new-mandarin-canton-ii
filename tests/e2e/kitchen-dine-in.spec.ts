@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { E2E_BYPASS, E2E_KITCHEN_PASSWORD } from "./env";
+import { E2E_KITCHEN_PASSWORD } from "./env";
+import { enableTestMode } from "./testMode";
 
 /**
  * The staff POS, driven like a person at the counter: takeout by phone, and
@@ -30,7 +31,7 @@ let page: Page;
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
   // Test mode: pickup times as if the store were open, whatever the clock.
-  await page.goto(`/api/test-mode?key=${E2E_BYPASS}`);
+  await enableTestMode(page);
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");

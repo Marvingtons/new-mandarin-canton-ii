@@ -64,6 +64,9 @@ async function main(): Promise<void> {
       ORDER_NUMBER_PREFIX: "A",
       ADMIN_DASH_PASSWORD: E2E_KITCHEN_PASSWORD,
       ORDER_GATE_BYPASS: E2E_BYPASS,
+      // `next start` is NODE_ENV=production, where /api/test-mode is a 404
+      // unless deliberately opened. The specs open it.
+      TEST_MODE_ROUTE_ENABLED: "1",
       // Signs the test-mode and phone cookies. A test value, like the rest.
       OTP_SIGNING_SECRET: "e2e-otp-signing-secret-0123456789abcdef0123456789",
       CLOUDPRNT_SECRET: "e2e-print-secret-not-a-printer",

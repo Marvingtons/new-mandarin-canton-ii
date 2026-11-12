@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { Client } from "pg";
-import { E2E_BYPASS, E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
+import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
+import { enableTestMode } from "./testMode";
 
 /**
  * The board's cheap poll, in a real browser: while nothing changes it only
@@ -59,7 +60,7 @@ test("the board polls a version, picks up a POS order within 5 s, and still chim
     // ---- the board, sound on ----
     const board = await context.newPage();
     // Test mode, so the POS offers pickup times whatever the clock says.
-    await board.goto(`/api/test-mode?key=${E2E_BYPASS}`);
+    await enableTestMode(board);
     await board.goto("/kitchen");
     await board.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
     await board.locator('input[type="password"]').press("Enter");

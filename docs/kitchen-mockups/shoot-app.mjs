@@ -36,7 +36,11 @@ const browser = await chromium.launch({ channel: "chrome" });
 const context = await browser.newContext({ deviceScaleFactor: 1 });
 const page = await context.newPage();
 await page.setViewportSize({ width: 1376, height: 1032 });
-await page.goto(`${BASE}/api/test-mode?key=${BYPASS}`);
+// Test mode is a POST with the key (GET only reports it): use the page's form.
+await page.goto(`${BASE}/api/test-mode`);
+await page.locator('input[name="key"]').fill(BYPASS);
+await page.getByRole("button", { name: "Turn on for 4 hours" }).click();
+await page.getByText("Test mode on").waitFor();
 await page.goto(`${BASE}/kitchen/pos`);
 await page.locator('input[type="password"]').fill(PASSWORD);
 await page.locator('input[type="password"]').press("Enter");

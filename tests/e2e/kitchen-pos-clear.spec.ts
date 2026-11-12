@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { E2E_BYPASS, E2E_KITCHEN_PASSWORD } from "./env";
+import { E2E_KITCHEN_PASSWORD } from "./env";
+import { enableTestMode } from "./testMode";
 
 /**
  * Clearing a POS draft is destructive: two taps, always, through the same
@@ -10,7 +11,7 @@ test("clearing a draft ticket takes the shared destructive confirm", async ({ br
   const context = await browser.newContext({ viewport: { width: 1180, height: 820 } });
   await context.addInitScript(() => localStorage.setItem("nmc-kitchen-sound", "off"));
   const page = await context.newPage();
-  await page.goto(`/api/test-mode?key=${E2E_BYPASS}`);
+  await enableTestMode(page);
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");

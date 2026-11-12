@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { Client } from "pg";
-import { E2E_BYPASS, E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
+import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
+import { enableTestMode } from "./testMode";
 
 /**
  * Single-key shortcuts (J K A C P X, 1 2 3, ?, and the shell's N B H M) must
@@ -56,7 +57,7 @@ test.beforeAll(async ({ browser }) => {
   // Sound already answered on this device, so its prompt is not in the way.
   await context.addInitScript(() => localStorage.setItem("nmc-kitchen-sound", "off"));
   page = await context.newPage();
-  await page.goto(`/api/test-mode?key=${E2E_BYPASS}`);
+  await enableTestMode(page);
   await page.goto("/kitchen");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");
