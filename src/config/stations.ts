@@ -71,7 +71,8 @@ export const OTHER_STATION: Record<Station, Station> = {
  * many seconds, the other printer takes that station's new tickets: it claims
  * them as if they were its own, the order and the hand-over record the printer
  * that actually printed, and the ticket carries one extra header line,
- * REROUTED FROM ONLINE / REROUTED FROM STORE (轉自網上 / 轉自店內). The owner
+ * REROUTED FROM ONLINE / REROUTED FROM STORE, with the Chinese beside it (see
+ * TICKET_LABELS.reroutedFrom in lib/ticket/glyphs.ts). The owner
  * gets one text when it starts and one when the printer is back, never one
  * per ticket. Nothing about delivery changes: the same claim, R2 body,
  * starprnt bytes, confirm window and copies, on the other printer.
