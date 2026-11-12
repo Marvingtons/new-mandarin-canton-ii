@@ -76,3 +76,45 @@ export interface MaskWipeOptions {
   clear?: boolean;
 }
 
+/**
+ * clip-path wipe — the mask pulls back to uncover the element in place.
+ * Reserved for headers and imagery: it reads as more deliberate than a
+ * rise, so overusing it flattens the page's hierarchy.
+ *
+ * Animating clip-path is compositor-friendly here because the element
+ * itself never moves — no layout, no reflow.
+ */
+export function maskWipe(
+  target: string | Element | Element[] | NodeListOf<Element> | null | undefined,
+  options: MaskWipeOptions = {},
+): gsap.core.Tween | null {
+  const els = toElements(target);
+  if (!els.length) return null;
+
+  const {
+    trigger,
+    start = START.enter,
+    direction = "ltr",
+    stagger = 0.1,
+    duration = 0.9,
+    delay = 0,
+    clear = true,
+  } = options;
+
+  const hidden =
+    direction === "rtl" ? "inset(0 0 0 100%)" : "inset(0 100% 0 0)";
+
+  return gsap.fromTo(
+    els,
+    { clipPath: hidden },
+    {
+      clipPath: "inset(0% 0% 0% 0%)",
+      duration,
+      stagger,
+      delay,
+      ease: EASE.soft,
+      ...(clear ? { clearProps: "clipPath" } : {}),
+      scrollTrigger: { trigger: trigger ?? els[0], start, once: true },
+    },
+  );
+}
