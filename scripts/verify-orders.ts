@@ -436,10 +436,10 @@ async function main(): Promise<void> {
       stillQueued?.status,
     );
 
-    const requeued = await repo.requeueForPrint(tenant, first.order.id);
+    const requeued = await repo.requestReprint(tenant, first.order.id);
     check(
-      "requeueForPrint (重印) puts it back in the queue",
-      requeued?.status === "QUEUED" && requeued.printAttempts === 0,
+      "requestReprint (重印) asks for a copy and leaves the order PRINTED",
+      requeued?.status === "PRINTED" && requeued.reprintPending && requeued.printAttempts === 0,
     );
 
     // …and being back in the queue must mean genuinely claimable again.
@@ -636,7 +636,7 @@ async function main(): Promise<void> {
       // is a fresh attempt at printing, so it must also be a fresh attempt at
       // alerting: without this, a reprint that also fails to print is silent,
       // and the one net that catches a ticket the kitchen never saw is gone.
-      await repo.requeueForPrint(tenant, o.order.id);
+      await repo.requestReprint(tenant, o.order.id);
       await age(o.order.id);
       const rearmed = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);
       check(
@@ -660,7 +660,7 @@ async function main(): Promise<void> {
         idempotencyKey: "alert-retry-d",
       });
       await age(o.order.id);
-      await repo.requeueForPrint(tenant, o.order.id);
+      await repo.requestReprint(tenant, o.order.id);
       await age(o.order.id);
       await repo.markPrinted(tenant, o.order.id);
       const swept = await repo.findUnprintedForAlert(tenant, 120, businessDate, 5);

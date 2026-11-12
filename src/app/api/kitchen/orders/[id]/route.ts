@@ -4,7 +4,7 @@ import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
 import {
   cancelOrder,
   getOrderById,
-  requeueForPrint,
+  requestReprint,
   updateStatus,
 } from "@/lib/orders/repository";
 import { notifyOrderReady } from "@/lib/notify/orderReady";
@@ -66,20 +66,20 @@ export async function POST(
     return Response.json({ ok: false, error: "not found" }, { status: 404 });
   }
 
-  // 重印 — put the job back in the queue. We do NOT push to the printer:
-  // CloudPRNT is pull-based, so "reprint" means making the job claimable again
-  // and letting the next poll (seconds away) collect it. The requeue writes a
-  // labeled manual_reprint delivery so this legitimate second ticket is
-  // distinguishable from a duplicate bug. The actor is "kitchen": the board is
-  // a single shared session with no per-person identity (see kitchenSession.ts).
+  // 重印 — ask for one more copy. We do NOT push to the printer: CloudPRNT is
+  // pull-based, so a reprint records a manual_reprint request (with the
+  // station picked) and the next poll of that printer collects it. The order's
+  // status is not touched, so it stays where it is on the board. The actor is
+  // "kitchen": the board is a single shared session with no per-person
+  // identity (see kitchenSession.ts).
   if (body.action === "reprint") {
-    const requeued = await requeueForPrint(
+    const requeued = await requestReprint(
       tenant.tenantId,
       orderId,
       "kitchen",
       body.station,
     );
-    // requeueForPrint refuses a CANCELLED order (never offered again) and an
+    // requestReprint refuses a CANCELLED order (never offered again) and an
     // order the printer is printing right now (one live delivery at a time).
     if (!requeued) {
       const now = await getOrderById(tenant.tenantId, orderId);

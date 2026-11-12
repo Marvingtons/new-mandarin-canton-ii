@@ -25,12 +25,20 @@
 --
 -- WHAT THIS ADDS
 --   orders.print_station         the printer whose queue this ticket is in.
---                                Set from the channel at insert; changed only
---                                by a 重印 that picks the other station. Default
+--                                Set from the channel at insert. Default
 --                                'online' covers rows the OLD code inserts
 --                                between steps 1 and 2: there is one printer
 --                                until step 2, and it is the online one.
 --   orders_print_station_queue_idx  per-printer head of line (QUEUED only).
+--   orders.reprint_delivery_id   a 重印 copy waiting on a printer: the id of its
+--                                manual_reprint print_deliveries row, which
+--                                names the station picked. A reprint no longer
+--                                touches orders.status, so this is how the
+--                                printer finds an ACCEPTED order that needs
+--                                another copy. NULL on every existing row: the
+--                                OLD code reprints by requeueing to QUEUED and
+--                                never sets it, so nothing old looks pending.
+--   orders_reprint_pending_idx   the rows with a copy pending (tiny, partial).
 --   print_deliveries.station     the printer this hand-over went to. NULL on
 --                                rows from before this migration (one printer).
 --   printer_status.station       which printer this health row is. Existing
@@ -83,7 +91,16 @@ create index if not exists orders_print_station_queue_idx
   where status = 'QUEUED';
 
 comment on column orders.print_station is
-  'Printer whose queue this ticket is in: online (web) or store (phone, walk_in, dine_in). Mapping lives in src/config/stations.ts. Changed only by a reprint to the other station.';
+  'Printer whose queue this ticket is in: online (web) or store (phone, walk_in, dine_in). Mapping lives in src/config/stations.ts. A reprint never changes it.';
+
+alter table orders add column if not exists reprint_delivery_id uuid;
+
+create index if not exists orders_reprint_pending_idx
+  on orders (tenant_id, created_at)
+  where reprint_delivery_id is not null;
+
+comment on column orders.reprint_delivery_id is
+  'A reprint copy waiting on a printer: the manual_reprint print_deliveries row (which names the station). Set by a reprint, cleared when the copy prints or gives up. A reprint never changes status.';
 
 -- ---------------------------------------------------- print_deliveries
 

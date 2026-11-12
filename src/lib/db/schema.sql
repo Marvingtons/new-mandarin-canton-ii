@@ -125,9 +125,15 @@ create table if not exists orders (
   table_cleared_at  timestamptz,
   -- Which printer's queue the ticket is in (migration 011): 'online' (web) or
   -- 'store' (phone, walk_in, dine_in). The mapping lives in
-  -- src/config/stations.ts and is applied at insert; only a 重印 to the other
-  -- station changes it.
+  -- src/config/stations.ts and is applied at insert. A 重印 never changes it
+  -- (the copy's printer is on its manual_reprint row).
   print_station     text        not null default 'online',
+  -- A 重印 waiting for, or being printed by, a printer (migration 011): the id
+  -- of its manual_reprint print_deliveries row, which names the station staff
+  -- picked. Set by the reprint, cleared when that copy prints or gives up.
+  -- A reprint never touches status, so this is how the printer finds an
+  -- ACCEPTED or COMPLETED order that needs another copy.
+  reprint_delivery_id uuid,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
@@ -165,6 +171,12 @@ create unique index if not exists orders_number_uniq
 create index if not exists orders_print_station_queue_idx
   on orders (tenant_id, print_station, created_at)
   where status = 'QUEUED';
+
+-- Pending 重印 copies, whatever the order's status. Tiny: rows leave it as
+-- soon as their copy prints.
+create index if not exists orders_reprint_pending_idx
+  on orders (tenant_id, created_at)
+  where reprint_delivery_id is not null;
 
 -- Drives the /kitchen board query.
 create index if not exists orders_kitchen_idx

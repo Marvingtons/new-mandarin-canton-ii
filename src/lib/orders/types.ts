@@ -227,10 +227,16 @@ export interface Order {
   channel: OrderChannel;
   /**
    * The printer whose queue this ticket is in (migration 011). Set from the
-   * channel at creation (config/stations.ts) and changed only by a 重印 that
-   * picks the other station.
+   * channel at creation (config/stations.ts). A 重印 never changes it: the
+   * printer a copy went to is on that copy's manual_reprint delivery row.
    */
   station: Station;
+  /**
+   * A 重印 copy is waiting for, or being printed by, a printer. A reprint
+   * never changes `status`, so an ACCEPTED order stays where it is on the
+   * board while this is true; it clears when the copy prints or gives up.
+   */
+  reprintPending: boolean;
   /** POS payment note, e.g. "paid by phone, card ending 4417". Never a card number field. */
   paymentNote: string | null;
   /** Internal staff note. Never printed. */

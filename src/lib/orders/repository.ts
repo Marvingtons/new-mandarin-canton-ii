@@ -133,6 +133,7 @@ const ORDER_COLUMNS = `
   alerted_at,
   channel,
   print_station,
+  reprint_delivery_id,
   payment_note,
   staff_note,
   table_label,
@@ -189,6 +190,7 @@ function mapOrder(row: QueryResultRow): Order {
     // Unknown means a hand-written row: the online printer, which has always
     // been the one printer that exists.
     station: isStation(row.print_station) ? row.print_station : "online",
+    reprintPending: row.reprint_delivery_id != null,
     paymentNote: row.payment_note == null ? null : String(row.payment_note),
     staffNote: row.staff_note == null ? null : String(row.staff_note),
     tableLabel: row.table_label == null ? null : String(row.table_label),
@@ -488,6 +490,36 @@ export async function clearTable(tenantId: string, tableLabelValue: string): Pro
  * again. The whole change is that the offer path now measures against the
  * delivery identity, not the self-clearing print_offered_at.
  */
+/**
+ * "This order needs paper from one of these printers", as a SQL predicate on
+ * an `orders` row. Two ways to need paper:
+ *
+ *   - its FIRST print: status QUEUED (PRINTABLE_STATUSES), on its own
+ *     station, with no 重印 pending;
+ *   - a 重印 COPY: orders.reprint_delivery_id names a manual_reprint row, and
+ *     that row's station is one of these printers. Whatever the order's
+ *     status: a reprint of an ACCEPTED order leaves it ACCEPTED. Never a
+ *     CANCELLED one.
+ *
+ * `statuses` and `stations` are the placeholders ("$2", "$5") holding
+ * PRINTABLE_STATUSES and the printer's served stations. Every query that
+ * decides what a printer may be handed (claim, in-flight, re-offer, the
+ * strip's queued count) uses this one definition, so they cannot disagree.
+ */
+function needsPaperFrom(statuses: string, stations: string): string {
+  return `(
+    (orders.reprint_delivery_id is null
+      and orders.status = any(${statuses}::text[])
+      and orders.print_station = any(${stations}::text[]))
+    or (orders.reprint_delivery_id is not null
+      and orders.status <> 'CANCELLED'
+      and exists (
+        select 1 from print_deliveries r
+         where r.id = orders.reprint_delivery_id
+           and r.station = any(${stations}::text[])))
+  )`;
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -554,9 +586,8 @@ export async function claimNextPrintJob(
         where id = (
           select id from orders
            where tenant_id = $1
-             and status = any($2::text[])
              and print_attempts = 0
-             and print_station = any($5::text[])
+             and ${needsPaperFrom("$2", "$5")}
            order by created_at asc
            for update skip locked
            limit 1
@@ -565,9 +596,8 @@ export async function claimNextPrintJob(
           -- makes two simultaneous claims impossible, not the subselect. The
           -- station too: a 重印 to the other printer between the subselect and
           -- this write must not let this printer take it.
-          and status = any($2::text[])
           and print_attempts = 0
-          and print_station = any($5::text[])
+          and ${needsPaperFrom("$2", "$5")}
         returning ${ORDER_COLUMNS}`,
       [tenantId, PRINTABLE_STATUSES, deliveryId, windowSeconds, [...scope.serves]],
     );
@@ -604,9 +634,8 @@ export async function currentPrintJob(
   const { rows } = await lockedRead(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1
-        and status = any($2::text[])
         and print_attempts > 0
-        and print_station = any($3::text[])
+        and ${needsPaperFrom("$2", "$3")}
       order by created_at asc
       limit 1
       for update`,
@@ -665,8 +694,11 @@ export async function reofferPrintDelivery(
           -- that reprinted an order 49s after it was confirmed. Re-checking
           -- status here, under this UPDATE's own row lock, makes the write
           -- refuse a PRINTED / CANCELLED / PRINT_FAILED order regardless of any
-          -- pointer or timestamp left on it.
-          and status = any($5::text[])
+          -- pointer or timestamp left on it. (Unless a 重印 copy of it is
+          -- pending: then it is the copy being re-offered, and status is not
+          -- the reprint's to change. The station is the caller's, already
+          -- checked by currentPrintJob, so any station passes here.)
+          and ${needsPaperFrom("$5", "$7")}
           -- BELT AND BRACES, the same race seen from the delivery side: never
           -- re-offer while the delivery being superseded is already confirmed.
           and not exists (
@@ -682,7 +714,7 @@ export async function reofferPrintDelivery(
           -- delivery being replaced must have expired (or there is none).
           and (print_delivery_id is null or print_delivery_expires_at <= now())
         returning ${ORDER_COLUMNS}`,
-      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES, supersedes],
+      [tenantId, orderId, deliveryId, windowSeconds, PRINTABLE_STATUSES, supersedes, [...STATIONS]],
     );
     // No row matched: the order is no longer offerable (status changed, or its
     // current delivery was already confirmed). Do NOT create a delivery.
@@ -755,6 +787,7 @@ export type ConfirmDeliveryKind =
   | "advanced" // a non-final piece confirmed; the cursor moved to the next
   | "closed" // delivery closed without printing (late, outside the grace window)
   | "failed" // failure code; the order is re-armed to re-offer
+  | "reprinted" // a 重印 copy printed; the order's status was left alone
   | "not-printable"; // staff had already advanced the order past printing
 
 export interface ConfirmDeliveryResult {
@@ -812,6 +845,8 @@ export async function confirmPrintDelivery(
               print_offered_at          = null,
               print_delivery_id         = null,
               print_delivery_expires_at = null`;
+  // And, once a copy is finished one way or the other, the 重印 it was for.
+  const CLEAR_REPRINT = `reprint_delivery_id = null`;
 
   return withTransaction(async (client) => {
     const d = await client.query(
@@ -823,7 +858,8 @@ export async function confirmPrintDelivery(
     const orderId = Number(d.rows[0].order_id);
 
     const o = await client.query(
-      `select order_number, status, print_segment, print_segments, print_job_key
+      `select order_number, status, print_segment, print_segments, print_job_key,
+              reprint_delivery_id
          from orders where tenant_id = $1 and id = $2 for update`,
       [tenantId, orderId],
     );
@@ -835,6 +871,7 @@ export async function confirmPrintDelivery(
       o.rows.length > 0 && o.rows[0].print_job_key !== null
         ? String(o.rows[0].print_job_key)
         : null;
+    const reprinting = o.rows.length > 0 && o.rows[0].reprint_delivery_id !== null;
 
     if (d.rows[0].confirmed_at !== null) {
       return { kind: "already", orderNumber, status, jobKey: null, segment, segments, nextSegment: null };
@@ -875,7 +912,7 @@ export async function confirmPrintDelivery(
       // Late confirmation outside the grace window: close the delivery, clear
       // the pointer, but leave the order where it is.
       await client.query(
-        `update orders set ${CLEAR_POINTER}, updated_at = now()
+        `update orders set ${CLEAR_POINTER}, ${CLEAR_REPRINT}, updated_at = now()
           where tenant_id = $1 and id = $2`,
         [tenantId, orderId],
       );
@@ -902,6 +939,9 @@ export async function confirmPrintDelivery(
       return { kind: "advanced", orderNumber, status, jobKey, segment, segments, nextSegment };
     }
 
+    // An order that had never made it onto paper (QUEUED, or PRINT_FAILED and
+    // now printed after all) is PRINTED by this, whether the copy was its
+    // first print or a 重印: the paper is real either way.
     const printed = await client.query(
       `update orders
           set status = 'PRINTED',
@@ -910,6 +950,7 @@ export async function confirmPrintDelivery(
               print_segment = 0,
               print_segments = 0,
               ${CLEAR_POINTER},
+              ${CLEAR_REPRINT},
               updated_at = now()
         where tenant_id = $1 and id = $2 and status in ('QUEUED', 'PRINT_FAILED')
         returning status`,
@@ -919,15 +960,30 @@ export async function confirmPrintDelivery(
       return { kind: "printed", orderNumber, status: "PRINTED", jobKey, segment, segments, nextSegment: null };
     }
 
-    // markPrinted matched nothing: staff already advanced the order past
-    // printing. Still clear the pointer so it stops being offered, but do not
-    // drag it back to PRINTED.
+    // markPrinted matched nothing: the order is past printing (PRINTED,
+    // ACCEPTED, COMPLETED). For a 重印 copy that is the normal ending: the copy
+    // is out and the order stays exactly where it was on the board. Otherwise
+    // staff advanced it while the printer held it. Either way, clear the
+    // pointer so it stops being offered, and never drag it back to PRINTED.
     await client.query(
-      `update orders set ${CLEAR_POINTER}, updated_at = now()
+      `update orders
+          set print_segment = 0,
+              print_segments = 0,
+              ${CLEAR_POINTER},
+              ${CLEAR_REPRINT},
+              updated_at = now()
         where tenant_id = $1 and id = $2`,
       [tenantId, orderId],
     );
-    return { kind: "not-printable", orderNumber, status, jobKey, segment, segments, nextSegment: null };
+    return {
+      kind: reprinting ? "reprinted" : "not-printable",
+      orderNumber,
+      status,
+      jobKey,
+      segment,
+      segments,
+      nextSegment: null,
+    };
   });
 }
 
@@ -1066,14 +1122,15 @@ export async function countQueuedOrders(
   /** Waiting on THIS printer: the stations it prints for. */
   stations: readonly Station[] = STATIONS,
 ): Promise<number> {
+  // Tickets and 重印 copies alike: whatever this printer still owes paper.
   const { rows } = await lockedRead(
     `select count(*)::int as n from (
        select 1 from orders
-        where tenant_id = $1 and status = 'QUEUED'
-          and print_station = any($2::text[])
-        for share
+        where tenant_id = $1
+          and ${needsPaperFrom("$3", "$2")}
+        for share of orders
      ) queued`,
-    [tenantId, [...stations]],
+    [tenantId, [...stations], PRINTABLE_STATUSES],
   );
   return rows.length > 0 ? Number(rows[0].n) : 0;
 }
@@ -1095,6 +1152,7 @@ export async function markPrinted(
             print_offered_at = null,
             print_delivery_id = null,
             print_delivery_expires_at = null,
+            reprint_delivery_id = null,
             updated_at = now()
       where tenant_id = $1
         and id = $2
@@ -1107,92 +1165,114 @@ export async function markPrinted(
 }
 
 /**
- * Put a printed or failed order back in the queue (staff pressed 重印).
+ * Staff pressed 重印: ask a printer for one more copy of this ticket.
  *
- * This is now the ONLY legitimate path to a second ticket, and it says so in
- * the record: a `manual_reprint` delivery row is written with the actor, so a
- * second ticket that carries one is explained and a second ticket that does not
- * is a bug by definition. `printed_at` is deliberately left untouched — the
- * order really did print once — and previous deliveries are left in place as
- * the history of that first print.
+ * THE ORDER DOES NOT MOVE. Status is never written here: an ACCEPTED order
+ * stays ACCEPTED, a COMPLETED one COMPLETED, and the board keeps it exactly
+ * where it was. (This used to reset the order to QUEUED, which pulled an
+ * accepted ticket back to "new" on every tablet.) What a reprint writes:
  *
- * The marker is NOT an in-flight hand-over: it does not stamp the order pointer
- * and its expiry is now(), so it never reads as "a body is in flight". The real
- * hand-over is made by the next poll's claimNextPrintJob, exactly as for any
- * fresh order — which is why the order is reset to claimable (attempts 0, no
- * pointer) here.
+ *   - ONE print_deliveries row, reason `manual_reprint`, actor and the station
+ *     picked. It is the request, and the record that explains the second
+ *     ticket: a second ticket that carries one is legitimate, one that does
+ *     not is a bug by definition. Its offered_at = expires_at = now(), so it
+ *     never reads as a body in flight.
+ *   - the order's print bookkeeping (never its status): reprint_delivery_id
+ *     points at that row, which is how the printer finds an order whose status
+ *     says it is long past printing (see needsPaperFrom), and the hand-over
+ *     counters are reset so the copy is claimed like a fresh ticket.
  *
- * `actor` identifies who reprinted. Today that is only ever "kitchen": the board
- * is a single shared password with no per-person identity (see
- * kitchenSession.ts). TODO(confirm) if per-person attribution is ever wanted.
+ * The copy is handed over by the next poll of the station's printer, with its
+ * own delivery row, and when it is confirmed the pointer clears and status is
+ * left alone (confirmPrintDelivery, kind "reprinted"). A copy of an order that
+ * never printed (QUEUED, PRINT_FAILED) makes it PRINTED when it comes out,
+ * because then it is the order's first paper.
+ *
+ * `printed_at` is untouched: the order really did print once. `print_station`
+ * is untouched too: a copy sent to the other printer does not move the order.
+ *
+ * A second tap before the printer has collected the first request does not
+ * stack a second copy: the pending request is retargeted to the station just
+ * picked and no row is added.
+ *
+ * Refused (null) for a CANCELLED order, and while the printer holds a live
+ * delivery of this order inside its window (A-001, 15 Oct: 重印 one second
+ * after the offer threw away the delivery being printed). The caller tells
+ * which from a fresh getOrderById.
+ *
+ * `actor` is "kitchen" today: the board is one shared password with no
+ * per-person identity (see kitchenSession.ts).
  */
-export async function requeueForPrint(
+export async function requestReprint(
   tenantId: string,
   orderId: number,
   actor = "kitchen",
-  /**
-   * Which printer to send it to. Omitted = where it printed before. Picking
-   * the other station moves the order into that printer's queue for good, so
-   * the board badge and any later 重印 follow it there.
-   */
+  /** Which printer. Omitted = the order's own station. */
   station?: Station,
 ): Promise<Order | null> {
-  // Returns null when refused: the order is CANCELLED, or a delivery is in
-  // flight and still inside its window (see the WHERE below). The caller can
-  // tell which from a fresh getOrderById.
   return withTransaction(async (client) => {
-    // alerted_at and alert_attempts are reset alongside the print counters, and
-    // that is load-bearing rather than tidiness. findUnprintedForAlert only
-    // considers orders with `alerted_at IS NULL`, and nothing else clears it —
-    // so a reprint that ALSO fails to print must re-arm the alert, or the owner
-    // is never told a second time.
-    const { rows } = await client.query(
-      `update orders
-          set status = 'QUEUED',
-              print_attempts = 0,
-              last_print_error = null,
-              alerted_at = null,
-              alert_attempts = 0,
-              -- A reprint starts the ticket again from its first piece.
-              print_segment = 0,
-              print_segments = 0,
-              print_job_key = null,
-              -- Nothing is in flight: pressing 重印 decides that whatever the
-              -- printer may still hold is not going to arrive.
-              print_offered_at = null,
-              print_delivery_id = null,
-              print_delivery_expires_at = null,
-              print_station = coalesce($3::text, print_station),
-              updated_at = now()
-        where tenant_id = $1 and id = $2
-          -- A cancelled order is never offered to the printer again, and a
-          -- 重印 tapped on one must not quietly put it back in the queue.
-          and status <> 'CANCELLED'
-          -- Never while the printer holds a live copy. Resetting here threw
-          -- away the delivery the printer was printing (A-001, 15 Oct: 重印
-          -- one second after the offer), so its confirmation could no longer
-          -- land and the order looked unprinted. Exactly one delivery at a
-          -- time: wait for this one to confirm or expire.
-          and not (
-            status = 'QUEUED'
-            and print_delivery_id is not null
-            and print_delivery_expires_at > now()
-          )
-        returning ${ORDER_COLUMNS}`,
-      [tenantId, orderId, station ?? null],
+    const { rows: current } = await client.query(
+      `select status, print_station, print_attempts, reprint_delivery_id,
+              (print_delivery_id is not null
+                and print_delivery_expires_at > now()) as in_flight
+         from orders where tenant_id = $1 and id = $2
+         for update`,
+      [tenantId, orderId],
     );
-    if (rows.length === 0) return null;
-    const order = mapOrder(rows[0]);
-    // The labeled marker. offered_at = expires_at = now() so it is never "in
-    // flight"; it exists to be counted (已重印 ×N) and to explain the second
-    // ticket the next poll is about to produce.
+    if (current.length === 0) return null;
+    const row = current[0];
+    if (row.status === "CANCELLED" || row.in_flight === true) return null;
+
+    const target: Station = station ?? (isStation(row.print_station) ? row.print_station : "online");
+
+    // Still waiting to be collected: same request, possibly a new printer.
+    if (row.reprint_delivery_id !== null && Number(row.print_attempts) === 0) {
+      await client.query(
+        `update print_deliveries set station = $3
+          where tenant_id = $1 and id = $2`,
+        [tenantId, row.reprint_delivery_id, target],
+      );
+      const { rows } = await client.query(
+        `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2`,
+        [tenantId, orderId],
+      );
+      return mapOrder(rows[0]);
+    }
+
+    const requestId = randomUUID();
     await client.query(
       `insert into print_deliveries
          (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station)
        values ($1, $2, $3, now(), now(), 'manual_reprint', $4, $5)`,
-      [randomUUID(), orderId, tenantId, actor, order.station],
+      [requestId, orderId, tenantId, actor, target],
     );
-    return order;
+
+    // alerted_at and alert_attempts re-arm only for an order that has never
+    // printed: findUnprintedForAlert considers QUEUED / PRINT_FAILED rows with
+    // alerted_at null, so a reprint of one that ALSO fails must be able to tell
+    // the owner again. An order already on paper is not "unprinted".
+    const { rows } = await client.query(
+      `update orders
+          set reprint_delivery_id = $3,
+              print_attempts = 0,
+              last_print_error = null,
+              alerted_at = case when status in ('QUEUED', 'PRINT_FAILED')
+                                then null else alerted_at end,
+              alert_attempts = case when status in ('QUEUED', 'PRINT_FAILED')
+                                    then 0 else alert_attempts end,
+              -- The copy starts from its first piece, with nothing in flight.
+              print_segment = 0,
+              print_segments = 0,
+              print_job_key = null,
+              print_offered_at = null,
+              print_delivery_id = null,
+              print_delivery_expires_at = null,
+              updated_at = now()
+        where tenant_id = $1 and id = $2
+        returning ${ORDER_COLUMNS}`,
+      [tenantId, orderId, requestId],
+    );
+    return mapOrder(rows[0]);
   });
 }
 
@@ -1452,7 +1532,8 @@ export async function listActiveOrders(
        -- offered since then has been confirmed.
        left join lateral (
          select case
-                  when orders.status in ('QUEUED', 'PRINT_FAILED')
+                  when (orders.status in ('QUEUED', 'PRINT_FAILED')
+                        or orders.reprint_delivery_id is not null)
                    and not exists (
                      select 1 from print_deliveries c
                       where c.tenant_id = orders.tenant_id
@@ -1523,10 +1604,17 @@ export async function recordPrintAttempt(
         set last_print_error = $4,
             printed_at = case when $3 = 'PRINTED' then now() else printed_at end,
             status = case
+              -- A 重印 copy that gave up (or printed) says nothing about the
+              -- order: one already on paper keeps its status. Only an order
+              -- that never printed can become PRINT_FAILED from this.
+              when reprint_delivery_id is not null
+               and status not in ('QUEUED', 'PRINT_FAILED') then status
               when status in ('QUEUED', 'PRINTED', 'PRINT_FAILED')
                 then $3
               else status
             end,
+            -- The copy is finished either way; stop offering it.
+            reprint_delivery_id = null,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning ${ORDER_COLUMNS}`,
@@ -1580,6 +1668,12 @@ export async function recordRenderFailure(
                        when print_attempts + 1 >= $4 then 'PRINT_FAILED'
                        else 'QUEUED'
                      end,
+            -- A 重印 copy that cannot render gives up at the same cap, without
+            -- touching status, or it would be offered forever.
+            reprint_delivery_id = case
+                       when print_attempts + 1 >= $4 then null
+                       else reprint_delivery_id
+                     end,
             updated_at = now()
       where tenant_id = $1 and id = $2
       returning status, print_attempts`,
@@ -1599,7 +1693,7 @@ export async function recordRenderFailure(
  *
  * CANCELLED is outside PRINTABLE_STATUSES, so neither claimNextPrintJob nor
  * reofferPrintDelivery can ever hand it to the printer again, and
- * requeueForPrint refuses it. The in-flight pointer is cleared too, so nothing
+ * requestReprint refuses it. The in-flight pointer is cleared too, so nothing
  * reads as "a body is out" for an order nobody is cooking. A body the printer
  * already holds may still come out; that is paper, not a re-offer, and the
  * confirmation that follows lands as "not-printable" and changes nothing.
@@ -1624,6 +1718,7 @@ export async function cancelOrder(
             print_offered_at = null,
             print_delivery_id = null,
             print_delivery_expires_at = null,
+            reprint_delivery_id = null,
             updated_at = now()
       where tenant_id = $1 and id = $2 and status <> 'CANCELLED'
       returning ${ORDER_COLUMNS}`,

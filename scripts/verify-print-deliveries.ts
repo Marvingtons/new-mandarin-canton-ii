@@ -109,7 +109,7 @@ function check(name: string, passed: boolean, detail = ""): void {
 interface Deps {
   createOrder: typeof import("../src/lib/orders/repository").createOrder;
   getOrderById: typeof import("../src/lib/orders/repository").getOrderById;
-  requeueForPrint: typeof import("../src/lib/orders/repository").requeueForPrint;
+  requestReprint: typeof import("../src/lib/orders/repository").requestReprint;
   reofferPrintDelivery: typeof import("../src/lib/orders/repository").reofferPrintDelivery;
   listActiveOrders: typeof import("../src/lib/orders/repository").listActiveOrders;
   ordersPool: typeof import("../src/lib/db/postgres").ordersPool;
@@ -364,7 +364,7 @@ async function s8_manualReprintIsLabeled(h: Handlers, deps: Deps): Promise<void>
   const printedAt = printed?.printedAt ?? null;
 
   // Staff press 重印.
-  await deps.requeueForPrint(TENANT, order.id, "kitchen");
+  await deps.requestReprint(TENANT, order.id, "kitchen");
   const requeued = await deps.getOrderById(TENANT, order.id);
   const ds = await deliveriesFor(deps, order.id);
   const reprint = ds.find((d) => d.reason === "manual_reprint");
@@ -380,7 +380,7 @@ async function s8_manualReprintIsLabeled(h: Handlers, deps: Deps): Promise<void>
   check("a manual_reprint delivery was written", !!reprint, reprint ? `actor=${reprint.actor}` : "none");
   check("its actor is recorded", reprint?.actor === "kitchen");
   check("printed_at was NOT cleared by the reprint", requeued?.printedAt === printedAt && printedAt !== null, `printed_at=${requeued?.printedAt}`);
-  check("the order was re-queued (claimable again)", requeued?.status === "QUEUED" && requeued?.printAttempts === 0);
+  check("the order was NOT moved: still PRINTED, a copy pending", requeued?.status === "PRINTED" && requeued?.reprintPending === true && requeued?.printAttempts === 0, `status=${requeued?.status}`);
   check("the board card is badged 已重印 (reprintCount ≥ 1)", (card?.reprintCount ?? 0) >= 1, `reprintCount=${card?.reprintCount}`);
   check("the reprint produced a second, explained delivery", (card?.deliveryCount ?? 0) >= 2, `deliveryCount=${card?.deliveryCount}`);
 }
@@ -513,7 +513,7 @@ async function main(): Promise<void> {
   const deps: Deps = {
     createOrder: repo.createOrder,
     getOrderById: repo.getOrderById,
-    requeueForPrint: repo.requeueForPrint,
+    requestReprint: repo.requestReprint,
     reofferPrintDelivery: repo.reofferPrintDelivery,
     listActiveOrders: repo.listActiveOrders,
     ordersPool,

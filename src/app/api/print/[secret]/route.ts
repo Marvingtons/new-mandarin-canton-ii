@@ -957,6 +957,13 @@ async function confirmPrinted(url: URL): Promise<Response> {
           `delivery without printing; order stays ${result.status}`,
       );
       break;
+    case "reprinted":
+      console.info(
+        `[cloudprnt] verdict=reprinted ${result.orderNumber} delivery=${token} — 重印 copy ` +
+          `printed; order stays ${result.status}` +
+          (result.jobKey ? `, ${result.jobKey} deleted` : ""),
+      );
+      break;
     case "not-printable":
       console.warn(
         `[cloudprnt] ${result.orderNumber} delivery=${token} confirmed but not marked printed — ` +

@@ -109,7 +109,7 @@ function useChime(muted: boolean) {
 }
 
 /** What an action looks like on screen before the server answers. */
-function optimisticPatch(action: OrderAction, station?: Station): Partial<Order> {
+function optimisticPatch(action: OrderAction): Partial<Order> {
   switch (action) {
     case "accept":
       return { status: "ACCEPTED" };
@@ -118,13 +118,9 @@ function optimisticPatch(action: OrderAction, station?: Station): Partial<Order>
     case "cancel":
       return { status: "CANCELLED", printStuck: false };
     case "reprint":
-      return {
-        status: "QUEUED",
-        printAttempts: 0,
-        printStuck: false,
-        lastPrintError: null,
-        ...(station ? { station } : {}),
-      };
+      // A reprint asks for a copy; it never moves the order. Status and
+      // station stay as they are, so the card does not jump lanes.
+      return { reprintPending: true, printStuck: false, lastPrintError: null };
   }
 }
 
@@ -312,7 +308,7 @@ export function KitchenLiveProvider({
 
   const act = useCallback<LiveValue["act"]>(
     async (order, action, extra) => {
-      const token = setOverlay([order.id], optimisticPatch(action, extra?.station));
+      const token = setOverlay([order.id], optimisticPatch(action));
       const failed = (reason?: string) => {
         dropOverlay([order.id], token);
         toast(
@@ -359,7 +355,9 @@ export function KitchenLiveProvider({
       }
       if (data.order) adopt(data.order);
       dropOverlay([order.id], token);
-      const station = data.order?.station ?? extra?.station ?? order.station;
+      // A reprint's printer is the one picked; the order itself never moves.
+      const station =
+        (action === "reprint" ? extra?.station : undefined) ?? data.order?.station ?? order.station;
       const stationName = t(`station.${station}`);
       toast(
         action === "accept"

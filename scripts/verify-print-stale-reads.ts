@@ -96,7 +96,7 @@ async function confirm(h: Handlers, token: string, code = "OK"): Promise<number>
 async function kitchenReprint(deps: Deps, orderId: number): Promise<void> {
   const order = await deps.repo.getOrderById(TENANT, orderId);
   if (!order) throw new Error("reprint: order not found");
-  await deps.repo.requeueForPrint(TENANT, orderId, "kitchen");
+  await deps.repo.requestReprint(TENANT, orderId, "kitchen");
 }
 
 /* ---------------------------------------------------------- db helpers -- */
@@ -328,7 +328,7 @@ async function e_reprintWhilePrinting(h: Handlers, deps: Deps): Promise<void> {
 
   const p1 = await poll(h);
   await fetchJob(h, p1.token!);
-  const refused = await deps.repo.requeueForPrint(TENANT, order.id, "kitchen");
+  const refused = await deps.repo.requestReprint(TENANT, order.id, "kitchen");
   await confirm(h, p1.token!);
   const row = await orderRow(deps, order.id);
   const ds = await deliveriesFor(deps, order.id);
@@ -362,7 +362,7 @@ async function f_boardFlagsStuckTicket(h: Handlers, deps: Deps): Promise<void> {
   check("cleared once the printer confirms", done?.printStuck === false && done?.printPendingSince === null);
 
   // A 重印 starts a new attempt: flagged again only if IT goes 2 minutes.
-  await deps.repo.requeueForPrint(TENANT, order.id, "kitchen");
+  await deps.repo.requestReprint(TENANT, order.id, "kitchen");
   const afterReprint = await board();
   check("a fresh 重印 is not flagged yet", afterReprint?.printStuck === false);
 }

@@ -16,7 +16,8 @@
  *   - every hand-over records the printer that took it;
  *   - printer_status keeps one row per printer, and one printer's paper-out
  *     withholds nothing from the other;
- *   - 重印 with a station moves the ticket to that printer;
+ *   - 重印 with a station prints a copy on that printer and never moves the
+ *     order: status and station stay as they were;
  *   - a station with no MAC configured is printed by the other printer;
  *   - an unknown MAC gets nothing and writes nothing;
  *   - the owner alert names the printer that is down.
@@ -251,16 +252,17 @@ async function paperOutIsPerPrinter(h: Handlers, repo: Repo): Promise<void> {
 }
 
 async function reprintToStation(h: Handlers, repo: Repo, pool: Pool): Promise<void> {
-  console.log("\nreprint: staff pick the printer");
+  console.log("\nreprint: staff pick the printer; the order does not move");
   const web = await seed(repo, "web");
   const t = await poll(h, MAC_ONLINE);
   await confirm(h, MAC_ONLINE, t!);
 
-  const moved = await repo.requeueForPrint(TENANT, web, "kitchen", "store");
-  check("重印 to the store printer moves the order to the store station", moved?.station === "store");
+  const asked = await repo.requestReprint(TENANT, web, "kitchen", "store");
+  check("重印 to the store printer leaves the order on the online station",
+    asked?.station === "online" && asked.reprintPending, JSON.stringify({ station: asked?.station, pending: asked?.reprintPending }));
 
   const fromOnline = await poll(h, MAC_ONLINE);
-  check("the online printer does not take it back", fromOnline === null);
+  check("the online printer does not take the copy meant for the store", fromOnline === null);
   const fromStore = await poll(h, MAC_STORE);
   check("the store printer prints it", fromStore !== null && (await orderOf(pool, fromStore)) === web);
   check("and the hand-over says store", (await deliveryStation(pool, fromStore!)) === "store");
@@ -271,10 +273,67 @@ async function reprintToStation(h: Handlers, repo: Repo, pool: Pool): Promise<vo
     [web],
   );
   check("the reprint marker records the station picked", rows.length === 1 && rows[0].station === "store");
+  const after = await repo.getOrderById(TENANT, web);
+  check("after the copy prints: still PRINTED, still online, nothing pending",
+    after?.status === "PRINTED" && after.station === "online" && !after.reprintPending);
 
-  const same = await repo.requeueForPrint(TENANT, web, "kitchen");
-  check("重印 without a station keeps the current one", same?.station === "store");
+  const same = await repo.requestReprint(TENANT, web, "kitchen");
+  check("重印 without a station goes to the order's own printer", same?.station === "online");
+  const back = await poll(h, MAC_ONLINE);
+  check("which prints it", back !== null && (await orderOf(pool, back)) === web);
+  await confirm(h, MAC_ONLINE, back!);
   await drain(h);
+}
+
+/**
+ * The reported bug: 重印 on an ACCEPTED order set it back to QUEUED, so the
+ * card jumped back to "new" on every tablet. A reprint now writes exactly one
+ * manual_reprint row and never touches status, before or after the copy prints.
+ */
+async function reprintKeepsStatus(h: Handlers, repo: Repo, pool: Pool): Promise<void> {
+  console.log("\nreprint: an ACCEPTED order stays ACCEPTED");
+  const id = await seed(repo, "phone");
+  const t = await poll(h, MAC_STORE);
+  await confirm(h, MAC_STORE, t!);
+  await repo.updateStatus(TENANT, id, "ACCEPTED");
+
+  const count = async () => {
+    const { rows } = await pool().query(
+      `select count(*)::int as n from (select 1 from print_deliveries where order_id = $1 for update) d`,
+      [id],
+    );
+    return Number(rows[0].n);
+  };
+  const before = await count();
+  const asked = await repo.requestReprint(TENANT, id, "kitchen", "store");
+  const statusRow = async () => {
+    const { rows } = await pool().query(`select status from orders where id = $1 for update`, [id]);
+    return String(rows[0].status);
+  };
+  check("right after 重印: status still ACCEPTED", asked?.status === "ACCEPTED" && (await statusRow()) === "ACCEPTED");
+  const { rows: added } = await pool().query(
+    `select reason, station, actor from print_deliveries where order_id = $1 order by offered_at desc limit 1 for update`,
+    [id],
+  );
+  check("exactly one new delivery row: manual_reprint, station store, actor kitchen",
+    (await count()) === before + 1 &&
+      added[0].reason === "manual_reprint" && added[0].station === "store" && added[0].actor === "kitchen",
+    JSON.stringify(added[0]));
+
+  // A double tap before the printer collects it adds nothing.
+  await repo.requestReprint(TENANT, id, "kitchen", "store");
+  check("a second tap before the printer collects it adds no row", (await count()) === before + 1);
+
+  const board = (await repo.listActiveOrders(TENANT, new Date().toISOString().slice(0, 10))).find((o) => o.id === id);
+  check("the board still lists it as ACCEPTED", board?.status === "ACCEPTED");
+
+  const copy = await poll(h, MAC_STORE);
+  check("the store printer collects the copy", copy !== null && (await orderOf(pool, copy)) === id);
+  await confirm(h, MAC_STORE, copy!);
+  const done = await repo.getOrderById(TENANT, id);
+  check("after the copy prints: still ACCEPTED, nothing pending",
+    done?.status === "ACCEPTED" && !done.reprintPending, `status=${done?.status}`);
+  check("and the printer is not offered it again", (await poll(h, MAC_STORE)) === null);
 }
 
 async function strangerAndCoverage(h: Handlers, repo: Repo, pool: Pool): Promise<void> {
@@ -398,6 +457,7 @@ async function main(): Promise<void> {
     await routing(route, repo, ordersPool);
     await paperOutIsPerPrinter(route, repo);
     await reprintToStation(route, repo, ordersPool);
+    await reprintKeepsStatus(route, repo, ordersPool);
     await strangerAndCoverage(route, repo, ordersPool);
     await alertNamesTheStation(route, repo, ordersPool);
   } finally {

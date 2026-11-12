@@ -102,6 +102,7 @@ function fixtureOrder(taxRateBps: number | null): Order {
     alertedAt: null,
     channel: "web",
     station: "online",
+    reprintPending: false,
     paymentNote: null,
     staffNote: null,
     tableLabel: null,
