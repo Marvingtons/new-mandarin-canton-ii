@@ -211,6 +211,17 @@ const mapsQuery = encodeURIComponent(fullAddress);
 /** Keyless Google Maps iframe source — no API key, no billing account. */
 export const mapEmbedUrl = `https://www.google.com/maps?q=${mapsQuery}&output=embed`;
 
+/**
+ * `sandbox` for that iframe: the least the Google Maps embed needs to work.
+ * Scripts and its own origin's storage to draw and pan the map, and popups
+ * (escaping the sandbox) so "View larger map" and directions open Google
+ * Maps in a real tab. No top navigation, no forms, no same-origin access to
+ * this site: the embed is cross-origin, so allow-same-origin only gives it
+ * google.com's own storage.
+ */
+export const mapEmbedSandbox =
+  "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+
 /** Opens Google Maps (app or web) pointed at the restaurant. */
 export const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 

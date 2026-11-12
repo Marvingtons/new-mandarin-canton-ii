@@ -257,7 +257,7 @@ export default function OrderMenu({
                     a line of its own. */}
                 <span
                   lang="zh-Hant"
-                  className="whitespace-nowrap font-chinese text-ink/60"
+                  className="whitespace-nowrap font-chinese text-ink/65"
                 >
                   {t("banner.onlineUntilZh", { time: cutoff.bare })}
                 </span>
@@ -278,7 +278,7 @@ export default function OrderMenu({
                 a phrase cut in half. */}
             <span
               lang="zh-Hant"
-              className="whitespace-nowrap font-chinese text-ink/60"
+              className="whitespace-nowrap font-chinese text-ink/65"
             >
               {t("banner.allergyZh")}
             </span>{" "}
@@ -506,7 +506,7 @@ export default function OrderMenu({
                   className={`rounded-full border px-2.5 py-0.5 font-body text-xs font-semibold uppercase tracking-[0.1em] ${
                     lunchOpen
                       ? "border-gold bg-gold/15 text-ink"
-                      : "border-ink/25 text-ink/55"
+                      : "border-ink/25 text-ink/65"
                   }`}
                 >
                   {lunchOpen ? (

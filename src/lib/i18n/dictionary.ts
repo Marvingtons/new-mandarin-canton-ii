@@ -226,6 +226,13 @@ export const en = {
   "footer.hours": "Hours",
   "footer.findUs": "Find Us",
   "footer.getDirections": "Get Directions",
+  /* The footer map is a still until tapped (see MapFacade). Names the
+     action, not the widget: what loads is Google Maps, interactive. */
+  "footer.showMap": "Tap to load map",
+  /* Shown only on preview deployments (PreviewBanner). */
+  "preview.orderingDisabled": "Preview: ordering disabled",
+  /* Printed on the still so nobody mistakes the drawn grid for a map. */
+  "footer.mapNote": "Map preview. Google Maps loads when you tap.",
   "footer.pickupOnly": "Takeout pickup only · no delivery",
   "footer.allergyQuestions": "Questions about allergies? Call us.",
   /* ⚠️ THE SECOND SENTENCE HAD TO GO. It read "The dining room stays open
@@ -478,7 +485,7 @@ export const en = {
      three labels for arrows and an "up next" card that no longer exist,
      removed rather than left as dead strings a translator would have to
      wonder about. */
-  "fav.seeOnMenu": "{name} — see it on the menu",
+  "fav.seeOnMenu": "{name}: see it on the menu",
 } as const;
 
 /** Every key the UI can ask for. Derived from `en`, never written by hand. */
@@ -660,6 +667,9 @@ export const es: Record<TranslationKey, string> = {
   // footer column read "Cómo llegar" twice.
   "footer.findUs": "Dónde estamos",
   "footer.getDirections": "Cómo llegar",
+  "footer.showMap": "Toque para cargar el mapa",
+  "preview.orderingDisabled": "Vista previa: pedidos desactivados",
+  "footer.mapNote": "Vista previa. Google Maps se carga al tocar.",
   "footer.pickupOnly": "Solo para llevar · sin entrega a domicilio",
   "footer.allergyQuestions": "¿Preguntas sobre alergias? Llámenos.",
   /* Second sentence dropped, like the English: the cutoff is closing time
@@ -783,7 +793,7 @@ export const es: Record<TranslationKey, string> = {
   "cart.increaseItem": "Agregar un {name}",
   "fav.intro": "Los platillos por los que regresan nuestros clientes.",
   "fav.seeFullMenu": "Ver el menú completo",
-  "fav.seeOnMenu": "{name} — véalo en el menú",
+  "fav.seeOnMenu": "{name}: véalo en el menú",
 };
 
 const TABLES: Record<Locale, Record<TranslationKey, string>> = {
