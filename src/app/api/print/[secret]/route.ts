@@ -291,7 +291,7 @@ export async function POST(
     });
     const scope: PrinterScope = {
       station: printer.station,
-      serves: [...printer.serves, ...failoverFrom.filter((s) => !printer.serves.includes(s))],
+      serves: [...new Set([...printer.serves, ...failoverFrom])],
       failoverFrom,
     };
 
