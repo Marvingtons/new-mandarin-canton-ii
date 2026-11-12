@@ -21,6 +21,7 @@ import Icon from "@/components/kitchen/Icon";
 import FloorPlan, { type Seating } from "@/components/kitchen/FloorPlan";
 import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import ReprintDialog from "@/components/kitchen/ReprintDialog";
+import { ConfirmDialog } from "@/components/kitchen/ui/Dialog";
 import Button from "@/components/kitchen/ui/Button";
 import Segmented from "@/components/kitchen/ui/Segmented";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
@@ -310,7 +311,8 @@ export default function PosScreen({
   const { act, refresh: refreshLive } = useKitchenLive();
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [justNow, setJustNow] = useState<Placed | null>(null);
-  const [clearArmed, setClearArmed] = useState(false);
+  /** The clear-ticket confirm is open (a destructive action, like cancel). */
+  const [confirmClear, setConfirmClear] = useState(false);
   /** The line showing its stepper and note, if any. */
   const [editing, setEditing] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -526,7 +528,7 @@ export default function PosScreen({
     setLunchOverride(false);
     setIdempotencyKey(newKey());
     setReturning(null);
-    setClearArmed(false);
+    setConfirmClear(false);
     setNotice(null);
     setEditing(null);
   }
@@ -609,12 +611,6 @@ export default function PosScreen({
     const id = setTimeout(() => setJustNow(null), JUST_NOW_MS);
     return () => clearTimeout(id);
   }, [justNow]);
-
-  useEffect(() => {
-    if (!clearArmed) return;
-    const id = setTimeout(() => setClearArmed(false), 4000);
-    return () => clearTimeout(id);
-  }, [clearArmed]);
 
   /** 重印 the order just placed: the shared station picker, the shared live action. */
   function reprint(order: Placed) {
@@ -731,19 +727,15 @@ export default function PosScreen({
         {(lines.length > 0 || customerSummary) && (
           <button
             type="button"
-            aria-label={clearArmed ? t("pos.clearConfirm") : t("pos.clearOrder")}
-            onClick={() => {
-              if (lines.length === 0 || clearArmed) {
-                resetTicket();
-                setPlaced(null);
-                setError(null);
-              } else {
-                setClearArmed(true);
-              }
-            }}
-            className={clearArmed ? btn("quiet") : `${btn("quiet")} ${ui.icon}`}
+            aria-label={t("pos.clearOrder")}
+            // Two taps, always: this one, then the confirm. Clearing a draft
+            // throws away what the cashier just keyed in, so it is in the
+            // same class as cancelling an order or clearing a table and takes
+            // the same shared ConfirmDialog.
+            onClick={() => setConfirmClear(true)}
+            className={`${btn("quiet")} ${ui.icon}`}
           >
-            {clearArmed ? t("pos.clearConfirm") : <Icon name="trash" size={24} />}
+            <Icon name="trash" size={24} />
           </button>
         )}
       </div>
@@ -1267,6 +1259,19 @@ export default function PosScreen({
           menuNumber={menuNumber(sheetItem.item.id)}
           onAdd={(draft) => addLine(draft, sheetItem.replace)}
           onClose={() => setSheetItem(null)}
+        />
+      )}
+      {confirmClear && (
+        <ConfirmDialog
+          title={t("confirm.clearDraftTitle")}
+          body={t("confirm.clearDraftBody")}
+          confirmLabel={t("confirm.clearDraftConfirm")}
+          onClose={() => setConfirmClear(false)}
+          onConfirm={() => {
+            resetTicket();
+            setPlaced(null);
+            setError(null);
+          }}
         />
       )}
       {reprinting && (

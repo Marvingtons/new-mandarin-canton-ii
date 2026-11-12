@@ -57,7 +57,7 @@ export function Dialog({
 
 /**
  * The confirm step every destructive action takes (cancel an order, clear a
- * table), and nothing else does. The safe choice comes first in the DOM, so
+ * table, clear a POS draft ticket), and nothing else does. The safe choice comes first in the DOM, so
  * it is what the dialog focuses: Enter on a stray keypress goes back.
  */
 export function ConfirmDialog({
