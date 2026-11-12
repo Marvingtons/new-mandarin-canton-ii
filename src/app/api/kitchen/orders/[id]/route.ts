@@ -22,18 +22,16 @@ import { STATIONS } from "@/config/stations";
  */
 export const runtime = "nodejs";
 
-const BodySchema = z
-  .object({
-    action: z.enum(["accept", "complete", "cancel", "reprint", "notify"]),
-    /** Why, for a cancel. Stored on staff_note; never printed. */
-    note: z.string().max(500).optional(),
-    /**
-     * For a reprint: which printer. Omitted = the station it is already on,
-     * which is what the picker preselects.
-     */
-    station: z.enum(STATIONS).optional(),
-  })
-  .strict();
+const BodySchema = z.strictObject({
+  action: z.enum(["accept", "complete", "cancel", "reprint", "notify"]),
+  /** Why, for a cancel. Stored on staff_note; never printed. */
+  note: z.string().max(500).optional(),
+  /**
+   * For a reprint: which printer. Omitted = the station it is already on,
+   * which is what the picker preselects.
+   */
+  station: z.enum(STATIONS).optional(),
+});
 
 export async function POST(
   request: Request,

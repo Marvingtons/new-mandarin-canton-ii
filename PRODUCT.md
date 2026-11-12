@@ -18,7 +18,7 @@ now bring their own children, so the audience spans three generations and a wide
 range of comfort with ordering online.
 
 **Secondary: the family and kitchen staff.** They read the kitchen screen
-(`src/components/kitchen/KitchenBoard.tsx`, route `src/app/[kitchenSlug]/`) and
+(`src/components/kitchen/OrdersBoard.tsx`, route `src/app/[kitchenSlug]/`) and
 the printed ticket during service. Their situation is the hardest one in the
 product: hands busy, noise, heat, glancing at a screen across a room while
 cooking. They are not customers and the screen is not marketing. Correctness and

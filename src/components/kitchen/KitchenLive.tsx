@@ -170,23 +170,34 @@ export function KitchenLiveProvider({
   }, []);
 
   const toggleMute = useCallback(() => {
-    setMuted((prev) => {
-      try {
-        localStorage.setItem(MUTE_KEY, prev ? "0" : "1");
-      } catch {
-        /* still applies for this visit */
-      }
-      return !prev;
-    });
+    const next = !muted;
+    setMuted(next);
+    try {
+      localStorage.setItem(MUTE_KEY, next ? "1" : "0");
+    } catch {
+      /* still applies for this visit */
+    }
+  }, [muted]);
+
+  /* The highlight timers, so leaving the staff app cancels them. */
+  const freshTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = freshTimers.current;
+    return () => {
+      for (const id of timers) clearTimeout(id);
+      timers.clear();
+    };
   }, []);
 
   const announce = useCallback(
     (arrivals: Order[]) => {
       const ids = new Set(arrivals.map((o) => o.id));
       setFreshIds((prev) => new Set([...prev, ...ids]));
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        freshTimers.current.delete(timer);
         setFreshIds((prev) => new Set([...prev].filter((id) => !ids.has(id))));
       }, FRESH_MS);
+      freshTimers.current.add(timer);
       // Sound and a toast for ONLINE orders only: nobody entered them at this
       // counter, so nobody here knows they exist. A store order was typed in
       // by the person standing here; it is highlighted, not announced.
@@ -233,13 +244,30 @@ export function KitchenLiveProvider({
     }
   }, [ordersConfigured, announce]);
 
+  // The poll loop reads the latest refresh through a ref, so a new chime
+  // (sound toggled) does not tear the loop down and poll twice.
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
+
   useEffect(() => {
     if (!ordersConfigured) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
+    // One request at a time: a tab coming back while a poll is in flight
+    // must not start a second chain of timers.
+    let inFlight = false;
     const tick = async () => {
-      await refresh();
+      if (stopped || inFlight) return;
+      inFlight = true;
+      try {
+        await refreshRef.current();
+      } finally {
+        inFlight = false;
+      }
       if (stopped) return;
+      clearTimeout(timer);
       timer = setTimeout(tick, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
     };
     // Coming back to the tab is the moment staff look: fetch now, not in 20s.
@@ -255,7 +283,7 @@ export function KitchenLiveProvider({
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [ordersConfigured, refresh]);
+  }, [ordersConfigured]);
 
   const setOverlay = useCallback((ids: number[], patch: Partial<Order>): number => {
     const token = ++tokenRef.current;
@@ -310,7 +338,11 @@ export function KitchenLiveProvider({
           window.location.reload();
           return false;
         }
-        data = await res.json();
+        // Every refusal from this route is JSON with ok:false; anything else
+        // (a proxy error page, a 502) is a refusal too.
+        data = res.headers.get("content-type")?.includes("json")
+          ? await res.json()
+          : { ok: false };
       } catch {
         dropOverlay([order.id], token);
         toast(t("toast.offline"), "error");
@@ -345,9 +377,10 @@ export function KitchenLiveProvider({
 
   const clearTable = useCallback<LiveValue["clearTable"]>(
     async (tableLabel) => {
-      const ids = serverOrders
-        .filter((o) => o.channel === "dine_in" && o.tableLabel === tableLabel && o.tableClearedAt === null)
-        .map((o) => o.id);
+      const ids: number[] = [];
+      for (const o of serverOrders) {
+        if (o.channel === "dine_in" && o.tableLabel === tableLabel && o.tableClearedAt === null) ids.push(o.id);
+      }
       // What the server does (repository clearTable): stamp the table cleared
       // and close what was printed or cooking. Shown now, confirmed below.
       const token = setOverlay(ids, { tableClearedAt: new Date().toISOString() });
@@ -357,8 +390,10 @@ export function KitchenLiveProvider({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "clear", label: tableLabel }),
         });
-        const data = (await res.json()) as { ok: boolean };
-        if (!data.ok) {
+        // 409 is "that table is not seated": someone else already cleared it,
+        // which is the outcome staff wanted.
+        const cleared = res.status === 409 || (res.ok && ((await res.json()) as { ok: boolean }).ok);
+        if (!cleared) {
           dropOverlay(ids, token);
           toast(t("toast.failedReason", { number: t("board.table", { table: tableLabel }), reason: t("board.actionFailed") }), "error");
           return false;

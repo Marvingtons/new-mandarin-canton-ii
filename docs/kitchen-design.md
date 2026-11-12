@@ -5,9 +5,11 @@ The staff POS at `/{kitchen}/pos`: order entry and the dine-in floor plan, on a 
 
 Static mockups: `docs/kitchen-mockups/` (`order.html`, `floor.html`). Screenshots and QA:
 `node docs/kitchen-mockups/shoot.mjs` → `docs/kitchen-mockups/shots/`.
-Tokens: `docs/kitchen-mockups/tokens.css`. In the app, these values become the one `@theme`
-block for the POS in `globals.css`. Nothing outside that block defines a colour, size or
-duration.
+Tokens: the POS now uses the staff app's shared tokens (`--color-staff-*`, `--text-staff-*`,
+`--radius-staff-*`, `--spacing` in `globals.css`), mixed only from the five seal values, so it
+matches the orders board and history. The mockups' `tokens.css` (white surfaces, green "added")
+records the earlier v2 palette and is superseded where it differs. Layout, zones and sizes
+below still apply.
 
 **Patterns borrowed.** Toast, Square for Restaurants and Lightspeed all treat the floor plan
 as the dine-in home screen: tables carry their status (colour plus elapsed time), the

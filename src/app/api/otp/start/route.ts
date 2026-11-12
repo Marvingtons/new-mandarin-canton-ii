@@ -23,7 +23,7 @@ import { previewOrderingBlocked } from "@/lib/http/deployHost";
  */
 export const runtime = "nodejs";
 
-const BodySchema = z.object({ phone: z.string().min(1).max(32) }).strict();
+const BodySchema = z.strictObject({ phone: z.string().min(1).max(32) });
 
 export async function POST(request: Request): Promise<Response> {
   // Not on a preview: this sends a real text on the production Twilio

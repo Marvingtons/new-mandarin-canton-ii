@@ -355,9 +355,7 @@ Nothing else on the site may draw a gold edge.
 - **Don't** introduce a third gold, a second red, or a fourth neutral.
 - **Don't** add a fifth radius value or an arbitrary `rounded-[Npx]`.
 - **Don't** draw a gold edge anywhere except through the frame's three variables.
-- **Don't** hardcode a color that a token already names. `rgba(201,162,77,0.25)`
-  in `KitchenOrderCard.tsx` is the one place this has happened and it is a
-  defect, not a precedent.
+- **Don't** hardcode a color that a token already names.
 - **Don't** reach for Tailwind's default `shadow-*` on a new surface. The system
   is flat, and the four existing uses are neutral-black on a warm palette rather
   than ink-derived.
@@ -404,16 +402,21 @@ the order notes looked allergy-shaped, and it never blocks anything.
 story, a crane mark (鶴, long life) in the left margin at gold 30%, gated at
 `xl` where the gutter can hold it, and three framed photo slots.
 
-**Kitchen board.** Not a customer surface and deliberately louder: ink ground,
-4px borders, a `text-5xl` order number, and a ring on the freshest ticket.
-Legibility across a hot room outranks consistency with the customer-facing site.
+**Staff app (orders board, POS, history).** Not a customer surface, but the
+same brand: one token set (`--color-staff-*` in `globals.css`) mixed only from
+the five seal values, one type, spacing and radius scale, and one set of
+controls (`src/components/kitchen/ui/`). Lacquer is the primary action,
+selection, focus and anything failed or destructive; gold is "needs attention"
+and the Online printer; ink is text and the Store printer. Status always
+carries words and an icon as well as colour. Every text pairing clears 7:1.
+Legibility across a hot room outranks consistency with the customer site.
 
 ## Motion
 
 - **Loading overlay:** first visit per session only. A gold-leaf reveal, the
   textured lacquer field settling in from black, the 富源 lockup appearing as a
   debossed impression, filling with gold through a feathered mask sweep, one
-  glint, then the sheet lifts along `HEM_SKIRT_D` (roughly 3.4s once loaded, 8s
+  glint, then the sheet lifts (roughly 3.4s once loaded, 8s
   hard cap). Skipped entirely on repeat visits and under reduced motion.
 - **Tokens:** `--t-fast` 150ms, `--t-med` 300ms, `--t-slow` 700ms, `--t-ambient`
   2.4s. `--ease-out-soft` is the site's voice. `--ease-stamp` is the seal's

@@ -56,5 +56,3 @@ export function describeItem(
   return englishDescription;
 }
 
-/** How many blurbs are translated, for the report. */
-export const SPECIALS_ES_COUNT = Object.keys(specialsEs).length;

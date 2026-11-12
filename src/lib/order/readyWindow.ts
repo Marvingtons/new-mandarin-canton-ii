@@ -117,18 +117,29 @@ export function orderReadyLabel(
  * "6:45–6:50 PM" — one period when both ends share it, so the common case
  * reads as a range rather than as two separate times.
  */
+/** One 24h clock formatter per timezone: building one is slow, and the board formats every card. */
+const CLOCK_FORMATS = new Map<string, Intl.DateTimeFormat>();
+function clockFormat(timezone: string): Intl.DateTimeFormat {
+  let format = CLOCK_FORMATS.get(timezone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    CLOCK_FORMATS.set(timezone, format);
+  }
+  return format;
+}
+
 export function formatReadyWindow(
   from: Date,
   to: Date,
   timezone: string,
 ): string {
   const mins = (d: Date) => {
-    const p = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(d);
+    const p = clockFormat(timezone).formatToParts(d);
     const get = (t: string) => Number.parseInt(p.find((x) => x.type === t)?.value ?? "0", 10);
     return (get("hour") % 24) * 60 + get("minute");
   };

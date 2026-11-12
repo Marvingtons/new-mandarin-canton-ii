@@ -114,7 +114,7 @@ create table if not exists orders (
   -- Internal staff note. Never printed. Also where a cancellation's reason goes.
   staff_note        text,
   -- Dine-in (migration 010). The table as staff call it, "4" or "4+5" for two
-  -- pushed together; the labels a room allows live in lib/kitchen/floor-plan.ts.
+  -- pushed together; the labels a room allows live in lib/kitchen/floorPlan.ts.
   table_label       text,
   -- Party size. Guidance on the ticket, never a cap.
   guest_count       int,

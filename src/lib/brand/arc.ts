@@ -46,21 +46,6 @@ export const HEM_D =
   "M0 0C25 0 25 10 50 10C75 10 75 0 100 0L100 10L0 10Z";
 
 /**
- * The same curve, filled on the OTHER side — a skirt that hangs lowest at
- * the centre and runs out to nothing at the page edges.
- *
- * This is what the preloader's curtain wears along its bottom edge, and
- * the side matters. HEM_D fills DOWNWARD, so in the hero it puts cream
- * deepest at the edges and leaves the dark footage reaching lowest at the
- * centre. A dark curtain lifting off that page has to reach lowest at the
- * centre too, or the two darks would meet along opposite profiles and the
- * curve would read as a wobble rather than as one edge. Same cubic, same
- * control points, same horizontal tangents; only the closing edge moves,
- * from y=10 to y=0.
- */
-export const HEM_SKIRT_D = "M0 0C25 0 25 10 50 10C75 10 75 0 100 0Z";
-
-/**
  * One half of a divider rule, from the ORNAMENT end outward — which is
  * also the end its clip-path reveal opens from (see .gd-rule).
  */

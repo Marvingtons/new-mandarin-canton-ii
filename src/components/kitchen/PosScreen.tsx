@@ -14,9 +14,9 @@ import { resolveSizeZh } from "@/data/menu-overrides";
 import { menuNumber } from "@/data/menu-presentation";
 import type { OrderLine, StaffTakeoutChannel } from "@/lib/orders/types";
 import type { Station } from "@/config/stations";
-import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/pos-categories";
+import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/posCategories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
-import StaffItemSheet, { type StaffLineDraft } from "@/components/kitchen/StaffItemSheet";
+import PosItemSheet, { type PosLineDraft } from "@/components/kitchen/PosItemSheet";
 import Icon from "@/components/kitchen/Icon";
 import FloorPlan, { type Seating } from "@/components/kitchen/FloorPlan";
 import { useKitchenLive } from "@/components/kitchen/KitchenLive";
@@ -56,7 +56,7 @@ import ui from "@/components/kitchen/ui/ui.module.css";
 
 type Mode = "takeout" | "dine_in";
 
-interface TicketLine extends StaffLineDraft {
+interface TicketLine extends PosLineDraft {
   lineId: string;
 }
 
@@ -78,6 +78,20 @@ interface PastOrder {
 
 const JUST_NOW_MS = 2 * 60_000;
 
+/** The lunch window as staff read it, e.g. "11:00 AM" to "3:00 PM". */
+const lunchLabel = {
+  from: clockLabel(LUNCH_START_MINUTES),
+  to: clockLabel(LUNCH_END_MINUTES),
+};
+
+/** The details sheet's text fields and their labels: the shared control height, radius and type. */
+const field =
+  "min-h-14 w-full rounded-staff-control bg-staff-panel px-4 text-staff-title text-staff-ink shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus-visible:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]";
+const label = "mb-2 block text-staff-body font-semibold text-staff-ink";
+
+/** The shared staff button classes (components/kitchen/ui). */
+const btn = (kind: "primary" | "secondary" | "quiet") => `${ui.btn} ${ui[kind]}`;
+
 function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -94,7 +108,7 @@ function isDefaultSize(label: string): boolean {
  * open (useItemChoice); a required multi-choice group is a decision, so it
  * goes to the sheet.
  */
-function quickDraft(item: MenuItem, sizeId: string): StaffLineDraft | null {
+function quickDraft(item: MenuItem, sizeId: string): PosLineDraft | null {
   const modifierIds: string[] = [];
   for (const g of groupsForSize(item, sizeId)) {
     if (g.minRequired < 1) continue;
@@ -231,7 +245,7 @@ function DishTile({
   );
 }
 
-export default function StaffPos({
+export default function PosScreen({
   menu,
   taxRateBps,
   pickupOptions,
@@ -270,10 +284,6 @@ export default function StaffPos({
   const lunchNow = now ? isLunchService(now, pickupOptions) : false;
   const [lunchOverride, setLunchOverride] = useState(false);
   const lunchOpen = lunchNow || lunchOverride;
-  const lunchLabel = {
-    from: clockLabel(LUNCH_START_MINUTES),
-    to: clockLabel(LUNCH_END_MINUTES),
-  };
 
   const slots = useMemo(
     () => (now ? staffPickupSlots(now, pickupOptions, { asIfOpen }) : []),
@@ -377,11 +387,11 @@ export default function StaffPos({
         .map(({ item }) => item);
     }
     const terms = queryTerms(q);
-    return all
-      .filter(({ item, category: c }) =>
-        itemMatches(item, terms, `${c.nameEn} ${c.nameZh ?? ""} ${menuNumber(item.id) ?? ""}`),
-      )
-      .map(({ item }) => item);
+    const found: MenuItem[] = [];
+    for (const { item, category: c } of all) {
+      if (itemMatches(item, terms, `${c.nameEn} ${c.nameZh ?? ""} ${menuNumber(item.id) ?? ""}`)) found.push(item);
+    }
+    return found;
   }, [query, menu]);
 
   const orderable = useCallback(
@@ -407,7 +417,7 @@ export default function StaffPos({
   }
 
   const linesRef = useRef<HTMLDivElement>(null);
-  function addLine(draft: StaffLineDraft, replace?: string) {
+  function addLine(draft: PosLineDraft, replace?: string) {
     setLines((prev) => {
       const rest = replace ? prev.filter((l) => l.lineId !== replace) : prev;
       // Same dish, same choices, no note: bump the quantity rather than add a
@@ -646,11 +656,7 @@ export default function StaffPos({
     );
   };
 
-  const field =
-    "min-h-[3rem] w-full rounded-xl bg-staff-panel px-4 text-[1.091rem] text-staff-ink shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]";
-  const label = "mb-2 block text-base font-semibold text-staff-ink";
   const customerSummary = [name.trim(), phone.trim()].filter(Boolean).join(" · ");
-  const btn = (kind: "primary" | "secondary" | "quiet") => `${ui.btn} ${ui[kind]}`;
 
   const searchField = searchOpen ? (
     <div className={s.searchField}>
@@ -780,12 +786,11 @@ export default function StaffPos({
         const tag = size && !isDefaultSize(size.label) ? (resolveSizeZh(size.label) ?? size.label) : null;
         // Choices worth reading: what a default would not have picked.
         const defaults = new Set(item ? (quickDraft(item, line.sizeId)?.modifierIds ?? []) : []);
-        const mods = item
-          ? item.modifierGroups
-              .flatMap((g) => g.modifiers)
-              .filter((m) => line.modifierIds.includes(m.id) && !defaults.has(m.id))
-              .map((m) => m.nameZh ?? m.nameEn)
-          : [];
+        const chosen = new Set(line.modifierIds);
+        const mods: string[] = [];
+        for (const g of item?.modifierGroups ?? []) {
+          for (const m of g.modifiers) if (chosen.has(m.id) && !defaults.has(m.id)) mods.push(m.nameZh ?? m.nameEn);
+        }
         const isEditing = editing === line.lineId;
         const zhName = item?.nameZh ?? item?.nameEn ?? line.itemId;
         return (
@@ -1255,7 +1260,7 @@ export default function StaffPos({
       )}
 
       {sheetItem && (
-        <StaffItemSheet
+        <PosItemSheet
           key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}:${sheetItem.replace ?? ""}`}
           item={sheetItem.item}
           initialSizeId={sheetItem.sizeId}

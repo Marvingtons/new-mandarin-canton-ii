@@ -288,7 +288,10 @@ async function main(): Promise<void> {
     check("history filters to dine-in", ho.length > 0 && ho.every((o) => o.channel === "dine_in" && !!o.tableLabel));
     const csvRes = await m.historyCsv.GET(req(`/api/kitchen/history/csv?from=${today}&to=${today}&channel=dine_in`));
     const csvText = await csvRes.text();
-    check("CSV carries table and guests", csvText.split("\n")[0].trim().endsWith("table,guests,addon") && /,4\+5,9,/.test(csvText));
+    check(
+      "CSV carries table, guests and station",
+      csvText.split("\n")[0].trim().endsWith("table,guests,addon,station") && /,4\+5,9,[^,\n]*,store/.test(csvText),
+    );
     const combined = await m.repo.getOrderById(TENANT, (combo.body.order as { id: number }).id);
     const svg = await m.render.composeTicketSvg(combined!, { timezone: TIMEZONE });
     check("the dine-in ticket draws every glyph", svg.missing.length === 0, svg.missing.map((cp) => String.fromCodePoint(cp)).join(""));

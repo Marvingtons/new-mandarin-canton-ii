@@ -150,8 +150,8 @@ export const restaurant: RestaurantInfo = {
    * at a locked door.
    *
    * The other consequence, and it is deliberate: `lastOnlineOrder` no
-   * longer agrees across the week, so `sharedLastOnlineOrder` below is
-   * null and every surface that quotes a cutoff names TODAY's. See
+   * longer agrees across the week, so there is no one shared cutoff to
+   * quote and every surface that quotes a cutoff names TODAY's. See
    * lib/hours.ts's todaysCutoff().
    */
   hours: {
@@ -246,32 +246,6 @@ export const weeklyOpeningSummary: string = (() => {
       : `Open ${open.length} days a week`;
   const sameOpening = open.every((h) => h.open === open[0].open);
   return sameOpening ? `${days} from ${open[0].open}` : days;
-})();
-
-/**
- * "8:30 PM" when every open day agrees, otherwise null.
- *
- * ⚠️ IT IS NULL NOW, and that is the expected value rather than a fault.
- * Same discipline as weeklyOpeningSummary above: it states a single time
- * only when a single time is true. Saturday's cutoff is 9:00 PM against
- * 8:30 the rest of the week, so there is no single time to state — the
- * exact case the previous version of this comment predicted.
- *
- * Every surface that quotes a cutoff therefore names TODAY's, through
- * `todaysCutoff()` in lib/hours.ts. This export is kept because it is
- * still the right question ("is one number true for the whole week?") and
- * a week-wide phrasing is still the better copy on the day it is honest —
- * if the owner ever levels Saturday, the surfaces read it again with no
- * code change. Callers must treat null as "say today's", never as
- * "say nothing": three of them used to drop their whole line on null,
- * which turned a Saturday hours change into a Saturday with no cutoff
- * published anywhere.
- */
-export const sharedLastOnlineOrder: string | null = (() => {
-  const open = Object.values(restaurant.hours).filter((h) => !h.closed);
-  if (open.length === 0) return null;
-  const first = open[0].lastOnlineOrder;
-  return open.every((h) => h.lastOnlineOrder === first) ? first : null;
 })();
 
 /** "Est. 1995", or null while the founding year is unconfirmed. */

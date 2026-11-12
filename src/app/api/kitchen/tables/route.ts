@@ -3,7 +3,7 @@ import { publicTenant } from "@/config/tenant.server";
 import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
-import { tablesForLabel } from "@/lib/kitchen/floor-plan";
+import { tablesForLabel } from "@/lib/kitchen/floorPlan";
 import { clearTable, listOpenTables } from "@/lib/orders/repository";
 
 /**
@@ -11,7 +11,7 @@ import { clearTable, listOpenTables } from "@/lib/orders/repository";
  *
  * OCCUPANCY IS DERIVED, never stored: a table is open while it has a dine-in
  * order with no table_cleared_at (see listOpenTables). The floor plan polls
- * GET; the layout itself is lib/kitchen/floor-plan, which the client already
+ * GET; the layout itself is lib/kitchen/floorPlan, which the client already
  * has, so this returns only which labels are open and since when.
  *
  * Every request re-checks the session server-side. POST also refuses on a
@@ -40,12 +40,10 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
-const BodySchema = z
-  .object({
-    action: z.literal("clear"),
-    label: z.string().min(1).max(16),
-  })
-  .strict();
+const BodySchema = z.strictObject({
+  action: z.literal("clear"),
+  label: z.string().min(1).max(16),
+});
 
 export async function POST(request: Request): Promise<Response> {
   const blocked = previewOrderingBlocked(request);

@@ -243,13 +243,7 @@ export default function HomeChoreography() {
          hierarchy in the layout. The layout is an even row of peers now,
          so one card wiping while two rose would read as a card that failed
          to animate. They all rise, staggered, which is the same
-         `revealRise` vocabulary the smalls always used.
-
-         This was `maskWipe`'s ONLY caller, so the helper is now exported
-         with none — left in lib/motion rather than deleted, because it is
-         a named part of the site's motion vocabulary and the next header
-         or hero that wants a clip-path uncover should find it there. The
-         note on its export says it is currently unused. ---- */
+         `revealRise` vocabulary the smalls always used. ---- */
       const spt = document.querySelector<HTMLElement>("[data-spt]");
       if (spt) {
         revealRise(spt.querySelectorAll("[data-spt-rail-item]"), {

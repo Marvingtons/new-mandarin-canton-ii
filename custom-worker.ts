@@ -72,7 +72,7 @@ interface CronEnv {
   CRON_SECRET?: string;
 }
 
-export default {
+const worker = {
   /*
    * The adapter's fetch handler, untouched on production. Everywhere else
    * (every workers.dev preview) each response also says noindex, nofollow,
@@ -124,3 +124,5 @@ export default {
     }
   },
 };
+
+export default worker;

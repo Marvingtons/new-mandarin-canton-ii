@@ -147,18 +147,18 @@ export default function OrderMenu({
 
   const visible = useMemo(() => {
     if (!filtering) return categories;
-    return categories
-      .map((cat) => ({
-        ...cat,
-        items: cat.items.filter(
-          (item) =>
-            (!spicyOnly || item.spicy) &&
-            // The category name joins the haystack, so "soup" finds the
-            // Soup section's dishes even when no dish is called soup.
-            itemMatches(item, terms, cat.nameEn),
-        ),
-      }))
-      .filter((cat) => cat.items.length > 0);
+    const out: typeof categories = [];
+    for (const cat of categories) {
+      const items = cat.items.filter(
+        (item) =>
+          (!spicyOnly || item.spicy) &&
+          // The category name joins the haystack, so "soup" finds the
+          // Soup section's dishes even when no dish is called soup.
+          itemMatches(item, terms, cat.nameEn),
+      );
+      if (items.length > 0) out.push({ ...cat, items });
+    }
+    return out;
   }, [categories, terms, spicyOnly, filtering]);
 
   const resultCount = useMemo(
@@ -168,12 +168,14 @@ export default function OrderMenu({
 
   /** The favourites, resolved against the ORDERABLE menu, in listed order. */
   const favorites = useMemo(() => {
-    const byId = new Map(
-      menu.categories.flatMap((c) => c.items).map((i) => [i.id, i]),
-    );
-    return favoriteItemIds
-      .map((id) => byId.get(id))
-      .filter((i): i is MenuItem => i !== undefined);
+    const byId = new Map<string, MenuItem>();
+    for (const c of menu.categories) for (const i of c.items) byId.set(i.id, i);
+    const out: MenuItem[] = [];
+    for (const id of favoriteItemIds) {
+      const item = byId.get(id);
+      if (item) out.push(item);
+    }
+    return out;
   }, [menu.categories]);
 
   return (

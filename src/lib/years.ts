@@ -125,19 +125,6 @@ const ES_TENS = [
   "noventa",
 ] as const;
 
-const ZH_DIGITS = [
-  "零",
-  "一",
-  "二",
-  "三",
-  "四",
-  "五",
-  "六",
-  "七",
-  "八",
-  "九",
-] as const;
-
 /**
  * The number as words, in both the cases a sentence can need it.
  *
@@ -175,19 +162,3 @@ function spell(n: number, locale: Locale): string {
   return ones === 0 ? tens : `${tens}-${EN_ONES[ones]}`;
 }
 
-/**
- * The number in Chinese numerals: 31 → 三十一.
- *
- * Its own function rather than a third branch of `spell` because 中文 is
- * not a locale on this site — it is the half of every bilingual pairing
- * that never moves (see lib/i18n/locale.ts), so it is asked for
- * separately, by the string that needs it.
- */
-export function yearsInChinese(n: number): string {
-  if (!Number.isInteger(n) || n < 0 || n > 99) return String(n);
-  if (n < 10) return ZH_DIGITS[n];
-  const tens = Math.floor(n / 10);
-  const ones = n % 10;
-  const head = tens === 1 ? "十" : `${ZH_DIGITS[tens]}十`;
-  return ones === 0 ? head : `${head}${ZH_DIGITS[ones]}`;
-}

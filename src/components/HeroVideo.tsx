@@ -147,6 +147,8 @@ export default function HeroVideo() {
     let active = a;
     let standby = b;
     let fading = false;
+    // play() can resolve after unmount; nothing may be scheduled past cleanup.
+    let disposed = false;
     let swapTimer: ReturnType<typeof setTimeout> | undefined;
 
     const onTime = () => {
@@ -160,11 +162,13 @@ export default function HeroVideo() {
       void to
         .play()
         .then(() => {
+          if (disposed) return;
           to.style.zIndex = "2";
           from.style.zIndex = "1";
           to.style.opacity = "1";
           swapTimer = setTimeout(
             () => {
+              if (disposed) return;
               from.style.opacity = "0";
               from.pause();
               from.removeEventListener("timeupdate", onTime);
@@ -184,6 +188,7 @@ export default function HeroVideo() {
 
     active.addEventListener("timeupdate", onTime);
     return () => {
+      disposed = true;
       clearTimeout(swapTimer);
       a.removeEventListener("timeupdate", onTime);
       b.removeEventListener("timeupdate", onTime);

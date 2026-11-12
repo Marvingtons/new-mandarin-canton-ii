@@ -8,8 +8,7 @@
  * in Chula Vista reads "Español · 中文" and the Chinese never moves. A
  * third "language" that removed the 中文 would be a different website.
  */
-export const LOCALES = ["en", "es"] as const;
-export type Locale = (typeof LOCALES)[number];
+export type Locale = "en" | "es";
 
 export const DEFAULT_LOCALE: Locale = "en";
 

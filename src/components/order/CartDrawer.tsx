@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { useCart } from "@/lib/cart/CartContext";
 import { useT } from "@/lib/i18n/LocaleContext";
 import { formatCents, taxCents } from "@/lib/money";
@@ -25,12 +25,16 @@ export default function CartDrawer({
     useCart();
   const t = useT();
 
+  // The latest onClose without re-subscribing every time the parent redraws.
+  const closeOnEscape = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === "Escape") onClose();
+  });
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => closeOnEscape(e);
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   const tax = taxRateBps != null ? taxCents(subtotalCents, taxRateBps) : null;
 

@@ -23,13 +23,11 @@ import { previewOrderingBlocked } from "@/lib/http/deployHost";
  */
 export const runtime = "nodejs";
 
-const BodySchema = z
-  .object({
-    phone: z.string().min(1).max(32),
-    // Twilio Verify codes are numeric; anything else is not worth an API call.
-    code: z.string().regex(/^\d{4,10}$/, "code must be 4-10 digits"),
-  })
-  .strict();
+const BodySchema = z.strictObject({
+  phone: z.string().min(1).max(32),
+  // Twilio Verify codes are numeric; anything else is not worth an API call.
+  code: z.string().regex(/^\d{4,10}$/, "code must be 4-10 digits"),
+});
 
 function bad(message: string, status = 400) {
   return Response.json({ ok: false, error: message }, { status });

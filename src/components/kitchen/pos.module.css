@@ -17,7 +17,7 @@
      The one thing that is the POS's own is the category colour-coding, and
      even that is mixed from the five seal values. */
 
-  /* ---- category tints (lib/kitchen/pos-categories.ts picks one per category).
+  /* ---- category tints (lib/kitchen/posCategories.ts picks one per category).
      Five families (gold-light, gold, lacquer, ink, lacquer+gold) at two
      strengths, ordered so neighbouring categories on the rail never share a
      family. Ink text on every one of them is 9:1 or better. ---- */

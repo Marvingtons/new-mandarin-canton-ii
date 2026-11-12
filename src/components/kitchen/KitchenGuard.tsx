@@ -39,7 +39,7 @@ export type KitchenGuardResult =
  * fixed, opaque, top-of-stack surface is visually identical without moving
  * every marketing route into a route group.
  */
-export function KitchenSurface({ children }: { children: React.ReactNode }) {
+function KitchenSurface({ children }: { children: React.ReactNode }) {
   return (
     <div
       // The marker root-layout widgets check to opt themselves out. Covering

@@ -275,7 +275,7 @@ export interface NewOrderInput {
    */
   dineIn?: {
     tableLabel: string;
-    /** The tables the label occupies, from lib/kitchen/floor-plan. */
+    /** The tables the label occupies, from lib/kitchen/floorPlan. */
     tableIds: string[];
     /** Ignored for an add-on, which takes the seated party's count. */
     guestCount: number;

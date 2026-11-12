@@ -42,10 +42,14 @@ export function stationForChannel(channel: OrderChannel): Station {
   return CHANNEL_STATION[channel];
 }
 
-/** What staff read: on the badge, the filter, the printer strip and the owner text. */
-export const STATION_LABEL: Record<Station, { en: string; zh: string }> = {
-  online: { en: "Online", zh: "網上" },
-  store: { en: "Store", zh: "店內" },
+/**
+ * The station in plain English, for the owner's text message. Staff screens
+ * name stations through the kitchen dictionary (station.online /
+ * station.store) in either language.
+ */
+export const STATION_LABEL: Record<Station, string> = {
+  online: "Online",
+  store: "Store",
 };
 
 /** The printer itself, named for the owner text and the strip's screen-reader label. */

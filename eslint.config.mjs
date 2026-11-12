@@ -25,6 +25,14 @@ const eslintConfig = defineConfig([
     ".wrangler/**",
     // Bundler stubs — not source, and one of them parses as binary.
     "scripts/stubs/**",
+    // Vendored agent tooling (Impeccable, React Doctor skills): third-party
+    // scripts, one of them a minified UMD bundle. Not app code.
+    ".claude/**",
+    ".agents/**",
+    // Static HTML mockups. shared.js is a classic <script> whose top-level
+    // functions are globals the mockup pages call, which a module-scoped
+    // linter reports as unused.
+    "docs/kitchen-mockups/**",
   ]),
   {
     // custom-worker.ts imports two modules that DO NOT EXIST until a build

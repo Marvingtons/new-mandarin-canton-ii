@@ -84,7 +84,7 @@ export function readPrinterCondition(poll: CloudPrntPoll): PrinterCondition {
   const statusCode = rawCode === null ? null : decode(rawCode);
   const statusRaw = asText(poll.status);
 
-  // Absent statusCode = assume fine, exactly as printerReportsHealthy has
+  // Absent statusCode = assume fine, exactly as the poll path always has
   // always done. The printer is polling, so it is at least reachable.
   const online = statusCode === null || statusCode.trimStart().startsWith("2");
 

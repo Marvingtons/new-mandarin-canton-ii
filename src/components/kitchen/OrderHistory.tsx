@@ -22,7 +22,8 @@ import { STATIONS, type Station } from "@/config/stations";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import Icon from "@/components/kitchen/Icon";
 import OrderList from "@/components/kitchen/OrderList";
-import Button, { buttonClass } from "@/components/kitchen/ui/Button";
+import Button from "@/components/kitchen/ui/Button";
+import { buttonClass } from "@/components/kitchen/ui/buttonClass";
 import { ChannelBadge, StationBadge, StatusPill, TableBadge } from "@/components/kitchen/ui/Badges";
 import EmptyState from "@/components/kitchen/ui/EmptyState";
 import Segmented from "@/components/kitchen/ui/Segmented";
@@ -232,7 +233,8 @@ export default function OrderHistory({ timezone, today }: { timezone: string; to
                 ["takeout", [...TAKEOUT_CHANNELS] as OrderChannel[], "history.service.takeout"],
               ] as const
             ).map(([id, set, label]) => {
-              const on = set.length === channels.length && set.every((c) => channels.includes(c));
+              const chosen = new Set(channels);
+              const on = set.length === chosen.size && set.every((c) => chosen.has(c));
               return (
                 <button
                   key={id}

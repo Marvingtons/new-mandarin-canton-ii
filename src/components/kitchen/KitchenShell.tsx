@@ -7,9 +7,10 @@ import { logoutAction } from "@/app/[kitchenSlug]/actions";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
 import { KitchenLiveProvider, useKitchenLive, type LiveSnapshot } from "@/components/kitchen/KitchenLive";
 import { PrinterAlerts, PrinterStatusStrip } from "@/components/kitchen/PrinterStatusStrip";
-import { SECTIONS, type KitchenSection } from "@/components/kitchen/kitchenChrome";
+import { SECTIONS, type KitchenSection } from "@/components/kitchen/kitchenSections";
 import Icon from "@/components/kitchen/Icon";
-import Button, { buttonClass } from "@/components/kitchen/ui/Button";
+import Button from "@/components/kitchen/ui/Button";
+import { buttonClass } from "@/components/kitchen/ui/buttonClass";
 import ShortcutHelp from "@/components/kitchen/ui/ShortcutHelp";
 import { ToastProvider } from "@/components/kitchen/ui/Toasts";
 import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
@@ -71,15 +72,14 @@ function useLargeText(): [boolean, () => void] {
     else surface.removeAttribute("data-large-text");
   }, [largeText]);
   const toggle = useCallback(() => {
-    setLargeText((on) => {
-      try {
-        localStorage.setItem(LARGE_TEXT_STORAGE_KEY, on ? "0" : "1");
-      } catch {
-        /* still applies for this visit */
-      }
-      return !on;
-    });
-  }, []);
+    const next = !largeText;
+    setLargeText(next);
+    try {
+      localStorage.setItem(LARGE_TEXT_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      /* still applies for this visit */
+    }
+  }, [largeText]);
   return [largeText, toggle];
 }
 

@@ -49,9 +49,8 @@ export function resolveOrderLine(
   const size = itemSizes(item).find((s) => s.id === sizeId);
   if (!size) throw new Error(`Unknown size "${sizeId}" for item "${item.id}"`);
 
-  const byId = new Map(
-    item.modifierGroups.flatMap((g) => g.modifiers).map((m) => [m.id, m]),
-  );
+  const byId = new Map<string, (typeof item.modifierGroups)[number]["modifiers"][number]>();
+  for (const g of item.modifierGroups) for (const m of g.modifiers) byId.set(m.id, m);
 
   const modifiers: OrderLineModifier[] = [];
   for (const id of modifierIds) {

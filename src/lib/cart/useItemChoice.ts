@@ -9,7 +9,7 @@ import { resolveLinePrice } from "@/lib/cart/pricing";
  * min/max, quantity, special instructions, and the live line price.
  *
  * Shared by the customer sheet (components/order/ItemSheet) and the staff POS
- * sheet (components/kitchen/StaffItemSheet), which look nothing alike and must
+ * sheet (components/kitchen/PosItemSheet), which look nothing alike and must
  * never decide differently: what is required, what is defaulted, which rice a
  * party tray drops, and what the line costs. The price is resolveLinePrice,
  * the same pure function the server recomputes with.

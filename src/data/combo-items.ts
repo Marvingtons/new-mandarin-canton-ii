@@ -91,15 +91,17 @@ function choiceModifier(choice: LunchChoice): MenuModifier {
  * Listing it and then retracting it is how a customer ends up expecting soup.
  */
 function lunchSidesSentence(sides: string[]): string {
-  const travelling = sides
-    .filter((s) => !/soup/i.test(s))
-    // The rice is a CHOICE now, not a listed side. The printed menu writes
-    // it as "Fried Rice or Steamed Rice" in the sides list, which was fine
-    // when the customer picked at the counter and useless online: it
-    // described an option nobody could exercise. It is now the required
-    // rice group, so listing it here as well would state the same thing
-    // twice and make the sentence argue with the selector under it.
-    .filter((s) => !/\brice\b/i.test(s));
+  const travelling = sides.filter(
+    (s) =>
+      !/soup/i.test(s) &&
+      // The rice is a CHOICE now, not a listed side. The printed menu writes
+      // it as "Fried Rice or Steamed Rice" in the sides list, which was fine
+      // when the customer picked at the counter and useless online: it
+      // described an option nobody could exercise. It is now the required
+      // rice group, so listing it here as well would state the same thing
+      // twice and make the sentence argue with the selector under it.
+      !/\brice\b/i.test(s),
+  );
   const included = travelling.length
     ? `Includes ${travelling.join(", ")}. `
     : "";

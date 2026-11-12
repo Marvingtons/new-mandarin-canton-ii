@@ -10,7 +10,8 @@ import Icon from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import OrderList from "@/components/kitchen/OrderList";
-import Button, { buttonClass } from "@/components/kitchen/ui/Button";
+import Button from "@/components/kitchen/ui/Button";
+import { buttonClass } from "@/components/kitchen/ui/buttonClass";
 import EmptyState from "@/components/kitchen/ui/EmptyState";
 import Segmented from "@/components/kitchen/ui/Segmented";
 import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
@@ -123,15 +124,11 @@ export default function OrdersBoard({
 
   // Printers that are withholding or cannot collect: their QUEUED tickets are
   // waiting, not lost. Covered stations follow the printer covering them.
-  const waitingStations = useMemo(
-    () =>
-      new Set(
-        printers
-          .filter((p) => p.blocked)
-          .map((p) => p.station),
-      ),
-    [printers],
-  );
+  const waitingStations = useMemo(() => {
+    const out = new Set<Station>();
+    for (const p of printers) if (p.blocked) out.add(p.station);
+    return out;
+  }, [printers]);
 
   const failed = today.filter((o) => o.status === "PRINT_FAILED" || o.printStuck === true).length;
   const filtered = station !== "all" || statusFilter !== "active" || query !== "";

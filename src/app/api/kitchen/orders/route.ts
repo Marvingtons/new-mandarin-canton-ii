@@ -19,7 +19,7 @@ import { readyWindow } from "@/lib/order/readyWindow";
 import { normalizePhone } from "@/lib/phone";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
-import { tablesForLabel } from "@/lib/kitchen/floor-plan";
+import { tablesForLabel } from "@/lib/kitchen/floorPlan";
 import { TableConflictError } from "@/lib/orders/types";
 import { stationPrinterHealth } from "@/lib/print/boardPrinters";
 import { cloudPrntConfigured } from "@/lib/print/status";
@@ -106,6 +106,12 @@ export type StaffOrderError =
   | "rejected"
   | "unavailable";
 
+/** A free-text note as stored: trimmed, and null rather than empty. */
+function clean(value: string | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function refuse(code: StaffOrderError, message: string, status = 400): Response {
   return Response.json({ ok: false, code, error: message }, { status });
 }
@@ -134,7 +140,7 @@ function refuse(code: StaffOrderError, message: string, status = 400): Response 
  * Clover terminal in words; there is no card field and never will be.
  *
  * DINE-IN is the same pipeline again, with a table instead of a customer and
- * no pickup time: the label must be a seat in lib/kitchen/floor-plan, and
+ * no pickup time: the label must be a seat in lib/kitchen/floorPlan, and
  * createOrder refuses a table that is taken (or, for an add-on, not open)
  * inside its own transaction. Not gated on store hours: the party is already
  * sitting down.
@@ -233,10 +239,6 @@ export async function POST(request: Request): Promise<Response> {
     body.pickup.time === "asap" ? null : pickupAt,
   );
 
-  const clean = (value: string | undefined) => {
-    const trimmed = (value ?? "").trim();
-    return trimmed.length > 0 ? trimmed : null;
-  };
 
   try {
     const result = await createOrder({
@@ -320,10 +322,6 @@ async function placeDineIn(
 
   // No pickup: the window is "now", so the board's timing reads sensibly.
   const ready = readyWindow(now, pickupOpts, composed.hasLongPrep, null);
-  const clean = (value: string | undefined) => {
-    const trimmed = (value ?? "").trim();
-    return trimmed.length > 0 ? trimmed : null;
-  };
 
   try {
     const result = await createOrder({

@@ -4,7 +4,7 @@ import { orderGateBypassSecret, publicTenant } from "@/config/tenant.server";
 import { staffCatalogMenu } from "@/lib/menu/catalog";
 import { isValidTestModeCookie, TEST_MODE_COOKIE } from "@/lib/order/bypass";
 import { KitchenFrame, kitchenGuard, kitchenMetadata } from "@/components/kitchen/KitchenGuard";
-import StaffPos from "@/components/kitchen/StaffPos";
+import PosScreen from "@/components/kitchen/PosScreen";
 
 /**
  * /{kitchen}/pos: staff order entry for phone calls and walk-ins.
@@ -40,7 +40,7 @@ export default async function KitchenPosPage({
 
   return (
     <KitchenFrame lang={guard.lang} basePath={guard.basePath} active="pos">
-      <StaffPos
+      <PosScreen
         menu={staffCatalogMenu()}
         taxRateBps={tenant.taxRateBps}
         pickupOptions={{

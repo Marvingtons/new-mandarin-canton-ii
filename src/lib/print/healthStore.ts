@@ -249,22 +249,6 @@ const STATUS_COLUMNS = `station, printer_mac, last_seen_at, online, paper_out,
   cover_open, paper_low, status_code, status_raw, blocked_since,
   offline_alerted_at, paper_alerted_at, paper_low_since, paper_low_alerted_at`;
 
-/** One printer's stored row. Null if that station's printer has never polled. */
-export async function readPrinterStatus(
-  tenantId: string,
-  station: Station = "online",
-): Promise<PrinterStatusRow | null> {
-  // Locking read: the board and the offline/paper alerts act on this row, and
-  // a plain read of it was served from Hyperdrive's cache for 60s at a time.
-  const { rows } = await lockedRead(
-    `select ${STATUS_COLUMNS}
-       from printer_status where tenant_id = $1 and station = $2
-       for share`,
-    [tenantId, station],
-  );
-  return rows.length > 0 ? mapRow(rows[0] as RawRow) : null;
-}
-
 /**
  * Every printer's row, for the board strip and the alert sweep: one locking
  * read, keyed by station. A station whose printer has never polled is absent.

@@ -7,7 +7,6 @@
  *
  *   --ease-out-soft  cubic-bezier(.25,.46,.45,.94)  ≈  EASE.soft
  *   --ease-stamp     cubic-bezier(.34,1.56,.64,1)   ≈  EASE.stamp
- *   --t-slow         700ms                          =  DUR.slow
  *
  * Change a value here and its CSS twin together, or the JS-driven and
  * CSS-driven halves of the page start easing differently.
@@ -26,14 +25,6 @@ export const EASE = {
   stamp: "back.out(1.7)",
   /** Scrubbed timelines: the thumb IS the easing. */
   none: "none",
-} as const;
-
-/** Durations in SECONDS (GSAP's unit), matching the CSS ms tokens. */
-export const DUR = {
-  fast: 0.15,
-  med: 0.3,
-  slow: 0.7,
-  ambient: 2.4,
 } as const;
 
 /**

@@ -32,8 +32,8 @@ export default function ShortcutHelp({ onClose }: { onClose: () => void }) {
   return (
     <Dialog title={t("shortcuts.title")} onClose={onClose}>
       <p className={ui.dialogText}>{t("shortcuts.focusNote")}</p>
-      {GROUPS.map((group, i) => (
-        <dl key={i} className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2">
+      {GROUPS.map((group) => (
+        <dl key={group[0].label} className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2">
           {group.map((row) => (
             <div key={row.label} className="contents">
               <dt className="flex gap-1">

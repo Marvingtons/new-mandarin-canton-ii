@@ -81,21 +81,14 @@ export function ConfirmDialog({
     <Dialog title={title} onClose={onClose}>
       <p className={ui.dialogText}>{body}</p>
       {children}
-      <form
-        method="dialog"
-        className={ui.dialogActions}
-        onSubmit={(e) => {
-          e.preventDefault();
-          onConfirm();
-        }}
-      >
+      <div className={ui.dialogActions}>
         <Button variant="secondary" onClick={onClose}>
           {t("confirm.keep")}
         </Button>
-        <Button type="submit" variant="dangerSolid">
+        <Button variant="dangerSolid" onClick={onConfirm}>
           {confirmLabel}
         </Button>
-      </form>
+      </div>
     </Dialog>
   );
 }

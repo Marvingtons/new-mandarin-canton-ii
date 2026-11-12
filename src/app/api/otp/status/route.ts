@@ -22,7 +22,7 @@ import { clientIp } from "@/lib/http/clientIp";
  */
 export const runtime = "nodejs";
 
-const BodySchema = z.object({ phone: z.string().min(1).max(32) }).strict();
+const BodySchema = z.strictObject({ phone: z.string().min(1).max(32) });
 
 export async function POST(request: Request): Promise<Response> {
   const limit = checkRateLimit("otp_check_ip", clientIp(request));

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Icon, { type IconName } from "@/components/kitchen/Icon";
 import Button from "@/components/kitchen/ui/Button";
 import { useKT } from "@/components/kitchen/KitchenI18n";
@@ -37,6 +37,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const t = useKT();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
+  // Auto-dismiss timers, cleared if the staff app unmounts first.
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const id of pending) clearTimeout(id);
+      pending.clear();
+    };
+  }, []);
 
   const dismiss = useCallback((id: number) => {
     setToasts((list) => list.filter((x) => x.id !== id));
@@ -46,12 +55,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     (text: string, tone: ToastTone = "info") => {
       const id = nextId.current++;
       setToasts((list) => [...list.slice(-(MAX_VISIBLE - 1)), { id, tone, text }]);
-      setTimeout(() => dismiss(id), LIFETIME[tone]);
+      const timer = setTimeout(() => {
+        timers.current.delete(timer);
+        dismiss(id);
+      }, LIFETIME[tone]);
+      timers.current.add(timer);
     },
     [dismiss],
   );
 
   const api = useMemo(() => ({ toast }), [toast]);
+
+  // One pass: errors go to the assertive region, everything else waits its turn.
+  const [polite, assertive] = useMemo(() => {
+    const quiet: Toast[] = [];
+    const loud: Toast[] = [];
+    for (const x of toasts) (x.tone === "error" ? loud : quiet).push(x);
+    return [quiet, loud];
+  }, [toasts]);
 
   return (
     <ToastContext.Provider value={api}>
@@ -59,12 +80,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {/* Two live regions: errors interrupt, everything else waits its turn. */}
       <div className={ui.toasts}>
         <div role="status" aria-live="polite" className="flex flex-col-reverse gap-2">
-          {toasts.filter((x) => x.tone !== "error").map((x) => (
+          {polite.map((x) => (
             <ToastView key={x.id} toast={x} onDismiss={dismiss} dismissLabel={t("common.dismiss")} />
           ))}
         </div>
         <div role="alert" className="flex flex-col-reverse gap-2">
-          {toasts.filter((x) => x.tone === "error").map((x) => (
+          {assertive.map((x) => (
             <ToastView key={x.id} toast={x} onDismiss={dismiss} dismissLabel={t("common.dismiss")} />
           ))}
         </div>

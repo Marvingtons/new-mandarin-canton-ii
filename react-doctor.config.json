@@ -1,0 +1,14 @@
+{
+  "ignore": {
+    "files": [
+      ".next/**",
+      ".open-next/**",
+      ".wrangler/**",
+      "scripts/stubs/**",
+      ".claude/**",
+      ".agents/**",
+      "docs/kitchen-mockups/**",
+      "test-results/**"
+    ]
+  }
+}

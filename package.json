@@ -43,7 +43,7 @@
     "verify:print-stale-reads": "tsx --conditions=react-server scripts/verify-print-stale-reads.ts",
     "verify:stations": "tsx --conditions=react-server scripts/verify-stations.ts",
     "verify:station-migrations": "tsx scripts/verify-station-migrations.ts",
-    "doctor": "npx react-doctor@latest"
+    "doctor": "react-doctor . --lint --verbose"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

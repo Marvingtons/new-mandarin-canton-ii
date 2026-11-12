@@ -89,8 +89,8 @@ function toHHMM(mins: number): string {
  * two have not matched since: this produced 8:00 PM where the site says
  * 8:30, and 8:30 where Saturday now says 9:00.
  *
- * Nothing gates on it today — `orderingStatus()` in lib/menu/onlineHours is
- * the only reader and has no callers — so the disagreement was latent
+ * Nothing gates on it today (its one reader, orderingStatus() in
+ * lib/menu/onlineHours, had no callers and has been removed), so the disagreement was latent
  * rather than live. It was still shipped to the browser inside the public
  * tenant object on every page, one call away from silently refusing orders
  * half an hour before the whole rest of the site says ordering stops.

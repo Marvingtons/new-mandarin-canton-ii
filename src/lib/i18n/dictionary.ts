@@ -826,5 +826,3 @@ export function translator(locale: Locale): Translate {
   };
 }
 
-/** Key count, for the report and for the parity check. */
-export const TRANSLATION_KEY_COUNT = Object.keys(en).length;

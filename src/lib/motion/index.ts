@@ -1,19 +1,12 @@
 /**
  * The site's motion toolkit.
  *
- * Every scroll-driven effect on the site is composed from these five
+ * Every scroll-driven effect on the site is composed from these
  * primitives, so the whole page shares one easing voice and one set of
  * entrance positions. Adding a bespoke tween somewhere is usually a sign
  * that a primitive needs an option, not that the page needs a one-off.
  *
  *   revealRise   fade + rise, staggered — the workhorse
- *   maskWipe     clip-path uncover — headers and imagery. NO CALLERS
- *                today: its one use was the House Favorites
- *                carousel's featured card, and that card is now one
- *                of three peers that rise together. Kept as
- *                vocabulary, not left as dead weight to prune on
- *                sight — the next hero or header that wants an
- *                uncover should find it here rather than write one.
  *   parallax     scroll-linked drift — layered images
  *   sealStamp    the 富源 chop pressing in — signature moments only
  *   smokeDrift   ambient incense; steamRise is its tighter sibling
@@ -32,8 +25,8 @@ export {
   registerMotionPlugins,
   toElements,
 } from "./context";
-export { DUR, EASE, START } from "./tokens";
-export { maskWipe, revealRise } from "./reveal";
+export { EASE, START } from "./tokens";
+export { revealRise } from "./reveal";
 export type { MaskWipeOptions, RevealRiseOptions } from "./reveal";
 export { parallax } from "./parallax";
 export type { ParallaxOptions } from "./parallax";

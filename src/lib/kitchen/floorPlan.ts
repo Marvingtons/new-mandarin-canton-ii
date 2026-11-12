@@ -106,18 +106,6 @@ export function tableLabel(ids: readonly string[]): string {
   return ids.join("+");
 }
 
-/** The combination these two tables make, in either order, or undefined. */
-export function combinationOf(a: string, b: string): TableCombination | undefined {
-  return TABLE_COMBINATIONS.find(
-    (c) => (c.ids[0] === a && c.ids[1] === b) || (c.ids[0] === b && c.ids[1] === a),
-  );
-}
-
-/** Every combination a table can be part of. */
-export function combinationsFor(id: string): TableCombination[] {
-  return TABLE_COMBINATIONS.filter((c) => c.ids.includes(id));
-}
-
 /**
  * The tables a label occupies, or null when the label is not a seat in this
  * room. Accepts exactly what tableLabel produces: a single table id, or a
@@ -130,16 +118,3 @@ export function tablesForLabel(label: string): string[] | null {
   return combo ? [...combo.ids] : null;
 }
 
-/** Seat guidance for a label: the table's, or the combination's. */
-export function seatsForLabel(label: string): number | null {
-  const single = BY_ID.get(label);
-  if (single) return single.seats;
-  return TABLE_COMBINATIONS.find((c) => tableLabel(c.ids) === label)?.seats ?? null;
-}
-
-/** Do two labels share a table? "4" and "4+5" do; "4" and "5" do not. */
-export function labelsOverlap(a: string, b: string): boolean {
-  const ta = tablesForLabel(a) ?? [a];
-  const tb = new Set(tablesForLabel(b) ?? [b]);
-  return ta.some((id) => tb.has(id));
-}

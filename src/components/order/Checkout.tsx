@@ -195,26 +195,42 @@ export default function Checkout({
     if (!e164 || verifiedPhone === e164 || askedRef.current === e164) return;
     askedRef.current = e164;
 
+    // A newer number (or unmount) supersedes this lookup: abort the request,
+    // and never let its late answer mark a different number verified.
     let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       try {
         const res = await fetch("/api/otp/status", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ phone: e164 }),
+          signal: controller.signal,
         });
+        if (!res.ok) return;
         const data = (await res.json()) as { ok: boolean; verified?: boolean };
-        if (!cancelled && res.ok && data.verified) setVerifiedPhone(e164);
+        if (cancelled) return;
+        if (data.verified) setVerifiedPhone(e164);
       } catch {
-        /* offline or blocked — the customer just verifies by SMS as before */
+        /* offline, blocked or aborted: the customer just verifies by SMS as before */
       }
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [phoneCheck.ok, phoneCheck.e164, verifiedPhone]);
 
+  /**
+   * Re-entry guard for the two OTP requests. The buttons disable on the
+   * verify state, but two taps inside one frame both fire before React
+   * re-renders, and each send is a paid SMS (each check, a spent attempt).
+   * A ref is read synchronously, so the second tap is refused.
+   */
+  const otpBusyRef = useRef(false);
+
   const sendCode = useCallback(async () => {
+    if (otpBusyRef.current) return;
     setError(null);
     setNotice(null);
 
@@ -223,6 +239,7 @@ export default function Checkout({
       return;
     }
 
+    otpBusyRef.current = true;
     setVerify("sending");
     try {
       const res = await fetch("/api/otp/start", {
@@ -244,10 +261,14 @@ export default function Checkout({
     } catch {
       setError(`${t("err.noReachServer")} · ${t("err.noReachServerZh")}`);
       setVerify("idle");
+    } finally {
+      otpBusyRef.current = false;
     }
   }, [phone, phoneCheck, t]);
 
   const submitCode = useCallback(async () => {
+    if (otpBusyRef.current) return;
+    otpBusyRef.current = true;
     setError(null);
     setVerify("checking");
     try {
@@ -270,6 +291,8 @@ export default function Checkout({
     } catch {
       setError(`${t("err.noReachServer")} · ${t("err.noReachServerZh")}`);
       setVerify("sent");
+    } finally {
+      otpBusyRef.current = false;
     }
   }, [phone, code, phoneCheck, t]);
 

@@ -42,16 +42,18 @@ export interface HistoryQuery {
   q: string;
 }
 
-const csvList = <T extends string>(allowed: readonly T[]) =>
-  z
+const csvList = <T extends string>(allowed: readonly T[]) => {
+  const known = new Set<string>(allowed);
+  return z
     .string()
     .optional()
     .transform((raw) =>
       (raw ?? "")
         .split(",")
         .map((s) => s.trim())
-        .filter((s): s is T => (allowed as readonly string[]).includes(s)),
+        .filter((s): s is T => known.has(s)),
     );
+};
 
 const QuerySchema = z.object({
   from: z.string().regex(ISO_DATE),

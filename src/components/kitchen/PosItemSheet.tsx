@@ -9,7 +9,7 @@ import { useKT } from "@/components/kitchen/KitchenI18n";
 import DishName from "@/components/kitchen/DishName";
 import Icon from "@/components/kitchen/Icon";
 
-export interface StaffLineDraft {
+export interface PosLineDraft {
   itemId: string;
   sizeId: string;
   modifierIds: string[];
@@ -27,7 +27,27 @@ const MAX_INSTRUCTIONS = 200;
  *
  * Keyed by item id from the parent, so a new dish starts clean.
  */
-export default function StaffItemSheet({
+/** One choice in the sheet (a size, a rice, an extra): selected is ringed in lacquer. */
+const option = (selected: boolean) =>
+  `staff-press relative flex min-h-[2.909rem] items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-left text-staff-ink transition-colors ${
+    selected
+      ? "bg-staff-brand-tint shadow-[inset_0_0_0_3px_var(--color-staff-brand)]"
+      : "bg-staff-panel shadow-staff-card hover:bg-staff-gold-tint"
+  }`;
+
+/** The selection mark every option shares: sizes, rice, extras alike. */
+const check = (on: boolean) => (
+  <span
+    aria-hidden="true"
+    className={`flex h-[1.091rem] w-[1.091rem] shrink-0 items-center justify-center rounded-full ${
+      on ? "bg-staff-brand text-staff-on-brand" : "shadow-[inset_0_0_0_2px_var(--color-staff-line-strong)]"
+    }`}
+  >
+    {on && <Icon name="check" size={13} />}
+  </span>
+);
+
+export default function PosItemSheet({
   item,
   initialSizeId,
   menuNumber,
@@ -38,7 +58,7 @@ export default function StaffItemSheet({
   /** Open on this size (the tray button on a dish card). */
   initialSizeId?: string;
   menuNumber: number | null;
-  onAdd: (line: StaffLineDraft) => void;
+  onAdd: (line: PosLineDraft) => void;
   onClose: () => void;
 }) {
   const t = useKT();
@@ -78,24 +98,6 @@ export default function StaffItemSheet({
     });
   }
 
-  const option = (selected: boolean) =>
-    `staff-press relative flex min-h-[2.909rem] items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-left text-staff-ink transition-colors ${
-      selected
-        ? "bg-staff-brand-tint shadow-[inset_0_0_0_3px_var(--color-staff-brand)]"
-        : "bg-staff-panel shadow-staff-card hover:bg-staff-gold-tint"
-    }`;
-
-  /** The selection mark every option shares: sizes, rice, extras alike. */
-  const check = (on: boolean) => (
-    <span
-      aria-hidden="true"
-      className={`flex h-[1.091rem] w-[1.091rem] shrink-0 items-center justify-center rounded-full ${
-        on ? "bg-staff-brand text-staff-on-brand" : "shadow-[inset_0_0_0_2px_var(--color-staff-line-strong)]"
-      }`}
-    >
-      {on && <Icon name="check" size={13} />}
-    </span>
-  );
 
   const sectionLabel = "mb-3 flex flex-wrap items-baseline gap-2 text-base font-semibold text-staff-soft";
 

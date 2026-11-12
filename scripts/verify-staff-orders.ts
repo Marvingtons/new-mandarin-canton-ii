@@ -427,14 +427,14 @@ async function s4_history(m: Mods): Promise<void> {
 
   const all = await csv(range);
   check("CSV is text/csv", all.status === 200 && (all.type ?? "").startsWith("text/csv"), `${all.status} ${all.type}`);
-  check("CSV header", all.header === "order_number,business_date,created_at,customer,phone,channel,items,subtotal,tax,total,status,table,guests,addon");
+  check("CSV header", all.header === "order_number,business_date,created_at,customer,phone,channel,items,subtotal,tax,total,status,table,guests,addon,station");
   const csvNumbers = all.rows.map((r) => `${r.split(",")[1]}/${r.split(",")[0]}`);
   const listNumbers = listed.map((o) => `${o.businessDate}/${o.orderNumber}`);
   check("CSV rows are the listed rows, in the same order", JSON.stringify(csvNumbers) === JSON.stringify(listNumbers), `${csvNumbers.length} vs ${listNumbers.length}`);
   const csvTotal = all.rows.reduce((n, r) => {
     const cols = r.split(",");
-    // From the end: status, total sit before the three dine-in columns.
-    return cols[cols.length - 4] === "CANCELLED" ? n : n + Math.round(Number(cols[cols.length - 5]) * 100);
+    // From the end: status, total sit before the three dine-in columns and station.
+    return cols[cols.length - 5] === "CANCELLED" ? n : n + Math.round(Number(cols[cols.length - 6]) * 100);
   }, 0);
   check("CSV totals (excluding cancelled) equal the summary", csvTotal === p1.summary.salesCents, `${csvTotal} vs ${p1.summary.salesCents}`);
 
@@ -446,7 +446,7 @@ async function s4_history(m: Mods): Promise<void> {
   check("filtered CSV has the same rows", fc.rows.length === f.total);
   check(
     "filtered CSV total equals filtered summary",
-    fc.rows.reduce((n, r) => n + Math.round(Number(r.split(",").at(-5)) * 100), 0) === f.summary.salesCents,
+    fc.rows.reduce((n, r) => n + Math.round(Number(r.split(",").at(-6)) * 100), 0) === f.summary.salesCents,
   );
 
   const byPhone = await history("from=2026-09-01&to=2026-09-03&q=555-8877");

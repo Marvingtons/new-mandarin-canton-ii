@@ -11,7 +11,7 @@ import {
   tableLabel,
   tablesForLabel,
   type FloorTable,
-} from "@/lib/kitchen/floor-plan";
+} from "@/lib/kitchen/floorPlan";
 import type { OpenTable } from "@/lib/orders/types";
 import { formatCents } from "@/lib/money";
 import { useKT } from "@/components/kitchen/KitchenI18n";
@@ -27,7 +27,7 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * the same top bar, not as a sheet over it.
  *
  * THE ROOM IS DATA. Tables, chairs, the pairs that push together and the
- * landmarks all come from lib/kitchen/floor-plan; nothing here knows there
+ * landmarks all come from lib/kitchen/floorPlan; nothing here knows there
  * are nine tables.
  *
  * OCCUPANCY IS THE SERVER'S. Polled from /api/kitchen/tables, which derives it
@@ -210,9 +210,11 @@ function Room({
   };
 
   const paired = new Set(TABLE_COMBINATIONS.flatMap((c) => c.ids));
-  const shapes: React.ReactNode[] = FLOOR_TABLES.filter((ft) => !paired.has(ft.id)).map((ft) =>
-    tableButton(ft.id, { ...rect(ft.x, ft.y, ft.w, ft.h), borderRadius: radius }, byTable.get(ft.id) ?? null),
-  );
+  const shapes: React.ReactNode[] = [];
+  for (const ft of FLOOR_TABLES) {
+    if (paired.has(ft.id)) continue;
+    shapes.push(tableButton(ft.id, { ...rect(ft.x, ft.y, ft.w, ft.h), borderRadius: radius }, byTable.get(ft.id) ?? null));
+  }
   for (const combo of TABLE_COMBINATIONS) shapes.push(...pairShapes(combo.ids));
 
   /** A pair: one long shape when seated together, else two halves, a split line and Combine. */

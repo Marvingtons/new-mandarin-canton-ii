@@ -202,7 +202,7 @@
   --font-staff: var(--font-geist), "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC",
     system-ui, sans-serif;
 
-  /* Type: five steps, in rem so 大字 scales them (1rem is 22px here). */
+  /* Type: five steps, in rem so large text scales them (1rem is 22px here). */
   --text-staff-caption: calc(15rem / 22);
   --text-staff-body: calc(18rem / 22);
   --text-staff-title: calc(22rem / 22);
@@ -221,13 +221,13 @@
 
 /*
  * SPACING. Tailwind's spacing utilities are calc(var(--spacing) * n); on the
- * staff surface one step is 4 spec pixels (in rem, so 大字 scales it), the
+ * staff surface one step is 4 spec pixels (in rem, so large text scales it), the
  * same 4px grid the POS was drawn on. p-4 is 16px on the board and in the POS
  * alike; min-h-11 is the 44px touch floor and min-h-14 the 56px control.
  */
 [data-kitchen-surface] {
   --spacing: calc(4rem / 22);
-  /* One spec pixel (1px, 1.25px under 大字), for the odd size off the grid. */
+  /* One spec pixel (1px, 1.25px under large text), for the odd size off the grid. */
   --staff-u: calc(1rem / 22);
   --staff-motion: 150ms ease-out;
   /* The shared header's height: screens that fill the rest (the POS) size

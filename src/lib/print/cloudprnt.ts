@@ -268,26 +268,6 @@ export interface CloudPrntStatusResponse {
 /** The idle answer, as a constant so it is impossible to get subtly wrong. */
 export const NO_JOB: CloudPrntStatusResponse = { jobReady: false };
 
-/**
- * Does the printer report itself healthy?
- *
- * Star: a statusCode beginning "2" means online. The value arrives
- * URL-encoded, and some firmware pads it with a leading space, so it is
- * decoded and trimmed before the first character is read. Advisory only —
- * nothing is withheld from an unhealthy printer, because a printer that says
- * it has a problem is exactly the one we want to keep offering the job to.
- */
-export function printerReportsHealthy(poll: CloudPrntPoll): boolean {
-  if (!poll.statusCode) return true; // absent = assume fine
-  let value = poll.statusCode;
-  try {
-    value = decodeURIComponent(value);
-  } catch {
-    /* not encoded, or malformed — use as-is */
-  }
-  return value.trimStart().startsWith("2");
-}
-
 /*
  * Which printer is calling, and whether it is ours at all, is decided in
  * lib/print/printerIdentity.ts: there are two printers now, told apart by MAC.

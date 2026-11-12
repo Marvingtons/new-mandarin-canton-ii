@@ -228,7 +228,7 @@ function printerAlertText(
   alert: { kind: PrinterAlertKind; condition: string },
   queued: number,
 ): string {
-  const prints = serves.map((s) => STATION_LABEL[s].en.toLowerCase()).join(" and ");
+  const prints = serves.map((s) => STATION_LABEL[s].toLowerCase()).join(" and ");
   const name = `${STATION_PRINTER_NAME[station]} (${prints} orders)`;
   if (alert.kind === "paper-low") {
     return (
