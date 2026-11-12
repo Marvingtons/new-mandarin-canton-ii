@@ -269,6 +269,7 @@ export async function POST(request: Request): Promise<Response> {
         orderNumber: result.order.orderNumber,
         totalCents: result.order.totals.totalCents,
         channel: result.order.channel,
+        station: result.order.station,
       },
       duplicate: !result.created,
     });
@@ -355,6 +356,7 @@ async function placeDineIn(
         orderNumber: result.order.orderNumber,
         totalCents: result.order.totals.totalCents,
         channel: result.order.channel,
+        station: result.order.station,
         tableLabel: result.order.tableLabel,
         guestCount: result.order.guestCount,
         isAddon: result.order.isAddon,

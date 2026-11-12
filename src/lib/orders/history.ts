@@ -6,6 +6,7 @@ import {
   type OrderChannel,
   type OrderStatus,
 } from "@/lib/orders/types";
+import { STATIONS, type Station } from "@/config/stations";
 
 /**
  * Order history: the query, its wire form, and the date presets.
@@ -35,6 +36,8 @@ export interface HistoryQuery {
   statuses: OrderStatus[];
   /** Empty = every channel. */
   channels: OrderChannel[];
+  /** Empty = both printers. The station the ticket is on (orders.print_station). */
+  stations: Station[];
   /** Order number, customer name, or phone digits. Partial match. */
   q: string;
 }
@@ -55,6 +58,7 @@ const QuerySchema = z.object({
   to: z.string().regex(ISO_DATE),
   status: csvList(ORDER_STATUSES),
   channel: csvList(ORDER_CHANNELS),
+  station: csvList(STATIONS),
   q: z.string().max(80).optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional(),
 });
@@ -74,12 +78,12 @@ export function parseHistoryParams(
 ): { query: HistoryQuery; page: number } | null {
   const parsed = QuerySchema.safeParse(Object.fromEntries(params.entries()));
   if (!parsed.success) return null;
-  const { from, to, status, channel, q, page } = parsed.data;
+  const { from, to, status, channel, station, q, page } = parsed.data;
   if (Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) return null;
   const days = daysInRange(from, to);
   if (days < 1 || days > HISTORY_MAX_DAYS) return null;
   return {
-    query: { from, to, statuses: status, channels: channel, q: (q ?? "").trim() },
+    query: { from, to, statuses: status, channels: channel, stations: station, q: (q ?? "").trim() },
     page: page ?? 1,
   };
 }
@@ -89,6 +93,7 @@ export function historySearchParams(query: HistoryQuery, page?: number): URLSear
   const p = new URLSearchParams({ from: query.from, to: query.to });
   if (query.statuses.length > 0) p.set("status", query.statuses.join(","));
   if (query.channels.length > 0) p.set("channel", query.channels.join(","));
+  if (query.stations.length > 0) p.set("station", query.stations.join(","));
   if (query.q) p.set("q", query.q);
   if (page && page > 1) p.set("page", String(page));
   return p;
@@ -173,6 +178,8 @@ export const CSV_HEADER = [
   "table",
   "guests",
   "addon",
+  // Two printers (migration 011). Appended for the same reason.
+  "station",
 ] as const;
 
 /** RFC 4180 quoting, plus a leading-apostrophe guard against formula injection. */
@@ -232,6 +239,7 @@ export function csvRow(order: Order, timezone: string): string {
     order.tableLabel ?? "",
     order.guestCount ?? "",
     order.isAddon ? "yes" : "",
+    order.station,
   ]
     .map((v) => csvCell(String(v ?? "")))
     .join(",");

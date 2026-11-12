@@ -79,10 +79,10 @@ export default function StaffItemSheet({
   }
 
   const option = (selected: boolean) =>
-    `pos-press relative flex min-h-[2.909rem] items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-left text-pos-ink transition-colors ${
+    `staff-press relative flex min-h-[2.909rem] items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-left text-staff-ink transition-colors ${
       selected
-        ? "bg-pos-brand-tint shadow-[inset_0_0_0_3px_var(--color-pos-brand)]"
-        : "bg-pos-card shadow-pos-card hover:bg-pos-gold-tint"
+        ? "bg-staff-brand-tint shadow-[inset_0_0_0_3px_var(--color-staff-brand)]"
+        : "bg-staff-panel shadow-staff-card hover:bg-staff-gold-tint"
     }`;
 
   /** The selection mark every option shares: sizes, rice, extras alike. */
@@ -90,14 +90,14 @@ export default function StaffItemSheet({
     <span
       aria-hidden="true"
       className={`flex h-[1.091rem] w-[1.091rem] shrink-0 items-center justify-center rounded-full ${
-        on ? "bg-pos-brand text-white" : "shadow-[inset_0_0_0_2px_var(--color-pos-muted)]"
+        on ? "bg-staff-brand text-staff-on-brand" : "shadow-[inset_0_0_0_2px_var(--color-staff-line-strong)]"
       }`}
     >
       {on && <Icon name="check" size={13} />}
     </span>
   );
 
-  const sectionLabel = "mb-3 flex flex-wrap items-baseline gap-2 text-base font-semibold text-pos-muted";
+  const sectionLabel = "mb-3 flex flex-wrap items-baseline gap-2 text-base font-semibold text-staff-soft";
 
   return (
     <div
@@ -106,12 +106,12 @@ export default function StaffItemSheet({
       aria-modal="true"
       aria-label={item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn}
     >
-      <button aria-hidden="true" tabIndex={-1} className="absolute inset-0 bg-pos-scrim" onClick={onClose} />
-      <div className="pos-sheet-in relative z-10 flex max-h-[92svh] w-full max-w-[36rem] flex-col overflow-hidden rounded-t-[24px] bg-pos-bg text-pos-ink shadow-pos-raised sm:rounded-[24px]">
+      <button aria-hidden="true" tabIndex={-1} className="absolute inset-0 bg-staff-scrim" onClick={onClose} />
+      <div className="staff-sheet-in relative z-10 flex max-h-[92svh] w-full max-w-[36rem] flex-col overflow-hidden rounded-t-[24px] bg-staff-bg text-staff-ink shadow-staff-raised sm:rounded-[24px]">
         <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             {menuNumber !== null && (
-              <span className="mt-1 rounded-lg bg-pos-sunken px-2 text-base font-semibold text-pos-muted tabular-nums">#{menuNumber}</span>
+              <span className="mt-1 rounded-lg bg-staff-sunken px-2 text-base font-semibold text-staff-soft tabular-nums">#{menuNumber}</span>
             )}
             <DishName nameZh={item.nameZh} nameEn={item.nameEn} size="lg" />
           </div>
@@ -119,7 +119,7 @@ export default function StaffItemSheet({
             type="button"
             onClick={onClose}
             aria-label={t("sheet.close")}
-            className="-mr-2 flex h-[2.545rem] w-[2.545rem] shrink-0 items-center justify-center rounded-full text-pos-muted hover:bg-pos-sunken hover:text-pos-ink"
+            className="-mr-2 flex h-[2.545rem] w-[2.545rem] shrink-0 items-center justify-center rounded-full text-staff-soft hover:bg-staff-sunken hover:text-staff-ink"
           >
             <Icon name="x" size={22} />
           </button>
@@ -150,10 +150,10 @@ export default function StaffItemSheet({
           {groups.map((g) => (
             <fieldset key={g.id} className="mb-6">
               <legend className={sectionLabel}>
-                <span className="text-base text-pos-ink">{g.nameZh ?? g.nameEn}</span>
+                <span className="text-base text-staff-ink">{g.nameZh ?? g.nameEn}</span>
                 {g.nameZh && <span className="font-normal">{g.nameEn}</span>}
                 {g.minRequired > 0 && (
-                  <span className="rounded-full bg-pos-gold-tint px-2 text-base font-semibold text-pos-ink">
+                  <span className="rounded-full bg-staff-gold-tint px-2 text-base font-semibold text-staff-ink">
                     {t("sheet.required")}
                   </span>
                 )}
@@ -176,7 +176,7 @@ export default function StaffItemSheet({
                         {check(selected)}
                         <span className="flex min-w-0 flex-col">
                           <DishName nameZh={m.nameZh} nameEn={m.nameEn} size="sm" />
-                          {m.note && <span className="text-base text-pos-muted">{m.note}</span>}
+                          {m.note && <span className="text-base text-staff-soft">{m.note}</span>}
                         </span>
                       </span>
                       {m.priceCents > 0 && <span className="text-base font-semibold tabular-nums">+{formatCents(m.priceCents)}</span>}
@@ -195,25 +195,25 @@ export default function StaffItemSheet({
               onChange={(e) => setInstructions(e.target.value)}
               rows={2}
               placeholder={t("sheet.instructionsPlaceholder")}
-              className="w-full resize-none rounded-xl bg-pos-card px-4 py-3 text-base shadow-[inset_0_0_0_2px_var(--color-pos-sunken)] outline-none placeholder:text-pos-muted focus:shadow-[inset_0_0_0_2px_var(--color-pos-brand)]"
+              className="w-full resize-none rounded-xl bg-staff-panel px-4 py-3 text-base shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
             />
           </label>
         </div>
 
         {!groupsValid && (
-          <p role="status" className="bg-pos-gold-tint px-6 py-2.5 text-base font-medium">
+          <p role="status" className="bg-staff-gold-tint px-6 py-2.5 text-base font-medium">
             {t("sheet.unmet", {
               groups: unmetGroups.map((g) => g.nameZh ?? g.nameEn).join(" · "),
             })}
           </p>
         )}
-        <div className="flex items-center gap-4 bg-pos-card px-6 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
+        <div className="flex items-center gap-4 bg-staff-panel px-6 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
           <div className="flex items-center gap-1" role="group" aria-label={t("sheet.quantity")}>
             <button
               type="button"
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
               aria-label={t("pos.decrease")}
-              className="flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-full bg-pos-sunken text-pos-ink hover:bg-pos-gold-tint"
+              className="flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-full bg-staff-sunken text-staff-ink hover:bg-staff-gold-tint"
             >
               <Icon name="minus" size={22} />
             </button>
@@ -224,7 +224,7 @@ export default function StaffItemSheet({
               type="button"
               onClick={() => setQuantity((q) => Math.min(50, q + 1))}
               aria-label={t("pos.increase")}
-              className="flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-full bg-pos-sunken text-pos-ink hover:bg-pos-gold-tint"
+              className="flex h-[2.545rem] w-[2.545rem] items-center justify-center rounded-full bg-staff-sunken text-staff-ink hover:bg-staff-gold-tint"
             >
               <Icon name="plus" size={22} />
             </button>
@@ -233,7 +233,7 @@ export default function StaffItemSheet({
             type="button"
             onClick={add}
             disabled={!groupsValid}
-            className="flex h-[4rem] flex-1 items-center justify-between gap-3 rounded-pos bg-pos-brand px-6 text-[1.182rem] font-bold whitespace-nowrap text-white transition-colors hover:bg-pos-brand-hover disabled:cursor-not-allowed disabled:bg-pos-sunken disabled:text-pos-muted"
+            className="flex h-[4rem] flex-1 items-center justify-between gap-3 rounded-pos bg-staff-brand px-6 text-[1.182rem] font-bold whitespace-nowrap text-staff-on-brand transition-colors hover:bg-staff-brand-hover disabled:cursor-not-allowed disabled:bg-staff-sunken disabled:text-staff-soft"
           >
             <span>{t("sheet.add")}</span>
             <span className="tabular-nums">{formatCents(priceCents)}</span>

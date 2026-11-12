@@ -3,6 +3,13 @@ import "server-only";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { hasKitchenSession, isKitchenAuthConfigured } from "@/lib/auth/kitchenSession";
+import { isOrdersDbConfigured } from "@/lib/db/postgres";
+import { publicTenant } from "@/config/tenant.server";
+import { businessDateFor } from "@/lib/orders/businessDate";
+import { listActiveOrders } from "@/lib/orders/repository";
+import { stationPrinterHealth } from "@/lib/print/boardPrinters";
+import { cloudPrntConfigured } from "@/lib/print/status";
+import type { LiveSnapshot } from "@/components/kitchen/KitchenLive";
 import { isKitchenSlug, kitchenPath } from "@/lib/kitchenRoute";
 import { kitchenLang } from "@/lib/kitchen/i18n.server";
 import { kt, type KitchenLang } from "@/lib/kitchen/i18n";
@@ -82,8 +89,32 @@ export async function kitchenGuard(slug: string): Promise<KitchenGuardResult> {
   return { ok: true, lang, basePath: kitchenPath() };
 }
 
-/** The signed-in frame: language provider, surface, nav. */
-export function KitchenFrame({
+/**
+ * Today's orders and both printers, read on the server for the first paint, so
+ * a staff screen opens already showing the truth: no skeleton flash and no
+ * printer banner popping in a beat later. Null when the read fails; the
+ * client's first poll (a second later) then fills it, behind skeletons.
+ */
+async function firstSnapshot(): Promise<LiveSnapshot | null> {
+  if (!isOrdersDbConfigured()) return null;
+  const tenant = publicTenant();
+  try {
+    const [orders, printers] = await Promise.all([
+      listActiveOrders(tenant.tenantId, businessDateFor(tenant.timezone), { includeCompleted: true }),
+      stationPrinterHealth(tenant.tenantId),
+    ]);
+    return { orders, printers, printersConfigured: cloudPrntConfigured() };
+  } catch (err) {
+    console.error(
+      "[kitchen] first snapshot failed; the board will load on its first poll:",
+      err instanceof Error ? err.message : "unknown error",
+    );
+    return null;
+  }
+}
+
+/** The signed-in frame: language, surface, and the one staff shell (header, printers, live orders). */
+export async function KitchenFrame({
   lang,
   basePath,
   active,
@@ -97,7 +128,12 @@ export function KitchenFrame({
   return (
     <KitchenSurface>
       <KitchenI18nProvider initialLang={lang}>
-        <KitchenShell basePath={basePath} active={active}>
+        <KitchenShell
+          basePath={basePath}
+          active={active}
+          ordersConfigured={isOrdersDbConfigured()}
+          initial={await firstSnapshot()}
+        >
           {children}
         </KitchenShell>
       </KitchenI18nProvider>

@@ -155,95 +155,95 @@
 }
 
 /*
- * ---- THE STAFF AREA'S OWN PALETTE --------------------------------------
+ * ---- THE STAFF APP: one design system for the board, the POS and history ----
  *
- * The board, the POS and the history are a working tool used under bright
- * restaurant light for hours at a time, not the dining room. PRODUCT.md
- * principle 5 already ranks kitchen legibility above consistency with the
- * customer site, and the owner asked for something calmer. So this is a
- * separate, deliberately quiet world: warm off-white ground, white panels on
- * hairlines, near-black text, ONE teal for the action that matters, and
- * status colours used only for status. Nothing here is used outside
- * [data-kitchen-surface].
+ * The orders board, the counter POS and the history screen are one
+ * application, and this is its only token set. Nothing staff-side defines a
+ * colour, size, radius or shadow of its own; components/kitchen/pos.module.css
+ * reads these too. Nothing here is used outside [data-kitchen-surface].
  *
- * READABILITY FLOOR (the people using this include older staff with poor
- * eyesight, on a tablet at arm's length): every text colour here is at least
- * 7:1 on every staff background, its own tint included. Worst case is on
- * `sunken`: ink 14.3, soft and faint 7.6, accent 7.3, danger 7.3, warn 7.4,
- * blue 7.9; tinted pills 7.5 or more; white on accent 8.8, on danger 8.9.
- * `faint` is no longer lighter than `soft`: there are no pale captions.
+ * COLOUR COMES ONLY FROM THE FIVE SEAL VALUES (lib/brand/seal.ts, the
+ * :root tokens above): lacquer #77151A, gold-light #EABD62, gold #DA9F52,
+ * ink #1E1510, ivory #F8F1E3. Every other value is a color-mix() of those,
+ * never a new hex. Meaning:
+ *
+ *   brand (lacquer)   the one primary action per screen, selection, focus,
+ *                     and anything that failed or is destructive
+ *   gold              needs attention but is not broken: waiting on paper,
+ *                     paper low, a cover open; also the Online station
+ *   ink               text, and the Store station
+ *
+ * Status is never colour alone: every pill and banner also carries words and
+ * usually an icon, so the palette can stay this small.
+ *
+ * CONTRAST, measured (WCAG 2.x): ink 12.2 or better on every ground; soft 7.2
+ * or better on every ground including sunken and both tints; brand 7.5 or
+ * better on every ground; ivory on brand 9.8; ink on gold 7.7, on gold-light
+ * 10.2. line-strong (input borders) is 3.5:1 on panel, 3.1:1 on bg, so form
+ * controls clear the 3:1 non-text rule.
  */
 @theme {
-  --color-staff-bg: #f3f2ef;
-  --color-staff-panel: #ffffff;
-  --color-staff-sunken: #ebe9e4;
-  --color-staff-line: #e0ddd6;
-  --color-staff-line-strong: #c7c3ba;
-  --color-staff-ink: #1b1a17;
-  --color-staff-soft: #4b4741;
-  --color-staff-faint: #4b4741;
-  --color-staff-accent: #08544a;
-  --color-staff-accent-hover: #063f38;
-  --color-staff-accent-tint: #e2f0ec;
-  --color-staff-danger: #8f1d17;
-  --color-staff-danger-tint: #fbeae8;
-  --color-staff-warn: #6a3f00;
-  --color-staff-warn-tint: #fdf1d8;
-  --color-staff-blue: #264670;
-  --color-staff-blue-tint: #e6edf6;
+  --color-staff-bg: color-mix(in srgb, var(--ivory) 93%, var(--ink));
+  --color-staff-panel: var(--ivory);
+  --color-staff-sunken: color-mix(in srgb, var(--ivory) 87%, var(--ink));
+  --color-staff-line: color-mix(in srgb, var(--ivory) 80%, var(--ink));
+  --color-staff-line-strong: color-mix(in srgb, var(--ivory) 48%, var(--ink));
+  --color-staff-ink: var(--ink);
+  --color-staff-soft: color-mix(in srgb, var(--ink) 82%, var(--ivory));
+  --color-staff-brand: var(--lacquer);
+  --color-staff-brand-hover: color-mix(in srgb, var(--lacquer) 80%, var(--ink));
+  --color-staff-brand-tint: color-mix(in srgb, var(--lacquer) 10%, var(--ivory));
+  --color-staff-on-brand: var(--ivory);
+  --color-staff-gold: var(--gold);
+  --color-staff-gold-light: var(--gold-light);
+  --color-staff-gold-tint: color-mix(in srgb, var(--gold-light) 35%, var(--ivory));
+  --color-staff-scrim: color-mix(in srgb, var(--ink) 45%, transparent);
+
   --font-staff: var(--font-geist), "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC",
-    "Microsoft JhengHei", system-ui, sans-serif;
+    system-ui, sans-serif;
+
+  /* Type: five steps, in rem so 大字 scales them (1rem is 22px here). */
+  --text-staff-caption: calc(15rem / 22);
+  --text-staff-body: calc(18rem / 22);
+  --text-staff-title: calc(22rem / 22);
+  --text-staff-heading: calc(26rem / 22);
+  --text-staff-display: calc(32rem / 22);
+
+  /* Shape and depth. Shadows are ink at low alpha. */
+  --radius-staff-tag: calc(6rem / 22);
+  --radius-staff-control: calc(12rem / 22);
+  --radius-staff-card: calc(16rem / 22);
+  --shadow-staff-card: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
+    0 4px 14px -2px color-mix(in srgb, var(--ink) 8%, transparent);
+  --shadow-staff-raised: 0 2px 4px color-mix(in srgb, var(--ink) 6%, transparent),
+    0 16px 40px -8px color-mix(in srgb, var(--ink) 22%, transparent);
 }
 
 /*
- * ---- THE POS: order entry as a product -----------------------------------
- *
- * The order screen (/{kitchen}/pos, StaffPos and its sheets) is the one staff
- * screen a customer can see over the counter, so it takes the dining room's
- * red rather than the board's teal: one brand accent, the site's own lacquer,
- * for the active category, the selected service and Print. Gold is a detail
- * colour only (a hairline, a dot), never text. Green means one thing: added.
- *
- * Hierarchy comes from space and ground, not lines: warm off-white ground,
- * white cards with a soft shadow, sunken tracks for segmented controls. If a
- * border could be replaced by a change of ground or a larger gap, it was.
- *
- * CONTRAST, measured (WCAG): ink 15.5 on bg, 14.0 on sunken; muted 7.9 on bg,
- * 7.1 on sunken, 8.9 on card; brand 9.8 on bg, 11.0 on card; added 7.1 on bg;
- * white on brand 11.0, on added 8.0. Every text pairing clears 7:1.
- *
- * Sizes are rem (1rem is 22px here, 27.5px under the large-text setting).
+ * SPACING. Tailwind's spacing utilities are calc(var(--spacing) * n); on the
+ * staff surface one step is 4 spec pixels (in rem, so 大字 scales it), the
+ * same 4px grid the POS was drawn on. p-4 is 16px on the board and in the POS
+ * alike; min-h-11 is the 44px touch floor and min-h-14 the 56px control.
  */
-@theme {
-  --color-pos-bg: #f5f1ea;
-  --color-pos-card: #ffffff;
-  --color-pos-sunken: #ebe5da;
-  --color-pos-ink: #1c1917;
-  --color-pos-muted: #4f4943;
-  --color-pos-brand: #77151a;
-  --color-pos-brand-hover: #5e1015;
-  --color-pos-brand-tint: #f6e9e6;
-  --color-pos-gold: #c9a15a;
-  --color-pos-gold-tint: #f6ecd9;
-  --color-pos-added: #185c31;
-  --color-pos-added-tint: #e4f1e7;
-  --color-pos-scrim: rgb(28 25 23 / 0.4);
-  --shadow-pos-card: 0 1px 2px rgb(28 25 23 / 0.06), 0 4px 14px -2px rgb(28 25 23 / 0.08);
-  --shadow-pos-raised: 0 2px 4px rgb(28 25 23 / 0.06), 0 16px 40px -8px rgb(28 25 23 / 0.22);
-  --radius-pos: 16px;
+[data-kitchen-surface] {
+  --spacing: calc(4rem / 22);
+  /* One spec pixel (1px, 1.25px under 大字), for the odd size off the grid. */
+  --staff-u: calc(1rem / 22);
+  --staff-motion: 150ms ease-out;
+  /* The shared header's height: screens that fill the rest (the POS) size
+     against it. */
+  --staff-header-h: calc(64rem / 22);
 }
 
-/* The order screen's zones, type and tokens are components/kitchen/
-   pos.module.css (built to docs/kitchen-design.md). What stays here is the
-   palette above and the motion below, which the POS's sheets still use. */
-/* Tap feedback: the card gives under the finger, the count pops. */
-.pos-press {
+/* Shared staff motion. Tap feedback: a control gives under the finger, a
+   count pops, a sheet slides in. Off under reduced motion. */
+.staff-press {
   transition: transform 120ms cubic-bezier(0.2, 0, 0, 1), box-shadow 120ms;
 }
-.pos-press:active:not(:disabled) {
+.staff-press:active:not(:disabled) {
   transform: scale(0.97);
 }
-@keyframes pos-pop {
+@keyframes staff-pop {
   0% {
     transform: scale(0.6);
   }
@@ -254,24 +254,24 @@
     transform: scale(1);
   }
 }
-.pos-pop {
-  animation: pos-pop 220ms cubic-bezier(0.2, 0, 0, 1);
+.staff-pop {
+  animation: staff-pop 220ms cubic-bezier(0.2, 0, 0, 1);
 }
-@keyframes pos-sheet-in {
+@keyframes staff-sheet-in {
   from {
     transform: translateX(2rem);
     opacity: 0;
   }
 }
-.pos-sheet-in {
-  animation: pos-sheet-in 180ms cubic-bezier(0.2, 0, 0, 1);
+.staff-sheet-in {
+  animation: staff-sheet-in 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 @media (prefers-reduced-motion: reduce) {
-  .pos-press:active:not(:disabled) {
+  .staff-press:active:not(:disabled) {
     transform: none;
   }
-  .pos-pop,
-  .pos-sheet-in {
+  .staff-pop,
+  .staff-sheet-in {
     animation: none;
   }
 }
@@ -382,18 +382,21 @@ footer :focus-visible {
    scrollbars and numerals, from its palette rather than the site's gold. */
 [data-kitchen-surface] {
   color-scheme: light;
-  caret-color: var(--color-staff-accent);
+  caret-color: var(--color-staff-brand);
   scrollbar-color: var(--color-staff-line-strong) transparent;
   font-variant-numeric: tabular-nums;
   -webkit-tap-highlight-color: transparent;
 }
+/* One focus ring for every control in the staff app: lacquer, 3px, offset so
+   it reads on ivory, on sunken and on a lacquer button alike (9.8:1, 7.5:1
+   and against the 2px ivory gap). */
 [data-kitchen-surface] :focus-visible {
-  outline: 3px solid var(--color-staff-accent);
+  outline: 3px solid var(--color-staff-brand);
   outline-offset: 2px;
   box-shadow: none;
 }
 [data-kitchen-surface] ::selection {
-  background: var(--color-staff-accent-tint);
+  background: var(--color-staff-gold-tint);
   color: var(--color-staff-ink);
 }
 

@@ -1680,6 +1680,10 @@ function historyWhere(
     params.push(query.channels);
     clauses.push(`o.channel = any($${params.length}::text[])`);
   }
+  if (query.stations.length > 0) {
+    params.push(query.stations);
+    clauses.push(`o.print_station = any($${params.length}::text[])`);
+  }
   const q = query.q.trim();
   if (q) {
     params.push(`%${likeLiteral(q)}%`);

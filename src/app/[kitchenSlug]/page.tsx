@@ -1,35 +1,13 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { publicTenant } from "@/config/tenant.server";
 import { businessDateFor } from "@/lib/orders/businessDate";
-import { isOrdersDbConfigured } from "@/lib/db/postgres";
-import { cloudPrntConfigured } from "@/lib/print/status";
 import { KitchenFrame, kitchenGuard, kitchenMetadata } from "@/components/kitchen/KitchenGuard";
-import KitchenBoard from "@/components/kitchen/KitchenBoard";
+import OrdersBoard from "@/components/kitchen/OrdersBoard";
+import { OrderCardSkeleton } from "@/components/kitchen/ui/Skeleton";
 
-/**
- * The always-on fallback. Even with no printer configured at all, every paid
- * order lands here within ten seconds — that is the entire point of the
- * screen, and why it is built before the printer rather than after it.
- *
- * THE PATH IS CONFIGURED, NOT COMPILED. This is a dynamic segment that checks
- * the incoming slug against KITCHEN_ROUTE_SLUG server-side — the same shape
- * the CloudPRNT route uses for its path secret — so moving the board is a
- * variable and a deploy. Unset means `/kitchen`, byte for byte what it was.
- * The new-order screen and the history live beneath it (`/{slug}/pos`,
- * `/{slug}/history`) behind the same guard.
- *
- * ⚠️ The slug is obscurity. Auth is checked on the server, on every request,
- * by kitchenGuard, and it is what actually protects this screen; see
- * lib/kitchenRoute for why the password can never be traded away for a
- * secret URL.
- */
 export const dynamic = "force-dynamic";
 
-/**
- * ⚠️ METADATA IS CONDITIONAL, AND THERE IS NO layout.tsx, FOR THE SAME REASON:
- * a layout wraps the not-found boundary too, so every unknown top-level path
- * would answer titled "Kitchen". See kitchenMetadata.
- */
 export async function generateMetadata({
   params,
 }: {
@@ -38,6 +16,7 @@ export async function generateMetadata({
   return kitchenMetadata((await params).kitchenSlug);
 }
 
+/** The orders board: every order today, both stations. */
 export default async function KitchenPage({
   params,
 }: {
@@ -49,12 +28,21 @@ export default async function KitchenPage({
   const tenant = publicTenant();
   return (
     <KitchenFrame lang={guard.lang} basePath={guard.basePath} active="board">
-      <KitchenBoard
-        timezone={tenant.timezone}
-        businessDate={businessDateFor(tenant.timezone)}
-        ordersConfigured={isOrdersDbConfigured()}
-        printingConfigured={cloudPrntConfigured()}
-      />
+      {/* The filters read the URL; the fallback is the board's own shape. */}
+      <Suspense
+        fallback={
+          <div className="mx-auto grid w-full max-w-[1600px] gap-4 px-4 pt-24 sm:px-6 lg:grid-cols-2 2xl:grid-cols-3">
+            <OrderCardSkeleton />
+            <OrderCardSkeleton />
+          </div>
+        }
+      >
+        <OrdersBoard
+          timezone={tenant.timezone}
+          businessDate={businessDateFor(tenant.timezone)}
+          basePath={guard.basePath}
+        />
+      </Suspense>
     </KitchenFrame>
   );
 }

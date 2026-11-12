@@ -16,8 +16,10 @@ import type { OpenTable } from "@/lib/orders/types";
 import { formatCents } from "@/lib/money";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import Icon from "@/components/kitchen/Icon";
-import { posIcon } from "@/components/kitchen/posIcon";
+import { useKitchenLive } from "@/components/kitchen/KitchenLive";
+import { ConfirmDialog } from "@/components/kitchen/ui/Dialog";
 import s from "@/components/kitchen/pos.module.css";
+import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
  * 堂食's home: the open tables on the left, the room on the right
@@ -52,8 +54,7 @@ export interface Seating {
 type Step =
   | { kind: "room" }
   | { kind: "guests"; label: string }
-  | { kind: "seated"; open: OpenTable }
-  | { kind: "confirmClear"; open: OpenTable };
+  | { kind: "seated"; open: OpenTable };
 
 const POLL_MS = 15_000;
 /** Seated longer than this, the minutes turn amber. */
@@ -251,7 +252,7 @@ function Room({
           data-combine={label}
           onClick={() => onFree(label)}
           aria-label={t("floor.pick.combined", { a: ids[0], b: ids[1] })}
-          className={`${s.btn} ${s.secondary} ${s.combine}`}
+          className={`${ui.btn} ${ui.secondary} ${s.combine}`}
           style={vertical ? { left: X(a.x + a.w / 2), top: X(b.y) } : { left: X(b.x), top: X(a.y + a.h / 2) }}
         >
           {t("floor.combine")}
@@ -341,7 +342,7 @@ function TableList({
       <div className={s.listFoot}>
         {status}
         {onBack && (
-          <button type="button" onClick={onBack} className={`${s.btn} ${s.secondary}`}>
+          <button type="button" onClick={onBack} className={`${ui.btn} ${ui.secondary}`}>
             {t("floor.backToTicket")}
           </button>
         )}
@@ -353,34 +354,27 @@ function TableList({
 function TableDetails({
   table,
   now,
-  confirming,
-  busy,
   status,
   onAllTables,
   onAddItems,
   onAskClear,
-  onCancelClear,
-  onClear,
 }: {
   table: OpenTable;
   now: number;
-  confirming: boolean;
-  busy: boolean;
   status: React.ReactNode;
   onAllTables: () => void;
   onAddItems: () => void;
+  /** Opens the shared confirm step; the clear itself is the live clearTable. */
   onAskClear: () => void;
-  onCancelClear: () => void;
-  onClear: () => void;
 }) {
   const t = useKT();
-  const primary = `${s.btn} ${s.primary}`;
-  const secondary = `${s.btn} ${s.secondary}`;
+  const primary = `${ui.btn} ${ui.primary}`;
+  const danger = `${ui.btn} ${ui.danger}`;
   return (
     <>
       <div className={s.detMain}>
-        <button type="button" onClick={onAllTables} className={`${s.btn} ${s.quiet}`}>
-          <Icon name="chevronLeft" size={posIcon(24)} />
+        <button type="button" onClick={onAllTables} className={`${ui.btn} ${ui.quiet}`}>
+          <Icon name="chevronLeft" size={24} />
           {t("floor.allTables")}
         </button>
         <div className={s.detH}>
@@ -395,30 +389,17 @@ function TableDetails({
       </div>
       <div className={s.listFoot}>
         {status}
-        {confirming ? (
-          <>
-            <p className={s.ask}>{t("floor.clearAsk", { table: table.tableLabel })}</p>
-            <button type="button" disabled={busy} onClick={onClear} className={primary}>
-              {busy ? t("common.busy") : t("floor.clearYes", { table: table.tableLabel })}
-            </button>
-            <button type="button" onClick={onCancelClear} className={secondary}>
-              {t("floor.cancel")}
-            </button>
-          </>
-        ) : (
-          <>
-            <div className={s.detTotal}>
-              <span>{t("pos.totalLabel")}</span>
-              <span className={`${s.v} ${s.num}`}>{formatCents(table.totalCents)}</span>
-            </div>
-            <button type="button" onClick={onAddItems} className={primary}>
-              {t("floor.addItems")}
-            </button>
-            <button type="button" onClick={onAskClear} className={secondary}>
-              {t("floor.clear")}
-            </button>
-          </>
-        )}
+        <div className={s.detTotal}>
+          <span>{t("pos.totalLabel")}</span>
+          <span className={`${s.v} ${s.num}`}>{formatCents(table.totalCents)}</span>
+        </div>
+        <button type="button" data-primary="" onClick={onAddItems} className={primary}>
+          {t("floor.addItems")}
+        </button>
+        <button type="button" onClick={onAskClear} className={danger}>
+          <Icon name="table" size={20} />
+          {t("floor.clear")}
+        </button>
       </div>
     </>
   );
@@ -435,7 +416,7 @@ function GuestSheet({ label, onSeat, onClose }: { label: string; onSeat: (guests
     if (!ref.current?.open) ref.current?.showModal();
   }, []);
   const close = () => ref.current?.close();
-  const key = `${s.btn} ${s.secondary}`;
+  const key = `${ui.btn} ${ui.secondary}`;
   const type = (d: string) => setDigits((v) => ((v ?? "") + d).replace(/^0+/, "").slice(0, 3));
 
   return (
@@ -480,7 +461,7 @@ function GuestSheet({ label, onSeat, onClose }: { label: string; onSeat: (guests
                 type="button"
                 disabled={!digits || Number(digits) < 1}
                 onClick={() => onSeat(Number(digits))}
-                className={`${s.btn} ${s.primary} ${s.word}`}
+                className={`${ui.btn} ${ui.primary} ${s.word}`}
               >
                 {t("floor.padOk")}
               </button>
@@ -488,7 +469,7 @@ function GuestSheet({ label, onSeat, onClose }: { label: string; onSeat: (guests
           </>
         )}
         <div className={s.sheetFoot}>
-          <button type="button" onClick={close} className={`${s.btn} ${s.quiet}`}>
+          <button type="button" onClick={close} className={`${ui.btn} ${ui.quiet}`}>
             {t("floor.cancel")}
           </button>
         </div>
@@ -515,9 +496,11 @@ export default function FloorPlan({
 }) {
   const t = useKT();
   const { open, byTable, byLabel, loaded, loadFailed, now, refresh } = useOpenTables();
+  const { clearTable } = useKitchenLive();
   const [step, setStep] = useState<Step>({ kind: "room" });
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  /** The table waiting on the shared confirm step. */
+  const [confirming, setConfirming] = useState<OpenTable | null>(null);
 
   function tapFree(label: string) {
     setNotice(null);
@@ -529,32 +512,20 @@ export default function FloorPlan({
     setStep({ kind: "seated", open: o });
   }
 
+  /**
+   * 清台 through the same live action the board's Clear table uses: optimistic,
+   * a toast either way, rollback on refusal. A refusal because someone else
+   * already cleared it still leaves the room as staff wanted it.
+   */
   async function clear(label: string) {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/kitchen/tables", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "clear", label }),
-      });
-      // A 409 means someone else already cleared it: the outcome staff wanted.
-      const cleared = res.status === 409 || (res.ok && ((await res.json()) as { ok: boolean }).ok);
-      if (cleared) {
-        setNotice(t("floor.cleared", { table: label }));
-        onCleared?.(label);
-      } else {
-        setNotice(t("floor.clearFailed"));
-      }
-    } catch {
-      setNotice(t("floor.clearFailed"));
-    } finally {
-      setBusy(false);
-      setStep({ kind: "room" });
-      void refresh();
-    }
+    setConfirming(null);
+    setStep({ kind: "room" });
+    const ok = await clearTable(label);
+    if (ok) onCleared?.(label);
+    void refresh();
   }
 
-  const details = step.kind === "seated" || step.kind === "confirmClear" ? step.open : null;
+  const details = step.kind === "seated" ? step.open : null;
   const selected = step.kind === "guests" ? step.label : (details?.tableLabel ?? null);
 
   const status = (
@@ -575,14 +546,10 @@ export default function FloorPlan({
           <TableDetails
             table={details}
             now={now}
-            confirming={step.kind === "confirmClear"}
-            busy={busy}
             status={status}
             onAllTables={() => setStep({ kind: "room" })}
             onAddItems={() => onSeat({ label: details.tableLabel, guests: details.guestCount ?? 1, addon: true })}
-            onAskClear={() => setStep({ kind: "confirmClear", open: details })}
-            onCancelClear={() => setStep({ kind: "seated", open: details })}
-            onClear={() => void clear(details.tableLabel)}
+            onAskClear={() => setConfirming(details)}
           />
         ) : (
           <TableList open={open} now={now} status={status} onSeated={tapSeated} onBack={onBack} />
@@ -590,6 +557,16 @@ export default function FloorPlan({
       </aside>
 
       <Room byTable={byTable} byLabel={byLabel} now={now} loaded={loaded} selected={selected} onFree={tapFree} onSeated={tapSeated} />
+
+      {confirming && (
+        <ConfirmDialog
+          title={t("confirm.clearTitle", { table: confirming.tableLabel })}
+          body={t("confirm.clearBody")}
+          confirmLabel={t("confirm.clearConfirm")}
+          onClose={() => setConfirming(null)}
+          onConfirm={() => void clear(confirming.tableLabel)}
+        />
+      )}
 
       {step.kind === "guests" && (
         <GuestSheet

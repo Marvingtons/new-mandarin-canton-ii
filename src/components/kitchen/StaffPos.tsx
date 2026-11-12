@@ -13,15 +13,19 @@ import { isLunchService, LUNCH_END_MINUTES, LUNCH_START_MINUTES } from "@/lib/or
 import { resolveSizeZh } from "@/data/menu-overrides";
 import { menuNumber } from "@/data/menu-presentation";
 import type { OrderLine, StaffTakeoutChannel } from "@/lib/orders/types";
+import type { Station } from "@/config/stations";
 import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/pos-categories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import StaffItemSheet, { type StaffLineDraft } from "@/components/kitchen/StaffItemSheet";
 import Icon from "@/components/kitchen/Icon";
-import { posIcon } from "@/components/kitchen/posIcon";
 import FloorPlan, { type Seating } from "@/components/kitchen/FloorPlan";
-import PosTopBar from "@/components/kitchen/PosTopBar";
+import { useKitchenLive } from "@/components/kitchen/KitchenLive";
+import ReprintDialog from "@/components/kitchen/ReprintDialog";
+import Button from "@/components/kitchen/ui/Button";
+import Segmented from "@/components/kitchen/ui/Segmented";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
 import s from "@/components/kitchen/pos.module.css";
+import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
  * Staff order entry: a phone call, a walk-in, or a table, tapped in and printed.
@@ -34,7 +38,8 @@ import s from "@/components/kitchen/pos.module.css";
  * recomputes from the menu. The request carries no money at all.
  *
  * A TILL, NOT A PAGE. Fixed zones and nothing scrolls but the dishes and the
- * ticket's lines: a 72px top bar, the category rail, the dish tiles of ONE
+ * ticket's lines: the shared staff header and a slim POS toolbar (service and
+ * search), the category rail, the dish tiles of ONE
  * category, and the ticket with its total and Print pinned at the bottom.
  * Dine-in without a table shows the floor plan in place of the three zones.
  *
@@ -59,6 +64,8 @@ interface Placed {
   id: number;
   orderNumber: string;
   totalCents: number;
+  /** The printer it went to (store, unless reprinted elsewhere). */
+  station: Station;
 }
 
 interface PastOrder {
@@ -289,6 +296,8 @@ export default function StaffPos({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reprinting, setReprinting] = useState<Placed | null>(null);
+  const { act, refresh: refreshLive } = useKitchenLive();
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [justNow, setJustNow] = useState<Placed | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
@@ -569,6 +578,9 @@ export default function StaffPos({
       }
       setPlaced(data.order);
       setJustNow(data.order);
+      // The board, the header's count and the printer strip learn about it
+      // now rather than on the next poll.
+      void refreshLive();
       // The mode survives: the next order is most likely the same service.
       resetTicket();
       setQuery("");
@@ -594,24 +606,9 @@ export default function StaffPos({
     return () => clearTimeout(id);
   }, [clearArmed]);
 
-  async function reprint(order: Placed) {
-    try {
-      const res = await fetch(`/api/kitchen/orders/${order.id}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "reprint" }),
-      });
-      const data = (await res.json()) as { ok: boolean; code?: string };
-      setNotice(
-        data.ok
-          ? t("pos.reprinted", { number: order.orderNumber })
-          : data.code === "printing"
-            ? t("board.printingNoReprint")
-            : t("board.actionFailed"),
-      );
-    } catch {
-      setNotice(t("board.actionUnreachable"));
-    }
+  /** 重印 the order just placed: the shared station picker, the shared live action. */
+  function reprint(order: Placed) {
+    setReprinting(order);
   }
 
   /* ------------------------------------------------------------- render -- */
@@ -650,10 +647,10 @@ export default function StaffPos({
   };
 
   const field =
-    "min-h-[3rem] w-full rounded-xl bg-pos-card px-4 text-[1.091rem] text-pos-ink shadow-[inset_0_0_0_2px_var(--color-pos-sunken)] outline-none placeholder:text-pos-muted focus:shadow-[inset_0_0_0_2px_var(--color-pos-brand)]";
-  const label = "mb-2 block text-base font-semibold text-pos-ink";
+    "min-h-[3rem] w-full rounded-xl bg-staff-panel px-4 text-[1.091rem] text-staff-ink shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]";
+  const label = "mb-2 block text-base font-semibold text-staff-ink";
   const customerSummary = [name.trim(), phone.trim()].filter(Boolean).join(" · ");
-  const btn = (kind: "primary" | "secondary" | "quiet") => `${s.btn} ${s[kind]}`;
+  const btn = (kind: "primary" | "secondary" | "quiet") => `${ui.btn} ${ui[kind]}`;
 
   const searchField = searchOpen ? (
     <div className={s.searchField}>
@@ -676,9 +673,9 @@ export default function StaffPos({
           setSearchOpen(false);
         }}
         aria-label={t("pos.searchClose")}
-        className={`${btn("quiet")} ${s.icon}`}
+        className={`${btn("quiet")} ${ui.icon}`}
       >
-        <Icon name="x" size={posIcon(24)} />
+        <Icon name="x" size={24} />
       </button>
     </div>
   ) : null;
@@ -688,7 +685,7 @@ export default function StaffPos({
   /* ---- ticket header: the order type and who or which table, strongest on screen ---- */
   const placedStatus = placed && (
     <div role="status" className={s.status}>
-      <Icon name="check" size={posIcon(24)} />
+      <Icon name="check" size={24} />
       <span className={`${s.big} ${s.num}`}>{placed.orderNumber}</span>
       <span>{t("pos.sent")}</span>
     </div>
@@ -703,7 +700,7 @@ export default function StaffPos({
             {t("pos.justNow")} <span className={s.num}>{justNow.orderNumber}</span>
           </span>
           <button type="button" onClick={() => reprint(justNow)} className={btn("quiet")}>
-            <Icon name="printer" size={posIcon(22)} />
+            <Icon name="printer" size={22} />
             {t("pos.reprint")}
           </button>
         </div>
@@ -738,9 +735,9 @@ export default function StaffPos({
                 setClearArmed(true);
               }
             }}
-            className={clearArmed ? btn("quiet") : `${btn("quiet")} ${s.icon}`}
+            className={clearArmed ? btn("quiet") : `${btn("quiet")} ${ui.icon}`}
           >
-            {clearArmed ? t("pos.clearConfirm") : <Icon name="trash" size={posIcon(24)} />}
+            {clearArmed ? t("pos.clearConfirm") : <Icon name="trash" size={24} />}
           </button>
         )}
       </div>
@@ -826,11 +823,11 @@ export default function StaffPos({
               <div className={s.edit}>
                 <div className={s.stepper}>
                   <button type="button" aria-label={t("pos.decrease")} onClick={() => setQty(line.lineId, line.quantity - 1)} className={btn("quiet")}>
-                    <Icon name={line.quantity > 1 ? "minus" : "trash"} size={posIcon(24)} />
+                    <Icon name={line.quantity > 1 ? "minus" : "trash"} size={24} />
                   </button>
                   <span className={`${s.q} ${s.num}`}>{line.quantity}</span>
                   <button type="button" aria-label={t("pos.increase")} onClick={() => setQty(line.lineId, line.quantity + 1)} className={btn("quiet")}>
-                    <Icon name="plus" size={posIcon(24)} />
+                    <Icon name="plus" size={24} />
                   </button>
                 </div>
                 <button type="button" aria-pressed={noteOpen} onClick={() => setNoteOpen((o) => !o)} className={btn("secondary")}>
@@ -886,20 +883,58 @@ export default function StaffPos({
 
   return (
     <main className={`${s.root} ${showFloor ? s.floorMode : ""}`}>
-      <PosTopBar
-        mode={mode}
-        onMode={(m) => {
-          setMode(m);
-          setError(null);
-          setFloorOpen(false);
-        }}
-        searchField={searchField}
-        onSearch={() => {
-          if (showFloor) setMode("takeout");
-          setSearchOpen(true);
-        }}
-        lunch={lunchNow ? null : { on: lunchOverride, toggle: () => setLunchOverride((v) => !v) }}
-      />
+      {/* The POS's own controls, under the shared staff header: service mode
+          and search, plus lunch hours when the clock has not opened lunch. */}
+      <div className={s.top}>
+        {searchField ?? (
+          <Segmented
+            label={t("pos.mode")}
+            value={mode}
+            onChange={(m) => {
+              setMode(m);
+              setError(null);
+              setFloorOpen(false);
+            }}
+            options={(["takeout", "dine_in"] as const).map((m) => ({
+              value: m,
+              ariaLabel: t(m === "takeout" ? "pos.mode.takeout" : "pos.mode.dineIn"),
+              label: (
+                <>
+                  <span lang="zh-Hant" className={s.zh}>
+                    {t(m === "takeout" ? "pos.mode.takeoutZh" : "pos.mode.dineInZh")}
+                  </span>
+                  <span lang="en">{t(m === "takeout" ? "pos.mode.takeoutEn" : "pos.mode.dineInEn")}</span>
+                </>
+              ),
+            }))}
+          />
+        )}
+        <div className={s.topRight}>
+          {!lunchNow && (
+            <Button
+              variant={lunchOverride ? "primary" : "secondary"}
+              icon="clock"
+              aria-pressed={lunchOverride}
+              title={t("pos.lunchOverrideHint")}
+              onClick={() => setLunchOverride((v) => !v)}
+            >
+              {t("pos.lunchHours")}
+            </Button>
+          )}
+          {!searchField && (
+            <Button
+              variant="secondary"
+              iconOnly
+              icon="search"
+              aria-label={t("pos.search")}
+              onClick={() => {
+                if (showFloor) setMode("takeout");
+                setSearchOpen(true);
+              }}
+            />
+          )}
+        </div>
+      </div>
 
       {showFloor ? (
         <FloorPlan
@@ -961,7 +996,7 @@ export default function StaffPos({
           <section ref={dishPaneRef} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
             {lunchOverride && !lunchNow && (
               <p role="status" className={s.banner}>
-                <Icon name="alert" size={posIcon(22)} />
+                <Icon name="alert" size={22} />
                 {t("pos.lunchOverrideWarning", lunchLabel)}
               </p>
             )}
@@ -1052,7 +1087,7 @@ export default function StaffPos({
                 onClick={submit}
                 disabled={!canSubmit}
                 data-action="print"
-                className={`${s.btn} ${canSubmit ? s.primary : ""} ${s.print}`}
+                className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.print}`}
               >
                 {printLabel}
               </button>
@@ -1067,7 +1102,7 @@ export default function StaffPos({
           ref={detailsRef}
           aria-label={mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}
           onClose={() => setDetailsOpen(false)}
-          className="m-0 h-full max-h-none w-full max-w-none justify-end overflow-hidden bg-transparent p-0 text-pos-ink open:flex backdrop:bg-transparent"
+          className="m-0 h-full max-h-none w-full max-w-none justify-end overflow-hidden bg-transparent p-0 text-staff-ink open:flex backdrop:bg-transparent"
         >
           {/* The scrim is a button inside the dialog, so the dialog itself
               carries no click handler; Escape closes it natively. */}
@@ -1075,17 +1110,17 @@ export default function StaffPos({
             type="button"
             aria-hidden="true"
             tabIndex={-1}
-            className="absolute inset-0 bg-pos-scrim"
+            className="absolute inset-0 bg-staff-scrim"
             onClick={() => detailsRef.current?.close()}
           />
-          <div className="pos-sheet-in relative flex h-full w-full max-w-[26rem] flex-col bg-pos-bg shadow-pos-raised">
+          <div className="staff-sheet-in relative flex h-full w-full max-w-[26rem] flex-col bg-staff-bg shadow-staff-raised">
             <div className="flex h-[var(--z-top)] shrink-0 items-center justify-between gap-4 px-6">
               <h2 className="text-[1.273rem] font-bold">{mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}</h2>
               <button
                 type="button"
                 data-action="details-done"
                 onClick={() => detailsRef.current?.close()}
-                className="flex h-[2.545rem] items-center rounded-xl bg-pos-brand px-5 text-base font-bold text-white hover:bg-pos-brand-hover"
+                className="flex h-[2.545rem] items-center rounded-xl bg-staff-brand px-5 text-base font-bold text-staff-on-brand hover:bg-staff-brand-hover"
               >
                 {t("pos.details.done")}
               </button>
@@ -1094,7 +1129,7 @@ export default function StaffPos({
             <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-2 pb-8">
               {mode === "takeout" && (
                 <>
-                  <div role="group" aria-label={t("pos.takeoutKind")} className="grid grid-cols-2 gap-1 rounded-2xl bg-pos-sunken p-1">
+                  <div role="group" aria-label={t("pos.takeoutKind")} className="grid grid-cols-2 gap-1 rounded-2xl bg-staff-sunken p-1">
                     {(["phone", "walk_in"] as const).map((c) => (
                       <button
                         key={c}
@@ -1103,7 +1138,7 @@ export default function StaffPos({
                         aria-pressed={channel === c}
                         onClick={() => setChannel(c)}
                         className={`flex h-[2.545rem] items-center justify-center gap-2 rounded-xl text-base font-bold transition-colors ${
-                          channel === c ? "bg-pos-brand text-white shadow-pos-card" : "text-pos-ink hover:bg-pos-card/60"
+                          channel === c ? "bg-staff-brand text-staff-on-brand shadow-staff-card" : "text-staff-ink hover:bg-staff-panel/60"
                         }`}
                       >
                         <Icon name={c === "phone" ? "phone" : "store"} size={20} />
@@ -1126,18 +1161,18 @@ export default function StaffPos({
                       value={phone}
                       onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
                       aria-invalid={phoneBad}
-                      className={`${field} tabular-nums ${phoneBad ? "shadow-[inset_0_0_0_2px_var(--color-pos-brand)]" : ""}`}
+                      className={`${field} tabular-nums ${phoneBad ? "shadow-[inset_0_0_0_2px_var(--color-staff-brand)]" : ""}`}
                     />
-                    {phoneBad && <span className="mt-1 block text-base font-medium text-pos-brand">{t("pos.phoneInvalid")}</span>}
+                    {phoneBad && <span className="mt-1 block text-base font-medium text-staff-brand">{t("pos.phoneInvalid")}</span>}
                   </label>
 
                   {returningHere && (
-                    <div className="flex flex-col gap-3 rounded-pos bg-pos-card p-4 shadow-pos-card">
+                    <div className="flex flex-col gap-3 rounded-pos bg-staff-panel p-4 shadow-staff-card">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="flex items-center gap-2 text-base">
-                          <Icon name="user" size={18} className="text-pos-gold" />
+                          <Icon name="user" size={18} className="text-staff-ink" />
                           <span>
-                            <span className="text-pos-muted">{t("pos.returning")}</span>{" "}
+                            <span className="text-staff-soft">{t("pos.returning")}</span>{" "}
                             <span className="font-semibold">{returningHere.name}</span>
                           </span>
                         </span>
@@ -1145,18 +1180,18 @@ export default function StaffPos({
                           <button
                             type="button"
                             onClick={() => setName(returningHere.name ?? "")}
-                            className="min-h-[2.545rem] rounded-xl px-3 text-base font-semibold text-pos-brand hover:bg-pos-brand-tint"
+                            className="min-h-[2.545rem] rounded-xl px-3 text-base font-semibold text-staff-brand hover:bg-staff-brand-tint"
                           >
                             {t("pos.useName")}
                           </button>
                         )}
                       </div>
-                      <div className="text-base font-medium text-pos-muted">{t("pos.recentOrders")}</div>
+                      <div className="text-base font-medium text-staff-soft">{t("pos.recentOrders")}</div>
                       <ul className="flex flex-col gap-2">
                         {returningHere.orders.map((o) => (
-                          <li key={o.id} className="flex items-center justify-between gap-2 rounded-xl bg-pos-bg py-2 pr-2 pl-3">
+                          <li key={o.id} className="flex items-center justify-between gap-2 rounded-xl bg-staff-bg py-2 pr-2 pl-3">
                             <span className="min-w-0 text-base">
-                              <span className="block text-pos-muted tabular-nums">
+                              <span className="block text-staff-soft tabular-nums">
                                 {o.businessDate} · {o.orderNumber} · {formatCents(o.totalCents)}
                               </span>
                               <span lang="zh-Hant" className="block truncate font-medium">
@@ -1166,7 +1201,7 @@ export default function StaffPos({
                             <button
                               type="button"
                               onClick={() => reorder(o)}
-                              className="flex min-h-[2.545rem] shrink-0 items-center gap-1.5 rounded-xl bg-pos-brand-tint px-3 text-base font-semibold text-pos-brand hover:bg-pos-sunken"
+                              className="flex min-h-[2.545rem] shrink-0 items-center gap-1.5 rounded-xl bg-staff-brand-tint px-3 text-base font-semibold text-staff-brand hover:bg-staff-sunken"
                             >
                               <Icon name="repeat" size={16} />
                               {t("pos.reorder")}
@@ -1227,6 +1262,19 @@ export default function StaffPos({
           menuNumber={menuNumber(sheetItem.item.id)}
           onAdd={(draft) => addLine(draft, sheetItem.replace)}
           onClose={() => setSheetItem(null)}
+        />
+      )}
+      {reprinting && (
+        <ReprintDialog
+          order={reprinting}
+          onClose={() => setReprinting(null)}
+          onReprint={(station) => {
+            const order = reprinting;
+            setReprinting(null);
+            void act(order, "reprint", { station }).then((ok) => {
+              if (ok) setJustNow({ ...order, station });
+            });
+          }}
         />
       )}
     </main>

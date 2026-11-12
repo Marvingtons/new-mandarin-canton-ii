@@ -3,7 +3,7 @@
  * stroke, no fill), so they sit together; replaces the emoji the board used
  * to lean on, which render differently on every tablet. Decorative by
  * default: the control around an icon carries the accessible name.
- * `size` is the 16px-root design size; see the style below.
+ * `size` is in spec pixels, the staff app's one unit; see the style below.
  */
 
 const PATHS = {
@@ -60,10 +60,10 @@ export default function Icon({
   return (
     <svg
       aria-hidden="true"
-      // In rem, at the 16px design size: an icon drawn at 20 renders 1.25rem,
-      // so it grows with the staff type scale and with 大字 like the text
-      // beside it (globals.css, STAFF TYPE SCALE).
-      style={{ width: `${size / 16}rem`, height: `${size / 16}rem` }}
+      // In spec pixels, like every other staff size: 1rem is 22 of them on
+      // the staff surface, so size={20} is 20px, and grows with 大字 like the
+      // text beside it (globals.css, STAFF TYPE SCALE).
+      style={{ width: `${size / 22}rem`, height: `${size / 22}rem` }}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

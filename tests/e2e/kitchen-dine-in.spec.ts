@@ -34,7 +34,7 @@ test.beforeAll(async ({ browser }) => {
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");
-  await expect(page.locator('[data-mode="dine_in"]')).toBeVisible();
+  await expect(page.locator('[data-value="dine_in"]')).toBeVisible();
 });
 
 test.afterAll(async () => {
@@ -70,7 +70,7 @@ async function openFloor() {
 const table = (label: string) => page.locator(`[data-table="${label}"]`);
 
 test("takeout phone order", async () => {
-  await expect(page.locator('[data-mode="takeout"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-value="takeout"]')).toHaveAttribute("aria-pressed", "true");
   await addDish();
   // The customer fields live in the sheet behind the context chip.
   await page.locator('[data-context="takeout"]').click();
@@ -84,7 +84,7 @@ test("takeout phone order", async () => {
 });
 
 test("seat a table", async () => {
-  await page.locator('[data-mode="dine_in"]').click();
+  await page.locator('[data-value="dine_in"]').click();
   // Dine-in without a table is the floor plan.
   await expect(table("1")).toHaveAttribute("data-state", "free");
   await table("1").click();
@@ -136,10 +136,11 @@ test("add items to an occupied table", async () => {
 test("clear a table", async () => {
   await openFloor();
   await table("1").click();
-  await page.getByRole("button", { name: /清台/ }).click();
+  await page.getByRole("button", { name: /^清台/ }).click();
   // Confirm step first: nothing is cleared yet.
   await expect(table("1")).toHaveAttribute("data-state", "seated");
-  await page.getByRole("button", { name: /確定清台/ }).click();
+  // The shared confirm dialog, the same one the board's Clear table opens.
+  await page.getByRole("dialog").getByRole("button", { name: /確認清台/ }).click();
   await expect(page.getByRole("status").filter({ hasText: "已清台" })).toBeVisible();
   await expect(table("1")).toHaveAttribute("data-state", "free");
   await expect(table("4+5")).toHaveAttribute("data-state", "seated");

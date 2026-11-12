@@ -1,0 +1,373 @@
+/*
+ * THE STAFF APP'S SHARED CONTROLS: one button, one segmented control, one
+ * pill, one dialog, one toast, one skeleton, for the orders board, the POS
+ * and history alike. Tokens come from globals.css ("THE STAFF APP"); nothing
+ * here defines a colour of its own.
+ *
+ * Sizes sit on the shared 4px grid (var(--spacing)). Every interactive target
+ * is at least 44px (11 steps); the default control is 56px (14 steps), which
+ * is what a gloved or wet finger at the pass needs.
+ */
+
+/* ---- buttons ------------------------------------------------------------ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--spacing) * 2);
+  min-height: calc(var(--spacing) * 14);
+  padding: 0 calc(var(--spacing) * 4);
+  border-radius: var(--radius-staff-control);
+  font: inherit;
+  font-size: var(--text-staff-body);
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--staff-motion),
+    color var(--staff-motion),
+    box-shadow var(--staff-motion),
+    transform var(--staff-motion);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn svg {
+  flex: none;
+  width: calc(20 * var(--staff-u));
+  height: calc(20 * var(--staff-u));
+}
+/* Compact: toolbars and dense rows. Still the 44px touch floor. */
+.sm {
+  min-height: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 3);
+  font-size: var(--text-staff-caption);
+}
+.icon {
+  width: calc(var(--spacing) * 14);
+  padding: 0;
+}
+.sm.icon {
+  width: calc(var(--spacing) * 11);
+}
+.block {
+  width: 100%;
+}
+
+.primary {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
+}
+/* A filled sunken ground, no outline: hierarchy from ground, not lines. */
+.secondary {
+  background: var(--color-staff-sunken);
+  color: var(--color-staff-ink);
+}
+.quiet {
+  background: transparent;
+  color: var(--color-staff-ink);
+}
+/* Destructive: never filled until the confirm step, where it is. */
+.danger {
+  background: transparent;
+  color: var(--color-staff-brand);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.dangerSolid {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
+}
+
+@media (hover: hover) {
+  .primary:hover:not(:disabled),
+  .dangerSolid:hover:not(:disabled) {
+    background: var(--color-staff-brand-hover);
+  }
+  .secondary:hover:not(:disabled) {
+    background: var(--color-staff-line);
+  }
+  .quiet:hover:not(:disabled) {
+    background: var(--color-staff-sunken);
+  }
+  .danger:hover:not(:disabled) {
+    background: var(--color-staff-brand-tint);
+  }
+}
+.primary:active:not(:disabled),
+.dangerSolid:active:not(:disabled) {
+  background: var(--color-staff-brand-hover);
+}
+.secondary:active:not(:disabled) {
+  background: var(--color-staff-line);
+}
+.quiet:active:not(:disabled) {
+  background: var(--color-staff-sunken);
+}
+
+/* Disabled is an empty slot, not a dimmer button: it cannot pass for secondary. */
+.btn:disabled {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--color-staff-sunken);
+  color: var(--color-staff-soft);
+  cursor: default;
+}
+/* A request in flight: the label stays, the button says so. */
+.btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* The key that does the same thing, on a laptop. Hidden on touch-only screens. */
+.kbd {
+  display: none;
+  min-width: calc(22 * var(--staff-u));
+  height: calc(22 * var(--staff-u));
+  padding: 0 calc(var(--spacing) * 1);
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-staff-tag);
+  /* The staff type floor: nothing on screen is smaller than the caption step. */
+  font-size: var(--text-staff-caption);
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px currentColor;
+  opacity: 0.75;
+}
+@media (hover: hover) and (pointer: fine) {
+  .kbd {
+    display: inline-flex;
+  }
+}
+
+/* ---- segmented control (filters, modes) -------------------------------- */
+.seg {
+  display: inline-flex;
+  max-width: 100%;
+  padding: calc(var(--spacing) * 1);
+  gap: calc(var(--spacing) * 1);
+  border-radius: var(--radius-staff-control);
+  background: var(--color-staff-sunken);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.seg::-webkit-scrollbar {
+  display: none;
+}
+.seg > button,
+.seg > a {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  min-height: calc(var(--spacing) * 12);
+  padding: 0 calc(var(--spacing) * 4);
+  border-radius: calc(var(--radius-staff-control) - var(--spacing));
+  font-size: var(--text-staff-body);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-staff-ink);
+  transition: background var(--staff-motion), color var(--staff-motion);
+}
+@media (hover: hover) {
+  .seg > button:not([aria-pressed="true"]):not([aria-current="page"]):hover,
+  .seg > a:not([aria-current="page"]):hover {
+    background: color-mix(in srgb, var(--color-staff-panel) 55%, transparent);
+  }
+}
+/* The selected segment is unmistakable: filled lacquer, not a subtle lift. */
+.seg > [aria-pressed="true"],
+.seg > [aria-current="page"] {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
+}
+.count {
+  min-width: calc(26 * var(--staff-u));
+  padding: 0 calc(var(--spacing) * 1.5);
+  border-radius: var(--radius-staff-tag);
+  font-size: var(--text-staff-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* ---- pills and badges --------------------------------------------------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 1.5);
+  min-height: calc(30 * var(--staff-u));
+  padding: 0 calc(var(--spacing) * 2.5);
+  border-radius: var(--radius-staff-tag);
+  font-size: var(--text-staff-caption);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.pill svg {
+  width: calc(16 * var(--staff-u));
+  height: calc(16 * var(--staff-u));
+  flex: none;
+}
+
+/* ---- card --------------------------------------------------------------- */
+.card {
+  border-radius: var(--radius-staff-card);
+  background: var(--color-staff-panel);
+  box-shadow: var(--shadow-staff-card);
+}
+
+/* ---- skeleton: the shape of what is coming, never a lone spinner -------- */
+.skeleton {
+  border-radius: var(--radius-staff-tag);
+  background: linear-gradient(
+    90deg,
+    var(--color-staff-sunken) 0%,
+    color-mix(in srgb, var(--color-staff-sunken) 45%, var(--color-staff-panel)) 50%,
+    var(--color-staff-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* ---- dialog (native <dialog>, modal) ------------------------------------ */
+.dialog {
+  width: min(calc(520 * var(--staff-u)), calc(100vw - var(--spacing) * 8));
+  max-height: calc(100svh - var(--spacing) * 8);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-staff-card);
+  background: var(--color-staff-panel);
+  color: var(--color-staff-ink);
+  box-shadow: var(--shadow-staff-raised);
+  overflow: auto;
+}
+.dialog::backdrop {
+  background: var(--color-staff-scrim);
+}
+.dialog[open] {
+  animation: dialog-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes dialog-in {
+  from {
+    transform: translateY(calc(var(--spacing) * 3));
+    opacity: 0;
+  }
+}
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing) * 4);
+  padding: calc(var(--spacing) * 6);
+}
+.dialogTitle {
+  font-size: var(--text-staff-heading);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.dialogText {
+  font-size: var(--text-staff-body);
+  color: var(--color-staff-soft);
+}
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: calc(var(--spacing) * 2);
+}
+
+/* ---- toasts ------------------------------------------------------------- */
+.toasts {
+  position: fixed;
+  z-index: 60;
+  right: calc(var(--spacing) * 4);
+  bottom: calc(var(--spacing) * 4);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: calc(var(--spacing) * 2);
+  width: min(calc(440 * var(--staff-u)), calc(100vw - var(--spacing) * 8));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--spacing) * 3);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 2) calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+  border-radius: var(--radius-staff-card);
+  background: var(--color-staff-ink);
+  color: var(--color-staff-panel);
+  box-shadow: var(--shadow-staff-raised);
+  font-size: var(--text-staff-body);
+  pointer-events: auto;
+  animation: dialog-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+.toast[data-tone="error"] {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
+}
+.toast[data-tone="arrival"] {
+  background: var(--color-staff-gold-light);
+  color: var(--color-staff-ink);
+}
+.toast > svg {
+  flex: none;
+  margin-top: calc(2 * var(--staff-u));
+  width: calc(22 * var(--staff-u));
+  height: calc(22 * var(--staff-u));
+}
+.toastText {
+  flex: 1;
+  min-width: 0;
+  padding-top: calc(2 * var(--staff-u));
+}
+.toast .btn {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .dialog[open],
+  .toast {
+    animation: none;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ---- toggle chip: one of several that can be on at once (history filters) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 1.5);
+  min-height: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 4);
+  border-radius: 9999px;
+  font-size: var(--text-staff-body);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--color-staff-panel);
+  color: var(--color-staff-ink);
+  box-shadow: inset 0 0 0 1px var(--color-staff-line-strong);
+  transition: background var(--staff-motion), color var(--staff-motion);
+}
+@media (hover: hover) {
+  .chip:not([aria-pressed="true"]):hover {
+    background: var(--color-staff-sunken);
+  }
+}
+.chip[aria-pressed="true"] {
+  background: var(--color-staff-ink);
+  color: var(--color-staff-panel);
+  box-shadow: none;
+}
+.chip[aria-pressed="true"]::before {
+  content: "✓";
+}
