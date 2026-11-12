@@ -126,7 +126,8 @@ export default function OrdersBoard({
   // waiting, not lost. A station with no printer of its own ("not set up")
   // follows the printer covering it; it is never blocked itself.
   const waitingStations = useMemo(() => {
-    const blocked = new Set(printers.filter((p) => p.blocked).map((p) => p.station));
+    const blocked = new Set<Station>();
+    for (const p of printers) if (p.blocked) blocked.add(p.station);
     const out = new Set<Station>();
     for (const p of printers) if (blocked.has(p.printedBy)) out.add(p.station);
     return out;
