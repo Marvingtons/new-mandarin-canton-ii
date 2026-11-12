@@ -184,6 +184,7 @@ test("cancel asks first; going back changes nothing", async () => {
 });
 
 test("reprint lets staff pick the printer, current one preselected", async () => {
+  const { rows: before } = await db.query(`select status from orders where id = $1`, [web.id]);
   await card(web.number).getByRole("button", { name: /重印/ }).click();
   const dialog = page.getByRole("dialog");
   const picker = dialog.getByRole("group", { name: "送往哪部打印機？" });
@@ -192,8 +193,17 @@ test("reprint lets staff pick the printer, current one preselected", async () =>
   await shot("reprint-dialog");
   await dialog.getByRole("button", { name: /^重印/ }).click();
   await expect(page.getByRole("status").filter({ hasText: "已送往店內打印機" })).toBeVisible();
-  const { rows } = await db.query(`select print_station from orders where id = $1`, [web.id]);
-  expect(rows[0].print_station).toBe("store");
+  // A reprint asks for a copy on the printer picked; the order itself does
+  // not move: same station, same status, and one manual_reprint row naming
+  // the store printer.
+  const { rows } = await db.query(`select print_station, status from orders where id = $1`, [web.id]);
+  expect(rows[0]).toEqual({ print_station: "online", status: before[0].status });
+  const { rows: marks } = await db.query(
+    `select station from print_deliveries where order_id = $1 and reason = 'manual_reprint'`,
+    [web.id],
+  );
+  expect(marks.map((r) => r.station)).toEqual(["store"]);
+  await expect(card(web.number)).toBeVisible();
 });
 
 test("a new online order arrives on its own, with a cue", async () => {
@@ -207,6 +217,10 @@ test("a new online order arrives on its own, with a cue", async () => {
 test("keyboard: J selects an order, A accepts it", async () => {
   await page.mouse.click(5, 300);
   await page.keyboard.press("j");
+  // J moves on from whatever is selected (the reprint above left its card
+  // selected, and a reprint no longer moves that card), so walk back to the
+  // top: the first card is the walk-in that did not print.
+  for (let i = 0; i < 12; i++) await page.keyboard.press("k");
   const selected = page.locator("article.ring-3");
   await expect(selected).toHaveCount(1);
   const number = (await selected.locator("h3").textContent())!.trim();
