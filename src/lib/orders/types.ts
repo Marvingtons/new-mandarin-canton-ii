@@ -10,6 +10,8 @@
  * total all read these same numbers.
  */
 
+import type { Station } from "@/config/stations";
+
 /**
  * Order lifecycle.
  *
@@ -223,6 +225,12 @@ export interface Order {
   alertedAt: string | null;
   /** Where the order came from. 'web' for every row predating migration 009. */
   channel: OrderChannel;
+  /**
+   * The printer whose queue this ticket is in (migration 011). Set from the
+   * channel at creation (config/stations.ts) and changed only by a 重印 that
+   * picks the other station.
+   */
+  station: Station;
   /** POS payment note, e.g. "paid by phone, card ending 4417". Never a card number field. */
   paymentNote: string | null;
   /** Internal staff note. Never printed. */
@@ -345,4 +353,10 @@ export interface PrintDelivery {
   confirmCode: string | null;
   reason: PrintDeliveryReason;
   actor: string | null;
+  /**
+   * The printer this hand-over went to. For a manual_reprint marker, the
+   * station staff sent it to. Null on rows written before migration 011, when
+   * there was one printer.
+   */
+  station: Station | null;
 }

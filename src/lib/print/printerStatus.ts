@@ -38,6 +38,7 @@
  */
 
 import type { CloudPrntPoll } from "@/lib/print/cloudprnt";
+import type { Station } from "@/config/stations";
 
 export interface PrinterCondition {
   /** statusCode begins with "2": the printer says it is ready. */
@@ -155,4 +156,29 @@ export function derivePrinterHealth(input: {
   if (input.paperOut) return "paper-out";
   if (input.coverOpen) return "cover-open";
   return "ok";
+}
+
+/**
+ * One station's printer, as the staff header strip renders it. Built per poll
+ * by lib/print/boardPrinters.ts; client-safe (types only).
+ */
+export interface StationPrinterHealth {
+  station: Station;
+  /**
+   * The printer actually printing this station's tickets: itself, or the
+   * other station's while this one has no printer configured. Health below is
+   * that printer's.
+   */
+  printedBy: Station;
+  health: PrinterHealth;
+  /** Still printing, but the roll is near its end. */
+  paperLow: boolean;
+  /** Whole seconds since that printer last polled; null if it never has. */
+  secondsSinceSeen: number | null;
+  /** The printer's own words, for whoever wants the detail. */
+  statusCode: string | null;
+  /** Tickets are being withheld (paper-out, cover-open) or cannot be collected (offline). */
+  blocked: boolean;
+  /** Tickets for this station waiting on paper right now. */
+  queued: number;
 }

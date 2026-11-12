@@ -3,11 +3,13 @@ import "server-only";
 import { lockedRead, ordersPool } from "@/lib/db/postgres";
 import type { PrinterCondition } from "@/lib/print/printerStatus";
 import { printerBlockedReason } from "@/lib/print/printerStatus";
+import { STATIONS, isStation, type Station } from "@/config/stations";
 
 /**
- * The printer's state, across polls.
+ * Each printer's state, across polls.
  *
- * One row per tenant, rewritten every three seconds, and the only interesting
+ * One row per printer, keyed (tenant, station) since migration 011/012, and
+ * rewritten every three seconds by that printer's own poll. The only interesting
  * thing about it is when a value CHANGES. So `recordPoll` does the write and
  * reports the transition in the same round trip: the caller logs edges, not
  * polls, and the paper-restored requeue fires off the same answer rather than
@@ -15,6 +17,9 @@ import { printerBlockedReason } from "@/lib/print/printerStatus";
  */
 
 export interface PrinterStatusRow {
+  station: Station;
+  /** Normalized MAC of the unit that last polled as this station. */
+  printerMac: string | null;
   lastSeenAt: string;
   online: boolean;
   paperOut: boolean;
@@ -25,7 +30,19 @@ export interface PrinterStatusRow {
   blockedSince: string | null;
   offlineAlertedAt: string | null;
   paperAlertedAt: string | null;
+  /** When the current paper-low spell began; null while the roll is fine. */
+  paperLowSince: string | null;
+  paperLowAlertedAt: string | null;
 }
+
+/** Which alert-once stamp a claim is about. */
+export type PrinterAlertKind = "offline" | "paper" | "paper-low";
+
+const ALERT_COLUMN: Record<PrinterAlertKind, string> = {
+  offline: "offline_alerted_at",
+  paper: "paper_alerted_at",
+  "paper-low": "paper_low_alerted_at",
+};
 
 /** What changed between the previous poll and this one. */
 export interface PollTransition {
@@ -49,6 +66,8 @@ export interface PollTransition {
 }
 
 interface RawRow {
+  station: string;
+  printer_mac: string | null;
   last_seen_at: Date;
   online: boolean;
   paper_out: boolean;
@@ -59,10 +78,16 @@ interface RawRow {
   blocked_since: Date | null;
   offline_alerted_at: Date | null;
   paper_alerted_at: Date | null;
+  paper_low_since: Date | null;
+  paper_low_alerted_at: Date | null;
 }
+
+const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
 function mapRow(row: RawRow): PrinterStatusRow {
   return {
+    station: isStation(row.station) ? row.station : "online",
+    printerMac: row.printer_mac,
     lastSeenAt: row.last_seen_at.toISOString(),
     online: row.online,
     paperOut: row.paper_out,
@@ -75,6 +100,8 @@ function mapRow(row: RawRow): PrinterStatusRow {
       row.offline_alerted_at === null ? null : row.offline_alerted_at.toISOString(),
     paperAlertedAt:
       row.paper_alerted_at === null ? null : row.paper_alerted_at.toISOString(),
+    paperLowSince: iso(row.paper_low_since),
+    paperLowAlertedAt: iso(row.paper_low_alerted_at),
   };
 }
 
@@ -98,6 +125,8 @@ export async function recordPoll(
   tenantId: string,
   condition: PrinterCondition,
   printerMac: string | null,
+  /** The polling printer's station (lib/print/printerIdentity). Its row, nobody else's. */
+  station: Station = "online",
 ): Promise<PollTransition> {
   const blockedNow = printerBlockedReason(condition) !== null;
 
@@ -105,19 +134,21 @@ export async function recordPoll(
     `with prev as (
        select last_seen_at, paper_out, cover_open, blocked_since
          from printer_status
-        where tenant_id = $1
+        where tenant_id = $1 and station = $10
      ),
      upserted as (
        insert into printer_status (
-         tenant_id, last_seen_at, online, paper_out, cover_open, paper_low,
+         tenant_id, station, last_seen_at, online, paper_out, cover_open, paper_low,
          status_code, status_raw, printer_mac,
-         blocked_since, updated_at
+         blocked_since, paper_low_since, updated_at
        )
        values (
-         $1, now(), $2, $3, $4, $5, $6, $7, $8,
-         case when $9 then now() else null end, now()
+         $1, $10, now(), $2, $3, $4, $5, $6, $7, $8,
+         case when $9 then now() else null end,
+         case when $5 then now() else null end,
+         now()
        )
-       on conflict (tenant_id) do update set
+       on conflict (tenant_id, station) do update set
          last_seen_at = now(),
          online       = excluded.online,
          paper_out    = excluded.paper_out,
@@ -142,6 +173,17 @@ export async function recordPoll(
          paper_alerted_at = case
            when $3 or $4 then printer_status.paper_alerted_at else null
          end,
+         -- Paper-low has its own spell and its own once-per-roll stamp: a
+         -- printer can run low for an hour before it runs out, and the owner
+         -- should hear "low" once, then "out" once, not either every minute.
+         paper_low_since = case
+           when not $5 then null
+           when printer_status.paper_low_since is null then now()
+           else printer_status.paper_low_since
+         end,
+         paper_low_alerted_at = case
+           when $5 then printer_status.paper_low_alerted_at else null
+         end,
          updated_at = now()
        returning *
      )
@@ -161,6 +203,7 @@ export async function recordPoll(
       condition.statusRaw,
       printerMac,
       blockedNow,
+      station,
     ],
   );
 
@@ -202,21 +245,45 @@ export async function recordPoll(
   };
 }
 
-/** The stored row, for the kitchen screen and the alert sweep. Null if never polled. */
+const STATUS_COLUMNS = `station, printer_mac, last_seen_at, online, paper_out,
+  cover_open, paper_low, status_code, status_raw, blocked_since,
+  offline_alerted_at, paper_alerted_at, paper_low_since, paper_low_alerted_at`;
+
+/** One printer's stored row. Null if that station's printer has never polled. */
 export async function readPrinterStatus(
   tenantId: string,
+  station: Station = "online",
 ): Promise<PrinterStatusRow | null> {
   // Locking read: the board and the offline/paper alerts act on this row, and
   // a plain read of it was served from Hyperdrive's cache for 60s at a time.
   const { rows } = await lockedRead(
-    `select last_seen_at, online, paper_out, cover_open, paper_low,
-            status_code, status_raw, blocked_since,
-            offline_alerted_at, paper_alerted_at
-       from printer_status where tenant_id = $1
+    `select ${STATUS_COLUMNS}
+       from printer_status where tenant_id = $1 and station = $2
        for share`,
-    [tenantId],
+    [tenantId, station],
   );
   return rows.length > 0 ? mapRow(rows[0] as RawRow) : null;
+}
+
+/**
+ * Every printer's row, for the board strip and the alert sweep: one locking
+ * read, keyed by station. A station whose printer has never polled is absent.
+ */
+export async function readAllPrinterStatus(
+  tenantId: string,
+): Promise<Partial<Record<Station, PrinterStatusRow>>> {
+  const { rows } = await lockedRead(
+    `select ${STATUS_COLUMNS}
+       from printer_status where tenant_id = $1 and station = any($2::text[])
+       for share`,
+    [tenantId, [...STATIONS]],
+  );
+  const out: Partial<Record<Station, PrinterStatusRow>> = {};
+  for (const raw of rows as RawRow[]) {
+    const row = mapRow(raw);
+    out[row.station] = row;
+  }
+  return out;
 }
 
 /**
@@ -229,13 +296,14 @@ export async function readPrinterStatus(
  */
 export async function claimPrinterAlert(
   tenantId: string,
-  kind: "offline" | "paper",
+  station: Station,
+  kind: PrinterAlertKind,
 ): Promise<boolean> {
-  const column = kind === "offline" ? "offline_alerted_at" : "paper_alerted_at";
+  const column = ALERT_COLUMN[kind];
   const { rowCount } = await ordersPool().query(
     `update printer_status set ${column} = now(), updated_at = now()
-      where tenant_id = $1 and ${column} is null`,
-    [tenantId],
+      where tenant_id = $1 and station = $2 and ${column} is null`,
+    [tenantId, station],
   );
   return (rowCount ?? 0) > 0;
 }
@@ -243,12 +311,13 @@ export async function claimPrinterAlert(
 /** Give the claim back when the text could not be sent. */
 export async function releasePrinterAlert(
   tenantId: string,
-  kind: "offline" | "paper",
+  station: Station,
+  kind: PrinterAlertKind,
 ): Promise<void> {
-  const column = kind === "offline" ? "offline_alerted_at" : "paper_alerted_at";
+  const column = ALERT_COLUMN[kind];
   await ordersPool().query(
     `update printer_status set ${column} = null, updated_at = now()
-      where tenant_id = $1`,
-    [tenantId],
+      where tenant_id = $1 and station = $2`,
+    [tenantId, station],
   );
 }

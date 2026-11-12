@@ -21,67 +21,8 @@ import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
 import { tablesForLabel } from "@/lib/kitchen/floor-plan";
 import { TableConflictError } from "@/lib/orders/types";
-import { readPrinterStatus } from "@/lib/print/healthStore";
-import { derivePrinterHealth, type PrinterHealth } from "@/lib/print/printerStatus";
+import { stationPrinterHealth } from "@/lib/print/boardPrinters";
 import { cloudPrntConfigured } from "@/lib/print/status";
-
-/** Printer health as the board renders it. Recomputed on every poll. */
-export interface PrinterHealthPayload {
-  health: PrinterHealth;
-  /** Whole seconds since the last poll, or null if it has never polled. */
-  secondsSinceSeen: number | null;
-  /** The printer's own words, for the operator who wants the detail. */
-  statusCode: string | null;
-  /** True while jobs are being withheld — the board says "waiting", not "stuck". */
-  blocked: boolean;
-  /** False when no printer is configured at all; the strip then stays quiet. */
-  configured: boolean;
-}
-
-/**
- * Health, derived fresh on every board poll.
- *
- * Derived rather than stored, because "offline" is not something a printer
- * ever tells us — it is the absence of it telling us anything, and that can
- * only be computed against the clock at read time. A stored `online` column
- * would be permanently one poll behind and would read "OK" forever after a
- * power cut.
- */
-async function printerHealth(tenantId: string): Promise<PrinterHealthPayload> {
-  const configured = cloudPrntConfigured();
-  const row = await readPrinterStatus(tenantId);
-  if (!row) {
-    return {
-      health: "unknown",
-      secondsSinceSeen: null,
-      statusCode: null,
-      blocked: false,
-      configured,
-    };
-  }
-
-  const secondsSinceSeen = Math.max(
-    0,
-    Math.round((Date.now() - Date.parse(row.lastSeenAt)) / 1000),
-  );
-  const health = derivePrinterHealth({
-    secondsSinceSeen,
-    paperOut: row.paperOut,
-    coverOpen: row.coverOpen,
-  });
-
-  return {
-    health,
-    secondsSinceSeen,
-    statusCode: row.statusCode,
-    // Exactly the states in which the poll route is withholding work. Offline
-    // is included even though nothing is being withheld deliberately — from a
-    // queued order's point of view the outcome is identical, and the board's
-    // job is to say why nothing is printing.
-    blocked: health === "paper-out" || health === "cover-open" || health === "offline",
-    configured,
-  };
-}
 
 /**
  * GET /api/kitchen/orders — the board's polling endpoint.
@@ -119,12 +60,21 @@ export async function GET(request: Request): Promise<Response> {
     // Both in one round trip — the board asks the same question ten seconds
     // later, and a health strip that lagged the queue by a poll would tell the
     // kitchen the printer was fine while the orders under it said otherwise.
-    const [orders, printer] = await Promise.all([
+    const [orders, printers] = await Promise.all([
       listActiveOrders(tenant.tenantId, businessDate, { includeCompleted }),
-      printerHealth(tenant.tenantId),
+      stationPrinterHealth(tenant.tenantId),
     ]);
+    // printersConfigured false = no CloudPRNT at all; the strip then says
+    // "no printer" rather than "offline", because nothing is broken.
     return Response.json(
-      { ok: true, orders, businessDate, printer },
+      {
+        ok: true,
+        orders,
+        businessDate,
+        printers,
+        printersConfigured: cloudPrntConfigured(),
+        serverTime: new Date().toISOString(),
+      },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (err) {

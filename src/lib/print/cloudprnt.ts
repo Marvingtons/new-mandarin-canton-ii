@@ -3,7 +3,6 @@ import "server-only";
 import { timingSafeEqual } from "node:crypto";
 import {
   cloudPrntBuzzerMode,
-  cloudPrntPrinterMac,
   requireCloudPrntSecret,
 } from "@/config/tenant.server";
 
@@ -289,23 +288,10 @@ export function printerReportsHealthy(poll: CloudPrntPoll): boolean {
   return value.trimStart().startsWith("2");
 }
 
-/**
- * Is this the printer we expect?
- *
- * When CLOUDPRNT_PRINTER_MAC is unset we accept any caller that knows the
- * secret — the realistic setup before the hardware is in hand. Once the MAC is
- * pinned, a leaked URL alone is no longer enough to drain the job queue.
- *
- * Compared case- and separator-insensitively: MACs are reported variously as
- * `00:11:62:AA:BB:CC`, `00-11-62-aa-bb-cc`, or bare hex.
+/*
+ * Which printer is calling, and whether it is ours at all, is decided in
+ * lib/print/printerIdentity.ts: there are two printers now, told apart by MAC.
  */
-export function printerMacAllowed(mac: string | null | undefined): boolean {
-  const expected = cloudPrntPrinterMac();
-  if (!expected) return true;
-  if (!mac) return false;
-  const normalize = (value: string) => value.replace(/[^0-9a-f]/gi, "").toLowerCase();
-  return normalize(mac) === normalize(expected);
-}
 
 /**
  * Parse a poll body defensively.

@@ -9,6 +9,7 @@ import {
 } from "@/lib/orders/repository";
 import { notifyOrderReady } from "@/lib/notify/orderReady";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
+import { STATIONS } from "@/config/stations";
 
 /**
  * POST /api/kitchen/orders/[id] — the board's actions: 接單 / 完成 / 重印.
@@ -26,6 +27,11 @@ const BodySchema = z
     action: z.enum(["accept", "complete", "cancel", "reprint", "notify"]),
     /** Why, for a cancel. Stored on staff_note; never printed. */
     note: z.string().max(500).optional(),
+    /**
+     * For a reprint: which printer. Omitted = the station it is already on,
+     * which is what the picker preselects.
+     */
+    station: z.enum(STATIONS).optional(),
   })
   .strict();
 
@@ -69,7 +75,12 @@ export async function POST(
   // distinguishable from a duplicate bug. The actor is "kitchen": the board is
   // a single shared session with no per-person identity (see kitchenSession.ts).
   if (body.action === "reprint") {
-    const requeued = await requeueForPrint(tenant.tenantId, orderId, "kitchen");
+    const requeued = await requeueForPrint(
+      tenant.tenantId,
+      orderId,
+      "kitchen",
+      body.station,
+    );
     // requeueForPrint refuses a CANCELLED order (never offered again) and an
     // order the printer is printing right now (one live delivery at a time).
     if (!requeued) {
@@ -92,7 +103,7 @@ export async function POST(
     return Response.json({
       ok: true,
       order: requeued,
-      notice: "Re-queued — the printer will pick it up on its next poll.",
+      notice: "Sent to the printer. It prints within a few seconds.",
     });
   }
 

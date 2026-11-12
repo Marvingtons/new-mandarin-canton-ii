@@ -14,6 +14,7 @@ import {
   decideOffer,
 } from "@/lib/print/entitlement";
 import { readPrinterCondition } from "@/lib/print/printerStatus";
+import { printerIdentity } from "@/lib/print/printerIdentity";
 import { recordPoll } from "@/lib/print/healthStore";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
@@ -24,7 +25,6 @@ import {
   matchOfferedMediaType,
   payloadHash,
   peripheralHeaders,
-  printerMacAllowed,
   logPollBody,
   logPrinterLimits,
   readConfirmation,
@@ -82,6 +82,12 @@ import { isOrdersDbConfigured } from "@/lib/db/postgres";
  * IDENTITY: the printer never sends a job id. GET and DELETE say only which
  * PRINTER is calling, so the server owns "which job is in flight" — hence
  * `currentPrintJob` rather than any token lookup.
+ *
+ * TWO PRINTERS. Both poll this same URL. The MAC on each request says which
+ * one it is (lib/print/printerIdentity.ts): its station keys its health row,
+ * and it only ever claims, holds or re-offers tickets for the stations it
+ * serves. Each printer therefore has its own job in flight, and the two print
+ * in parallel without either seeing the other's queue.
  *
  * Node runtime: satori and resvg both need it.
  */
@@ -145,10 +151,14 @@ export async function POST(
   // this firmware volunteers it anyway.
   logPollBody(poll);
 
-  if (!printerMacAllowed(poll.printerMAC)) {
+  const printer = printerIdentity(poll.printerMAC);
+  if (!printer) {
     console.warn("[cloudprnt] poll from an unexpected printer MAC — ignoring");
     return Response.json(NO_JOB);
   }
+  // Every log line below names the printer, so a tail of two interleaved
+  // printers still reads as two stories.
+  const tag = `[printer:${printer.station}]`;
 
   // No database means no jobs, and nowhere to record health either. Answer
   // honestly and quietly; the printer keeps polling, and the operator sees the
@@ -169,7 +179,8 @@ export async function POST(
     const transition = await recordPoll(
       tenant.tenantId,
       condition,
-      poll.printerMAC ?? null,
+      printer.mac,
+      printer.station,
     );
 
     // EDGES ONLY. A line every three seconds for the life of the deployment
@@ -177,17 +188,17 @@ export async function POST(
     // one somebody needs.
     if (transition.firstEver) {
       console.info(
-        `[printer] first poll from this printer — status ${JSON.stringify(condition.statusCode)}`,
+        `${tag} first poll from this printer — status ${JSON.stringify(condition.statusCode)}`,
       );
     } else if (transition.returnedFromSilence) {
       console.warn(
-        `[printer] BACK after ${Math.round(transition.secondsSincePreviousPoll ?? 0)}s of silence ` +
+        `${tag} BACK after ${Math.round(transition.secondsSincePreviousPoll ?? 0)}s of silence ` +
           `— status ${JSON.stringify(condition.statusCode)}`,
       );
     }
     if (transition.blocked) {
       console.warn(
-        `[printer] ${transition.blockedReason?.toUpperCase()} — status ` +
+        `${tag} ${transition.blockedReason?.toUpperCase()} — status ` +
           `${JSON.stringify(condition.statusCode)} raw=${JSON.stringify(condition.statusRaw)}. ` +
           "Withholding jobs until it clears; no retry budget will be spent.",
       );
@@ -196,7 +207,7 @@ export async function POST(
     /* ---------------- paper is back ---------------- */
     if (transition.unblocked) {
       console.warn(
-        `[printer] RECOVERED from ${transition.previousBlockedReason} — status ` +
+        `${tag} RECOVERED from ${transition.previousBlockedReason} — status ` +
           `${JSON.stringify(condition.statusCode)}`,
       );
       // The edge is reported by a single atomic statement, so this runs once
@@ -209,17 +220,18 @@ export async function POST(
           tenant.tenantId,
           since,
           PAPER_RESTORE_LEAD_SECONDS,
+          printer.serves,
         );
         if (restored.length > 0) {
           console.warn(
-            `[printer] PAPER-RESTORED REQUEUE: ${restored.length} order(s) put back in ` +
+            `${tag} PAPER-RESTORED REQUEUE: ${restored.length} order(s) put back in ` +
               `the queue — ${restored.join(", ")}. They were condemned during the outage ` +
               `that began ${since.toISOString()}; their print budgets are reset and the ` +
               "confirmation window governs them from here like any other job.",
           );
         } else {
           console.info(
-            "[printer] PAPER-RESTORED REQUEUE: nothing to put back — no order was " +
+            `${tag} PAPER-RESTORED REQUEUE: nothing to put back — no order was ` +
               "condemned during the outage.",
           );
         }
@@ -227,7 +239,7 @@ export async function POST(
         // A failed requeue must not also cost the poll its job. The kitchen
         // board still shows every one of these orders.
         console.error(
-          "[printer] paper-restored requeue failed:",
+          `${tag} paper-restored requeue failed:`,
           err instanceof Error ? err.message : "unknown error",
         );
       }
@@ -265,7 +277,7 @@ export async function POST(
     // A job already handed over and not yet confirmed wins: re-offering the
     // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
     // while the first is unaccounted for would double-print.
-    let job = await currentPrintJob(tenant.tenantId);
+    let job = await currentPrintJob(tenant.tenantId, printer.serves);
 
     // ENTITLEMENT — the thing that stops one order printing its copy-set over
     // and over. The rule and its reasoning live in lib/print/entitlement.ts;
@@ -309,7 +321,7 @@ export async function POST(
           ok: false,
           error: `no print confirmation after ${job.printAttempts} hand-overs`,
         });
-        job = await claimNextPrintJob(tenant.tenantId, freshWindow);
+        job = await claimNextPrintJob(tenant.tenantId, freshWindow, printer);
       } else {
         // retry (an expired delivery, or the next piece of a split). A NEW
         // delivery with its own id and expiry — never a re-stamp of the old
@@ -328,6 +340,7 @@ export async function POST(
           decision.windowSeconds,
           "retry",
           superseded,
+          printer.station,
         );
         if (!reoffered) {
           console.warn(
@@ -340,7 +353,7 @@ export async function POST(
         job = reoffered;
       }
     } else {
-      job = await claimNextPrintJob(tenant.tenantId, freshWindow);
+      job = await claimNextPrintJob(tenant.tenantId, freshWindow, printer);
     }
 
     if (!job) return Response.json(NO_JOB);
@@ -405,15 +418,19 @@ export async function POST(
       jobGetUrl: advertisedGetUrl,
     };
     console.info(
-      `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} handed over ` +
-        `at ${advertisedGetUrl}`,
+      `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} handed to ` +
+        `${printer.station} printer at ${advertisedGetUrl}`,
     );
     return Response.json(body);
   } catch (err) {
-    console.error(
-      "[cloudprnt] poll failed:",
-      err instanceof Error ? err.message : "unknown error",
-    );
+    const message = err instanceof Error ? err.message : "unknown error";
+    // The one expected failure in the deploy sequence: the code is out but
+    // migration 012 is not, so printer_status still allows one row per
+    // tenant and the second printer's health row is refused.
+    const hint = message.includes("printer_status_pkey")
+      ? " (apply migration 012_printer_status_per_station.sql: this printer has no health row yet)"
+      : "";
+    console.error(`${tag} poll failed: ${message}${hint}`);
     // Never hand the printer something it might interpret as a job.
     return Response.json(NO_JOB);
   }
@@ -579,11 +596,11 @@ export async function GET(
     job = order;
     deliveryId = token;
   } else {
-    // Bare Star GET (firmware that ignores jobGetUrl): mac-gated, current job.
-    if (!printerMacAllowed(url.searchParams.get("mac"))) {
-      return notFound();
-    }
-    job = await currentPrintJob(tenant.tenantId);
+    // Bare Star GET (firmware that ignores jobGetUrl): mac-gated, and the
+    // current job of THAT printer, never the other one's.
+    const printer = printerIdentity(url.searchParams.get("mac"));
+    if (!printer) return notFound();
+    job = await currentPrintJob(tenant.tenantId, printer.serves);
     // Nothing in flight. 404 is the honest answer; the printer re-polls.
     if (!job) return new Response("", { status: 404 });
     deliveryId = job.printDeliveryId;
@@ -788,7 +805,7 @@ async function confirmPrinted(url: URL): Promise<Response> {
     return acknowledged();
   }
 
-  if (!printerMacAllowed(url.searchParams.get("mac"))) {
+  if (!printerIdentity(url.searchParams.get("mac"))) {
     console.warn(`[cloudprnt] DELETE ${described} — unexpected printer MAC, ignoring`);
     return acknowledged();
   }

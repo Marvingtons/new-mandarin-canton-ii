@@ -447,9 +447,10 @@ async function boardSeesTheTruth(
     );
     const body = (await res.json()) as {
       ok?: boolean;
-      printer?: { health: string; blocked: boolean; secondsSinceSeen: number | null };
+      printers?: { station: string; health: string; blocked: boolean; secondsSinceSeen: number | null }[];
     };
-    return { status: res.status, printer: body.printer };
+    // One pinned MAC: it is the online printer (and covers the store).
+    return { status: res.status, printer: body.printers?.find((p) => p.station === "online") };
   };
 
   const unauthorised = await h.GET(

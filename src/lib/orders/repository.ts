@@ -28,6 +28,25 @@ import {
   type HistoryQuery,
   type HistorySummary,
 } from "@/lib/orders/history";
+import {
+  STATIONS,
+  isStation,
+  stationForChannel,
+  type Station,
+} from "@/config/stations";
+
+/**
+ * Which printer is asking, and whose tickets it prints. From
+ * lib/print/printerIdentity.ts on the live path. The default is the
+ * single-printer world every verifier was written against: one printer that
+ * is "online" and prints for every station.
+ */
+export interface PrinterScope {
+  station: Station;
+  serves: readonly Station[];
+}
+
+const SINGLE_PRINTER: PrinterScope = { station: "online", serves: STATIONS };
 
 /**
  * Fallback confirmation window, in seconds, for a hand-over whose caller did
@@ -50,7 +69,8 @@ const DELIVERY_COLUMNS = `
   confirmed_at,
   confirm_code,
   reason,
-  actor
+  actor,
+  station
 `;
 
 function mapDelivery(row: QueryResultRow): PrintDelivery {
@@ -66,6 +86,7 @@ function mapDelivery(row: QueryResultRow): PrintDelivery {
     confirmCode: row.confirm_code === null ? null : String(row.confirm_code),
     reason: String(row.reason) as PrintDeliveryReason,
     actor: row.actor === null ? null : String(row.actor),
+    station: isStation(row.station) ? row.station : null,
   };
 }
 
@@ -111,6 +132,7 @@ const ORDER_COLUMNS = `
   last_print_error,
   alerted_at,
   channel,
+  print_station,
   payment_note,
   staff_note,
   table_label,
@@ -164,6 +186,9 @@ function mapOrder(row: QueryResultRow): Order {
       typeof row.channel === "string" && isOrderChannel(row.channel)
         ? row.channel
         : "web",
+    // Unknown means a hand-written row: the online printer, which has always
+    // been the one printer that exists.
+    station: isStation(row.print_station) ? row.print_station : "online",
     paymentNote: row.payment_note == null ? null : String(row.payment_note),
     staffNote: row.staff_note == null ? null : String(row.staff_note),
     tableLabel: row.table_label == null ? null : String(row.table_label),
@@ -265,9 +290,9 @@ export async function createOrder(
              tenant_id, order_number, business_date, status, idempotency_key,
              items, totals, customer, phone_verified_at, pickup_at,
              ready_from, ready_to, channel, payment_note, staff_note,
-             table_label, guest_count, is_addon
+             table_label, guest_count, is_addon, print_station
            ) values ($1, $2, $3::date, 'QUEUED', $4, $5, $6, $7, $8, $9, $10, $11,
-                     $12, $13, $14, $15, $16, $17)
+                     $12, $13, $14, $15, $16, $17, $18)
            on conflict (tenant_id, idempotency_key) do nothing
            returning ${ORDER_COLUMNS}`,
           [
@@ -290,6 +315,9 @@ export async function createOrder(
             input.dineIn?.tableLabel ?? null,
             guestCount,
             input.dineIn?.isAddon ?? false,
+            // The printer is decided here, once, from the channel. Nothing
+            // downstream re-derives it: reprint can move it, nothing else does.
+            stationForChannel(input.channel ?? "web"),
           ],
         );
 
@@ -484,12 +512,14 @@ async function insertDelivery(
     windowSeconds: number;
     reason: PrintDeliveryReason;
     actor: string;
+    /** The printer being handed this body. */
+    station: Station;
   },
 ): Promise<void> {
   await client.query(
     `insert into print_deliveries
-       (id, order_id, tenant_id, offered_at, expires_at, reason, actor)
-     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6)`,
+       (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station)
+     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6, $7)`,
     [
       params.id,
       params.orderId,
@@ -497,6 +527,7 @@ async function insertDelivery(
       params.windowSeconds,
       params.reason,
       params.actor,
+      params.station,
     ],
   );
 }
@@ -504,6 +535,12 @@ async function insertDelivery(
 export async function claimNextPrintJob(
   tenantId: string,
   windowSeconds: number = DEFAULT_CONFIRM_WINDOW_SECONDS,
+  /**
+   * The polling printer. It only ever claims its own stations' tickets, so the
+   * two printers each have their own head of line and print side by side; a
+   * web order cannot come out of the counter printer, or the reverse.
+   */
+  scope: PrinterScope = SINGLE_PRINTER,
 ): Promise<Order | null> {
   return withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -519,16 +556,20 @@ export async function claimNextPrintJob(
            where tenant_id = $1
              and status = any($2::text[])
              and print_attempts = 0
+             and print_station = any($5::text[])
            order by created_at asc
            for update skip locked
            limit 1
         )
           -- Re-checked here, under this statement's own row lock: this is what
-          -- makes two simultaneous claims impossible, not the subselect.
+          -- makes two simultaneous claims impossible, not the subselect. The
+          -- station too: a 重印 to the other printer between the subselect and
+          -- this write must not let this printer take it.
           and status = any($2::text[])
           and print_attempts = 0
+          and print_station = any($5::text[])
         returning ${ORDER_COLUMNS}`,
-      [tenantId, PRINTABLE_STATUSES, deliveryId, windowSeconds],
+      [tenantId, PRINTABLE_STATUSES, deliveryId, windowSeconds, [...scope.serves]],
     );
     if (rows.length === 0) return null;
     const order = mapOrder(rows[0]);
@@ -539,6 +580,7 @@ export async function claimNextPrintJob(
       windowSeconds,
       reason: "first-offer",
       actor: "printer",
+      station: scope.station,
     });
     return order;
   });
@@ -549,7 +591,11 @@ export async function claimNextPrintJob(
  * not yet confirmed by a DELETE. Returned so a repeated poll or GET before the
  * confirmation gets the SAME ticket rather than a second one.
  */
-export async function currentPrintJob(tenantId: string): Promise<Order | null> {
+export async function currentPrintJob(
+  tenantId: string,
+  /** Only this printer's stations: the other printer's job in flight is not ours to re-offer. */
+  serves: readonly Station[] = STATIONS,
+): Promise<Order | null> {
   // FOR UPDATE: the poll's offer/hold/cap decision is made from this row. A
   // cached copy of it (Hyperdrive served this query from a 60s cache) showed
   // an already-replaced, expired delivery, and every poll re-offered the
@@ -560,10 +606,11 @@ export async function currentPrintJob(tenantId: string): Promise<Order | null> {
       where tenant_id = $1
         and status = any($2::text[])
         and print_attempts > 0
+        and print_station = any($3::text[])
       order by created_at asc
       limit 1
       for update`,
-    [tenantId, PRINTABLE_STATUSES],
+    [tenantId, PRINTABLE_STATUSES, [...serves]],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
 }
@@ -594,6 +641,8 @@ export async function reofferPrintDelivery(
    * harmless: if anything re-offered or confirmed since, nothing is written.
    */
   supersedes: string | null,
+  /** The printer being handed the new body. */
+  station: Station = "online",
 ): Promise<Order | null> {
   return withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -646,6 +695,7 @@ export async function reofferPrintDelivery(
       windowSeconds,
       reason,
       actor: "printer",
+      station,
     });
     return order;
   });
@@ -980,6 +1030,11 @@ export async function requeueAfterPrinterRestored(
   tenantId: string,
   since: Date,
   graceSeconds: number,
+  /**
+   * Only the recovered printer's stations. Paper back in the store printer says
+   * nothing about an online ticket that died of something else.
+   */
+  serves: readonly Station[] = STATIONS,
 ): Promise<string[]> {
   const { rows } = await ordersPool().query(
     `update orders
@@ -998,19 +1053,27 @@ export async function requeueAfterPrinterRestored(
       where tenant_id = $1
         and status = 'PRINT_FAILED'
         and updated_at >= $2::timestamptz - make_interval(secs => $3)
+        and print_station = any($4::text[])
       returning order_number`,
-    [tenantId, since.toISOString(), graceSeconds],
+    [tenantId, since.toISOString(), graceSeconds, [...serves]],
   );
   return rows.map((r) => String(r.order_number));
 }
 
 /** How many orders are waiting for the printer right now. */
-export async function countQueuedOrders(tenantId: string): Promise<number> {
+export async function countQueuedOrders(
+  tenantId: string,
+  /** Waiting on THIS printer: the stations it prints for. */
+  stations: readonly Station[] = STATIONS,
+): Promise<number> {
   const { rows } = await lockedRead(
     `select count(*)::int as n from (
-       select 1 from orders where tenant_id = $1 and status = 'QUEUED' for share
+       select 1 from orders
+        where tenant_id = $1 and status = 'QUEUED'
+          and print_station = any($2::text[])
+        for share
      ) queued`,
-    [tenantId],
+    [tenantId, [...stations]],
   );
   return rows.length > 0 ? Number(rows[0].n) : 0;
 }
@@ -1067,6 +1130,12 @@ export async function requeueForPrint(
   tenantId: string,
   orderId: number,
   actor = "kitchen",
+  /**
+   * Which printer to send it to. Omitted = where it printed before. Picking
+   * the other station moves the order into that printer's queue for good, so
+   * the board badge and any later 重印 follow it there.
+   */
+  station?: Station,
 ): Promise<Order | null> {
   // Returns null when refused: the order is CANCELLED, or a delivery is in
   // flight and still inside its window (see the WHERE below). The caller can
@@ -1093,6 +1162,7 @@ export async function requeueForPrint(
               print_offered_at = null,
               print_delivery_id = null,
               print_delivery_expires_at = null,
+              print_station = coalesce($3::text, print_station),
               updated_at = now()
         where tenant_id = $1 and id = $2
           -- A cancelled order is never offered to the printer again, and a
@@ -1109,7 +1179,7 @@ export async function requeueForPrint(
             and print_delivery_expires_at > now()
           )
         returning ${ORDER_COLUMNS}`,
-      [tenantId, orderId],
+      [tenantId, orderId, station ?? null],
     );
     if (rows.length === 0) return null;
     const order = mapOrder(rows[0]);
@@ -1118,9 +1188,9 @@ export async function requeueForPrint(
     // ticket the next poll is about to produce.
     await client.query(
       `insert into print_deliveries
-         (id, order_id, tenant_id, offered_at, expires_at, reason, actor)
-       values ($1, $2, $3, now(), now(), 'manual_reprint', $4)`,
-      [randomUUID(), orderId, tenantId, actor],
+         (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station)
+       values ($1, $2, $3, now(), now(), 'manual_reprint', $4, $5)`,
+      [randomUUID(), orderId, tenantId, actor, order.station],
     );
     return order;
   });

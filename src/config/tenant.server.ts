@@ -3,6 +3,7 @@ import "server-only";
 import { restaurant } from "@/data/restaurant";
 import { defaultCopyRoles, parseCopyRoles } from "@/lib/ticket/copies";
 import type { TicketCopyRole } from "@/lib/ticket/copies";
+import type { Station } from "@/config/stations";
 import type {
   DayKey,
   OrderingWindow,
@@ -324,9 +325,24 @@ export function requireCloudPrntSecret(): string {
   );
 }
 
-/** Expected printer MAC/serial, when pinned. Null = accept any printer. */
-export function cloudPrntPrinterMac(): string | null {
-  return env("CLOUDPRNT_PRINTER_MAC");
+/**
+ * Which printer MAC is which station. See lib/print/printerIdentity.ts for how
+ * a poll is matched against these, and config/stations.ts for what a station
+ * prints.
+ *
+ * CLOUDPRNT_PRINTER_MAC is the pre-station name for the one printer this
+ * restaurant had, and it is read as the ONLINE printer so that deploying the
+ * two-printer code changes nothing until the store printer's MAC is set.
+ * Neither set = no pinning at all: any printer is accepted and prints
+ * everything, exactly as an unpinned single printer always has.
+ */
+export function cloudPrntPrinterMacs(): Partial<Record<Station, string>> {
+  const online = env("CLOUDPRNT_PRINTER_MAC_ONLINE") ?? env("CLOUDPRNT_PRINTER_MAC");
+  const store = env("CLOUDPRNT_PRINTER_MAC_STORE");
+  return {
+    ...(online ? { online } : {}),
+    ...(store ? { store } : {}),
+  };
 }
 
 /**

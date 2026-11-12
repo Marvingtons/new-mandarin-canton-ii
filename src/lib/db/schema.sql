@@ -123,10 +123,17 @@ create table if not exists orders (
   -- When staff cleared the table. A dine_in row with this NULL is an open
   -- table; occupancy is derived from exactly that.
   table_cleared_at  timestamptz,
+  -- Which printer's queue the ticket is in (migration 011): 'online' (web) or
+  -- 'store' (phone, walk_in, dine_in). The mapping lives in
+  -- src/config/stations.ts and is applied at insert; only a 重印 to the other
+  -- station changes it.
+  print_station     text        not null default 'online',
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
   constraint orders_channel_check check (channel in ('web', 'phone', 'walk_in', 'dine_in')),
+
+  constraint orders_print_station_check check (print_station in ('online', 'store')),
 
   constraint orders_guest_count_check check (guest_count is null or guest_count >= 1),
 
@@ -153,6 +160,11 @@ create unique index if not exists orders_idempotency_uniq
 -- Two customers can never hold the same number on the same day.
 create unique index if not exists orders_number_uniq
   on orders (tenant_id, business_date, order_number);
+
+-- Each printer's head of line: its own stations' live queue, oldest first.
+create index if not exists orders_print_station_queue_idx
+  on orders (tenant_id, print_station, created_at)
+  where status = 'QUEUED';
 
 -- Drives the /kitchen board query.
 create index if not exists orders_kitchen_idx
@@ -238,10 +250,15 @@ create table if not exists print_deliveries (
   -- identity (see src/lib/auth/kitchenSession.ts), so 'kitchen' is as
   -- fine-grained as this gets until real accounts exist.
   actor        text,
+  -- The printer this hand-over went to (migration 011); for a manual_reprint
+  -- marker, the station staff picked. NULL on rows from the one-printer days.
+  station      text,
   created_at   timestamptz not null default now(),
 
   constraint print_deliveries_reason_check
-    check (reason in ('first-offer', 'retry', 'manual_reprint'))
+    check (reason in ('first-offer', 'retry', 'manual_reprint')),
+  constraint print_deliveries_station_check
+    check (station is null or station in ('online', 'store'))
 );
 
 comment on table print_deliveries is
@@ -258,12 +275,16 @@ create index if not exists print_deliveries_order_idx
 -- read one bit of it. So a printer out of paper looked exactly like a healthy
 -- one: it kept being handed jobs it could not print, each hand-over spent part
 -- of a retry budget, and paper came back to a queue whose orders had already
--- been condemned. One row per tenant — one printer per restaurant, rewritten
--- every three seconds. Mutable state, not a log; the transitions go to the
--- Workers Logs.
+-- been condemned. One row per PRINTER, keyed (tenant, station) since
+-- migrations 011/012 — the online printer and the store printer — each
+-- rewritten every three seconds by its own poll. Mutable state, not a log; the
+-- transitions go to the Workers Logs.
 -- ---------------------------------------------------------------------------
 create table if not exists printer_status (
-  tenant_id          text        primary key,
+  tenant_id          text        not null,
+  -- Which printer: 'online' or 'store' (src/config/stations.ts). Identified on
+  -- each poll by its MAC (src/lib/print/printerIdentity.ts).
+  station            text        not null default 'online',
   -- The poll clock. "Offline" is not a flag the printer sets; it is this
   -- column going stale.
   last_seen_at       timestamptz not null default now(),
@@ -284,7 +305,14 @@ create table if not exists printer_status (
   -- cannot silence each other. Cleared when the condition clears.
   offline_alerted_at timestamptz,
   paper_alerted_at   timestamptz,
-  updated_at         timestamptz not null default now()
+  -- The near-end spell, and its once-per-roll owner text. Paper-low never
+  -- withholds jobs; it is a heads-up.
+  paper_low_since      timestamptz,
+  paper_low_alerted_at timestamptz,
+  updated_at         timestamptz not null default now(),
+
+  constraint printer_status_pkey primary key (tenant_id, station),
+  constraint printer_status_station_check check (station in ('online', 'store'))
 );
 
 -- ---------------------------------------------------------------------------

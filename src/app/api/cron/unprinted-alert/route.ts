@@ -16,9 +16,18 @@ import {
 } from "@/lib/orders/repository";
 import {
   claimPrinterAlert,
-  readPrinterStatus,
+  readAllPrinterStatus,
   releasePrinterAlert,
+  type PrinterAlertKind,
+  type PrinterStatusRow,
 } from "@/lib/print/healthStore";
+import { stationCoverage } from "@/lib/print/printerIdentity";
+import {
+  STATIONS,
+  STATION_LABEL,
+  STATION_PRINTER_NAME,
+  type Station,
+} from "@/config/stations";
 import { cloudPrntConfigured } from "@/lib/print/status";
 import { sendSms } from "@/lib/otp/twilio";
 
@@ -57,6 +66,14 @@ const THRESHOLD_SECONDS = 120;
  * to be down there is nothing to wait for.
  */
 const PRINTER_ALERT_SECONDS = 300;
+
+/**
+ * How long a roll must report near-end before the owner hears. Long enough
+ * that a sensor flickering at the edge of the threshold texts nobody; the
+ * text itself goes once per roll, whether or not anything is queued, because
+ * "change it before the rush" is useful any time.
+ */
+const PAPER_LOW_ALERT_SECONDS = 120;
 
 /**
  * Alert sends attempted per order before the claim is left in place for good.
@@ -110,89 +127,124 @@ function authorized(request: Request): boolean {
   return token.length > 0 && secretMatches(token, expected);
 }
 
+/** What one printer's alert says, for the sweep's JSON. */
+interface PrinterAlertOutcome {
+  station: Station;
+  condition: string;
+  queued: number;
+  sent: boolean;
+}
+
 /**
- * THE PRINTER ITSELF, checked once per sweep.
- *
- * The per-order alert above catches an order that did not print. This catches
- * the cause a few minutes earlier — and, more usefully, catches it ONCE for
- * the whole outage instead of once per order. Ten orders behind a dead printer
- * should be one text saying the printer is dead, not ten saying ten tickets
- * are missing.
- *
- * Alert-once has its own stamp per condition (offline_alerted_at,
- * paper_alerted_at), claimed by the same conditional UPDATE the order sweep
- * uses. The stamps are cleared by the poll route the moment the condition
- * clears, so this is once per OUTAGE and not once ever.
- *
- * Returns a description for the sweep's JSON, or null when there is nothing to
- * say. No-ops entirely when there is no printer configured, no status row yet,
- * or nothing queued.
+ * Which alert, if any, this printer's row calls for right now. Offline wins
+ * over everything (a silent printer's last paper reading is stale), then a
+ * blocked printer, then a low roll.
  */
-async function alertOnPrinter(
+function printerAlertFor(
+  row: PrinterStatusRow,
+): { kind: PrinterAlertKind; condition: string } | null {
+  const now = Date.now();
+  const silentFor = (now - Date.parse(row.lastSeenAt)) / 1000;
+  if (silentFor > PRINTER_ALERT_SECONDS) {
+    return { kind: "offline", condition: `offline for ${Math.round(silentFor / 60)} min` };
+  }
+  const blockedFor = row.blockedSince === null ? 0 : (now - Date.parse(row.blockedSince)) / 1000;
+  if ((row.paperOut || row.coverOpen) && blockedFor > PRINTER_ALERT_SECONDS) {
+    const what = row.paperOut ? "out of paper" : "open (cover)";
+    return { kind: "paper", condition: `${what} for ${Math.round(blockedFor / 60)} min` };
+  }
+  const lowFor = row.paperLowSince === null ? 0 : (now - Date.parse(row.paperLowSince)) / 1000;
+  if (row.paperLow && lowFor > PAPER_LOW_ALERT_SECONDS) {
+    return { kind: "paper-low", condition: "low on paper" };
+  }
+  return null;
+}
+
+/**
+ * EACH PRINTER, checked once per sweep.
+ *
+ * The per-order alert below catches an order that did not print. This catches
+ * the cause a few minutes earlier, and catches it ONCE per outage per printer
+ * instead of once per order: ten orders behind a dead printer should be one
+ * text naming that printer, not ten saying ten tickets are missing.
+ *
+ * Offline and paper-out / cover-open text only with something waiting on that
+ * printer, so a printer switched off at closing time texts nobody. Paper-low
+ * texts once per roll regardless. Every text names the station and what it
+ * prints, so the owner knows which of the two to walk to.
+ *
+ * Alert-once is a stamp per printer per condition, claimed by conditional
+ * UPDATE and cleared by that printer's own poll when the condition clears.
+ */
+async function alertOnPrinters(
   tenantId: string,
   owner: string | null,
   smsReady: boolean,
-): Promise<{ condition: string; queued: number; sent: boolean } | null> {
-  if (!cloudPrntConfigured()) return null;
+): Promise<PrinterAlertOutcome[]> {
+  if (!cloudPrntConfigured()) return [];
 
-  const row = await readPrinterStatus(tenantId);
-  if (!row) return null;
+  const rows = await readAllPrinterStatus(tenantId);
+  const coverage = stationCoverage();
+  const outcomes: PrinterAlertOutcome[] = [];
 
-  const silentFor = (Date.now() - Date.parse(row.lastSeenAt)) / 1000;
-  const blockedFor =
-    row.blockedSince === null
-      ? 0
-      : (Date.now() - Date.parse(row.blockedSince)) / 1000;
+  for (const station of STATIONS) {
+    const row = rows[station];
+    if (!row) continue;
+    const alert = printerAlertFor(row);
+    if (!alert) continue;
 
-  // Offline wins when both are true: a printer that is not answering cannot be
-  // fixed by putting paper in it, and the owner should be told the bigger fact.
-  const kind: "offline" | "paper" | null =
-    silentFor > PRINTER_ALERT_SECONDS
-      ? "offline"
-      : (row.paperOut || row.coverOpen) && blockedFor > PRINTER_ALERT_SECONDS
-        ? "paper"
-        : null;
-  if (kind === null) return null;
+    // Everything this printer is printing for: its own station, plus one it is
+    // covering while that station has no printer of its own.
+    const serves = STATIONS.filter((s) => coverage[s] === station);
+    const queued = await countQueuedOrders(tenantId, serves);
+    if (alert.kind !== "paper-low" && queued === 0) continue;
 
-  // The condition that makes it an incident rather than a closed restaurant.
-  const queued = await countQueuedOrders(tenantId);
-  if (queued === 0) return null;
+    const outcome: PrinterAlertOutcome = { station, condition: alert.condition, queued, sent: false };
+    outcomes.push(outcome);
+    console.warn(
+      `[alert] ${station} printer ${alert.condition} with ${queued} order(s) queued behind it.`,
+    );
 
-  const condition =
-    kind === "offline"
-      ? `offline for ${Math.round(silentFor / 60)} min`
-      : `${row.paperOut ? "out of paper" : "cover open"} for ${Math.round(blockedFor / 60)} min`;
+    if (!owner || !smsReady) continue;
+    if (!(await claimPrinterAlert(tenantId, station, alert.kind))) continue;
 
-  // Loud in the log whether or not a text can go out — the same rule the order
-  // sweep follows, for the same reason.
-  console.warn(
-    `[alert] printer ${condition} with ${queued} order(s) queued behind it.`,
-  );
-
-  if (!owner || !smsReady) return { condition, queued, sent: false };
-
-  // Claim before sending. A concurrent sweep that loses the claim stays quiet.
-  if (!(await claimPrinterAlert(tenantId, kind))) {
-    return { condition, queued, sent: false };
+    const result = await sendSms(owner, printerAlertText(station, serves, alert, queued));
+    if (result.sent) {
+      outcome.sent = true;
+      continue;
+    }
+    await releasePrinterAlert(tenantId, station, alert.kind);
+    console.error(
+      `[alert] could not text the owner about the ${station} printer (${alert.condition}): ${result.error}`,
+    );
   }
+  return outcomes;
+}
 
-  const body =
-    `${restaurant.name}: the printer is ${condition} and ${queued} order` +
-    `${queued === 1 ? " is" : "s are"} waiting. Check paper, power and network, ` +
-    "then open the kitchen screen.";
-
-  const result = await sendSms(owner, body);
-  if (result.sent) return { condition, queued, sent: true };
-
-  // Nobody was told, so the claim is a lie. Give it back for the next sweep —
-  // uncapped on purpose, unlike the per-order retry: the condition is ongoing
-  // and self-clearing, so a failed send retries only while the printer is
-  // still down rather than forever.
-  await releasePrinterAlert(tenantId, kind);
-  console.error(
-    `[alert] could not text the owner about the printer (${condition}): ${result.error}`,
+/** "the STORE printer (phone, walk-in and dine-in orders) is out of paper..." */
+function printerAlertText(
+  station: Station,
+  serves: Station[],
+  alert: { kind: PrinterAlertKind; condition: string },
+  queued: number,
+): string {
+  const prints = serves.map((s) => STATION_LABEL[s].en.toLowerCase()).join(" and ");
+  const name = `${STATION_PRINTER_NAME[station]} (${prints} orders)`;
+  if (alert.kind === "paper-low") {
+    return (
+      `${restaurant.name}: the ${name} is running low on paper. ` +
+      "Change the roll before it runs out."
+    );
+  }
+  const waiting = `${queued} order${queued === 1 ? " is" : "s are"} waiting`;
+  const check =
+    alert.kind === "offline"
+      ? "Check its power and network"
+      : "Check its paper and cover";
+  return (
+    `${restaurant.name}: the ${name} is ${alert.condition} and ${waiting}. ` +
+    `${check}, then open the kitchen screen.`
   );
-  return { condition, queued, sent: false };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -210,9 +262,9 @@ export async function GET(request: Request): Promise<Response> {
   // The printer check runs FIRST and independently of the per-order scan: an
   // outage is worth reporting before any single order has aged past two
   // minutes, and a failure in either half must not silence the other.
-  let printerAlert = null;
+  let printerAlert: PrinterAlertOutcome[] = [];
   try {
-    printerAlert = await alertOnPrinter(tenant.tenantId, owner, isSmsConfigured());
+    printerAlert = await alertOnPrinters(tenant.tenantId, owner, isSmsConfigured());
   } catch (err) {
     console.error(
       "[alert] printer health check failed:",
@@ -272,7 +324,8 @@ export async function GET(request: Request): Promise<Response> {
     const body =
       `${restaurant.name}: order ${order.orderNumber} (${itemCount} item` +
       `${itemCount === 1 ? "" : "s"}) has NOT printed. ` +
-      `Check the printer and open the kitchen screen.`;
+      `Check the ${STATION_PRINTER_NAME[stationCoverage()[order.station]]} ` +
+      "and open the kitchen screen.";
 
     const result = await sendSms(owner, body);
     if (result.sent) {
