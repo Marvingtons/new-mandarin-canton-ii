@@ -54,11 +54,6 @@ function context(): AudioContext | null {
   return ctx;
 }
 
-/** True when this browser can make sound at all. */
-export function audioSupported(): boolean {
-  return ctor() !== null;
-}
-
 /**
  * Unlock audio. MUST be called synchronously from a user gesture handler:
  * the context is created and resumed, and the silent sample started, before
