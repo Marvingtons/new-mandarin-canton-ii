@@ -5,7 +5,7 @@ import {
 } from "@/lib/auth/kitchenSession";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
-import { createOrder, listActiveOrders } from "@/lib/orders/repository";
+import { createOrder } from "@/lib/orders/repository";
 import { getMenu } from "@/lib/menu/source";
 import { composeOrder, staffLunchAllowed } from "@/lib/orders/compose";
 import {
@@ -21,15 +21,25 @@ import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
 import { tablesForLabel } from "@/lib/kitchen/floorPlan";
 import { TableConflictError } from "@/lib/orders/types";
-import { stationPrinterHealth } from "@/lib/print/boardPrinters";
-import { cloudPrntConfigured } from "@/lib/print/status";
+import { boardHeaders, boardVersion, etagMatches, readBoardData } from "@/lib/kitchen/boardFeed";
 
 /**
- * GET /api/kitchen/orders — the board's polling endpoint.
+ * GET /api/kitchen/orders — the board's full list: today's OPEN orders (not
+ * COMPLETED or CANCELLED; those are history, GET /api/kitchen/history) and
+ * both printers.
  *
- * Deliberately NOT rate limited: the board polls every 10s by design, and
- * throttling it would blind the kitchen exactly when the restaurant is busy
- * enough to have several tablets open.
+ * Fetched only when GET /api/kitchen/orders/version has moved, and with
+ * If-None-Match: an unchanged list is a 304 with no body, decided by the one
+ * statement of boardVersion() before anything else is read. The version is
+ * read FIRST, so the list sent with an ETag is never older than it.
+ *
+ * Read-only: no lock, no transaction (lib/kitchen/boardFeed).
+ *
+ * X-Server-Time carries the database clock, which the board's "did not
+ * print" flag is measured against.
+ *
+ * Deliberately NOT rate limited: several tablets poll by design, and
+ * throttling them would blind the kitchen exactly when it is busiest.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,39 +54,23 @@ export async function GET(request: Request): Promise<Response> {
   if (!isOrdersDbConfigured()) {
     // A missing DATABASE_URL is an operator problem. Say so plainly on the
     // board rather than rendering an empty queue, which reads as "no orders".
-    return Response.json({
-      ok: false,
-      error: "The order database is not configured (DATABASE_URL).",
-      orders: [],
-    });
-  }
-
-  const url = new URL(request.url);
-  const includeCompleted = url.searchParams.get("completed") === "1";
-  const businessDate =
-    url.searchParams.get("date") ?? businessDateFor(tenant.timezone);
-
-  try {
-    // Both in one round trip — the board asks the same question ten seconds
-    // later, and a health strip that lagged the queue by a poll would tell the
-    // kitchen the printer was fine while the orders under it said otherwise.
-    const [orders, printers] = await Promise.all([
-      listActiveOrders(tenant.tenantId, businessDate, { includeCompleted }),
-      stationPrinterHealth(tenant.tenantId),
-    ]);
-    // printersConfigured false = no CloudPRNT at all; the strip then says
-    // "no printer" rather than "offline", because nothing is broken.
     return Response.json(
-      {
-        ok: true,
-        orders,
-        businessDate,
-        printers,
-        printersConfigured: cloudPrntConfigured(),
-        serverTime: new Date().toISOString(),
-      },
+      { ok: false, error: "The order database is not configured (DATABASE_URL).", orders: [] },
       { headers: { "cache-control": "no-store" } },
     );
+  }
+
+  const businessDate =
+    new URL(request.url).searchParams.get("date") ?? businessDateFor(tenant.timezone);
+
+  try {
+    const version = await boardVersion(tenant.tenantId, businessDate);
+    const headers = boardHeaders(version);
+    if (etagMatches(request.headers.get("if-none-match"), version.etag)) {
+      return new Response(null, { status: 304, headers });
+    }
+    const board = await readBoardData(tenant.tenantId, businessDate);
+    return Response.json({ ok: true, businessDate, ...board }, { headers });
   } catch (err) {
     console.error(
       "[kitchen] order list failed:",
@@ -84,7 +78,7 @@ export async function GET(request: Request): Promise<Response> {
     );
     return Response.json(
       { ok: false, error: "Could not load orders.", orders: [] },
-      { status: 503 },
+      { status: 503, headers: { "cache-control": "no-store" } },
     );
   }
 }

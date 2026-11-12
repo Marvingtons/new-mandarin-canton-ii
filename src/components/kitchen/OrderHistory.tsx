@@ -49,11 +49,20 @@ function toggle<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
 
-export default function OrderHistory({ timezone, today }: { timezone: string; today: string }) {
+export default function OrderHistory({
+  timezone,
+  today,
+  initialStatuses = [],
+}: {
+  timezone: string;
+  today: string;
+  /** From ?status=: the board's Done and Cancelled links open it filtered. */
+  initialStatuses?: OrderStatus[];
+}) {
   const t = useKT();
   const [preset, setPreset] = useState<RangePreset>("today");
   const [range, setRange] = useState(() => presetRange("today", today));
-  const [statuses, setStatuses] = useState<OrderStatus[]>([]);
+  const [statuses, setStatuses] = useState<OrderStatus[]>(initialStatuses);
   const [channels, setChannels] = useState<OrderChannel[]>([]);
   const [station, setStation] = useState<"all" | Station>("all");
   const [search, setSearch] = useState("");

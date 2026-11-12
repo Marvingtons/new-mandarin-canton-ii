@@ -151,11 +151,15 @@ test("one board, both stations, with an obvious station filter", async () => {
   await page.keyboard.press("1");
   await expect(page).not.toHaveURL(/station=/);
 
-  // Status filter: Done shows the completed order, which Active hides.
+  // Finished orders are not in the board's feed: Done opens History, filtered
+  // to today's completed orders, which pages through them on its own.
   await expect(page.locator("article").filter({ hasText: "Online Done" })).toHaveCount(0);
-  await page.getByRole("group", { name: "狀態" }).getByRole("button", { name: /已完成/ }).click();
-  await expect(page.locator("article").filter({ hasText: "Online Done" })).toBeVisible();
-  await page.getByRole("button", { name: "清除篩選" }).first().click();
+  await page.getByRole("navigation", { name: "已完成及已取消的訂單" }).getByRole("link", { name: /已完成/ }).click();
+  await expect(page).toHaveURL(/\/kitchen\/history\?status=COMPLETED$/);
+  await expect(page.getByText("Online Done").first()).toBeVisible();
+  await expect(page.getByText("Online Queued")).toHaveCount(0);
+  await page.goto("/kitchen");
+  await expect(card(web.number)).toBeVisible();
 });
 
 test("accept is optimistic; a refused action rolls back with a toast", async () => {

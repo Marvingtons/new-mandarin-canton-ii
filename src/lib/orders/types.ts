@@ -90,6 +90,14 @@ export const ACTIVE_STATUSES: OrderStatus[] = [
  */
 export const PRINTABLE_STATUSES: OrderStatus[] = ["QUEUED"];
 
+/**
+ * How long a ticket may go unconfirmed before the board says it did not print.
+ * A healthy print confirms in about 30 seconds (3 copies), so 2 minutes is
+ * well past normal and well before anyone at the pass would notice. Here, not
+ * in the repository, because the board applies it too (KitchenLive).
+ */
+export const PRINT_STUCK_SECONDS = 120;
+
 /** A modifier as it appears on the ticket — bilingual where we have it. */
 export interface OrderLineModifier {
   id: string;
@@ -216,7 +224,11 @@ export interface Order {
    * print" banner when this is more than 2 minutes old.
    */
   printPendingSince?: string | null;
-  /** Board only. True when printPendingSince is over 2 minutes old (server clock). */
+  /**
+   * Board only. True when printPendingSince is over PRINT_STUCK_SECONDS old.
+   * Computed by the server at read time and again by the board against the
+   * server's clock (X-Server-Time), because it turns on by time alone.
+   */
   printStuck?: boolean;
   /** Set only by a CloudPRNT DELETE — the printer's own confirmation. */
   printedAt: string | null;

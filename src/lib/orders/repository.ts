@@ -6,6 +6,7 @@ import { lockedRead, ordersPool, withTransaction } from "@/lib/db/postgres";
 import {
   formatOrderNumber,
   isOrderStatus,
+  PRINT_STUCK_SECONDS,
   ACTIVE_STATUSES,
   PRINTABLE_STATUSES,
   isOrderChannel,
@@ -1554,29 +1555,35 @@ export async function getOrderById(
 }
 
 /**
- * How long a ticket may go unconfirmed before the board says it did not print.
- * A healthy print confirms in about 30 seconds (3 copies), so 2 minutes is
- * well past normal and well before anyone at the pass would notice.
- */
-export const PRINT_STUCK_SECONDS = 120;
-
-/**
  * The kitchen board query.
  *
  * PRINT_FAILED first, then QUEUED — between them those are every order nobody
  * has a paper copy of, so they must be impossible to miss. Then oldest-first,
  * because a queue is a queue.
+ *
+ * NOT A LOCKING READ, and it does not need to be. lockedRead exists for reads
+ * that decide a write or a printer answer; this one only paints a screen, and
+ * its FOR SHARE was costing the print path: it row-locked every order on the
+ * board on every tablet's poll, which made the printer's FOR UPDATE SKIP
+ * LOCKED claim skip a QUEUED ticket for that instant, and wrote a lock into
+ * each row (WAL) for a read. It is still fresh behind Hyperdrive: the text
+ * names now(), and Hyperdrive never caches a query that names a volatile
+ * function (scripts/lib/hyperdrive-cache-emulator.ts models exactly that, and
+ * verify:print-stale-reads runs this query through it).
+ *
+ * The board fetches this only when readBoardVersion says something changed.
  */
 export async function listActiveOrders(
   tenantId: string,
   businessDate: string,
+  /** Scripts only. The board never asks: finished orders live in history. */
   options: { includeCompleted?: boolean } = {},
 ): Promise<Order[]> {
   const statuses = options.includeCompleted
     ? [...ACTIVE_STATUSES, "COMPLETED", "CANCELLED"]
     : ACTIVE_STATUSES;
 
-  const { rows } = await lockedRead(
+  const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS},
             coalesce(d.delivery_count, 0) as delivery_count,
             coalesce(d.fetch_total, 0)    as fetch_total,
@@ -1616,13 +1623,172 @@ export async function listActiveOrders(
         and status = any($3::text[])
       order by (status = 'PRINT_FAILED') desc,
                (status = 'QUEUED') desc,
-               created_at asc
-      -- Fresh, never cached: staff reprint and accept from this screen, and
-      -- the "did not print" banner is computed from it.
-      for share of orders`,
+               created_at asc`,
     [tenantId, businessDate, statuses, PRINT_STUCK_SECONDS],
   );
   return rows.map(mapActiveOrder);
+}
+
+/** What the board's version is computed from. See readBoardVersion. */
+export interface BoardVersionInputs {
+  /** Open orders today: everything but COMPLETED and CANCELLED. */
+  openCount: number;
+  /** The newest updated_at among them, ISO, or null when there are none. */
+  maxUpdatedAt: string | null;
+  /**
+   * The sum of their updated_at, in microseconds. Catches a change that max
+   * and count miss: a transaction's now() is its START time, so a write that
+   * began before another and committed after it lands with an updated_at
+   * older than the max already seen, and the count does not move. Any write
+   * to any open row moves this sum.
+   */
+  updatedSum: string;
+  /** Both printers' board-visible state, or null with no printer rows. */
+  printers: string | null;
+  /** The database clock when it was read. */
+  dbNow: string;
+}
+
+/**
+ * Printer state as the version sees it: everything the header strip shows,
+ * and the two clock thresholds it changes at, read on the database clock.
+ * MARGIN seconds past each threshold, so the board's refetch lands after the
+ * strip's own (Worker-clock, rounded) derivation has already flipped.
+ */
+const VERSION_THRESHOLD_MARGIN_SECONDS = 2;
+
+function printerFingerprintSql(table: "current" | "legacy"): string {
+  const station = table === "current" ? "p.station" : "'online'";
+  const from = table === "current" ? "printer_station_status" : "printer_status";
+  return `(select string_agg(concat_ws(':', ${station}, p.paper_out, p.cover_open, p.paper_low,
+                                     coalesce(p.status_code, ''),
+                                     p.last_seen_at < now() - make_interval(secs => $3),
+                                     $4::int is not null
+                                       and p.last_seen_at < now() - make_interval(secs => $4)),
+                           ',' order by ${station})
+             from ${from} p where p.tenant_id = $1)`;
+}
+
+/**
+ * THE BOARD'S CHANGE CHECK. One statement, no lock, no transaction: what a
+ * tablet's 4-second poll costs when nothing has happened.
+ *
+ * Index-only on orders_board_version_idx (migration 013), a partial index of
+ * exactly the rows this counts, so its cost is today's open orders, however
+ * long the day's history grows. The printer half reads printer_station_status
+ * by its primary key (two rows).
+ *
+ * Fresh behind Hyperdrive for the same reason as listActiveOrders: it names
+ * now(), which Hyperdrive never caches.
+ *
+ * Covers every input of the board response except two, both deliberate:
+ *   - the "did not print" flag, which turns on by the clock alone. The board
+ *     computes it itself from printPendingSince and the server's clock
+ *     (X-Server-Time), so it needs no poll at all;
+ *   - print_deliveries.fetch_count, which the printer bumps without touching
+ *     the order. It shows on the card's "N sent / M fetched" note, and is
+ *     picked up with the order's next change (its confirmation, normally a
+ *     few seconds later).
+ */
+export async function readBoardVersion(
+  tenantId: string,
+  businessDate: string,
+  thresholds: { offlineAfterSeconds: number; failoverAfterSeconds: number },
+): Promise<BoardVersionInputs> {
+  const params = [
+    tenantId,
+    businessDate,
+    thresholds.offlineAfterSeconds + VERSION_THRESHOLD_MARGIN_SECONDS,
+    // Failover off (0): no failover bit at all, rather than one that flips
+    // between a healthy printer's three-second polls.
+    thresholds.failoverAfterSeconds > 0
+      ? thresholds.failoverAfterSeconds + VERSION_THRESHOLD_MARGIN_SECONDS
+      : null,
+  ];
+  const sql = (table: "current" | "legacy") =>
+    `select count(*)::int as open_count,
+            max(updated_at) as max_updated_at,
+            coalesce(sum((extract(epoch from updated_at) * 1000000)::bigint), 0)::text as updated_sum,
+            ${printerFingerprintSql(table)} as printers,
+            now() as db_now
+       from orders
+      where tenant_id = $1
+        and business_date = $2::date
+        and status not in ('COMPLETED', 'CANCELLED')`;
+  let rows: QueryResultRow[];
+  try {
+    ({ rows } = await ordersPool().query(sql("current"), params));
+  } catch (err) {
+    // Migration 012 not applied: the online printer's legacy row.
+    if (!isUndefinedTable(err)) throw err;
+    ({ rows } = await ordersPool().query(sql("legacy"), params));
+  }
+  const row = rows[0];
+  return {
+    openCount: Number(row.open_count),
+    maxUpdatedAt: row.max_updated_at == null ? null : (row.max_updated_at as Date).toISOString(),
+    updatedSum: String(row.updated_sum),
+    printers: row.printers == null ? null : String(row.printers),
+    dbNow: (row.db_now as Date).toISOString(),
+  };
+}
+
+/** One station's printer row as the header strip needs it, plus its queue. */
+export interface BoardPrinterInput {
+  station: Station;
+  /** Null when this station's printer has never polled. */
+  lastSeenAt: string | null;
+  paperOut: boolean;
+  coverOpen: boolean;
+  paperLow: boolean;
+  statusCode: string | null;
+  /** Tickets and 重印 copies waiting on this station's printer. */
+  queued: number;
+}
+
+/**
+ * Both printers and their queues for the header strip, in ONE statement and
+ * without a lock: the same rows readAllPrinterStatus reads and the same count
+ * countQueuedOrders makes, which both lock because the alert sweep and the
+ * printer decide writes from them. The strip decides nothing, and the board
+ * only asks when readBoardVersion has changed.
+ *
+ * Fresh behind Hyperdrive for the same reason as listActiveOrders.
+ */
+export async function readBoardPrinterInputs(tenantId: string): Promise<BoardPrinterInput[]> {
+  const sql = (table: "current" | "legacy") =>
+    `select s.station,
+            p.last_seen_at, p.paper_out, p.cover_open, p.paper_low, p.status_code,
+            (select count(*)::int from orders
+              where orders.tenant_id = $1
+                and ${needsPaperFrom("$3", "array[s.station]")}) as queued,
+            now() as read_at
+       from unnest($2::text[]) with ordinality as s(station, n)
+       left join ${table === "current" ? "printer_station_status" : "printer_status"} p
+         on p.tenant_id = $1 and ${table === "current" ? "p.station = s.station" : "s.station = 'online'"}
+      order by s.n`;
+  const params = [tenantId, [...STATIONS], PRINTABLE_STATUSES];
+  let rows: QueryResultRow[];
+  try {
+    ({ rows } = await ordersPool().query(sql("current"), params));
+  } catch (err) {
+    if (!isUndefinedTable(err)) throw err;
+    ({ rows } = await ordersPool().query(sql("legacy"), params));
+  }
+  return rows.map((r) => ({
+    station: r.station as Station,
+    lastSeenAt: r.last_seen_at == null ? null : (r.last_seen_at as Date).toISOString(),
+    paperOut: r.paper_out === true,
+    coverOpen: r.cover_open === true,
+    paperLow: r.paper_low === true,
+    statusCode: r.status_code == null ? null : String(r.status_code),
+    queued: Number(r.queued),
+  }));
+}
+
+/** Postgres "relation does not exist": migration 012's table is missing. */
+function isUndefinedTable(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "42P01";
 }
 
 /** mapOrder plus the board-only delivery aggregates. */
@@ -1926,7 +2092,8 @@ export async function summarizeOrders(
  * One page of order history, newest first, with the range's totals.
  *
  * Kept apart from listActiveOrders on purpose: the board's query is tuned for
- * a 10-second poll over one day's active orders and is left exactly as it was.
+ * one day's open orders, fetched whenever the board's 4-second version poll
+ * (readBoardVersion) sees a change, and is left exactly as it was.
  */
 export async function listOrders(
   tenantId: string,

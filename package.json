@@ -44,6 +44,8 @@
     "verify:stations": "tsx --conditions=react-server scripts/verify-stations.ts",
     "verify:printer-mac": "tsx --conditions=react-server scripts/verify-printer-mac.ts",
     "verify:station-migrations": "tsx --conditions=react-server scripts/verify-station-migrations.ts",
+    "verify:board-poll": "tsx --conditions=react-server scripts/verify-board-poll.ts",
+    "measure:board-poll": "tsx --conditions=react-server scripts/measure-board-poll.ts",
     "doctor": "react-doctor . --lint --verbose"
   },
   "dependencies": {

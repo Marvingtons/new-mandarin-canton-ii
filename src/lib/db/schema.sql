@@ -189,6 +189,13 @@ create index if not exists orders_reprint_pending_idx
 create index if not exists orders_kitchen_idx
   on orders (tenant_id, business_date, status, created_at desc);
 
+-- The board's 4-second change check (migration 013): today's OPEN orders
+-- only, carrying updated_at, so the poll is an index-only scan whose cost does
+-- not grow with the day's history.
+create index if not exists orders_board_version_idx
+  on orders (tenant_id, business_date, updated_at)
+  where status not in ('COMPLETED', 'CANCELLED');
+
 -- Order history: a date range, newest first, across every status.
 create index if not exists orders_history_idx
   on orders (tenant_id, business_date, created_at desc);
@@ -283,7 +290,7 @@ create table if not exists print_deliveries (
 comment on table print_deliveries is
   'One row per hand-over of a job body to the printer. The audit trail behind duplicate-ticket diagnosis: offered/fetched/confirmed timestamps, a fetch count, and the reason. orders.print_delivery_id points at the in-flight row.';
 
--- The board aggregates deliveries per order on every 10s poll.
+-- The board aggregates deliveries per order each time it fetches its list.
 create index if not exists print_deliveries_order_idx
   on print_deliveries (tenant_id, order_id);
 

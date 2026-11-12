@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Station } from "@/config/stations";
-import type { Order } from "@/lib/orders/types";
+import { PRINT_STUCK_SECONDS, type Order } from "@/lib/orders/types";
 import type { StationPrinterHealth } from "@/lib/print/printerStatus";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
 import { useToast } from "@/components/kitchen/ui/Toasts";
@@ -19,10 +19,20 @@ import { playChime, resumeOnNextTap, unlockAudio } from "@/components/kitchen/so
  * the Worker through Hyperdrive with the service-role connection; the browser
  * never talks to it. Realtime would mean shipping a Supabase client and key to
  * every tablet and writing RLS policies that expose customer names and phone
- * numbers to it, for a feed that a 4-second poll of a locking read already
- * serves fresh (lockedRead bypasses Hyperdrive's query cache, which is what
- * made the board stale before). Polling also self-heals: a dropped request is
- * fixed by the next one, with no socket to reconnect.
+ * numbers to it, for a feed a cheap poll already serves fresh. Polling also
+ * self-heals: a dropped request is fixed by the next one, with no socket to
+ * reconnect.
+ *
+ * WHAT A POLL COSTS. Every 4 seconds (20 hidden) the board asks
+ * /api/kitchen/orders/version with the ETag of the list it holds: one
+ * statement on the server, and a 304 with no body when nothing changed. Only
+ * a changed version fetches the list, with the same If-None-Match. The list
+ * is today's OPEN orders; finished ones are history (/api/kitchen/history).
+ *
+ * THE "DID NOT PRINT" FLAG turns on by the clock alone (2 minutes without a
+ * confirmed delivery), which no version can see. So the board computes it
+ * here, from each order's printPendingSince and the server's clock
+ * (X-Server-Time), and wakes itself at the moment the next one is due.
  *
  * OPTIMISTIC ACTIONS. An action changes the order on screen at once, then
  * asks the server. While it is in flight the change is an overlay, so a poll
@@ -67,14 +77,26 @@ export interface LiveSnapshot {
   orders: Order[];
   printers: StationPrinterHealth[];
   printersConfigured: boolean;
+  /** The ETag it was read at, so the first /version poll is a 304. */
+  version: string | null;
+  /** The database clock at that read (what X-Server-Time carries). */
+  serverTime: string | null;
 }
+
+/** The server's clock from X-Server-Time, in ms, or null when absent. */
+function serverClock(res: Response): number | null {
+  const header = res.headers.get("x-server-time");
+  const ms = header ? Date.parse(header) : Number.NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+const STUCK_MS = PRINT_STUCK_SECONDS * 1000;
 
 interface LiveValue {
   orders: Order[];
   printers: StationPrinterHealth[];
   printersConfigured: boolean;
   status: LiveStatus;
-  lastSync: Date | null;
   /** Orders that arrived since this screen opened, still highlighted. */
   freshIds: ReadonlySet<number>;
   /** Ids with an action in flight. */
@@ -129,7 +151,18 @@ export function KitchenLiveProvider({
   const [status, setLiveStatus] = useState<LiveStatus>(
     !ordersConfigured ? "unconfigured" : initial ? "live" : "loading",
   );
-  const [lastSync, setLastSync] = useState<Date | null>(null);
+  /** The ETag of the list on screen: sent as If-None-Match on every poll. */
+  const versionRef = useRef<string | null>(initial?.version ?? null);
+  /** The server's clock minus this tablet's, from the last X-Server-Time. */
+  const offsetRef = useRef(0);
+  /**
+   * The server's clock as of the last list or the last "did not print"
+   * deadline. State, not Date.now() in render: it is what the flags below are
+   * measured against, and it changes only when one of them may.
+   */
+  const [serverNow, setServerNow] = useState<number | null>(() =>
+    initial?.serverTime ? Date.parse(initial.serverTime) : null,
+  );
   const [freshIds, setFreshIds] = useState<ReadonlySet<number>>(new Set());
   const [sound, setSound] = useState<SoundChoice>("ask");
   const muted = sound !== "on";
@@ -216,13 +249,25 @@ export function KitchenLiveProvider({
     [chime, toast, t],
   );
 
+  /** The full list. Called when the version moved, and after a POS order. */
   const refresh = useCallback(async () => {
     if (!ordersConfigured) return;
     try {
-      const res = await fetch("/api/kitchen/orders?completed=1", { cache: "no-store" });
+      const held = versionRef.current;
+      const res = await fetch("/api/kitchen/orders", {
+        cache: "no-store",
+        headers: held ? { "if-none-match": held } : undefined,
+      });
       if (res.status === 401) {
         // Session expired mid-shift: a reload lands on the sign-in screen.
         window.location.reload();
+        return;
+      }
+      const at = serverClock(res);
+      if (at !== null) offsetRef.current = at - Date.now();
+      if (res.status === 304) {
+        // What is on screen is already this version.
+        setLiveStatus("live");
         return;
       }
       const data = (await res.json()) as OrdersPayload;
@@ -244,18 +289,68 @@ export function KitchenLiveProvider({
       setPrinters(data.printers ?? []);
       setPrintersConfigured(data.printersConfigured !== false);
       setLiveStatus("live");
-      setLastSync(new Date());
+      versionRef.current = res.headers.get("etag");
+      if (at !== null) setServerNow(at);
     } catch {
       setLiveStatus("reconnecting");
     }
   }, [ordersConfigured, announce]);
 
-  // The poll loop reads the latest refresh through a ref, so a new chime
+  /**
+   * One poll: has anything changed since the list on screen? A 304 (no body)
+   * when not; otherwise fetch the list. The chime and toast for a new online
+   * order come from that list, exactly as before.
+   */
+  const poll = useCallback(async () => {
+    if (!ordersConfigured) return;
+    try {
+      const held = versionRef.current;
+      const res = await fetch("/api/kitchen/orders/version", {
+        cache: "no-store",
+        headers: held ? { "if-none-match": held } : undefined,
+      });
+      if (res.status === 401) {
+        window.location.reload();
+        return;
+      }
+      const at = serverClock(res);
+      if (at !== null) offsetRef.current = at - Date.now();
+      if (res.status === 304) {
+        setLiveStatus("live");
+        return;
+      }
+      const data = (await res.json()) as { ok: boolean };
+      if (!data.ok) {
+        setLiveStatus("reconnecting");
+        return;
+      }
+      await refresh();
+    } catch {
+      setLiveStatus("reconnecting");
+    }
+  }, [ordersConfigured, refresh]);
+
+  // The poll loop reads the latest poll through a ref, so a new chime
   // (sound toggled) does not tear the loop down and poll twice.
-  const refreshRef = useRef(refresh);
+  const pollRef = useRef(poll);
   useEffect(() => {
-    refreshRef.current = refresh;
-  }, [refresh]);
+    pollRef.current = poll;
+  }, [poll]);
+
+  // Wake at the next "did not print" deadline, so the banner appears on time
+  // with no poll at all: nothing in the database changes when it is due.
+  useEffect(() => {
+    if (serverNow === null) return;
+    let next = Number.POSITIVE_INFINITY;
+    for (const o of serverOrders) {
+      if (!o.printPendingSince) continue;
+      const due = Date.parse(o.printPendingSince) + STUCK_MS;
+      if (due >= serverNow && due < next) next = due;
+    }
+    if (next === Number.POSITIVE_INFINITY) return;
+    const timer = setTimeout(() => setServerNow(Date.now() + offsetRef.current), next - serverNow + 250);
+    return () => clearTimeout(timer);
+  }, [serverOrders, serverNow]);
 
   useEffect(() => {
     if (!ordersConfigured) return;
@@ -268,7 +363,7 @@ export function KitchenLiveProvider({
       if (stopped || inFlight) return;
       inFlight = true;
       try {
-        await refreshRef.current();
+        await pollRef.current();
       } finally {
         inFlight = false;
       }
@@ -419,15 +514,28 @@ export function KitchenLiveProvider({
     [serverOrders, setOverlay, dropOverlay, refresh, toast, t],
   );
 
+  // "Did not print", measured against the server's clock (see the deadline
+  // effect above). The server's own flag stands until the first X-Server-Time.
+  const clocked = useMemo(
+    () =>
+      serverNow === null
+        ? serverOrders
+        : serverOrders.map((o) => {
+            if (!o.printPendingSince) return o;
+            const stuck = serverNow - Date.parse(o.printPendingSince) > STUCK_MS;
+            return stuck === o.printStuck ? o : { ...o, printStuck: stuck };
+          }),
+    [serverOrders, serverNow],
+  );
   const orders = useMemo(
     () =>
       overlays.size === 0
-        ? serverOrders
-        : serverOrders.map((o) => {
+        ? clocked
+        : clocked.map((o) => {
             const overlay = overlays.get(o.id);
             return overlay ? { ...o, ...overlay.patch } : o;
           }),
-    [serverOrders, overlays],
+    [clocked, overlays],
   );
   const pendingIds = useMemo(() => new Set(overlays.keys()), [overlays]);
 
@@ -437,7 +545,6 @@ export function KitchenLiveProvider({
       printers,
       printersConfigured,
       status,
-      lastSync,
       freshIds,
       pendingIds,
       muted,
@@ -450,7 +557,7 @@ export function KitchenLiveProvider({
       clearTable,
     }),
     [
-      orders, printers, printersConfigured, status, lastSync, freshIds, pendingIds,
+      orders, printers, printersConfigured, status, freshIds, pendingIds,
       muted, sound, toggleMute, enableSound, declineSound, refresh, act, clearTable,
     ],
   );

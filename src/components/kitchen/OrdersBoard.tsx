@@ -4,7 +4,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { STATIONS, isStation, type Station } from "@/config/stations";
-import { formatCents } from "@/lib/money";
 import type { Order, OrderStatus } from "@/lib/orders/types";
 import Icon from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
@@ -24,22 +23,28 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * obvious at a glance, survives a reload, and a bookmark can open the board
  * already filtered (an Online-only tablet at the pass, say).
  *
- * The data is the shell's live feed (KitchenLive): no fetch of its own.
+ * The data is the shell's live feed (KitchenLive): no fetch of its own. That
+ * feed is today's OPEN orders only, so the poll stays cheap however long the
+ * day gets. Done and Cancelled open History, filtered to today, which pages
+ * through them on its own endpoint (and has the day's totals).
  */
 
-type StatusFilter = "active" | "new" | "cooking" | "done" | "cancelled" | "all";
+type StatusFilter = "active" | "new" | "cooking";
 type StationFilter = "all" | Station;
 
-const STATUS_FILTERS: StatusFilter[] = ["active", "new", "cooking", "done", "cancelled", "all"];
+const STATUS_FILTERS: StatusFilter[] = ["active", "new", "cooking"];
 
 const IN_FILTER: Record<StatusFilter, (s: OrderStatus) => boolean> = {
   active: (s) => s !== "COMPLETED" && s !== "CANCELLED",
   new: (s) => s === "QUEUED" || s === "PRINTED" || s === "PRINT_FAILED",
   cooking: (s) => s === "ACCEPTED",
-  done: (s) => s === "COMPLETED",
-  cancelled: (s) => s === "CANCELLED",
-  all: () => true,
 };
+
+/** Finished orders, one tap away in History. */
+const HISTORY_LINKS = [
+  { status: "COMPLETED", label: "filter.done" },
+  { status: "CANCELLED", label: "filter.cancelled" },
+] as const satisfies readonly { status: OrderStatus; label: string }[];
 
 function matchesSearch(order: Order, q: string): boolean {
   if (!q) return true;
@@ -71,6 +76,7 @@ export default function OrdersBoard({
 
   const stationParam = params.get("station");
   const station: StationFilter = isStation(stationParam) ? stationParam : "all";
+  // An old bookmark's ?status=done (or cancelled, all) lands on Active.
   const statusParam = params.get("status") as StatusFilter | null;
   const statusFilter: StatusFilter = statusParam && STATUS_FILTERS.includes(statusParam) ? statusParam : "active";
   // Typed into locally (instant), mirrored to the URL.
@@ -136,7 +142,6 @@ export default function OrdersBoard({
   const failed = today.filter((o) => o.status === "PRINT_FAILED" || o.printStuck === true).length;
   const filtered = station !== "all" || statusFilter !== "active" || query !== "";
   const loading = status === "loading";
-  const notCancelled = today.filter((o) => o.status !== "CANCELLED");
 
   return (
     <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-16 sm:px-6">
@@ -194,6 +199,18 @@ export default function OrdersBoard({
           onChange={(v) => setParam("status", v === "active" ? null : v)}
           options={STATUS_FILTERS.map((f) => ({ value: f, label: t(`filter.${f}`), count: statusCounts[f] }))}
         />
+        <nav aria-label={t("board.finished")} className="flex items-center gap-1.5">
+          {HISTORY_LINKS.map((l) => (
+            <Link
+              key={l.status}
+              href={`${basePath}/history?status=${l.status}`}
+              className={buttonClass({ variant: "quiet", size: "sm" })}
+            >
+              <Icon name="history" size={18} />
+              {t(l.label)}
+            </Link>
+          ))}
+        </nav>
         <label className="relative ml-auto flex min-w-[min(100%,18rem)] flex-1 items-center sm:flex-none">
           <span className="sr-only">{t("filter.search")}</span>
           <Icon name="search" size={20} className="pointer-events-none absolute left-3 text-staff-soft" />
@@ -279,12 +296,11 @@ export default function OrdersBoard({
         )}
       </section>
 
-      {notCancelled.length > 0 && (
+      {status !== "unconfigured" && (
         <p className="mt-8 text-right text-staff-caption text-staff-soft">
-          {t("board.footer", {
-            n: notCancelled.length,
-            total: formatCents(notCancelled.reduce((n, o) => n + o.totals.totalCents, 0)),
-          })}
+          <Link href={`${basePath}/history`} className="underline underline-offset-4 hover:text-staff-ink">
+            {t("board.todayInHistory")}
+          </Link>
         </p>
       )}
     </main>
