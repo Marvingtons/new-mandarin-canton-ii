@@ -14,7 +14,9 @@ import {
   decideOffer,
 } from "@/lib/print/entitlement";
 import { readPrinterCondition } from "@/lib/print/printerStatus";
-import { printerIdentity } from "@/lib/print/printerIdentity";
+import { configuredStations, printerIdentity } from "@/lib/print/printerIdentity";
+import { failoverStations, printFailoverAfterSeconds } from "@/config/stations";
+import type { PrinterScope } from "@/lib/orders/repository";
 import { recordPoll, untrackedTransition, type PollTransition } from "@/lib/print/healthStore";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
@@ -274,6 +276,25 @@ export async function POST(
       );
     }
 
+    /* ---------------- timed failover ---------------- */
+    //
+    // The other printer's silence came back with this printer's own health
+    // write (same statement, database clock). If it has a MAC configured and
+    // has been silent past PRINT_FAILOVER_AFTER_SECONDS, this printer takes its
+    // tickets too; the claim records the reroute (repository applyFailover).
+    // Nothing about delivery changes.
+    const failoverFrom = failoverStations({
+      printer: printer.station,
+      configured: configuredStations(),
+      silentSeconds: transition.othersSilentSeconds,
+      windowSeconds: printFailoverAfterSeconds(),
+    });
+    const scope: PrinterScope = {
+      station: printer.station,
+      serves: [...printer.serves, ...failoverFrom.filter((s) => !printer.serves.includes(s))],
+      failoverFrom,
+    };
+
     // Config read once. The fresh-claim window assumes a whole ticket (one
     // piece); a re-offer uses the decision's window, which knows the split.
     const copies = ticketCopies();
@@ -285,7 +306,7 @@ export async function POST(
     // A job already handed over and not yet confirmed wins: re-offering the
     // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
     // while the first is unaccounted for would double-print.
-    let job = await currentPrintJob(tenant.tenantId, printer.serves);
+    let job = await currentPrintJob(tenant.tenantId, scope.serves);
 
     // ENTITLEMENT — the thing that stops one order printing its copy-set over
     // and over. The rule and its reasoning live in lib/print/entitlement.ts;
@@ -329,7 +350,7 @@ export async function POST(
           ok: false,
           error: `no print confirmation after ${job.printAttempts} hand-overs`,
         });
-        job = await claimNextPrintJob(tenant.tenantId, freshWindow, printer);
+        job = await claimNextPrintJob(tenant.tenantId, freshWindow, scope);
       } else {
         // retry (an expired delivery, or the next piece of a split). A NEW
         // delivery with its own id and expiry — never a re-stamp of the old
@@ -349,6 +370,7 @@ export async function POST(
           "retry",
           superseded,
           printer.station,
+          scope.failoverFrom,
         );
         if (!reoffered) {
           console.warn(
@@ -361,7 +383,7 @@ export async function POST(
         job = reoffered;
       }
     } else {
-      job = await claimNextPrintJob(tenant.tenantId, freshWindow, printer);
+      job = await claimNextPrintJob(tenant.tenantId, freshWindow, scope);
     }
 
     if (!job) return Response.json(NO_JOB);
@@ -427,7 +449,8 @@ export async function POST(
     };
     console.info(
       `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} handed to ` +
-        `${printer.station} printer at ${advertisedGetUrl}`,
+        `${printer.station} printer at ${advertisedGetUrl}` +
+        (job.reroutedFrom ? ` (REROUTED FROM ${job.reroutedFrom})` : ""),
     );
     return Response.json(body);
   } catch (err) {

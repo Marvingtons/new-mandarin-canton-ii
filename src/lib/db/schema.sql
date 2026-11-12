@@ -134,12 +134,19 @@ create table if not exists orders (
   -- A reprint never touches status, so this is how the printer finds an
   -- ACCEPTED or COMPLETED order that needs another copy.
   reprint_delivery_id uuid,
+  -- Timed failover (PRINT_FAILOVER_AFTER_SECONDS, migration 011): the station
+  -- this ticket was meant for when its printer went silent and the other
+  -- printer took it. print_station is then the printer that actually printed
+  -- it. The ticket header says REROUTED FROM <this>. Null = not rerouted.
+  rerouted_from     text,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
   constraint orders_channel_check check (channel in ('web', 'phone', 'walk_in', 'dine_in')),
 
   constraint orders_print_station_check check (print_station in ('online', 'store')),
+
+  constraint orders_rerouted_from_check check (rerouted_from is null or rerouted_from in ('online', 'store')),
 
   constraint orders_guest_count_check check (guest_count is null or guest_count >= 1),
 
@@ -324,6 +331,12 @@ create table if not exists printer_station_status (
   -- withholds jobs; it is a heads-up.
   paper_low_since      timestamptz,
   paper_low_alerted_at timestamptz,
+  -- Timed failover: when the OTHER printer first took one of this printer's
+  -- tickets because this one had gone silent. Cleared by this printer's own
+  -- next poll. failover_alerted_at is the owner text about it: set when the
+  -- "rerouting" text goes, cleared when the "back" text goes.
+  failover_since       timestamptz,
+  failover_alerted_at  timestamptz,
   updated_at         timestamptz not null default now(),
 
   constraint printer_station_status_pkey primary key (tenant_id, station),

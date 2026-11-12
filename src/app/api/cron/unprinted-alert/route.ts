@@ -15,14 +15,17 @@ import {
   releaseAlertClaim,
 } from "@/lib/orders/repository";
 import {
+  claimFailoverAlert,
   claimPrinterAlert,
   readAllPrinterStatus,
+  releaseFailoverAlert,
   releasePrinterAlert,
   type PrinterAlertKind,
   type PrinterStatusRow,
 } from "@/lib/print/healthStore";
 import { configuredStations, stationCoverage } from "@/lib/print/printerIdentity";
 import {
+  OTHER_STATION,
   STATIONS,
   STATION_LABEL,
   STATION_PRINTER_NAME,
@@ -226,6 +229,78 @@ async function alertOnPrinters(
   return outcomes;
 }
 
+/** What one failover text did, for the sweep's JSON. */
+interface FailoverAlertOutcome {
+  station: Station;
+  phase: "start" | "back";
+  sent: boolean;
+}
+
+/**
+ * TIMED FAILOVER: one text when it starts, one when the printer is back.
+ *
+ * "Started" means the other printer has actually taken one of this station's
+ * tickets (failover_since, stamped in the claim's own transaction), not merely
+ * that this printer is quiet, so a printer switched off at closing texts
+ * nobody. "Back" means this printer has polled again since (its own poll
+ * clears failover_since) and the owner was told it started.
+ *
+ * One claim per phase, by conditional UPDATE on failover_alerted_at, so
+ * overlapping sweeps cannot both text, and ten rerouted tickets are still
+ * one text. A failed send gives its claim back for the next sweep.
+ */
+async function alertOnFailover(
+  tenantId: string,
+  owner: string | null,
+  smsReady: boolean,
+): Promise<FailoverAlertOutcome[]> {
+  if (!cloudPrntConfigured()) return [];
+  const rows = await readAllPrinterStatus(tenantId);
+  const configured = new Set(configuredStations());
+  const outcomes: FailoverAlertOutcome[] = [];
+
+  for (const station of STATIONS) {
+    const row = rows[station];
+    if (!row || !configured.has(station)) continue;
+    const phase =
+      row.failoverSince !== null && row.failoverAlertedAt === null
+        ? "start"
+        : row.failoverSince === null && row.failoverAlertedAt !== null
+          ? "back"
+          : null;
+    if (!phase) continue;
+
+    const outcome: FailoverAlertOutcome = { station, phase, sent: false };
+    outcomes.push(outcome);
+    console.warn(
+      phase === "start"
+        ? `[alert] FAILOVER: the ${station} printer is silent; its tickets are printing on the ${OTHER_STATION[station]} printer.`
+        : `[alert] FAILOVER OVER: the ${station} printer is back.`,
+    );
+    if (!owner || !smsReady) continue;
+    if (!(await claimFailoverAlert(tenantId, station, phase))) continue;
+
+    const result = await sendSms(owner, failoverText(station, phase));
+    if (result.sent) {
+      outcome.sent = true;
+      continue;
+    }
+    await releaseFailoverAlert(tenantId, station, phase);
+    console.error(`[alert] could not text the owner about failover (${station}, ${phase}): ${result.error}`);
+  }
+  return outcomes;
+}
+
+function failoverText(station: Station, phase: "start" | "back"): string {
+  const name = STATION_PRINTER_NAME[station];
+  const other = STATION_PRINTER_NAME[OTHER_STATION[station]];
+  const label = STATION_LABEL[station].toUpperCase();
+  return phase === "start"
+    ? `${restaurant.name}: the ${name} has stopped responding. Its new tickets are printing on the ` +
+        `${other}, marked REROUTED FROM ${label}. Check its power and network.`
+    : `${restaurant.name}: the ${name} is back. Its new tickets print on it again.`;
+}
+
 /** "the STORE printer (phone, walk-in and dine-in orders) is out of paper..." */
 function printerAlertText(
   station: Station,
@@ -276,6 +351,15 @@ export async function GET(request: Request): Promise<Response> {
       err instanceof Error ? err.message : "unknown error",
     );
   }
+  let failover: FailoverAlertOutcome[] = [];
+  try {
+    failover = await alertOnFailover(tenant.tenantId, owner, isSmsConfigured());
+  } catch (err) {
+    console.error(
+      "[alert] failover check failed:",
+      err instanceof Error ? err.message : "unknown error",
+    );
+  }
 
   let due;
   try {
@@ -294,7 +378,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   if (due.length === 0) {
-    return Response.json({ ok: true, found: 0, alerted: 0, printer: printerAlert });
+    return Response.json({ ok: true, found: 0, alerted: 0, printer: printerAlert, failover });
   }
 
   // Loud in the logs even when SMS cannot go out — an operator reading logs
@@ -311,6 +395,7 @@ export async function GET(request: Request): Promise<Response> {
       alerted: 0,
       skipped: owner ? "SMS is not configured" : "OWNER_ALERT_PHONE is not set",
       printer: printerAlert,
+      failover,
     });
   }
 
@@ -365,5 +450,6 @@ export async function GET(request: Request): Promise<Response> {
     retrying,
     exhausted,
     printer: printerAlert,
+    failover,
   });
 }

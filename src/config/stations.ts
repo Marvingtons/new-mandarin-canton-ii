@@ -57,3 +57,76 @@ export const STATION_PRINTER_NAME: Record<Station, string> = {
   online: "Online printer",
   store: "Store printer",
 };
+
+/** The other printer. Two stations, so each has exactly one. */
+export const OTHER_STATION: Record<Station, Station> = {
+  online: "store",
+  store: "online",
+};
+
+/**
+ * TIMED FAILOVER, behind PRINT_FAILOVER_AFTER_SECONDS.
+ *
+ * When a station's printer HAS a MAC configured but has not polled for this
+ * many seconds, the other printer takes that station's new tickets: it claims
+ * them as if they were its own, the order and the hand-over record the printer
+ * that actually printed, and the ticket carries one extra header line,
+ * REROUTED FROM ONLINE / REROUTED FROM STORE (轉自網上 / 轉自店內). The owner
+ * gets one text when it starts and one when the printer is back, never one
+ * per ticket. Nothing about delivery changes: the same claim, R2 body,
+ * starprnt bytes, confirm window and copies, on the other printer.
+ *
+ * Default 90: past the 60s at which the board calls a printer offline (a
+ * dropped packet or a Wi-Fi roam never reroutes), short enough that a phone
+ * order comes out within two minutes of the store printer losing power.
+ * 0 disables failover: tickets wait for their own printer, as before.
+ *
+ * A station with no MAC configured is not failover: its tickets always print
+ * on the other printer (lib/print/printerIdentity stationCoverage), and it is
+ * "not set up", never offline.
+ */
+export const PRINT_FAILOVER_AFTER_SECONDS_DEFAULT = 90;
+
+/** The configured window in seconds; 0 = failover off. Server-side only. */
+export function printFailoverAfterSeconds(
+  raw: string | undefined = process.env.PRINT_FAILOVER_AFTER_SECONDS,
+): number {
+  if (raw === undefined || raw.trim() === "") return PRINT_FAILOVER_AFTER_SECONDS_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    console.warn(
+      `[cloudprnt] PRINT_FAILOVER_AFTER_SECONDS=${JSON.stringify(raw)} is not a number of seconds; ` +
+        `using ${PRINT_FAILOVER_AFTER_SECONDS_DEFAULT}.`,
+    );
+    return PRINT_FAILOVER_AFTER_SECONDS_DEFAULT;
+  }
+  return Math.floor(n);
+}
+
+/**
+ * Which stations a live printer should cover right now, given how long each
+ * other station's printer has been silent. Pure: the poll route and the board
+ * strip both decide from this one rule.
+ *
+ *   - failover off (window 0): none;
+ *   - only stations with a MAC configured (an unset station is coverage, not
+ *     failover);
+ *   - only a printer that HAS polled before and then went silent past the
+ *     window: one that has never polled (just deployed, never plugged in) is
+ *     "not connected", not failed over.
+ */
+export function failoverStations(input: {
+  printer: Station;
+  configured: readonly Station[];
+  /** Seconds since each other station's printer last polled; absent = never. */
+  silentSeconds: Partial<Record<Station, number>>;
+  windowSeconds: number;
+}): Station[] {
+  if (input.windowSeconds <= 0) return [];
+  if (!input.configured.includes(input.printer)) return [];
+  return STATIONS.filter((s) => {
+    if (s === input.printer || !input.configured.includes(s)) return false;
+    const silent = input.silentSeconds[s];
+    return silent !== undefined && silent > input.windowSeconds;
+  });
+}

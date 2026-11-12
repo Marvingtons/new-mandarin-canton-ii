@@ -494,6 +494,28 @@ export async function composeTicketSvg(
     c.space(10);
   }
 
+  /* ---------------- rerouted (timed failover) ---------------- */
+  /* ONE LINE, boxed rather than inverted so it cannot be read as the copy
+     bar above it, and before the header so it is seen first: this ticket
+     came out of the other printer because its own had gone silent, and it
+     still belongs to the station it names (a web order rerouted to the
+     counter still goes in a takeout bag). */
+  if (order.reroutedFrom) {
+    const zhFrom = zhIfPrintable(
+      `${L.reroutedFrom}${order.reroutedFrom === "online" ? L.stationOnline : L.stationStore}`,
+      coverage,
+    );
+    const en = `REROUTED FROM ${order.reroutedFrom === "online" ? "ONLINE" : "STORE"}`;
+    const line = zhFrom ? `${zhFrom} ${en}` : en;
+    // One line, always: the largest size that fits inside the box.
+    let size = 34;
+    while (size > 20 && metrics.measure(line, size, 700) > CONTENT_WIDTH - 24) size -= 2;
+    c.box({ border: 4, padding: 4, marginTop: 0 }, (box) => {
+      box.text(line, { size, weight: 700, align: "center" });
+    });
+    c.space(10);
+  }
+
   /* ---------------- header ---------------- */
   /* TWO HEADERS, AND THEY MUST NOT LOOK ALIKE. A dine-in ticket goes to a
      table, a takeout ticket goes in a bag, and the person at the pass decides

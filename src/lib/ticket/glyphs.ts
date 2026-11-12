@@ -63,6 +63,14 @@ export const TICKET_LABELS = {
   /** A later round for a party already seated. */
   addon: "加菜",
   reprint: "重印",
+  /**
+   * Timed failover: "轉自網上 REROUTED FROM ONLINE" / "轉自店內 REROUTED FROM
+   * STORE", one line under the copy bar, on a ticket printed by the other
+   * printer because its own had gone silent.
+   */
+  reroutedFrom: "轉自",
+  stationOnline: "網上",
+  stationStore: "店內",
   pickup: "取餐時間",
   note: "備註",
   customer: "客人",

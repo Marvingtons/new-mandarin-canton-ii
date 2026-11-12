@@ -57,11 +57,21 @@ create table if not exists printer_station_status (
   paper_alerted_at   timestamptz,
   paper_low_since      timestamptz,
   paper_low_alerted_at timestamptz,
+  -- Timed failover: when the other printer first took one of this printer's
+  -- tickets because this one had gone silent; cleared by this printer's next
+  -- poll. failover_alerted_at: the owner's "rerouting" text, cleared with the
+  -- "back" text.
+  failover_since       timestamptz,
+  failover_alerted_at  timestamptz,
   updated_at         timestamptz not null default now(),
 
   constraint printer_station_status_pkey primary key (tenant_id, station),
   constraint printer_station_status_station_check check (station in ('online', 'store'))
 );
+
+-- A table created by an earlier draft of this file gains the failover columns.
+alter table printer_station_status add column if not exists failover_since timestamptz;
+alter table printer_station_status add column if not exists failover_alerted_at timestamptz;
 
 alter table printer_station_status enable row level security;
 

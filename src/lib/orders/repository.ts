@@ -34,6 +34,7 @@ import {
   stationForChannel,
   type Station,
 } from "@/config/stations";
+import { MARK_FAILOVER_SQL } from "@/lib/print/healthStore";
 
 /**
  * Which printer is asking, and whose tickets it prints. From
@@ -44,6 +45,12 @@ import {
 export interface PrinterScope {
   station: Station;
   serves: readonly Station[];
+  /**
+   * Stations in `serves` ONLY because their own printer has gone silent past
+   * PRINT_FAILOVER_AFTER_SECONDS (config/stations failoverStations). A ticket
+   * for one of these is rerouted: see applyFailover.
+   */
+  failoverFrom?: readonly Station[];
 }
 
 const SINGLE_PRINTER: PrinterScope = { station: "online", serves: STATIONS };
@@ -134,6 +141,7 @@ const ORDER_COLUMNS = `
   channel,
   print_station,
   reprint_delivery_id,
+  rerouted_from,
   payment_note,
   staff_note,
   table_label,
@@ -191,6 +199,7 @@ function mapOrder(row: QueryResultRow): Order {
     // been the one printer that exists.
     station: isStation(row.print_station) ? row.print_station : "online",
     reprintPending: row.reprint_delivery_id != null,
+    reroutedFrom: isStation(row.rerouted_from) ? row.rerouted_from : null,
     paymentNote: row.payment_note == null ? null : String(row.payment_note),
     staffNote: row.staff_note == null ? null : String(row.staff_note),
     tableLabel: row.table_label == null ? null : String(row.table_label),
@@ -520,6 +529,54 @@ function needsPaperFrom(statuses: string, stations: string): string {
   )`;
 }
 
+/**
+ * TIMED FAILOVER, at the moment a printer is handed a ticket.
+ *
+ * If the ticket is here only because its own station's printer has gone
+ * silent (scope.failoverFrom), record that, in the claim's transaction:
+ *
+ *   - orders.rerouted_from = the station it was meant for, so the ticket
+ *     header says REROUTED FROM it;
+ *   - a first print moves to the printer that took it (print_station), so
+ *     the board, the alert and a returning printer all agree whose it is now;
+ *     a 重印 copy leaves print_station alone (a copy never moves an order);
+ *   - that station's failover_since is stamped (kept if already set), which is
+ *     what the owner's one "rerouting" text is sent from.
+ *
+ * The hand-over itself is untouched: same delivery row (its station is the
+ * printer that took it), same body, same window.
+ */
+async function applyFailover(
+  client: PoolClient,
+  tenantId: string,
+  order: Order,
+  scope: PrinterScope,
+): Promise<Order> {
+  const from = scope.failoverFrom ?? [];
+  if (from.length === 0) return order;
+  let target: Station = order.station;
+  if (order.reprintPending) {
+    const { rows } = await client.query(
+      `select r.station from orders o join print_deliveries r on r.id = o.reprint_delivery_id
+        where o.tenant_id = $1 and o.id = $2`,
+      [tenantId, order.id],
+    );
+    if (rows.length > 0 && isStation(rows[0].station)) target = rows[0].station;
+  }
+  if (target === scope.station || !from.includes(target)) return order;
+  const { rows } = await client.query(
+    `update orders
+        set rerouted_from = $3,
+            print_station = case when reprint_delivery_id is null then $4 else print_station end,
+            updated_at = now()
+      where tenant_id = $1 and id = $2
+      returning ${ORDER_COLUMNS}`,
+    [tenantId, order.id, target, scope.station],
+  );
+  await client.query(MARK_FAILOVER_SQL, [tenantId, target]);
+  return rows.length > 0 ? mapOrder(rows[0]) : order;
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -602,7 +659,7 @@ export async function claimNextPrintJob(
       [tenantId, PRINTABLE_STATUSES, deliveryId, windowSeconds, [...scope.serves]],
     );
     if (rows.length === 0) return null;
-    const order = mapOrder(rows[0]);
+    const order = await applyFailover(client, tenantId, mapOrder(rows[0]), scope);
     await insertDelivery(client, {
       id: deliveryId,
       orderId: order.id,
@@ -672,6 +729,8 @@ export async function reofferPrintDelivery(
   supersedes: string | null,
   /** The printer being handed the new body. */
   station: Station = "online",
+  /** Its failover stations (PrinterScope.failoverFrom): a takeover is a reroute. */
+  failoverFrom: readonly Station[] = [],
 ): Promise<Order | null> {
   return withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -719,7 +778,11 @@ export async function reofferPrintDelivery(
     // No row matched: the order is no longer offerable (status changed, or its
     // current delivery was already confirmed). Do NOT create a delivery.
     if (rows.length === 0) return null;
-    const order = mapOrder(rows[0]);
+    const order = await applyFailover(client, tenantId, mapOrder(rows[0]), {
+      station,
+      serves: STATIONS,
+      failoverFrom,
+    });
     await insertDelivery(client, {
       id: deliveryId,
       orderId,
@@ -1254,6 +1317,9 @@ export async function requestReprint(
     const { rows } = await client.query(
       `update orders
           set reprint_delivery_id = $3,
+              -- The copy is a new hand-over: rerouted again only if failover
+              -- takes this one too.
+              rerouted_from = null,
               print_attempts = 0,
               last_print_error = null,
               alerted_at = case when status in ('QUEUED', 'PRINT_FAILED')

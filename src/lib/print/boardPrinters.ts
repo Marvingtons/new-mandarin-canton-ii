@@ -1,10 +1,11 @@
 import "server-only";
 
-import { STATIONS } from "@/config/stations";
+import { OTHER_STATION, STATIONS, failoverStations, printFailoverAfterSeconds } from "@/config/stations";
 import { countQueuedOrders } from "@/lib/orders/repository";
 import { readAllPrinterStatus } from "@/lib/print/healthStore";
 import { configuredStations, stationCoverage } from "@/lib/print/printerIdentity";
 import {
+  OFFLINE_AFTER_SECONDS,
   derivePrinterHealth,
   type StationPrinterHealth,
 } from "@/lib/print/printerStatus";
@@ -35,8 +36,30 @@ export async function stationPrinterHealth(
     ...STATIONS.map((s) => countQueuedOrders(tenantId, [s])),
   ]);
 
+  const silent = (s: (typeof STATIONS)[number]): number | undefined => {
+    const row = rows[s];
+    return row ? Math.max(0, (Date.now() - Date.parse(row.lastSeenAt)) / 1000) : undefined;
+  };
+  const windowSeconds = printFailoverAfterSeconds();
+
   return STATIONS.map((station, i) => {
     const printedBy = coverage[station];
+    // The same rule the poll uses, seen from the other printer, which must
+    // itself be alive to be taking anything.
+    const other = OTHER_STATION[station];
+    const otherSilent = silent(other);
+    const thisSilent = silent(station);
+    const failoverTo =
+      otherSilent !== undefined &&
+      otherSilent <= OFFLINE_AFTER_SECONDS &&
+      failoverStations({
+        printer: other,
+        configured: [...configured],
+        silentSeconds: thisSilent === undefined ? {} : { [station]: thisSilent },
+        windowSeconds,
+      }).includes(station)
+        ? other
+        : null;
     if (!configured.has(station)) {
       return {
         station,
@@ -48,6 +71,7 @@ export async function stationPrinterHealth(
         statusCode: null,
         blocked: false,
         queued: queued[i],
+        failoverTo: null,
       };
     }
     const row = rows[printedBy];
@@ -69,6 +93,7 @@ export async function stationPrinterHealth(
       statusCode: row?.statusCode ?? null,
       blocked: health === "paper-out" || health === "cover-open" || health === "offline",
       queued: queued[i],
+      failoverTo,
     };
   });
 }

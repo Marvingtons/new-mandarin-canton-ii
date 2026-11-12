@@ -43,6 +43,9 @@
 --                                OLD code reprints by requeueing to QUEUED and
 --                                never sets it, so nothing old looks pending.
 --   orders_reprint_pending_idx   the rows with a copy pending (tiny, partial).
+--   orders.rerouted_from         timed failover: the station a ticket was meant
+--                                for when its printer had gone silent and the
+--                                other printer took it. NULL = not rerouted.
 --   print_deliveries.station     the printer this hand-over went to. NULL on
 --                                rows from before this migration (one printer).
 --
@@ -91,6 +94,21 @@ alter table orders add column if not exists reprint_delivery_id uuid;
 create index if not exists orders_reprint_pending_idx
   on orders (tenant_id, created_at)
   where reprint_delivery_id is not null;
+
+alter table orders add column if not exists rerouted_from text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'orders_rerouted_from_check'
+  ) then
+    alter table orders add constraint orders_rerouted_from_check
+      check (rerouted_from is null or rerouted_from in ('online', 'store'));
+  end if;
+end $$;
+
+comment on column orders.rerouted_from is
+  'Timed failover: the station this ticket was meant for when its printer had gone silent and the other printer printed it (print_station). The ticket header says REROUTED FROM it. Null = not rerouted.';
 
 comment on column orders.reprint_delivery_id is
   'A reprint copy waiting on a printer: the manual_reprint print_deliveries row (which names the station). Set by a reprint, cleared when the copy prints or gives up. A reprint never changes status.';

@@ -164,7 +164,9 @@ export function PrinterAlerts() {
               {urgent && (
                 <p className="mt-1 text-staff-caption opacity-90">
                   {p.queued > 0 && <>{t("printer.queued", { n: p.queued })} · </>}
-                  {t("printer.help.reprintHint")}
+                  {p.failoverTo
+                    ? t("printer.failoverTo", { station: t(`station.${p.failoverTo}`) })
+                    : t("printer.help.reprintHint")}
                 </p>
               )}
             </div>

@@ -392,6 +392,10 @@ async function strangerAndCoverage(h: Handlers, repo: Repo, pool: Pool): Promise
 
 async function alertNamesTheStation(h: Handlers, repo: Repo, pool: Pool): Promise<void> {
   console.log("\nalerts: per printer, naming the station");
+  // Failover off: with it on, the live online printer would (rightly) take
+  // the silent store printer's ticket, and there would be nothing waiting to
+  // alert about. That case is timedFailover's.
+  process.env.PRINT_FAILOVER_AFTER_SECONDS = "0";
   await seed(repo, "dine_in");
   // The store printer went silent ten minutes ago with a ticket behind it.
   await pool().query(
@@ -432,6 +436,139 @@ async function alertNamesTheStation(h: Handlers, repo: Repo, pool: Pool): Promis
   check("paper-low raises an alert for the online printer by name",
     (body2.printer ?? []).some((a) => a.station === "online" && a.condition === "low on paper"),
     JSON.stringify(body2.printer));
+}
+
+/**
+ * TIMED FAILOVER (PRINT_FAILOVER_AFTER_SECONDS, default 90). The store printer
+ * has a MAC and has gone silent: the online printer takes the store's new
+ * tickets, the order and the hand-over record the printer that printed them,
+ * the ticket says REROUTED FROM STORE, and the owner gets one text when it
+ * starts and one when the store printer is back, not one per ticket.
+ */
+async function timedFailover(h: Handlers, repo: Repo, pool: Pool): Promise<void> {
+  console.log("\nfailover: a silent store printer's tickets print on the online printer");
+  await drain(h);
+  const { printFailoverAfterSeconds, failoverStations } = await import("../src/config/stations");
+  check("default window is 90s; 0 disables; junk falls back to 90",
+    printFailoverAfterSeconds(undefined) === 90 && printFailoverAfterSeconds("0") === 0 &&
+      printFailoverAfterSeconds("abc") === 90 && printFailoverAfterSeconds("120") === 120);
+  check("rule: only a configured station that polled before and went silent past the window",
+    failoverStations({ printer: "online", configured: ["online", "store"], silentSeconds: { store: 91 }, windowSeconds: 90 }).join() === "store" &&
+      failoverStations({ printer: "online", configured: ["online", "store"], silentSeconds: { store: 89 }, windowSeconds: 90 }).length === 0 &&
+      failoverStations({ printer: "online", configured: ["online", "store"], silentSeconds: {}, windowSeconds: 90 }).length === 0 &&
+      failoverStations({ printer: "online", configured: ["online"], silentSeconds: { store: 500 }, windowSeconds: 90 }).length === 0 &&
+      failoverStations({ printer: "online", configured: ["online", "store"], silentSeconds: { store: 500 }, windowSeconds: 0 }).length === 0);
+
+  // Count owner texts without sending any: Twilio's endpoint is stubbed.
+  const texts: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("api.twilio.com")) {
+      texts.push(new URLSearchParams(String(init?.body ?? "")).get("Body") ?? "");
+      return new Response(JSON.stringify({ sid: "SMxxxx" }), { status: 201, headers: { "content-type": "application/json" } });
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+  Object.assign(process.env, {
+    OWNER_ALERT_PHONE: "+16195550199",
+    TWILIO_ACCOUNT_SID: "ACverifystations",
+    TWILIO_AUTH_TOKEN: "verify-stations-token",
+    TWILIO_VERIFY_SERVICE_SID: "VAverifystations",
+    TWILIO_MESSAGING_FROM: "+16195550100",
+  });
+  const cron = (await import("../src/app/api/cron/unprinted-alert/route")) as unknown as {
+    GET: (r: Request) => Promise<Response>;
+  };
+  const sweep = async () =>
+    (await (
+      await cron.GET(new Request("https://example.test/api/cron/unprinted-alert", { headers: { authorization: `Bearer ${CRON}` } }))
+    ).json()) as { failover?: { station: string; phase: string; sent: boolean }[] };
+
+  try {
+    process.env.PRINT_FAILOVER_AFTER_SECONDS = "90";
+    await drain(h); // both printers fresh, nothing in flight
+
+    // Store printer silent for 60s: inside the window, nothing moves.
+    await pool().query(
+      `update printer_station_status set last_seen_at = now() - interval '60 seconds' where tenant_id = $1 and station = 'store'`,
+      [TENANT],
+    );
+    const early = await seed(repo, "phone");
+    check("60s of silence (inside the window): the online printer does not take the store's ticket",
+      (await poll(h, MAC_ONLINE)) === null);
+
+    // Silent for two minutes: past the window.
+    await pool().query(
+      `update printer_station_status set last_seen_at = now() - interval '2 minutes' where tenant_id = $1 and station = 'store'`,
+      [TENANT],
+    );
+    const t1 = await poll(h, MAC_ONLINE);
+    check("past the window, the online printer takes the store's ticket", t1 !== null && (await orderOf(pool, t1)) === early);
+    const o1 = await repo.getOrderById(TENANT, early);
+    check("the order records the printer that printed it, and where it was meant to go",
+      o1?.station === "online" && o1.reroutedFrom === "store", JSON.stringify({ station: o1?.station, from: o1?.reroutedFrom }));
+    check("and so does the hand-over", (await deliveryStation(pool, t1!)) === "online");
+    await confirm(h, MAC_ONLINE, t1!);
+
+    // The ticket body says so, on one line.
+    const { renderTicketJob } = await import("../src/lib/ticket/render");
+    const { TICKET_LABELS } = await import("../src/lib/ticket/glyphs");
+    check("ticket label is 轉自 + 店內 / 網上",
+      TICKET_LABELS.reroutedFrom === "轉自" && TICKET_LABELS.stationStore === "店內" && TICKET_LABELS.stationOnline === "網上");
+    const plain = await renderTicketJob({ ...o1!, reroutedFrom: null }, { timezone: "America/Los_Angeles", copies: 1 }, { format: "png" });
+    const marked = await renderTicketJob(o1!, { timezone: "America/Los_Angeles", copies: 1 }, { format: "png" });
+    check("a rerouted ticket renders one extra header line (taller by one line)",
+      marked.totalHeight > plain.totalHeight && marked.totalHeight - plain.totalHeight < 80,
+      `${plain.totalHeight} -> ${marked.totalHeight}`);
+
+    const second = await seed(repo, "walk_in");
+    const t2 = await poll(h, MAC_ONLINE);
+    check("a second store ticket is rerouted too", t2 !== null && (await orderOf(pool, t2)) === second);
+    await confirm(h, MAC_ONLINE, t2!);
+
+    const strip = (await (await import("../src/lib/print/boardPrinters")).stationPrinterHealth(TENANT)).find((p) => p.station === "store");
+    check("the board says the store's tickets are printing on the online printer", strip?.failoverTo === "online", JSON.stringify(strip));
+
+    const s1 = await sweep();
+    const s2 = await sweep();
+    check("ONE owner text when failover starts, however many tickets and sweeps",
+      texts.length === 1 && /REROUTED FROM STORE/.test(texts[0]) &&
+        (s1.failover ?? []).filter((f) => f.sent).length === 1 &&
+        (s2.failover ?? []).filter((f) => f.sent).length === 0,
+      JSON.stringify({ texts, s1: s1.failover, s2: s2.failover }));
+
+    // The store printer comes back.
+    await poll(h, MAC_STORE);
+    const after = await seed(repo, "phone");
+    const own = await poll(h, MAC_STORE);
+    check("once it polls again, the store printer takes its own tickets", own !== null && (await orderOf(pool, own)) === after);
+    await confirm(h, MAC_STORE, own!);
+    const o3 = await repo.getOrderById(TENANT, after);
+    check("not rerouted", o3?.station === "store" && o3.reroutedFrom === null);
+    await sweep();
+    await sweep();
+    check("ONE owner text when it is back", texts.length === 2 && /is back/.test(texts[1]), JSON.stringify(texts));
+
+    // 0 disables: silence never moves a ticket.
+    process.env.PRINT_FAILOVER_AFTER_SECONDS = "0";
+    await pool().query(
+      `update printer_station_status set last_seen_at = now() - interval '10 minutes' where tenant_id = $1 and station = 'store'`,
+      [TENANT],
+    );
+    await seed(repo, "phone");
+    check("PRINT_FAILOVER_AFTER_SECONDS=0: the online printer never takes it", (await poll(h, MAC_ONLINE)) === null);
+    check("and no failover was stamped",
+      (await pool().query(`select failover_since from printer_station_status where tenant_id = $1 and station = 'store' for update`, [TENANT])).rows[0].failover_since === null);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ["OWNER_ALERT_PHONE", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_VERIFY_SERVICE_SID", "TWILIO_MESSAGING_FROM"]) {
+      delete process.env[k];
+    }
+    delete process.env.PRINT_FAILOVER_AFTER_SECONDS;
+    await poll(h, MAC_STORE);
+    await drain(h);
+  }
 }
 
 /* ---------------------------------------------------------------- main -- */
@@ -488,6 +625,8 @@ async function main(): Promise<void> {
     await reprintKeepsStatus(route, repo, ordersPool);
     await strangerAndCoverage(route, repo, ordersPool);
     await alertNamesTheStation(route, repo, ordersPool);
+    delete process.env.PRINT_FAILOVER_AFTER_SECONDS;
+    await timedFailover(route, repo, ordersPool);
   } finally {
     cache.uninstall();
     await closeOrdersPool();

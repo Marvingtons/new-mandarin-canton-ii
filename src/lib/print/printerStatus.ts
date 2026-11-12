@@ -187,4 +187,10 @@ export interface StationPrinterHealth {
   blocked: boolean;
   /** Tickets for this station waiting on paper right now. */
   queued: number;
+  /**
+   * Timed failover is on for this station: its printer has gone silent past
+   * PRINT_FAILOVER_AFTER_SECONDS and this other, live printer is taking its
+   * new tickets (marked REROUTED). Null otherwise.
+   */
+  failoverTo: Station | null;
 }

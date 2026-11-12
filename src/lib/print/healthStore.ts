@@ -103,6 +103,10 @@ export interface PrinterStatusRow {
   /** When the current paper-low spell began; null while the roll is fine. */
   paperLowSince: string | null;
   paperLowAlertedAt: string | null;
+  /** When the other printer first took this one's tickets (timed failover); null when not. */
+  failoverSince: string | null;
+  /** The owner has been texted "rerouting" and not yet "back". */
+  failoverAlertedAt: string | null;
 }
 
 /** Which alert-once stamp a claim is about. */
@@ -142,6 +146,13 @@ export interface PollTransition {
   previousBlockedReason: "paper-out" | "cover-open" | null;
   /** When the spell that just ended began. Only set when `unblocked`. */
   blockedSince: string | null;
+  /**
+   * Seconds since each OTHER printer last polled, by the database's clock,
+   * read in the same statement. Absent = that printer has never polled (or
+   * the old schema, which tracks no other printer). What timed failover
+   * decides from.
+   */
+  othersSilentSeconds: Partial<Record<Station, number>>;
 }
 
 interface RawRow {
@@ -159,12 +170,17 @@ interface RawRow {
   paper_alerted_at: Date | null;
   paper_low_since: Date | null;
   paper_low_alerted_at: Date | null;
+  failover_since: Date | null;
+  failover_alerted_at: Date | null;
 }
 
 const iso = (d: Date | null | undefined): string | null => (d == null ? null : d.toISOString());
 
 /** Legacy rows have no station or paper-low columns; they are the online printer. */
-function mapRow(row: Partial<RawRow> & Omit<RawRow, "station" | "paper_low_since" | "paper_low_alerted_at">): PrinterStatusRow {
+function mapRow(
+  row: Partial<RawRow> &
+    Omit<RawRow, "station" | "paper_low_since" | "paper_low_alerted_at" | "failover_since" | "failover_alerted_at">,
+): PrinterStatusRow {
   return {
     station: isStation(row.station) ? row.station : "online",
     printerMac: row.printer_mac,
@@ -182,6 +198,8 @@ function mapRow(row: Partial<RawRow> & Omit<RawRow, "station" | "paper_low_since
       row.paper_alerted_at === null ? null : row.paper_alerted_at.toISOString(),
     paperLowSince: iso(row.paper_low_since),
     paperLowAlertedAt: iso(row.paper_low_alerted_at),
+    failoverSince: iso(row.failover_since),
+    failoverAlertedAt: iso(row.failover_alerted_at),
   };
 }
 
@@ -263,6 +281,8 @@ export function untrackedTransition(
       paperAlertedAt: null,
       paperLowSince: null,
       paperLowAlertedAt: null,
+      failoverSince: null,
+      failoverAlertedAt: null,
     },
     untracked: true,
     firstEver: false,
@@ -273,6 +293,7 @@ export function untrackedTransition(
     blockedReason: printerBlockedReason(condition),
     previousBlockedReason: null,
     blockedSince: null,
+    othersSilentSeconds: {},
   };
 }
 
@@ -379,6 +400,9 @@ const RECORD_POLL_SQL = `with prev as (
          paper_low_alerted_at = case
            when $5 then printer_station_status.paper_low_alerted_at else null
          end,
+         -- This printer is polling, so nobody is covering for it any more.
+         -- (failover_alerted_at is left for the sweep's "back" text.)
+         failover_since = null,
          updated_at = now()
        returning *
      )
@@ -386,7 +410,10 @@ const RECORD_POLL_SQL = `with prev as (
             prev.last_seen_at  as prev_last_seen_at,
             prev.paper_out     as prev_paper_out,
             prev.cover_open    as prev_cover_open,
-            prev.blocked_since as prev_blocked_since
+            prev.blocked_since as prev_blocked_since,
+            (select coalesce(json_object_agg(o.station, extract(epoch from now() - o.last_seen_at)), '{}'::json)
+               from printer_station_status o
+              where o.tenant_id = $1 and o.station <> $10) as others_silent
        from upserted left join prev on true`;
 
 function transitionFrom(raw: unknown, condition: PrinterCondition): PollTransition {
@@ -426,12 +453,26 @@ function transitionFrom(raw: unknown, condition: PrinterCondition): PollTransiti
     previousBlockedReason,
     blockedSince:
       row.prev_blocked_since === null ? null : row.prev_blocked_since.toISOString(),
+    othersSilentSeconds: othersFrom((row as { others_silent?: unknown }).others_silent),
   };
+}
+
+/** The others_silent json ({"store": 12.3}) as numbers, ignoring anything odd. */
+function othersFrom(raw: unknown): Partial<Record<Station, number>> {
+  const out: Partial<Record<Station, number>> = {};
+  if (raw && typeof raw === "object") {
+    for (const [station, seconds] of Object.entries(raw as Record<string, unknown>)) {
+      const n = Number(seconds);
+      if (isStation(station) && Number.isFinite(n)) out[station] = n;
+    }
+  }
+  return out;
 }
 
 const STATUS_COLUMNS = `station, printer_mac, last_seen_at, online, paper_out,
   cover_open, paper_low, status_code, status_raw, blocked_since,
-  offline_alerted_at, paper_alerted_at, paper_low_since, paper_low_alerted_at`;
+  offline_alerted_at, paper_alerted_at, paper_low_since, paper_low_alerted_at,
+  failover_since, failover_alerted_at`;
 
 const LEGACY_STATUS_COLUMNS = `printer_mac, last_seen_at, online, paper_out,
   cover_open, paper_low, status_code, status_raw, blocked_since,
@@ -530,5 +571,50 @@ export async function releasePrinterAlert(
         [tenantId],
       );
     },
+  );
+}
+
+/**
+ * Timed failover: record that the other printer has started taking this
+ * station's tickets. Keeps the first time (one spell, one start). Run inside
+ * the claim's transaction, so it is true exactly when a ticket was rerouted.
+ */
+export const MARK_FAILOVER_SQL = `update printer_station_status
+    set failover_since = coalesce(failover_since, now()), updated_at = now()
+  where tenant_id = $1 and station = $2`;
+
+/**
+ * Claim one failover text. "start": a spell is on and nobody has been told.
+ * "back": the spell is over (the printer polled) and the owner was told it
+ * started. Conditional updates, so two sweeps cannot both text.
+ */
+export async function claimFailoverAlert(
+  tenantId: string,
+  station: Station,
+  phase: "start" | "back",
+): Promise<boolean> {
+  const sql =
+    phase === "start"
+      ? `update printer_station_status set failover_alerted_at = now(), updated_at = now()
+          where tenant_id = $1 and station = $2
+            and failover_since is not null and failover_alerted_at is null`
+      : `update printer_station_status set failover_alerted_at = null, updated_at = now()
+          where tenant_id = $1 and station = $2
+            and failover_since is null and failover_alerted_at is not null`;
+  const { rowCount } = await ordersPool().query(sql, [tenantId, station]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Undo a failover claim whose text could not be sent, so the next sweep retries. */
+export async function releaseFailoverAlert(
+  tenantId: string,
+  station: Station,
+  phase: "start" | "back",
+): Promise<void> {
+  await ordersPool().query(
+    `update printer_station_status
+        set failover_alerted_at = ${phase === "start" ? "null" : "now()"}, updated_at = now()
+      where tenant_id = $1 and station = $2`,
+    [tenantId, station],
   );
 }

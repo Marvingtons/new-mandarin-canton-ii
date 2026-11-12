@@ -103,6 +103,12 @@ CLOUDPRNT_BUZZER=off
 CLOUDPRNT_PRINTER_MAC_ONLINE=
 CLOUDPRNT_PRINTER_MAC_STORE=
 
+# Timed failover (src/config/stations.ts). When a station's printer HAS a MAC
+# set but has not polled for this many seconds, the other printer prints its
+# new tickets, marked REROUTED FROM ONLINE / STORE, and the owner is texted
+# once when it starts and once when the printer is back. 0 turns it off.
+PRINT_FAILOVER_AFTER_SECONDS=90
+
 # --- Print patience -------------------------------------------------------
 # How long the server waits on the printer before giving up on a job, and how
 # long after giving up it will still believe a confirmation. All optional; the

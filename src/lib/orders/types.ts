@@ -237,6 +237,12 @@ export interface Order {
    * board while this is true; it clears when the copy prints or gives up.
    */
   reprintPending: boolean;
+  /**
+   * Timed failover: the station this ticket was meant for, when its printer
+   * had gone silent and the other printer took it (`station` is then the one
+   * that printed it). The ticket header says REROUTED FROM it. Null when not.
+   */
+  reroutedFrom: Station | null;
   /** POS payment note, e.g. "paid by phone, card ending 4417". Never a card number field. */
   paymentNote: string | null;
   /** Internal staff note. Never printed. */

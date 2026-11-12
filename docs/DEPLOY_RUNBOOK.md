@@ -89,6 +89,7 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `CRON_SECRET` | — | unset leaves the cron endpoint open; it returns counts only, never order data |
 | `CLOUDPRNT_PRINTER_MAC_ONLINE` | — | printer A (web orders); set in step 5 after its MAC is known. The old `CLOUDPRNT_PRINTER_MAC` still works as this |
 | `CLOUDPRNT_PRINTER_MAC_STORE` | — | printer B (phone, walk-in, dine-in); see step 5.5. Unset = printer A prints the store's tickets too |
+| `PRINT_FAILOVER_AFTER_SECONDS` | `90` | a printer with a MAC set that has not polled for this long has its new tickets printed by the other printer, marked REROUTED; one owner text at start, one when it is back. `0` = off |
 | `CLOUDPRNT_BUZZER` | `off` | `drawer` for this restaurant's DK-port buzzer; see step 6 |
 
 **Read by no code** (documentation-only, safe to skip): `SUPABASE_URL`,
