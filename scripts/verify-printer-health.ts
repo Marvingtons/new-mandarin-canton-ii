@@ -37,7 +37,7 @@ const TENANT = "health-test";
  * tenant and protects it with a 90s confirmation window, so an order handed
  * over in an earlier scenario legitimately blocks every later one from being
  * offered at all. Sharing a tenant made a passing production rule look like a
- * failing test. Every scenario also gets its own printer_status row, which is
+ * failing test. Every scenario also gets its own printer_station_status row, which is
  * what lets each drive its own paper-out edge from a clean slate.
  */
 function scenarioTenant(name: string): string {
@@ -468,7 +468,7 @@ async function boardSeesTheTruth(
   // clock at read time, which is exactly the property being tested.
   const { ordersPool } = await import("../src/lib/db/postgres");
   await ordersPool().query(
-    "update printer_status set last_seen_at = now() - interval '5 minutes' where tenant_id = $1",
+    "update printer_station_status set last_seen_at = now() - interval '5 minutes' where tenant_id = $1",
     [tenant],
   );
   const stale = await ask();

@@ -27,7 +27,7 @@ import { STATIONS, type Station } from "@/config/stations";
  */
 
 export interface PrinterIdentity {
-  /** The printer this request came from; keys its printer_status row. */
+  /** The printer this request came from; keys its printer_station_status row. */
   station: Station;
   /** Whose tickets it claims. Always includes `station`. */
   serves: Station[];

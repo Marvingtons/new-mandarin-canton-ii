@@ -15,7 +15,7 @@ import {
 } from "@/lib/print/entitlement";
 import { readPrinterCondition } from "@/lib/print/printerStatus";
 import { printerIdentity } from "@/lib/print/printerIdentity";
-import { recordPoll } from "@/lib/print/healthStore";
+import { recordPoll, untrackedTransition, type PollTransition } from "@/lib/print/healthStore";
 import {
   JOB_MEDIA_TYPE_STARPRNT,
   NO_JOB,
@@ -176,12 +176,20 @@ export async function POST(
     // so it was handed jobs it could not print until the retry budget ran out
     // and the orders were condemned. Paper came back to an empty queue.
     const condition = readPrinterCondition(poll);
-    const transition = await recordPoll(
-      tenant.tenantId,
-      condition,
-      printer.mac,
-      printer.station,
-    );
+    // The health row is bookkeeping; the jobs are the point. A failed write
+    // (a schema mid-migration, a constraint nobody expected) is logged and the
+    // poll carries on, gating on the condition the printer just sent, so no
+    // printer is ever starved by its own health row.
+    let transition: PollTransition;
+    try {
+      transition = await recordPoll(tenant.tenantId, condition, printer.mac, printer.station);
+    } catch (err) {
+      console.error(
+        `${tag} could not record printer health, printing anyway:`,
+        err instanceof Error ? err.message : "unknown error",
+      );
+      transition = untrackedTransition(condition, printer.mac, printer.station);
+    }
 
     // EDGES ONLY. A line every three seconds for the life of the deployment
     // buries everything worth reading; a line when the paper runs out is the
@@ -424,13 +432,7 @@ export async function POST(
     return Response.json(body);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown error";
-    // The one expected failure in the deploy sequence: the code is out but
-    // migration 012 is not, so printer_status still allows one row per
-    // tenant and the second printer's health row is refused.
-    const hint = message.includes("printer_status_pkey")
-      ? " (apply migration 012_printer_status_per_station.sql: this printer has no health row yet)"
-      : "";
-    console.error(`${tag} poll failed: ${message}${hint}`);
+    console.error(`${tag} poll failed: ${message}`);
     // Never hand the printer something it might interpret as a job.
     return Response.json(NO_JOB);
   }

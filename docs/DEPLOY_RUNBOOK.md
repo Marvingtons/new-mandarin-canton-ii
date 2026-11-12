@@ -281,9 +281,11 @@ rather than a seek to the end of it.
    After this a leaked URL alone cannot drain the queue. Re-run step 4's
    command 1 with `&mac=<MAC>` to confirm you have not locked out your own
    printer.
-5. **Printer B (store).** Requires migrations 011 and 012 (see
-   `src/lib/db/migrations/011_print_stations.sql` for the order: 011, deploy,
-   012). Point the second TSP143IVUE at the same URL with the same settings,
+5. **Printer B (store).** Requires migrations 011 and 012. Apply 011, then
+   012, then deploy once; both are safe under the code already running, which
+   `npm run verify:station-migrations` proves by running main's own code
+   against them. 012 adds a new `printer_station_status` table and leaves
+   `printer_status` alone, so a rollback needs no schema change. Point the second TSP143IVUE at the same URL with the same settings,
    read its MAC off its self-test print, and set `CLOUDPRNT_PRINTER_MAC_STORE`.
    From then on phone, walk-in and dine-in tickets print on it and web tickets
    on printer A; the staff header shows both. Until it is set, printer A prints

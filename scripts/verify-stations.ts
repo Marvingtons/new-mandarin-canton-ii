@@ -14,7 +14,7 @@
  *   - each printer only ever claims, holds or re-offers its own station's
  *     tickets, and the two have a job in flight at the same time;
  *   - every hand-over records the printer that took it;
- *   - printer_status keeps one row per printer, and one printer's paper-out
+ *   - printer_station_status keeps one row per printer, and one printer's paper-out
  *     withholds nothing from the other;
  *   - 重印 with a station prints a copy on that printer and never moves the
  *     order: status and station stay as they were;
@@ -214,10 +214,10 @@ async function routing(h: Handlers, repo: Repo, pool: Pool): Promise<void> {
   check("all three PRINTED", done.every((o) => o?.status === "PRINTED"));
 
   const { rows } = await pool().query(
-    `select station, printer_mac from printer_status where tenant_id = $1 order by station for update`,
+    `select station, printer_mac from printer_station_status where tenant_id = $1 order by station for update`,
     [TENANT],
   );
-  check("printer_status holds one row per printer, with its MAC",
+  check("printer_station_status holds one row per printer, with its MAC",
     rows.length === 2 &&
       rows[0].station === "online" && rows[0].printer_mac === "00116200000a" &&
       rows[1].station === "store" && rows[1].printer_mac === "00116200000b",
@@ -341,7 +341,7 @@ async function strangerAndCoverage(h: Handlers, repo: Repo, pool: Pool): Promise
   const phone = await seed(repo, "phone");
   const stranger = await poll(h, MAC_STRANGER);
   const { rows } = await pool().query(
-    `select count(*)::int as n from (select 1 from printer_status where tenant_id = $1 for update) r`,
+    `select count(*)::int as n from (select 1 from printer_station_status where tenant_id = $1 for update) r`,
     [TENANT],
   );
   check("an unknown MAC is handed nothing and writes no health row", stranger === null && rows[0].n === 2);
@@ -367,7 +367,7 @@ async function alertNamesTheStation(h: Handlers, repo: Repo, pool: Pool): Promis
   await seed(repo, "dine_in");
   // The store printer went silent ten minutes ago with a ticket behind it.
   await pool().query(
-    `update printer_status set last_seen_at = now() - interval '10 minutes'
+    `update printer_station_status set last_seen_at = now() - interval '10 minutes'
       where tenant_id = $1 and station = 'store'`,
     [TENANT],
   );
@@ -391,7 +391,7 @@ async function alertNamesTheStation(h: Handlers, repo: Repo, pool: Pool): Promis
   // with nothing queued.
   await poll(h, MAC_ONLINE, "200 Paper Near End");
   await pool().query(
-    `update printer_status set paper_low_since = now() - interval '3 minutes'
+    `update printer_station_status set paper_low_since = now() - interval '3 minutes'
       where tenant_id = $1 and station = 'online'`,
     [TENANT],
   );

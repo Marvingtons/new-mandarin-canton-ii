@@ -287,16 +287,19 @@ create index if not exists print_deliveries_order_idx
 -- read one bit of it. So a printer out of paper looked exactly like a healthy
 -- one: it kept being handed jobs it could not print, each hand-over spent part
 -- of a retry budget, and paper came back to a queue whose orders had already
--- been condemned. One row per PRINTER, keyed (tenant, station) since
--- migrations 011/012 — the online printer and the store printer — each
--- rewritten every three seconds by its own poll. Mutable state, not a log; the
--- transitions go to the Workers Logs.
+-- been condemned. One row per PRINTER, keyed (tenant, station) — the online
+-- printer and the store printer — each rewritten every three seconds by its
+-- own poll. Mutable state, not a log; the transitions go to the Workers Logs.
+--
+-- Migration 012 created this table. Databases that predate it also have
+-- printer_status (one row per tenant), the pre-two-printer table, which the new
+-- code reads only when this one is missing. A fresh project does not need it.
 -- ---------------------------------------------------------------------------
-create table if not exists printer_status (
+create table if not exists printer_station_status (
   tenant_id          text        not null,
   -- Which printer: 'online' or 'store' (src/config/stations.ts). Identified on
   -- each poll by its MAC (src/lib/print/printerIdentity.ts).
-  station            text        not null default 'online',
+  station            text        not null,
   -- The poll clock. "Offline" is not a flag the printer sets; it is this
   -- column going stale.
   last_seen_at       timestamptz not null default now(),
@@ -323,8 +326,8 @@ create table if not exists printer_status (
   paper_low_alerted_at timestamptz,
   updated_at         timestamptz not null default now(),
 
-  constraint printer_status_pkey primary key (tenant_id, station),
-  constraint printer_status_station_check check (station in ('online', 'store'))
+  constraint printer_station_status_pkey primary key (tenant_id, station),
+  constraint printer_station_status_station_check check (station in ('online', 'store'))
 );
 
 -- ---------------------------------------------------------------------------
@@ -337,5 +340,5 @@ create table if not exists printer_status (
 -- ---------------------------------------------------------------------------
 alter table orders            enable row level security;
 alter table order_counters    enable row level security;
-alter table printer_status    enable row level security;
+alter table printer_station_status enable row level security;
 alter table print_deliveries  enable row level security;

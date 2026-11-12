@@ -95,9 +95,9 @@ test.beforeAll(async ({ browser }) => {
   await seed({ channel: "web", status: "COMPLETED", name: "Online Done" });
 
   // Online printer healthy; store printer out of paper for a minute.
-  await db.query(`delete from printer_status where tenant_id = $1`, [TENANT]);
+  await db.query(`delete from printer_station_status where tenant_id = $1`, [TENANT]);
   await db.query(
-    `insert into printer_status (tenant_id, station, last_seen_at, online, paper_out, cover_open, paper_low,
+    `insert into printer_station_status (tenant_id, station, last_seen_at, online, paper_out, cover_open, paper_low,
                                  status_code, printer_mac, blocked_since)
      values ($1, 'online', now(), true, false, false, false, '200 OK', '00116200000a', null),
             ($1, 'store',  now(), false, true, false, false, '503 Paper Empty', '00116200000b', now() - interval '1 minute')`,

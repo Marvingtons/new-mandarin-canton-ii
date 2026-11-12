@@ -1,22 +1,25 @@
 -- ---------------------------------------------------------------------------
--- 011: two printers. Every ticket knows which printer (station) it belongs to,
---      every hand-over records which printer took it, and printer_status can
---      hold one row per printer.
+-- 011: two printers, the orders side. Every ticket knows which printer
+--      (station) it belongs to, every hand-over records which printer took it,
+--      and a 重印 copy can wait for a printer without touching the order's
+--      status. Printer health is 012's.
 --
 -- ⚠️ NOT APPLIED. Written for review.
 --
 -- Run against a database that already has the 010 shape. A fresh project runs
 -- schema.sql instead, which already includes 011 and 012.
 --
--- DEPLOY ORDER (both files):
---   1. apply 011            additive; the running code keeps working on it
---   2. deploy the code
---   3. apply 012            re-keys printer_status; see that file
+-- DEPLOY ORDER (both files): apply 011, then 012, then deploy once.
 --
--- Why this order: the new code selects orders.print_station on every read, so
--- it cannot run ahead of 011. The OLD code upserts printer_status
--- `on conflict (tenant_id)`, so re-keying printer_status before the deploy
--- would make every poll of the live printer fail. Hence two files.
+--   Both files are additive. The code running today keeps working on the
+--   result (verify:station-migrations runs main's own code against it), and
+--   the new code needs both. 011 must come first only because the new code
+--   reads orders.print_station; 012 does not depend on 011, but run them in
+--   number order.
+--
+--   Nothing here touches printer_status. The running code upserts it
+--   `on conflict (tenant_id)`, which needs (tenant_id) to stay its key, so the
+--   per-printer health table is a NEW table (012) rather than a re-keyed one.
 --
 -- STATIONS (src/config/stations.ts is the source of truth; this file repeats
 -- the mapping once, to backfill):
@@ -27,8 +30,9 @@
 --   orders.print_station         the printer whose queue this ticket is in.
 --                                Set from the channel at insert. Default
 --                                'online' covers rows the OLD code inserts
---                                between steps 1 and 2: there is one printer
---                                until step 2, and it is the online one.
+--                                between this migration and the deploy: until
+--                                the deploy there is one printer, the online
+--                                one, and it is where those tickets print.
 --   orders_print_station_queue_idx  per-printer head of line (QUEUED only).
 --   orders.reprint_delivery_id   a 重印 copy waiting on a printer: the id of its
 --                                manual_reprint print_deliveries row, which
@@ -41,17 +45,6 @@
 --   orders_reprint_pending_idx   the rows with a copy pending (tiny, partial).
 --   print_deliveries.station     the printer this hand-over went to. NULL on
 --                                rows from before this migration (one printer).
---   printer_status.station       which printer this health row is. Existing
---                                row becomes 'online': it IS printer A.
---   printer_status.paper_low_since / paper_low_alerted_at
---                                the near-end spell and its once-per-roll text.
---   printer_status (tenant_id, station) unique index, so the new code's
---                                `on conflict (tenant_id, station)` has an arbiter
---                                while the old primary key is still in place.
---
--- Until 012 runs, the old primary key (tenant_id) still allows only ONE row per
--- tenant: printer A keeps working, and printer B's polls are refused with a
--- logged error (it gets no jobs). Run 012 right after the deploy.
 --
 -- Safe to run more than once.
 -- ---------------------------------------------------------------------------
@@ -118,24 +111,5 @@ end $$;
 
 comment on column print_deliveries.station is
   'Printer this hand-over went to (for a manual_reprint marker, the station staff picked). NULL before migration 011.';
-
--- ------------------------------------------------------ printer_status
-
-alter table printer_status add column if not exists station text not null default 'online';
-alter table printer_status add column if not exists paper_low_since timestamptz;
-alter table printer_status add column if not exists paper_low_alerted_at timestamptz;
-
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'printer_status_station_check'
-  ) then
-    alter table printer_status add constraint printer_status_station_check
-      check (station in ('online', 'store'));
-  end if;
-end $$;
-
-create unique index if not exists printer_status_tenant_station_key
-  on printer_status (tenant_id, station);
 
 commit;

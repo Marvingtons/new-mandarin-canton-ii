@@ -42,7 +42,7 @@
     "verify:dine-in": "tsx --conditions=react-server scripts/verify-dine-in.ts",
     "verify:print-stale-reads": "tsx --conditions=react-server scripts/verify-print-stale-reads.ts",
     "verify:stations": "tsx --conditions=react-server scripts/verify-stations.ts",
-    "verify:station-migrations": "tsx scripts/verify-station-migrations.ts",
+    "verify:station-migrations": "tsx --conditions=react-server scripts/verify-station-migrations.ts",
     "doctor": "react-doctor . --lint --verbose"
   },
   "dependencies": {
