@@ -29,7 +29,7 @@ import { Client } from "pg";
 import { installHyperdriveCacheEmulator } from "./lib/hyperdrive-cache-emulator";
 import type { OrderChannel } from "../src/lib/orders/types";
 
-const PORT = 55441;
+const PORT = 55445;
 const DB_NAME = "nmc_stations_test";
 const SECRET = "verify-stations-secret";
 const CRON = "verify-stations-cron";
