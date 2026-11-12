@@ -66,6 +66,17 @@ export function resolvePrinterIdentity(
   return { station, serves, mac };
 }
 
+/**
+ * The stations that have a printer MAC configured. Only these can be offline,
+ * out of paper or alerted about; any other station is "not set up" and its
+ * tickets print on the station that covers it (stationCoverage).
+ */
+export function configuredStations(
+  configured: Partial<Record<Station, string>> = cloudPrntPrinterMacs(),
+): Station[] {
+  return STATIONS.filter((s) => normalizeMac(configured[s]) !== null);
+}
+
 /** The request's printer, against this deployment's configuration. */
 export function printerIdentity(rawMac: string | null | undefined): PrinterIdentity | null {
   return resolvePrinterIdentity(rawMac, cloudPrntPrinterMacs());

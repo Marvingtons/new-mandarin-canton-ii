@@ -21,7 +21,7 @@ import {
   type PrinterAlertKind,
   type PrinterStatusRow,
 } from "@/lib/print/healthStore";
-import { stationCoverage } from "@/lib/print/printerIdentity";
+import { configuredStations, stationCoverage } from "@/lib/print/printerIdentity";
 import {
   STATIONS,
   STATION_LABEL,
@@ -185,9 +185,14 @@ async function alertOnPrinters(
 
   const rows = await readAllPrinterStatus(tenantId);
   const coverage = stationCoverage();
+  const configured = new Set(configuredStations());
   const outcomes: PrinterAlertOutcome[] = [];
 
   for (const station of STATIONS) {
+    // A station with no MAC configured has no printer of its own: it is "not
+    // set up", never offline, out of paper or open, and never texted about,
+    // even if a row was left behind by a printer that used to be pinned to it.
+    if (!configured.has(station)) continue;
     const row = rows[station];
     if (!row) continue;
     const alert = printerAlertFor(row);

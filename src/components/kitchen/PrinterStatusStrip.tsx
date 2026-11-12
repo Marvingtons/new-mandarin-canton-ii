@@ -14,9 +14,10 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * header) says which, and exactly what to do.
  */
 
-type Look = "ok" | "low" | "blocked" | "offline" | "unknown";
+type Look = "ok" | "low" | "blocked" | "offline" | "unknown" | "unset";
 
 function lookOf(p: StationPrinterHealth): Look {
+  if (p.health === "not-set-up") return "unset";
   if (p.health === "offline") return "offline";
   if (p.health === "paper-out" || p.health === "cover-open") return "blocked";
   if (p.health === "unknown") return "unknown";
@@ -30,6 +31,9 @@ const CHIP: Record<Look, { className: string; icon: IconName }> = {
   blocked: { className: "bg-staff-gold text-staff-ink", icon: "alert" },
   offline: { className: "bg-staff-brand text-staff-on-brand", icon: "alert" },
   unknown: { className: "bg-staff-sunken text-staff-ink", icon: "circle" },
+  // Neutral and quiet on purpose: no printer configured is a setup choice,
+  // not a fault.
+  unset: { className: "bg-staff-sunken text-staff-ink opacity-80", icon: "circle" },
 };
 
 function shortKey(p: StationPrinterHealth): KitchenKey {
@@ -42,6 +46,8 @@ function shortKey(p: StationPrinterHealth): KitchenKey {
       return "printer.short.coverOpen";
     case "unknown":
       return "printer.short.unknown";
+    case "not-set-up":
+      return "printer.short.notSetUp";
     default:
       return p.paperLow ? "printer.short.paperLow" : "printer.short.ok";
   }
@@ -57,6 +63,9 @@ function helpKey(p: StationPrinterHealth): KitchenKey | null {
       return "printer.help.coverOpen";
     case "unknown":
       return "printer.help.unknown";
+    case "not-set-up":
+      // Not a fault: no banner, ever.
+      return null;
     default:
       return p.paperLow ? "printer.help.paperLow" : null;
   }

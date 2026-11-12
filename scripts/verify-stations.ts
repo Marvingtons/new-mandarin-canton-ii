@@ -357,9 +357,37 @@ async function strangerAndCoverage(h: Handlers, repo: Repo, pool: Pool): Promise
   await confirm(h, MAC_ONLINE, covered!);
   const { stationPrinterHealth } = await import("../src/lib/print/boardPrinters");
   const strip = await stationPrinterHealth(TENANT);
+  const storeChip = strip.find((p) => p.station === "store");
   check("the strip says the store station is printed by the online printer",
-    strip.find((p) => p.station === "store")?.printedBy === "online");
+    storeChip?.printedBy === "online");
+  check("and calls the store station \"not set up\": unconfigured, never offline, not blocked",
+    storeChip?.health === "not-set-up" && storeChip.configured === false && !storeChip.blocked,
+    JSON.stringify(storeChip));
+
+  // Its old health row says it went silent ten minutes ago, with a ticket
+  // queued for the store: still no alert, because there is no store printer.
+  await seed(repo, "walk_in");
+  await pool().query(
+    `update printer_station_status set last_seen_at = now() - interval '10 minutes', paper_out = true,
+            blocked_since = now() - interval '10 minutes'
+      where tenant_id = $1 and station = 'store'`,
+    [TENANT],
+  );
+  const cron = (await import("../src/app/api/cron/unprinted-alert/route")) as unknown as {
+    GET: (r: Request) => Promise<Response>;
+  };
+  const swept = (await (
+    await cron.GET(
+      new Request("https://example.test/api/cron/unprinted-alert", {
+        headers: { authorization: `Bearer ${CRON}` },
+      }),
+    )
+  ).json()) as { printer?: { station: string }[] };
+  check("an unconfigured station is never alerted about (offline, paper or cover)",
+    !(swept.printer ?? []).some((a) => a.station === "store"), JSON.stringify(swept.printer));
+  await drain(h);
   process.env.CLOUDPRNT_PRINTER_MAC_STORE = MAC_STORE;
+  await poll(h, MAC_STORE); // back to a fresh, healthy row
 }
 
 async function alertNamesTheStation(h: Handlers, repo: Repo, pool: Pool): Promise<void> {

@@ -135,7 +135,7 @@ export function printerBlockedReason(
  * A printer that reported paper-out and then vanished is offline — silence is
  * the more urgent fact, so it is checked first.
  */
-export type PrinterHealth = "ok" | "paper-out" | "cover-open" | "offline" | "unknown";
+export type PrinterHealth = "ok" | "paper-out" | "cover-open" | "offline" | "unknown" | "not-set-up";
 
 /**
  * A printer polls every ~3 seconds. Sixty is twenty missed polls: long enough
@@ -164,6 +164,12 @@ export function derivePrinterHealth(input: {
  */
 export interface StationPrinterHealth {
   station: Station;
+  /**
+   * This station has a printer MAC configured (CLOUDPRNT_PRINTER_MAC_ONLINE /
+   * _STORE). False = health "not-set-up": not a failure, never offline, never
+   * an alert. Its tickets print on `printedBy`.
+   */
+  configured: boolean;
   /**
    * The printer actually printing this station's tickets: itself, or the
    * other station's while this one has no printer configured. Health below is

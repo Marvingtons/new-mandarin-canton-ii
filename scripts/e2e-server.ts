@@ -67,6 +67,10 @@ async function main(): Promise<void> {
       // Signs the test-mode and phone cookies. A test value, like the rest.
       OTP_SIGNING_SECRET: "e2e-otp-signing-secret-0123456789abcdef0123456789",
       CLOUDPRNT_SECRET: "e2e-print-secret-not-a-printer",
+      // Both stations configured, as in production with two printers: a
+      // station with no MAC reads "Not set up" and has no health to show.
+      CLOUDPRNT_PRINTER_MAC_ONLINE: process.env.CLOUDPRNT_PRINTER_MAC_ONLINE ?? "00:11:62:00:00:0A",
+      CLOUDPRNT_PRINTER_MAC_STORE: process.env.CLOUDPRNT_PRINTER_MAC_STORE ?? "00:11:62:00:00:0B",
       TWILIO_ACCOUNT_SID: "",
       TWILIO_AUTH_TOKEN: "",
       TWILIO_VERIFY_SERVICE_SID: "",

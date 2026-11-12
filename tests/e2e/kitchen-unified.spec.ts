@@ -8,11 +8,9 @@ import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
  * SaaS behaviours (optimistic with rollback, live arrivals, keyboard, confirm
  * only where destructive), at the three widths the counter and the office use.
  *
- * Runs against scripts/e2e-server.ts (production build, throwaway database).
- * For two separate printers, start that server with
- * CLOUDPRNT_PRINTER_MAC_ONLINE and CLOUDPRNT_PRINTER_MAC_STORE set; without
- * them the store station is covered by the online printer, which the strip
- * also handles. Set E2E_SHOTS=<dir> to save screenshots.
+ * Runs against scripts/e2e-server.ts (production build, throwaway database),
+ * which configures both printer MACs, so each station shows its own printer's
+ * health. Set E2E_SHOTS=<dir> to save screenshots.
  */
 
 test.describe.configure({ mode: "serial" });
