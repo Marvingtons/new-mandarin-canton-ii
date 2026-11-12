@@ -22,13 +22,20 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: `http://localhost:${PORT}`,
-    channel: "chrome",
   },
   projects: [
     {
       name: "kitchen-tablet",
       testMatch: /kitchen-.*\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], channel: "chrome", viewport: { width: 1180, height: 820 } },
+    },
+    {
+      // Sound on the counter's iPad: Safari's engine (WebKit) with an iPad's
+      // viewport, user agent and touch. Only the sound spec: the rest of the
+      // kitchen suite is engine-neutral and runs once, in Chrome.
+      name: "kitchen-ipad",
+      testMatch: /kitchen-sound\.spec\.ts/,
+      use: { ...devices["iPad Pro 11 landscape"] },
     },
     {
       // Customer-site checks are about what a phone is sent.

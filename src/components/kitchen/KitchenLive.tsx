@@ -6,6 +6,7 @@ import type { Order } from "@/lib/orders/types";
 import type { StationPrinterHealth } from "@/lib/print/printerStatus";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
 import { useToast } from "@/components/kitchen/ui/Toasts";
+import { playChime, resumeOnNextTap, unlockAudio } from "@/components/kitchen/sound";
 
 /**
  * THE STAFF APP'S LIVE DATA: today's orders from both stations, both
@@ -33,7 +34,16 @@ import { useToast } from "@/components/kitchen/ui/Toasts";
 const POLL_MS = 4_000;
 /** A hidden tab (screen off, another app in front) checks in less often. */
 const POLL_HIDDEN_MS = 20_000;
-const MUTE_KEY = "nmc-kitchen-muted";
+/**
+ * The device's sound choice: "on" or "off", absent until staff answer the
+ * one-time prompt. (The older mute key is read once, so a tablet already set
+ * to silent stays silent and is not asked.)
+ */
+const SOUND_KEY = "nmc-kitchen-sound";
+const LEGACY_MUTE_KEY = "nmc-kitchen-muted";
+
+/** "ask" until this device has answered the Enable sound prompt. */
+export type SoundChoice = "ask" | "on" | "off";
 /** How long a new order's card stays highlighted. */
 const FRESH_MS = 30_000;
 
@@ -69,44 +79,21 @@ interface LiveValue {
   freshIds: ReadonlySet<number>;
   /** Ids with an action in flight. */
   pendingIds: ReadonlySet<number>;
+  /** True unless sound is on. A device that has not chosen yet is silent. */
   muted: boolean;
+  /** Where this device is: "ask" shows the one-time prompt. */
+  sound: SoundChoice;
+  /** Call from a tap: turning sound on unlocks audio inside the gesture. */
   toggleMute: () => void;
+  /** The prompt's two answers. enableSound must run inside the tap. */
+  enableSound: () => void;
+  declineSound: () => void;
   refresh: () => Promise<void>;
   act: (order: OrderRef, action: OrderAction, extra?: { note?: string; station?: Station }) => Promise<boolean>;
   clearTable: (tableLabel: string) => Promise<boolean>;
 }
 
 const LiveContext = createContext<LiveValue | null>(null);
-
-/** Two-tone chime via WebAudio: nothing to download, nothing an adblocker can stop. */
-function useChime(muted: boolean) {
-  const ctxRef = useRef<AudioContext | null>(null);
-  return useCallback(() => {
-    if (muted) return;
-    try {
-      // Lazily: browsers refuse an AudioContext before the page is touched,
-      // and staff always tap to sign in first.
-      ctxRef.current ??= new AudioContext();
-      const ctx = ctxRef.current;
-      void ctx.resume();
-      for (const [index, freq] of [880, 1320, 1760].entries()) {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        const start = ctx.currentTime + index * 0.16;
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.4, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.34);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + 0.36);
-      }
-    } catch {
-      /* audio unavailable: the toast and the highlight still fire */
-    }
-  }, [muted]);
-}
 
 /** What an action looks like on screen before the server answers. */
 function optimisticPatch(action: OrderAction): Partial<Order> {
@@ -144,7 +131,8 @@ export function KitchenLiveProvider({
   );
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [freshIds, setFreshIds] = useState<ReadonlySet<number>>(new Set());
-  const [muted, setMuted] = useState(false);
+  const [sound, setSound] = useState<SoundChoice>("ask");
+  const muted = sound !== "on";
   /** orderId -> the patch on screen while its request is in flight. */
   const [overlays, setOverlays] = useState<ReadonlyMap<number, { token: number; patch: Partial<Order> }>>(
     new Map(),
@@ -153,27 +141,49 @@ export function KitchenLiveProvider({
   // Seeded from the server's read, so opening the board mid-service does not
   // announce every order already on it.
   const seenRef = useRef<Set<number> | null>(initial ? new Set(initial.orders.map((o) => o.id)) : null);
-  const chime = useChime(muted);
+  const chime = useCallback(() => {
+    if (!muted) playChime();
+  }, [muted]);
 
-  // Mute is per device, read after mount so the server render matches.
+  // Sound is per device, read after mount so the server render matches.
   useEffect(() => {
     try {
+      const stored = localStorage.getItem(SOUND_KEY);
+      const legacyMuted = localStorage.getItem(LEGACY_MUTE_KEY) === "1";
+      const choice: SoundChoice =
+        stored === "on" || stored === "off" ? stored : legacyMuted ? "off" : "ask";
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reading a device preference once
-      setMuted(localStorage.getItem(MUTE_KEY) === "1");
+      setSound(choice);
     } catch {
-      /* storage blocked: audible */
+      /* storage blocked: ask every visit */
     }
   }, []);
 
-  const toggleMute = useCallback(() => {
-    const next = !muted;
-    setMuted(next);
+  // A context the iPad suspended (sleep, background, another app's audio)
+  // comes back on the next tap anywhere, not only on the bell.
+  useEffect(() => resumeOnNextTap(), []);
+
+  const choose = useCallback((next: "on" | "off") => {
+    // Inside the caller's gesture, before anything awaits: this is the tap
+    // WebKit needs to see.
+    if (next === "on") void unlockAudio();
+    setSound(next);
     try {
-      localStorage.setItem(MUTE_KEY, next ? "1" : "0");
+      localStorage.setItem(SOUND_KEY, next);
+      localStorage.removeItem(LEGACY_MUTE_KEY);
     } catch {
       /* still applies for this visit */
     }
-  }, [muted]);
+  }, []);
+
+  const toggleMute = useCallback(() => choose(muted ? "on" : "off"), [choose, muted]);
+  const enableSound = useCallback(() => {
+    choose("on");
+    // Play it once, so staff hear what an online order sounds like and know
+    // this tablet is not muted at the hardware.
+    playChime();
+  }, [choose]);
+  const declineSound = useCallback(() => choose("off"), [choose]);
 
   /* The highlight timers, so leaving the staff app cancels them. */
   const freshTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -431,12 +441,18 @@ export function KitchenLiveProvider({
       freshIds,
       pendingIds,
       muted,
+      sound,
       toggleMute,
+      enableSound,
+      declineSound,
       refresh,
       act,
       clearTable,
     }),
-    [orders, printers, printersConfigured, status, lastSync, freshIds, pendingIds, muted, toggleMute, refresh, act, clearTable],
+    [
+      orders, printers, printersConfigured, status, lastSync, freshIds, pendingIds,
+      muted, sound, toggleMute, enableSound, declineSound, refresh, act, clearTable,
+    ],
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

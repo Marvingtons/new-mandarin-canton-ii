@@ -93,7 +93,7 @@ function ShellFrame({
   children: React.ReactNode;
 }) {
   const { lang, setLang, t } = useKitchenI18n();
-  const { orders, status, muted, toggleMute } = useKitchenLive();
+  const { orders, status, muted, sound, toggleMute, enableSound, declineSound } = useKitchenLive();
   const router = useRouter();
   const topRef = useRef<HTMLDivElement>(null);
   const [largeText, toggleLargeText] = useLargeText();
@@ -182,11 +182,14 @@ function ShellFrame({
                 largeText={largeText}
                 onLargeText={toggleLargeText}
                 onShortcuts={() => setHelpOpen(true)}
+                muted={muted}
+                onSound={toggleMute}
               />
             </div>
           </div>
         </header>
         <PrinterAlerts />
+        {sound === "ask" && <SoundPrompt onEnable={enableSound} onDecline={declineSound} />}
       </div>
       {children}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
@@ -194,19 +197,57 @@ function ShellFrame({
   );
 }
 
-/** Language, 大字, shortcuts and sign out: once a shift, so behind ⋯. */
+/**
+ * ONE TIME, on the first staff page this device opens: ask to turn the
+ * arrival chime on. It has to be a tap, because iPad Safari plays nothing
+ * until the page has had one; the tap on "Enable sound" is that gesture, and
+ * it unlocks audio inside the handler. The answer is kept on the device, so
+ * it is never asked again; the bell and the ⋯ menu change it later.
+ */
+function SoundPrompt({ onEnable, onDecline }: { onEnable: () => void; onDecline: () => void }) {
+  const { t } = useKitchenI18n();
+  return (
+    <div className="mx-auto w-full max-w-[1600px] px-4 pt-3 sm:px-6">
+      <div
+        role="region"
+        aria-label={t("sound.prompt.title")}
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-staff-card bg-staff-gold-tint px-5 py-3 text-staff-body text-staff-ink"
+      >
+        <Icon name="bell" size={22} />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">{t("sound.prompt.title")}</p>
+          <p className="text-staff-caption">{t("sound.prompt.body")}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="quiet" size="sm" onClick={onDecline}>
+            {t("sound.notNow")}
+          </Button>
+          <Button variant="primary" size="sm" icon="bell" onClick={onEnable}>
+            {t("sound.enable")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Language, 大字, sound, shortcuts and sign out: once a shift, so behind ⋯. */
 function MoreMenu({
   lang,
   onLang,
   largeText,
   onLargeText,
   onShortcuts,
+  muted,
+  onSound,
 }: {
   lang: string;
   onLang: () => void;
   largeText: boolean;
   onLargeText: () => void;
   onShortcuts: () => void;
+  muted: boolean;
+  onSound: () => void;
 }) {
   const { t } = useKitchenI18n();
   const [open, setOpen] = useState(false);
@@ -257,6 +298,13 @@ function MoreMenu({
             <Icon name="type" size={20} />
             {t("nav.largeText")}
             {largeText && <Icon name="check" size={20} className="ml-auto text-staff-brand" />}
+          </button>
+          <button type="button" role="menuitemcheckbox" aria-checked={!muted} className={item} onClick={onSound}>
+            <Icon name={muted ? "bellOff" : "bell"} size={20} />
+            {t("nav.sound")}
+            <span className={`ml-auto ${muted ? "text-staff-soft" : "font-semibold text-staff-brand"}`}>
+              {t(muted ? "nav.soundOff" : "nav.soundOn")}
+            </span>
           </button>
           <button
             type="button"
