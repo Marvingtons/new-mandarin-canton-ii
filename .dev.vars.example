@@ -92,8 +92,16 @@ MAX_PICKUP_HOURS=48
 TIP_PRESETS=
 CLOUDPRNT_BUZZER=off
 
-# Optional. Pins the printer by MAC/serial; unset accepts any printer.
-CLOUDPRNT_PRINTER_MAC=
+# Two printers, told apart by the MAC each one sends on every poll.
+#   ONLINE prints web orders; STORE prints phone, walk-in and dine-in
+#   (src/config/stations.ts). Any separator style is accepted
+#   (00:11:62:AA:BB:CC, 001162aabbcc). Once a MAC is set, a leaked URL alone
+#   cannot drain the queue, and an unknown printer is handed nothing.
+# A station left unset is printed by the other printer, so with only ONLINE
+# set the one printer prints everything, as before. CLOUDPRNT_PRINTER_MAC is
+# the old single-printer name and is read as ONLINE when ONLINE is unset.
+CLOUDPRNT_PRINTER_MAC_ONLINE=
+CLOUDPRNT_PRINTER_MAC_STORE=
 
 # --- Print patience -------------------------------------------------------
 # How long the server waits on the printer before giving up on a job, and how

@@ -87,7 +87,8 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `TIP_PRESETS` | empty | leave empty; tipping is the register's job |
 | `DATABASE_POOL_MAX` | `4` | keep small on serverless |
 | `CRON_SECRET` | — | unset leaves the cron endpoint open; it returns counts only, never order data |
-| `CLOUDPRNT_PRINTER_MAC` | — | set in step 5, after the printer's MAC is known |
+| `CLOUDPRNT_PRINTER_MAC_ONLINE` | — | printer A (web orders); set in step 5 after its MAC is known. The old `CLOUDPRNT_PRINTER_MAC` still works as this |
+| `CLOUDPRNT_PRINTER_MAC_STORE` | — | printer B (phone, walk-in, dine-in); see step 5.5. Unset = printer A prints the store's tickets too |
 | `CLOUDPRNT_BUZZER` | `off` | `drawer` for this restaurant's DK-port buzzer; see step 6 |
 
 **Read by no code** (documentation-only, safe to skip): `SUPABASE_URL`,
@@ -276,9 +277,17 @@ rather than a seek to the end of it.
    Leave the CloudPRNT username/password empty — the URL secret is the credential.
 3. Place a real order and watch it print. `/kitchen` should show it reach
    `PRINTED`.
-4. Set `CLOUDPRNT_PRINTER_MAC` to the MAC from step 5.1 and redeploy. After
-   this a leaked URL alone cannot drain the queue. Re-run step 4's command 1
-   with `&mac=<MAC>` to confirm you have not locked out your own printer.
+4. Set `CLOUDPRNT_PRINTER_MAC_ONLINE` to the MAC from step 5.1 and redeploy.
+   After this a leaked URL alone cannot drain the queue. Re-run step 4's
+   command 1 with `&mac=<MAC>` to confirm you have not locked out your own
+   printer.
+5. **Printer B (store).** Requires migrations 011 and 012 (see
+   `src/lib/db/migrations/011_print_stations.sql` for the order: 011, deploy,
+   012). Point the second TSP143IVUE at the same URL with the same settings,
+   read its MAC off its self-test print, and set `CLOUDPRNT_PRINTER_MAC_STORE`.
+   From then on phone, walk-in and dine-in tickets print on it and web tickets
+   on printer A; the staff header shows both. Until it is set, printer A prints
+   everything.
 
 ---
 
