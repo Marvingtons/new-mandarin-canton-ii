@@ -62,7 +62,24 @@ const audio = (page: Page) =>
 async function signIn(page: Page): Promise<void> {
   await page.goto("/kitchen");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
+  const localWebkit = page.context().browser()?.browserType().name() === "webkit" &&
+    new URL(page.url()).origin === `http://localhost:${process.env.E2E_PORT ?? 3100}`;
+  const response = localWebkit
+    ? page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/kitchen")
+    : null;
   await page.locator('input[type="password"]').press("Enter");
+  if (response) {
+    // next start emits Secure cookies; WebKit rejects them on our HTTP-only
+    // localhost harness. Reuse the session actually issued by a successful
+    // login, with Secure removed only in this test browser. Production auth
+    // and the server's session validation remain unchanged.
+    const login = await response;
+    expect(login.ok()).toBe(true);
+    const token = (await login.headerValue("set-cookie"))?.match(/nmc_kitchen=([^;]+)/)?.[1];
+    expect(token).toBeTruthy();
+    await page.context().addCookies([{ name: "nmc_kitchen", value: token!, url: page.url(), httpOnly: true, sameSite: "Lax", secure: false }]);
+    await page.reload();
+  }
   await expect(page.getByRole("navigation", { name: "廚房選單" })).toBeVisible();
 }
 

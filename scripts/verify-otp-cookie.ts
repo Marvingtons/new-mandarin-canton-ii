@@ -104,7 +104,7 @@ function main(): void {
   console.log("\nrejections still reject:");
   check(
     "tampered signature",
-    readVerifiedPhoneFromRequest(requestWith(token.slice(0, -1) + "0", true)),
+    readVerifiedPhoneFromRequest(requestWith(token.slice(0, -1) + (token.endsWith("0") ? "1" : "0"), true)),
     null,
   );
   check(
@@ -144,7 +144,7 @@ function main(): void {
   );
   check(
     "tampered signature rejected",
-    readRememberToken(remember.slice(0, -1) + "0", TTL),
+    readRememberToken(remember.slice(0, -1) + (remember.endsWith("0") ? "1" : "0"), TTL),
     null,
   );
   check(
