@@ -21,11 +21,15 @@ const MAX_INSTRUCTIONS = 200;
 
 /**
  * The POS item sheet: the customer sheet's LOGIC (useItemChoice: sizes, the
- * required groups and their defaults, min/max, the live price) with a staff
+ * required groups, min/max, the live price) with a staff
  * surface in the POS system: warm ground, white option cards, the brand red
  * for what is chosen and for Add, every name in both languages.
  *
  * Keyed by item id from the parent, so a new dish starts clean.
+ *
+ * NO REQUIRED CHOICE IS PRESELECTED here, unlike the customer sheet: a lunch
+ * entrée, an "or" dish, the rice all open blank and Add stays disabled until
+ * staff pick, so nothing reaches the kitchen that the caller did not say.
  */
 /** One choice in the sheet (a size, a rice, an extra): selected is ringed in lacquer. */
 const option = (selected: boolean) =>
@@ -77,7 +81,7 @@ export default function PosItemSheet({
     priceCents,
     unmetGroups,
     groupsValid,
-  } = useItemChoice(item, initialSizeId);
+  } = useItemChoice(item, initialSizeId, false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

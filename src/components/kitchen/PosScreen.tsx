@@ -45,10 +45,11 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * Dine-in without a table shows the floor plan in place of the three zones.
  *
  * NAMES, NOT DETAILS. A dish tile is its 中文 and English on its category's
- * tint, nothing else: tap it and the regular size goes on the ticket (its
- * required single choices, like rice, take their defaults); a second size is a
- * chip in the corner. Only a dish with a real decision (an entrée to choose,
- * five party sizes) opens the options sheet. Prices are on the ticket.
+ * tint, nothing else: tap it and the regular size goes on the ticket; a second
+ * size is a chip in the corner. A dish with ANY required choice (a lunch
+ * entrée, an "or" dish, the rice) or five party sizes opens the options sheet
+ * instead, with the choice unmade: one tap never decides for the caller.
+ * Prices are on the ticket.
  *
  * Every dish shows 中文 large and English beneath regardless of the language
  * toggle, because the person taking the call and the person at the wok may
@@ -104,24 +105,18 @@ function isDefaultSize(label: string): boolean {
 }
 
 /**
- * The line one tap adds, or null when the dish needs its sheet. Required
- * single-choice groups take their first option, exactly as the sheet would
- * open (useItemChoice); a required multi-choice group is a decision, so it
- * goes to the sheet.
+ * The line one tap adds, or null when the dish needs its sheet: any required
+ * group is a decision the caller makes (the sheet opens with it unmade), so
+ * only a dish with nothing required goes straight onto the ticket.
  */
 function quickDraft(item: MenuItem, sizeId: string): PosLineDraft | null {
-  const modifierIds: string[] = [];
-  for (const g of groupsForSize(item, sizeId)) {
-    if (g.minRequired < 1) continue;
-    if (g.maxAllowed !== 1 || g.minRequired > 1 || !g.modifiers[0]) return null;
-    modifierIds.push(g.modifiers[0].id);
-  }
+  if (groupsForSize(item, sizeId).some((g) => g.minRequired >= 1)) return null;
   try {
-    resolveLinePrice(item, sizeId, modifierIds, 1);
+    resolveLinePrice(item, sizeId, [], 1);
   } catch {
     return null;
   }
-  return { itemId: item.id, sizeId, modifierIds, quantity: 1 };
+  return { itemId: item.id, sizeId, modifierIds: [], quantity: 1 };
 }
 
 /** "春卷（2條）": the count is data, not name, so it is one step smaller. */
@@ -776,12 +771,11 @@ export default function PosScreen({
       priced.map(({ line, item, lineCents }) => {
         const size = item ? itemSizes(item).find((x) => x.id === line.sizeId) : undefined;
         const tag = size && !isDefaultSize(size.label) ? (resolveSizeZh(size.label) ?? size.label) : null;
-        // Choices worth reading: what a default would not have picked.
-        const defaults = new Set(item ? (quickDraft(item, line.sizeId)?.modifierIds ?? []) : []);
+        // Every choice on the line: staff made each one, so each is shown.
         const chosen = new Set(line.modifierIds);
         const mods: string[] = [];
         for (const g of item?.modifierGroups ?? []) {
-          for (const m of g.modifiers) if (chosen.has(m.id) && !defaults.has(m.id)) mods.push(m.nameZh ?? m.nameEn);
+          for (const m of g.modifiers) if (chosen.has(m.id)) mods.push(m.nameZh ?? m.nameEn);
         }
         const isEditing = editing === line.lineId;
         const zhName = item?.nameZh ?? item?.nameEn ?? line.itemId;

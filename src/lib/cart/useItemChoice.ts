@@ -16,7 +16,17 @@ import { resolveLinePrice } from "@/lib/cart/pricing";
  *
  * Mount it under a component keyed by item id, so a new item starts clean.
  */
-export function useItemChoice(item: MenuItem, initialSizeId?: string) {
+export function useItemChoice(
+  item: MenuItem,
+  initialSizeId?: string,
+  /**
+   * Open single-choice required groups on their first option (below). The
+   * staff POS passes false: staff are relaying a caller's words, so every
+   * required choice is one they must actually make, never one the screen
+   * made for them.
+   */
+  preselectRequired = true,
+) {
   const sizes = itemSizes(item);
   // A caller that already knows the size (the POS tray button) opens on it.
   const [sizeId, setSizeId] = useState<string>(() =>
@@ -41,6 +51,7 @@ export function useItemChoice(item: MenuItem, initialSizeId?: string) {
    */
   const [selected, setSelected] = useState<Record<string, string[]>>(() => {
     const initial: Record<string, string[]> = {};
+    if (!preselectRequired) return initial;
     for (const g of item.modifierGroups) {
       if (g.minRequired >= 1 && g.maxAllowed === 1 && g.modifiers[0]) {
         initial[g.id] = [g.modifiers[0].id];

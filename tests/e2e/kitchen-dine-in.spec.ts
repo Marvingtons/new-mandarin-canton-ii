@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
+import { chooseRequired } from "./posSheet";
 
 /**
  * The staff POS, driven like a person at the counter: takeout by phone, and
@@ -49,7 +50,10 @@ async function addDish() {
   const before = await ticket().locator("[aria-expanded]").count();
   await page.locator("button[data-item]:not([disabled])").first().click();
   const sheetAdd = page.getByRole("button", { name: /加入單據/ });
-  if (await sheetAdd.isVisible().catch(() => false)) await sheetAdd.click();
+  if (await sheetAdd.isVisible().catch(() => false)) {
+    await chooseRequired(page);
+    await sheetAdd.click();
+  }
   await expect(sheetAdd).toHaveCount(0);
   await expect.poll(() => ticket().locator("[aria-expanded]").count()).toBeGreaterThanOrEqual(Math.max(1, before));
 }
