@@ -1,5 +1,5 @@
 /**
- * Migrations 011 and 012 against a copy of production, with BOTH codebases
+ * Migrations 011-014 (and their rollback) against a copy of production, with BOTH codebases
  * running against every shape the database passes through.
  *
  *   npm run verify:station-migrations
@@ -21,6 +21,11 @@
  * "@/..." imports resolve to main, not to this branch), driving main's own
  * CloudPRNT route, repository, health store and alert cron against the same
  * database. "New code" is this branch's route, run in this process.
+ *
+ * THE WAY BACK. On a separate database: main's schema.sql and the seeded day,
+ * 011-014 applied, then migrations/down_014_to_010.sql. The result must match a
+ * fresh main schema.sql exactly (tables, columns, defaults, constraints,
+ * indexes, triggers, functions, RLS, comments) and main's code must print on it.
  *
  * THE COPY OF PRODUCTION. By default: main's schema.sql (production's shape;
  * every migration through 010 is in it) with a realistic day of data: orders
@@ -155,7 +160,7 @@ async function exportMain(into: string): Promise<void> {
   await writeFile(join(into, "scripts", "old-code-driver.ts"), OLD_DRIVER);
 }
 
-function runOldCode(mainDir: string, label: string): OldRun {
+function runOldCode(mainDir: string, label: string, databaseUrl = DATABASE_URL): OldRun {
   const res = spawnSync(
     "npx",
     ["tsx", "--conditions=react-server", "scripts/old-code-driver.ts", label],
@@ -164,7 +169,7 @@ function runOldCode(mainDir: string, label: string): OldRun {
       encoding: "utf8",
       env: {
         ...process.env,
-        DATABASE_URL,
+        DATABASE_URL: databaseUrl,
         TENANT_ID: TENANT,
         CLOUDPRNT_SECRET: SECRET,
         CLOUDPRNT_PRINTER_MAC: MAC_ONLINE,
@@ -339,6 +344,81 @@ async function seedProduction(db: Client): Promise<void> {
   );
 }
 
+/* ------------------------------------------------------- schema shape -- */
+
+/** Everything about public's shape that main's schema.sql decides, as sorted lines. */
+async function schemaSnapshot(db: Client): Promise<string[]> {
+  const q = async (sql: string) => (await db.query(sql)).rows.map((r) => Object.values(r).join(" | "));
+  return [
+    ...(await q(`select 'table', c.relname, c.relrowsecurity, coalesce(obj_description(c.oid, 'pg_class'), '')
+                   from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public' and c.relkind in ('r', 'p')`)),
+    ...(await q(`select 'column', table_name, column_name, data_type, is_nullable, coalesce(column_default, ''),
+                        coalesce(col_description((quote_ident(table_name))::regclass, ordinal_position::int), '')
+                   from information_schema.columns where table_schema = 'public'`)),
+    ...(await q(`select 'constraint', conrelid::regclass::text, conname, pg_get_constraintdef(c.oid)
+                   from pg_constraint c join pg_namespace n on n.oid = c.connamespace where n.nspname = 'public'`)),
+    ...(await q(`select 'index', tablename, indexname, indexdef from pg_indexes where schemaname = 'public'`)),
+    ...(await q(`select 'trigger', tgrelid::regclass::text, tgname, pg_get_triggerdef(t.oid)
+                   from pg_trigger t where not tgisinternal`)),
+    ...(await q(`select 'function', p.proname, pg_get_function_identity_arguments(p.oid), md5(pg_get_functiondef(p.oid))
+                   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.prokind in ('f', 'p')`)),
+    ...(await q(`select 'policy', tablename, policyname, cmd, coalesce(qual, '') from pg_policies where schemaname = 'public'`)),
+  ].sort();
+}
+
+/**
+ * main's schema + a seeded day, 011-014 up, down_014_to_010 down: the shape
+ * must be main's schema.sql exactly, and main's code must print on it.
+ */
+async function downMigrationChecks(mainDir: string): Promise<void> {
+  console.log("\nthe way back: 011-014 up, down_014_to_010 down, against main's schema.sql");
+  const DOWN_DB = "nmc_down_014";
+  const REF_DB = "nmc_ref_main";
+  const url = (name: string) => `postgresql://postgres:postgres@localhost:${PORT}/${name}`;
+  const admin = new Client({ host: "localhost", port: PORT, user: "postgres", password: "postgres", database: "postgres" });
+  await admin.connect();
+  for (const name of [DOWN_DB, REF_DB]) {
+    await admin.query(`create database ${name} with encoding 'UTF8' lc_collate 'C' lc_ctype 'C' template template0`);
+  }
+  await admin.end();
+
+  const mainSchema = execFileSync("git", ["show", `${BASELINE_REF}:src/lib/db/schema.sql`], { encoding: "utf8" });
+  const migration = (f: string) => readFile(join(process.cwd(), "src/lib/db/migrations", f), "utf8");
+  const ref = new Client({ connectionString: url(REF_DB) });
+  const down = new Client({ connectionString: url(DOWN_DB) });
+  await ref.connect();
+  await down.connect();
+  try {
+    await ref.query(mainSchema);
+    await down.query(mainSchema);
+    await seedProduction(down);
+    const seeded = (await down.query(`select count(*)::int as n from orders`)).rows[0].n as number;
+    for (const f of ["011_print_stations.sql", "012_printer_status_per_station.sql", "013_board_version_index.sql", "014_recently_done.sql"]) {
+      await down.query(await migration(f));
+    }
+    const want = await schemaSnapshot(ref);
+    const up = await schemaSnapshot(down);
+    check("control: with 011-014 applied the shape differs from main (the comparison can see them)",
+      up.join("\n") !== want.join("\n"));
+
+    await down.query(await migration("down_014_to_010.sql"));
+    const got = await schemaSnapshot(down);
+    const extra = got.filter((l) => !want.includes(l));
+    const missing = want.filter((l) => !got.includes(l));
+    check("after down_014_to_010 the schema matches main's schema.sql exactly",
+      extra.length === 0 && missing.length === 0,
+      `extra: ${JSON.stringify(extra)} missing: ${JSON.stringify(missing)}`);
+    check("the down keeps every order",
+      (await down.query(`select count(*)::int as n from orders`)).rows[0].n === seeded);
+  } finally {
+    await ref.end();
+    await down.end();
+  }
+  oldCodeWorks("after down_014_to_010", runOldCode(mainDir, "down", url(DOWN_DB)));
+}
+
 /* ---------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -502,6 +582,8 @@ async function main(): Promise<void> {
     const broken = runOldCode(mainDir, "control");
     check("control: with printer_status re-keyed, main's printer is handed nothing (the bug this layout avoids)",
       broken.offered === false, JSON.stringify(broken));
+
+    await downMigrationChecks(mainDir);
   } finally {
     if (closeNew) await closeNew();
     await db.end();
