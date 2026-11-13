@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/check-site-cjk-font.mjs",
+    "prebuild": "node scripts/check-site-cjk-font.mjs && npm run -s verify:ticket-glyphs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -24,7 +24,7 @@
     "verify:print-deliveries": "tsx --conditions=react-server scripts/verify-print-deliveries.ts",
     "verify:printer-health": "tsx --conditions=react-server scripts/verify-printer-health.ts",
     "dev:db": "tsx --conditions=react-server scripts/dev-orders-db.ts",
-    "build:cf": "opennextjs-cloudflare build",
+    "build:cf": "npm run -s verify:ticket-glyphs && opennextjs-cloudflare build",
     "preview:cf": "opennextjs-cloudflare preview",
     "deploy:cf": "opennextjs-cloudflare deploy",
     "typecheck": "tsc --noEmit",
