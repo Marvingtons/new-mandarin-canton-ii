@@ -1,7 +1,8 @@
 import { phonesSentence } from "@/data/restaurant";
 import { z } from "zod";
 import { normalizePhone, phoneErrorMessage, phoneLast4 } from "@/lib/phone";
-import { startVerification } from "@/lib/otp/twilio";
+import { startVerification, type OtpStartResult } from "@/lib/otp/twilio";
+import { claimOtpStart, joinOtpStart } from "@/lib/otp/startClaim";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
 import { twilioConfig } from "@/config/tenant.server";
@@ -16,8 +17,10 @@ import { previewOrderingBlocked } from "@/lib/http/deployHost";
  *   1. IP limit      — cheapest check, catches a naive loop
  *   2. parse         — free
  *   3. normalize     — free, and rejects toll-free/malformed before spending
- *   4. phone limits  — burst AND a hard daily ceiling for this number
- *   5. Twilio        — the only step that bills
+ *   4. claim         — a start already in flight (or sent in the last 30 s)
+ *                      for this number answers this one; see lib/otp/startClaim
+ *   5. phone limits  — burst AND a hard daily ceiling for this number
+ *   6. Twilio        — the only step that bills
  *
  * The response never reveals whether a number is already known to us.
  */
@@ -69,14 +72,23 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // A duplicate of a start already claimed for this number gets that start's
+  // response and costs nothing (not even phone quota). No await between this
+  // check and claimOtpStart below, so two requests cannot both get past it.
+  const claimed = joinOtpStart(phone.e164);
+  if (claimed) return startResponse(await claimed, phone.e164);
+
   const burst = checkRateLimit("otp_start_phone", phone.e164);
   if (!burst.ok) return rateLimitResponse(burst);
 
   const daily = checkRateLimit("otp_start_phone_daily", phone.e164);
   if (!daily.ok) return rateLimitResponse(daily);
 
-  const result = await startVerification(phone.e164);
+  const e164 = phone.e164;
+  return startResponse(await claimOtpStart(e164, () => startVerification(e164)), e164);
+}
 
+function startResponse(result: OtpStartResult, phoneE164: string): Response {
   if (result.status === "disabled") {
     return Response.json(
       {
@@ -96,5 +108,5 @@ export async function POST(request: Request): Promise<Response> {
 
   // Echo only the last four digits — enough for the customer to spot a typo,
   // not enough to confirm a number to someone probing.
-  return Response.json({ ok: true, last4: phoneLast4(phone.e164) });
+  return Response.json({ ok: true, last4: phoneLast4(phoneE164) });
 }
