@@ -95,7 +95,9 @@ queries; Hyperdrive still pools the connections.
 3. Turn off caching (command above). Confirm with
    `npx wrangler hyperdrive get 1011a8a541654fc09428eaa9708eb094`
    (`"caching": {"disabled": true}`).
-4. Merge the PR, then from `main`: `npm run build:cf && npm run deploy:cf`.
+4. Apply 011, then 012, then 013 on its own outside a transaction, then 014
+   (`014_recently_done.sql`). These files are prepared, not applied here.
+   Merge the PR, then from `main`: `npm run build:cf && npm run deploy:cf`.
 5. Watch two minutes of polls: `npx wrangler tail nmc-web --format pretty`.
    Expect a POST every ~3 s with no `verdict=` lines (nothing queued) and no errors.
 6. Open `/kitchen` and check that the board loads and shows no red banner.

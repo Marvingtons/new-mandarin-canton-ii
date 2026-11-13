@@ -22,14 +22,13 @@
 -- with the day: a finished order leaves the index when it is completed or
 -- cancelled.
 --
--- LOCKING. A plain CREATE INDEX blocks writes to orders while it builds, which
--- on this table is well under a second. Run it with the others, after close.
--- (CREATE INDEX CONCURRENTLY also works, run on its own, outside a
--- transaction; not needed at this size.)
+-- REQUIRED: run this file on its own, outside a transaction, after 011 and 012.
+-- CREATE INDEX CONCURRENTLY keeps order writes available during the build.
+-- Do not concatenate this file with other migrations in a single query.
 --
 -- Safe to run more than once.
 -- ---------------------------------------------------------------------------
 
-create index if not exists orders_board_version_idx
+create index concurrently if not exists orders_board_version_idx
   on orders (tenant_id, business_date, updated_at)
   where status not in ('COMPLETED', 'CANCELLED');

@@ -412,7 +412,8 @@ async function main(): Promise<void> {
       (await db.query(`select array_length(conkey, 1) as n from pg_constraint where conname = 'printer_status_pkey'`)).rows[0]?.n === 1);
     oldCodeWorks("after 011", runOldCode(mainDir, "011"));
 
-    await db.query(await readFile(join(process.cwd(), "src/lib/db/migrations/014_recently_done.sql"), "utf8"));
+    // The board's additive Undo columns are independent of printer table shape.
+    await db.query("alter table orders add column done_previous_status text, add column done_at timestamptz");
 
     /* ---- new code on the OLD printer shape (011 only) ---- */
     console.log("\nnew code on 011 only (printer_station_status missing)");
@@ -444,6 +445,20 @@ async function main(): Promise<void> {
       (await db.query(`select array_length(conkey, 1) as n from pg_constraint where conname = 'printer_station_status_pkey'`)).rows[0]?.n === 2 &&
         (await db.query(`select count(*)::int as n from printer_station_status`)).rows[0].n === 0);
     oldCodeWorks("after 011 + 012, before the deploy", runOldCode(mainDir, "012"));
+
+    // Standalone query in autocommit: CONCURRENTLY must never share a transaction.
+    const m013 = await readFile(join(process.cwd(), "src/lib/db/migrations/013_board_version_index.sql"), "utf8");
+    await db.query(m013);
+    await db.query(m013);
+    const index = await db.query(`select indisvalid, indisready from pg_index where indexrelid = 'orders_board_version_idx'::regclass`);
+    check("013 runs alone after 011/012, is repeatable and leaves a valid ready index",
+      index.rows[0]?.indisvalid === true && index.rows[0]?.indisready === true);
+    await db.query("begin");
+    let rejected = false;
+    try { await db.query(m013); } catch (error) { rejected = (error as { code?: string }).code === "25001"; }
+    finally { await db.query("rollback"); }
+    check("013 rejects a transaction wrapper", rejected);
+    await db.query(await readFile(join(process.cwd(), "src/lib/db/migrations/014_recently_done.sql"), "utf8"));
 
     /* ---- new code on the NEW shape ---- */
     console.log("\nnew code on 011 + 012 (after the deploy)");
