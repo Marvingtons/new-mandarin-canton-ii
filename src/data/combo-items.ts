@@ -127,9 +127,14 @@ function lunchItems(): MenuItem[] {
         ? [
             {
               id: `${set.id}-entree`,
-              nameEn: "Choose your entrée",
+              // A noun, not an instruction: the web sheet, the POS sheet and
+              // the server refusal each wrap it in their own "choose" verb, so
+              // an instruction here read "Please choose choose your entrée"
+              // (and doubled the verb in 中文 the same way).
+              nameEn: "Your entrée",
               // TODO(confirm): descriptive translation, family to approve
-              nameZh: "選主菜",
+              nameZh: "主菜",
+              nameKey: "choice.lunchEntree" as const,
               minRequired: 1,
               maxAllowed: 1,
               modifiers: (set.choices ?? []).map(choiceModifier),

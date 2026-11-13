@@ -116,6 +116,9 @@ export const en = {
   "choice.beefOrChicken": "Beef or chicken",
   "choice.steamedOrFried": "Steamed or fried",
   "choice.chickenOrBeef": "Chicken or beef",
+  /* The Lunch Special's entrée group: a noun, spliced into
+     sheet.chooseToAdd ("Please choose your entrée to add …"). */
+  "choice.lunchEntree": "Your entrée",
   "sheet.close": "Close",
   "sheet.decreaseQty": "Decrease quantity",
   "sheet.increaseQty": "Increase quantity",
@@ -567,6 +570,7 @@ export const es: Record<TranslationKey, string> = {
   "choice.beefOrChicken": "Res o pollo",
   "choice.steamedOrFried": "Al vapor o fritos",
   "choice.chickenOrBeef": "Pollo o res",
+  "choice.lunchEntree": "Su plato principal",
   "sheet.close": "Cerrar",
   "sheet.decreaseQty": "Quitar uno",
   "sheet.increaseQty": "Agregar uno",
