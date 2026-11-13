@@ -29,6 +29,8 @@
  */
 
 import { menu } from "@/data/menu";
+import { catalogMenu } from "@/lib/menu/catalog";
+import { isAvailable } from "@/lib/menu/types";
 import {
   directionsUrl,
   primaryPhone,
@@ -201,6 +203,10 @@ export function breadcrumbNode(
  * offer per tier with its own name, and everything else gets one. Party
  * tray prices are included where the printed menu prints one.
  *
+ * ONLY WHAT THE GRID SHOWS. Items pass the menu grid's own filter (in
+ * catalogMenu(), and isAvailable), so a soft-removed dish (Roasted Duck,
+ * 2026-08) is never marked up with prices the page no longer offers.
+ *
  * ⚠️ NO `alternateName`, and it is the one thing here that hurts to
  * leave out. 137 items carry a `chineseName` and none of them render on
  * /menu — DESIGN.md specifies "Chinese dish names inline and muted" for
@@ -210,47 +216,56 @@ export function breadcrumbNode(
  * lines.
  */
 export function menuGraph(): Node {
+  const shown = new Set(
+    catalogMenu()
+      .categories.flatMap((c) => c.items)
+      .filter(isAvailable)
+      .map((i) => i.id),
+  );
   return {
     "@type": "Menu",
     "@id": ids.menu(),
     name: "Menu",
     url: `${siteUrl()}/menu`,
     inLanguage: "en",
-    hasMenuSection: menu.map((category) => ({
-      "@type": "MenuSection",
-      name: category.name,
-      hasMenuItem: category.items.map((item) => {
-        const offers: Node[] = item.sizes?.length
-          ? item.sizes.map((size) => ({
-              "@type": "Offer",
-              name: size.label,
-              price: (size.priceCents / 100).toFixed(2),
-              priceCurrency: "USD",
-            }))
-          : [
-              {
+    hasMenuSection: menu
+      .map((category) => ({ ...category, items: category.items.filter((item) => shown.has(item.id)) }))
+      .filter((category) => category.items.length > 0)
+      .map((category) => ({
+        "@type": "MenuSection",
+        name: category.name,
+        hasMenuItem: category.items.map((item) => {
+          const offers: Node[] = item.sizes?.length
+            ? item.sizes.map((size) => ({
                 "@type": "Offer",
-                price: (item.priceCents / 100).toFixed(2),
+                name: size.label,
+                price: (size.priceCents / 100).toFixed(2),
                 priceCurrency: "USD",
-              },
-            ];
-        if (item.trayCents) {
-          offers.push({
-            "@type": "Offer",
-            name: "Party tray",
-            price: (item.trayCents / 100).toFixed(2),
-            priceCurrency: "USD",
-          });
-        }
-        return {
-          "@type": "MenuItem",
-          name: item.name,
-          // Rendered on the row by describeItem(), so it is visible.
-          ...(item.description ? { description: item.description } : {}),
-          offers,
-        };
-      }),
-    })),
+              }))
+            : [
+                {
+                  "@type": "Offer",
+                  price: (item.priceCents / 100).toFixed(2),
+                  priceCurrency: "USD",
+                },
+              ];
+          if (item.trayCents) {
+            offers.push({
+              "@type": "Offer",
+              name: "Party tray",
+              price: (item.trayCents / 100).toFixed(2),
+              priceCurrency: "USD",
+            });
+          }
+          return {
+            "@type": "MenuItem",
+            name: item.name,
+            // Rendered on the row by describeItem(), so it is visible.
+            ...(item.description ? { description: item.description } : {}),
+            offers,
+          };
+        }),
+      })),
   };
 }
 

@@ -32,6 +32,7 @@
     "cf-typegen": "wrangler types",
     "torture:print": "tsx scripts/print-torture.ts",
     "verify:otp": "tsx --conditions=react-server scripts/verify-otp-cookie.ts",
+    "verify:menu-schema": "tsx --conditions=react-server scripts/verify-menu-schema.ts",
     "verify:otp-start": "tsx --conditions=react-server scripts/verify-otp-start-dedupe.ts",
     "verify:allergy-hint": "tsx scripts/verify-allergy-hint.ts",
     "verify:order-cutoff": "tsx scripts/verify-order-cutoff.ts",
