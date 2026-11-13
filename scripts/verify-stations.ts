@@ -234,7 +234,7 @@ async function paperOutIsPerPrinter(h: Handlers, repo: Repo): Promise<void> {
   check("the online printer still prints", online !== null);
   await confirm(h, MAC_ONLINE, online!);
 
-  const { stationPrinterHealth } = await import("../src/lib/print/boardPrinters");
+  const { stationPrinterHealth } = await import("../src/lib/kitchen/boardFeed");
   const strip = await stationPrinterHealth(TENANT);
   const s = strip.find((p) => p.station === "store");
   const o = strip.find((p) => p.station === "online");
@@ -354,7 +354,7 @@ async function strangerAndCoverage(h: Handlers, repo: Repo, pool: Pool): Promise
   check("and the hand-over records the printer that actually took it",
     (await deliveryStation(pool, covered!)) === "online");
   await confirm(h, MAC_ONLINE, covered!);
-  const { stationPrinterHealth } = await import("../src/lib/print/boardPrinters");
+  const { stationPrinterHealth } = await import("../src/lib/kitchen/boardFeed");
   const strip = await stationPrinterHealth(TENANT);
   const storeChip = strip.find((p) => p.station === "store");
   check("the strip says the store station is printed by the online printer",
@@ -526,7 +526,7 @@ async function timedFailover(h: Handlers, repo: Repo, pool: Pool): Promise<void>
     check("a second store ticket is rerouted too", t2 !== null && (await orderOf(pool, t2)) === second);
     await confirm(h, MAC_ONLINE, t2!);
 
-    const strip = (await (await import("../src/lib/print/boardPrinters")).stationPrinterHealth(TENANT)).find((p) => p.station === "store");
+    const strip = (await (await import("../src/lib/kitchen/boardFeed")).stationPrinterHealth(TENANT)).find((p) => p.station === "store");
     check("the board says the store's tickets are printing on the online printer", strip?.failoverTo === "online", JSON.stringify(strip));
 
     const s1 = await sweep();

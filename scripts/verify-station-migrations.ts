@@ -205,7 +205,7 @@ interface NewCode {
   route: { POST: Handler; DELETE: Handler };
   repo: typeof import("../src/lib/orders/repository");
   health: typeof import("../src/lib/print/healthStore");
-  strip: typeof import("../src/lib/print/boardPrinters");
+  strip: typeof import("../src/lib/kitchen/boardFeed");
   cron: { GET: (r: Request) => Promise<Response> };
 }
 const params = Promise.resolve({ secret: SECRET });
@@ -420,7 +420,7 @@ async function main(): Promise<void> {
       route: (await import("../src/app/api/print/[secret]/route")) as unknown as NewCode["route"],
       repo: await import("../src/lib/orders/repository"),
       health: await import("../src/lib/print/healthStore"),
-      strip: await import("../src/lib/print/boardPrinters"),
+      strip: await import("../src/lib/kitchen/boardFeed"),
       cron: (await import("../src/app/api/cron/unprinted-alert/route")) as unknown as NewCode["cron"],
     };
     const { closeOrdersPool } = await import("../src/lib/db/postgres");

@@ -18,8 +18,6 @@
  *      thresholds. And a healthy printer's 3-second polls do NOT move it.
  *   4. The list is today's open orders only, with X-Server-Time and no
  *      serverTime in the body.
- *   5. The lock-free printer strip equals lib/print/boardPrinters's
- *      stationPrinterHealth() in every printer state.
  *   6. Migration 012 missing (011 only): both routes still answer.
  *   7. Behind the Hyperdrive cache stand-in, a change is seen on the next poll.
  *
@@ -83,7 +81,6 @@ interface Mods {
   orders: { GET: Handler };
   action: { POST: ActionHandler };
   tables: { POST: Handler };
-  strip: typeof import("../src/lib/print/boardPrinters");
   feed: typeof import("../src/lib/kitchen/boardFeed");
   repo: typeof import("../src/lib/orders/repository");
   emulator: typeof import("./lib/hyperdrive-cache-emulator");
@@ -444,52 +441,6 @@ async function s4_listShape(m: Mods): Promise<void> {
     JSON.stringify(stuck[0] ?? null).slice(0, 120));
 }
 
-async function s5_stripParity(m: Mods): Promise<void> {
-  console.log("\n5. the lock-free strip equals stationPrinterHealth() in every printer state");
-  type Row = Parameters<typeof printers>[0][number];
-  const states: { name: string; rows: Row[]; storeMac?: string | null; reprintToStore?: boolean }[] = [
-    { name: "both healthy", rows: [{ station: "online", ageSeconds: 1 }, { station: "store", ageSeconds: 2 }] },
-    { name: "store out of paper", rows: [{ station: "online", ageSeconds: 1 }, { station: "store", ageSeconds: 1, paperOut: true, code: "503 Paper Empty" }] },
-    { name: "online cover open", rows: [{ station: "online", ageSeconds: 1, coverOpen: true }, { station: "store", ageSeconds: 1 }] },
-    { name: "online paper low", rows: [{ station: "online", ageSeconds: 1, paperLow: true }, { station: "store", ageSeconds: 1 }] },
-    { name: "online offline (70 s)", rows: [{ station: "online", ageSeconds: 70 }, { station: "store", ageSeconds: 1 }] },
-    { name: "store silent 100 s: failover to online", rows: [{ station: "online", ageSeconds: 1 }, { station: "store", ageSeconds: 100 }] },
-    { name: "both silent 100 s: no failover", rows: [{ station: "online", ageSeconds: 100 }, { station: "store", ageSeconds: 100 }] },
-    { name: "store never polled", rows: [{ station: "online", ageSeconds: 1 }] },
-    { name: "nothing ever polled", rows: [] },
-    { name: "store has no MAC: not set up, printed by online", rows: [{ station: "online", ageSeconds: 1 }], storeMac: null },
-    { name: "queued tickets and a 重印 copy waiting on store", rows: [{ station: "online", ageSeconds: 1 }, { station: "store", ageSeconds: 1 }], reprintToStore: true },
-  ];
-  for (const s of states) {
-    await reset();
-    await printers(s.rows);
-    await seedOrder({ status: "QUEUED" });
-    await seedOrder({ status: "QUEUED", channel: "walk_in" });
-    await seedOrder({ status: "QUEUED", channel: "phone" });
-    if (s.reprintToStore) {
-      const p = await seedOrder({ status: "PRINTED" });
-      await act(m, p, "reprint", { station: "store" });
-    }
-    if (s.storeMac === null) delete process.env.CLOUDPRNT_PRINTER_MAC_STORE;
-    try {
-      const old = await m.strip.stationPrinterHealth(TENANT);
-      const fresh = (await list(m)).body?.printers as typeof old;
-      const near = (x: number | null, y: number | null) => (x === null ? y === null : y !== null && Math.abs(x - y) <= 1);
-      const same =
-        old.length === fresh.length &&
-        old.every((o, i) => {
-          const f = fresh[i];
-          const { secondsSinceSeen: so, ...restO } = o;
-          const { secondsSinceSeen: sf, ...restF } = f;
-          return near(so, sf) && JSON.stringify(restO) === JSON.stringify(restF);
-        });
-      check(s.name, same, `\n        old:  ${JSON.stringify(old)}\n        new:  ${JSON.stringify(fresh)}`);
-    } finally {
-      process.env.CLOUDPRNT_PRINTER_MAC_STORE = MAC_STORE;
-    }
-  }
-}
-
 async function s6_legacyShape(m: Mods): Promise<void> {
   console.log("\n6. migration 012 missing (011 only): the board still answers, from the legacy row");
   await reset();
@@ -519,9 +470,6 @@ async function s6_legacyShape(m: Mods): Promise<void> {
     const strip = l.body?.printers as { station: string; health: string }[] | undefined;
     check("the list answers 200, online printer from printer_status",
       l.status === 200 && strip?.find((p) => p.station === "online")?.health === "paper-out", JSON.stringify(strip));
-    const old = await m.strip.stationPrinterHealth(TENANT);
-    check("… and agrees with stationPrinterHealth()",
-      JSON.stringify(old.map((p) => p.health)) === JSON.stringify(strip?.map((p) => p.health)));
     await db.query(`update printer_status set paper_out = false where tenant_id = $1`, [TENANT]);
     check("a legacy row change moves the version", (await version(m, v.etag)).status === 200);
   } finally {
@@ -594,7 +542,6 @@ async function main(): Promise<void> {
     orders: (await import("../src/app/api/kitchen/orders/route")) as unknown as Mods["orders"],
     action: (await import("../src/app/api/kitchen/orders/[id]/route")) as unknown as Mods["action"],
     tables: (await import("../src/app/api/kitchen/tables/route")) as unknown as Mods["tables"],
-    strip: await import("../src/lib/print/boardPrinters"),
     feed: await import("../src/lib/kitchen/boardFeed"),
     repo: await import("../src/lib/orders/repository"),
     emulator: await import("./lib/hyperdrive-cache-emulator"),
@@ -610,7 +557,6 @@ async function main(): Promise<void> {
     await s3_changes(m);
     await recentUndo(m);
     await s4_listShape(m);
-    await s5_stripParity(m);
     await s6_legacyShape(m);
     await s7_cache(m);
   } finally {

@@ -103,9 +103,7 @@ export async function readBoardData(tenantId: string, businessDate: string): Pro
 }
 
 /**
- * Both printers as the header strip shows them. The same rules, in the same
- * order, as lib/print/boardPrinters.ts's stationPrinterHealth, from a
- * lock-free read; verify:board-poll checks the two agree on every state.
+ * Both printers as the header strip shows them, from one ordinary read.
  *
  * Always one entry per station, in STATIONS order. A station with no MAC
  * configured reads "not-set-up" and follows the printer covering it.
@@ -174,6 +172,11 @@ export function printerStrip(inputs: readonly BoardPrinterInput[], nowMs: number
       failoverTo,
     };
   });
+}
+
+/** Shared read for consumers that only need the printer strip. */
+export async function stationPrinterHealth(tenantId: string): Promise<StationPrinterHealth[]> {
+  return printerStrip(await readBoardPrinterInputs(tenantId), Date.now());
 }
 
 /* ---------------------------------------------------------------- HTTP -- */
