@@ -63,6 +63,10 @@ next-env.d.ts
 # on first use, so ignoring this costs a teammate nothing.
 .claude/skills/impeccable/scripts/bin/
 
+# Impeccable's per-checkout state: its config and hook cache. Local to each
+# machine, written by the tool itself, and never meant to be committed.
+/.impeccable/
+
 # Playwright
 /test-results/
 /playwright-report/
