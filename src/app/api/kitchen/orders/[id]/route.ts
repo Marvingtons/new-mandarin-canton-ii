@@ -6,6 +6,7 @@ import {
   getOrderById,
   requestReprint,
   updateStatus,
+  undoDone,
 } from "@/lib/orders/repository";
 import { notifyOrderReady } from "@/lib/notify/orderReady";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
@@ -23,7 +24,7 @@ import { STATIONS } from "@/config/stations";
 export const runtime = "nodejs";
 
 const BodySchema = z.strictObject({
-  action: z.enum(["accept", "complete", "cancel", "reprint", "notify"]),
+  action: z.enum(["accept", "complete", "cancel", "reprint", "notify", "undo"]),
   /** Why, for a cancel. Stored on staff_note; never printed. */
   note: z.string().max(500).optional(),
   /**
@@ -64,6 +65,13 @@ export async function POST(
   const order = await getOrderById(tenant.tenantId, orderId);
   if (!order) {
     return Response.json({ ok: false, error: "not found" }, { status: 404 });
+  }
+
+  if (body.action === "undo") {
+    const restored = await undoDone(tenant.tenantId, orderId);
+    return restored
+      ? Response.json({ ok: true, order: restored })
+      : Response.json({ ok: false, error: "This order can no longer be undone." }, { status: 409 });
   }
 
   // 重印 — ask for one more copy. We do NOT push to the printer: CloudPRNT is

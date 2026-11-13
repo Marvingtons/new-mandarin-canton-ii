@@ -296,7 +296,7 @@ async function s2_unchangedPoll(m: Mods): Promise<void> {
   check("list: 200 with the same ETag as /version", full.status === 200 && full.etag === first.etag, `${full.etag} vs ${first.etag}`);
   check("list: no lock, no transaction, no WAL", full.locking === 0 && full.transactions === 0 && full.wal === 0,
     `locking=${full.locking} tx=${full.transactions} wal=${full.wal}`);
-  check("list: 3 statements (version, orders, printers)", full.statements === 3, `statements=${full.statements}`);
+  check("list: 4 statements (version, orders, printers, recently done)", full.statements === 4, `statements=${full.statements}`);
   const unchanged = await list(m, full.etag);
   check("list with If-None-Match: 304, no body, ONE statement", unchanged.status === 304 && unchanged.bytes === 0 && unchanged.statements === 1,
     `status=${unchanged.status} bytes=${unchanged.bytes} statements=${unchanged.statements}`);
@@ -304,6 +304,38 @@ async function s2_unchangedPoll(m: Mods): Promise<void> {
   check("a weak W/ ETag (Cloudflare compression) still matches", weak.status === 304);
   const listed = await version(m, `"nope", ${first.etag}`);
   check("an If-None-Match list containing it matches", listed.status === 304);
+}
+
+async function recentUndo(m: Mods): Promise<void> {
+  await reset();
+  for (const status of ["QUEUED", "PRINTED", "PRINT_FAILED", "ACCEPTED"] as const) {
+    for (const action of ["complete", "cancel"]) {
+      const id = await seedOrder({ status, channel: "phone" });
+      const before = await db.query(`select to_jsonb(d) as row from print_deliveries d order by id`);
+      const held = (await version(m)).etag;
+      check(`${status} ${action} succeeds`, await act(m, id, action) === 200);
+      check(`${action} changes the version`, (await version(m, held)).status === 200);
+      const body = (await list(m)).body;
+      const recent = body?.recentlyDone as { id: number; donePreviousStatus: string }[];
+      check("recent strip records exact prior status", recent.some((o) => o.id === id && o.donePreviousStatus === status));
+      const doneVersion = (await version(m)).etag;
+      check("undo succeeds", await act(m, id, "undo") === 200);
+      check("undo changes the version", (await version(m, doneVersion)).status === 200);
+      const restored = await db.query(`select status from orders where id = $1`, [id]);
+      check("undo restores exact prior status", restored.rows[0].status === status);
+      check("undo is single-use", await act(m, id, "undo") === 409);
+      check("no print delivery created or changed", JSON.stringify(before.rows) === JSON.stringify((await db.query(`select to_jsonb(d) as row from print_deliveries d order by id`)).rows));
+    }
+  }
+  await reset();
+  for (let i = 0; i < 10; i++) await act(m, await seedOrder({ status: "ACCEPTED", channel: "phone" }), "complete");
+  const recent = (await list(m)).body?.recentlyDone as { id: number }[];
+  check("recent strip has newest eight", recent.length === 8 && recent.every((o, i) => i === 0 || o.id < recent[i - 1].id));
+  const held = (await version(m)).etag;
+  await db.query(`update orders set done_at = now() - interval '11 minutes' where tenant_id = $1`, [TENANT]);
+  check("expiry moves version", (await version(m, held)).status === 200);
+  check("expired strip is empty", ((await list(m)).body?.recentlyDone as unknown[]).length === 0);
+  check("expired undo refused", await act(m, recent[0].id, "undo") === 409);
 }
 
 async function s3_changes(m: Mods): Promise<void> {
@@ -576,6 +608,7 @@ async function main(): Promise<void> {
     await s1_migration({ port: PORT });
     await s2_unchangedPoll(m);
     await s3_changes(m);
+    await recentUndo(m);
     await s4_listShape(m);
     await s5_stripParity(m);
     await s6_legacyShape(m);

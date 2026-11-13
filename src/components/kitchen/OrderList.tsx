@@ -35,7 +35,7 @@ export default function OrderList({
 }: {
   orders: Order[];
   timezone: string;
-  variant: "board" | "history";
+  variant: "board" | "history" | "compact";
   loading?: boolean;
   keyboard?: boolean;
   /** Stations whose printer is withholding or cannot collect tickets. */
@@ -59,7 +59,7 @@ export default function OrderList({
   const request = useCallback(
     (order: Order, kind: CardRequest) => {
       setSelectedId(order.id);
-      if (kind === "accept" || kind === "complete") {
+      if (kind === "accept" || kind === "complete" || kind === "undo") {
         void act(order, kind).then(done);
         return;
       }

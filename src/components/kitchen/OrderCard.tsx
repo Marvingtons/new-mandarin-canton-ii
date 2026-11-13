@@ -27,7 +27,7 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * the keyboard all go through the same path.
  */
 
-export type CardRequest = "accept" | "complete" | "reprint" | "cancel" | "clearTable";
+export type CardRequest = "accept" | "complete" | "reprint" | "cancel" | "clearTable" | "undo";
 
 function OrderCard({
   order,
@@ -42,7 +42,7 @@ function OrderCard({
 }: {
   order: Order;
   timezone: string;
-  variant: "board" | "history";
+  variant: "board" | "history" | "compact";
   fresh: boolean;
   selected: boolean;
   pending: boolean;
@@ -76,6 +76,19 @@ function OrderCard({
   );
 
   const headingId = `order-${order.id}-number`;
+
+  if (variant === "compact") {
+    return (
+      <article data-order-id={order.id} aria-labelledby={headingId} aria-busy={pending || undefined}
+        className={`${ui.card} flex flex-wrap items-center gap-3 p-3`}>
+        <h3 id={headingId} className="text-staff-title font-bold">{order.orderNumber}</h3>
+        <StatusPill status={order.status} />
+        <span className="flex-1 text-staff-caption text-staff-soft">{order.customer.name}</span>
+        <Button variant="secondary" size="sm" disabled={pending || !order.donePreviousStatus}
+          onClick={() => onRequest(order, "undo")}>{t("card.undo")}</Button>
+      </article>
+    );
+  }
 
   return (
     <article

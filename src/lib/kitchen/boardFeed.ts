@@ -8,6 +8,7 @@ import {
 } from "@/config/stations";
 import {
   listActiveOrders,
+  listRecentlyDone,
   readBoardPrinterInputs,
   readBoardVersion,
   type BoardPrinterInput,
@@ -31,14 +32,15 @@ import { cloudPrntConfigured } from "@/lib/print/status";
  *
  * The version is an ETag over everything the board response is built from:
  * today's open orders (count, newest updated_at, and the sum of every
- * updated_at, see readBoardVersion), both printers' visible state with the
+ * updated_at, see readBoardVersion), the bounded Recently done window,
+ * both printers' visible state with the
  * two clock thresholds the strip changes at, and the printer configuration.
  * The full list reads the version FIRST and the data after it, so the data a
  * tablet holds is never older than the ETag it was handed with.
  */
 
 /** Bump when the board response changes shape, so a 304 never pins an old one. */
-const FEED_SHAPE = "b1";
+const FEED_SHAPE = "b2";
 
 export interface BoardVersion {
   /** The ETag, quoted: "b1-<hex>". */
@@ -60,6 +62,7 @@ export async function boardVersion(tenantId: string, businessDate: string): Prom
     v.openCount,
     v.maxUpdatedAt ?? "-",
     v.updatedSum,
+    v.recentlyDoneVersion,
     v.printers ?? "-",
     cloudPrntConfigured() ? "prnt" : "no-prnt",
     configuredStations().join("+"),
@@ -77,18 +80,21 @@ export async function boardVersion(tenantId: string, businessDate: string): Prom
 
 export interface BoardData {
   orders: Order[];
+  recentlyDone: Order[];
   printers: StationPrinterHealth[];
   printersConfigured: boolean;
 }
 
 /** Today's open orders and both printers. Call AFTER boardVersion. */
 export async function readBoardData(tenantId: string, businessDate: string): Promise<BoardData> {
-  const [orders, inputs] = await Promise.all([
+  const [orders, inputs, recentlyDone] = await Promise.all([
     listActiveOrders(tenantId, businessDate),
     readBoardPrinterInputs(tenantId),
+    listRecentlyDone(tenantId),
   ]);
   return {
     orders,
+    recentlyDone,
     printers: printerStrip(inputs, Date.now()),
     // false = no CloudPRNT at all; the strip then says "no printer" rather
     // than "offline", because nothing is broken.

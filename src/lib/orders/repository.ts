@@ -151,7 +151,9 @@ const ORDER_COLUMNS = `
   is_addon,
   table_cleared_at,
   created_at,
-  updated_at
+  updated_at,
+  done_previous_status,
+  done_at
 `;
 
 function mapOrder(row: QueryResultRow): Order {
@@ -211,6 +213,8 @@ function mapOrder(row: QueryResultRow): Order {
       row.table_cleared_at == null ? null : (row.table_cleared_at as Date).toISOString(),
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
+    donePreviousStatus: isOrderStatus(row.done_previous_status) ? row.done_previous_status : null,
+    doneAt: row.done_at == null ? null : (row.done_at as Date).toISOString(),
   };
 }
 
@@ -476,6 +480,8 @@ export async function clearTable(tenantId: string, tableLabelValue: string): Pro
   const { rows } = await ordersPool().query(
     `update orders
         set table_cleared_at = now(),
+            done_previous_status = case when status in ('PRINTED', 'ACCEPTED') then status else done_previous_status end,
+            done_at = case when status in ('PRINTED', 'ACCEPTED') then now() else done_at end,
             status = case when status in ('PRINTED', 'ACCEPTED') then 'COMPLETED' else status end,
             updated_at = now()
       where tenant_id = $1
@@ -1643,6 +1649,7 @@ export async function listActiveOrders(
 export interface BoardVersionInputs {
   /** Open orders today: everything but COMPLETED and CANCELLED. */
   openCount: number;
+  recentlyDoneVersion: string;
   /** The newest updated_at among them, ISO, or null when there are none. */
   maxUpdatedAt: string | null;
   /**
@@ -1721,6 +1728,11 @@ export async function readBoardVersion(
             max(updated_at) as max_updated_at,
             coalesce(sum((extract(epoch from updated_at) * 1000000)::bigint), 0)::text as updated_sum,
             ${printerFingerprintSql(table)} as printers,
+            (select coalesce(string_agg(concat_ws(':', r.id, r.status, r.updated_at), ',' order by r.done_at desc, r.id desc), '')
+               from (select id, status, updated_at, done_at from orders
+                      where tenant_id = $1 and status in ('COMPLETED', 'CANCELLED')
+                        and done_at > now() - interval '10 minutes'
+                      order by done_at desc, id desc limit 8) r) as recently_done_version,
             now() as db_now
        from orders
       where tenant_id = $1
@@ -1739,6 +1751,7 @@ export async function readBoardVersion(
   checkVersionRead(tenantId, dbNow, "readBoardVersion");
   return {
     openCount: Number(row.open_count),
+    recentlyDoneVersion: String(row.recently_done_version),
     maxUpdatedAt: row.max_updated_at == null ? null : (row.max_updated_at as Date).toISOString(),
     updatedSum: String(row.updated_sum),
     printers: row.printers == null ? null : String(row.printers),
@@ -1813,6 +1826,30 @@ function mapActiveOrder(row: QueryResultRow): Order {
   };
 }
 
+/** Recent terminal transitions, including ones just across a business-date boundary. */
+export async function listRecentlyDone(tenantId: string): Promise<Order[]> {
+  const { rows } = await ordersPool().query(
+    `select ${ORDER_COLUMNS} from orders
+      where tenant_id = $1 and status in ('COMPLETED', 'CANCELLED')
+        and done_at > now() - interval '10 minutes'
+      order by done_at desc, id desc limit 8`, [tenantId],
+  );
+  return rows.map(mapOrder);
+}
+
+/** Restore exactly the recorded status, once. No print fields or deliveries are written. */
+export async function undoDone(tenantId: string, orderId: number): Promise<Order | null> {
+  const { rows } = await ordersPool().query(
+    `update orders set status = done_previous_status, done_previous_status = null,
+        done_at = null, updated_at = now()
+      where tenant_id = $1 and id = $2 and status in ('COMPLETED', 'CANCELLED')
+        and done_previous_status in ('QUEUED', 'PRINTED', 'PRINT_FAILED', 'ACCEPTED')
+        and done_at > now() - interval '10 minutes'
+      returning ${ORDER_COLUMNS}`, [tenantId, orderId],
+  );
+  return rows.length ? wrote(mapOrder(rows[0])) : null;
+}
+
 /** Move an order along the board. Returns null when it does not exist. */
 export async function updateStatus(
   tenantId: string,
@@ -1820,7 +1857,9 @@ export async function updateStatus(
   status: OrderStatus,
 ): Promise<Order | null> {
   const { rows } = await ordersPool().query(
-    `update orders set status = $3, updated_at = now()
+    `update orders set status = $3, updated_at = now(),
+        done_previous_status = case when $3 in ('COMPLETED', 'CANCELLED') and status not in ('COMPLETED', 'CANCELLED') then status else done_previous_status end,
+        done_at = case when $3 in ('COMPLETED', 'CANCELLED') and status not in ('COMPLETED', 'CANCELLED') then now() else done_at end
       where tenant_id = $1 and id = $2
       returning ${ORDER_COLUMNS}`,
     [tenantId, orderId, status],
@@ -1950,6 +1989,8 @@ export async function cancelOrder(
   const { rows } = await ordersPool().query(
     `update orders
         set status = 'CANCELLED',
+            done_previous_status = case when status not in ('COMPLETED', 'CANCELLED') then status else done_previous_status end,
+            done_at = case when status not in ('COMPLETED', 'CANCELLED') then now() else done_at end,
             staff_note = case
               when $3::text is null then staff_note
               when staff_note is null or staff_note = '' then $3::text

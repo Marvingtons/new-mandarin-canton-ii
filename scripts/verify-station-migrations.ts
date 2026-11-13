@@ -412,6 +412,8 @@ async function main(): Promise<void> {
       (await db.query(`select array_length(conkey, 1) as n from pg_constraint where conname = 'printer_status_pkey'`)).rows[0]?.n === 1);
     oldCodeWorks("after 011", runOldCode(mainDir, "011"));
 
+    await db.query(await readFile(join(process.cwd(), "src/lib/db/migrations/014_recently_done.sql"), "utf8"));
+
     /* ---- new code on the OLD printer shape (011 only) ---- */
     console.log("\nnew code on 011 only (printer_station_status missing)");
     const code: NewCode = {

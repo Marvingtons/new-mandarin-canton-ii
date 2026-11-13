@@ -68,7 +68,7 @@ export default function OrdersBoard({
   basePath: string;
 }) {
   const t = useKT();
-  const { orders, printers, status } = useKitchenLive();
+  const { orders, recentlyDone, printers, status } = useKitchenLive();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -295,6 +295,13 @@ export default function OrdersBoard({
           />
         )}
       </section>
+
+      <details className="mt-6 rounded-staff-card border border-staff-line bg-staff-panel p-4">
+        <summary className="cursor-pointer text-staff-body font-semibold">{t("board.recentlyDone")} ({recentlyDone.length})</summary>
+        <div className="mt-3">
+          <OrderList orders={recentlyDone} timezone={timezone} variant="compact" />
+        </div>
+      </details>
 
       {status !== "unconfigured" && (
         <p className="mt-8 text-right text-staff-caption text-staff-soft">

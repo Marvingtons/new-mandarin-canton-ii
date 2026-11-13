@@ -27,7 +27,8 @@ import { playChime, resumeOnNextTap, unlockAudio } from "@/components/kitchen/so
  * /api/kitchen/orders/version with the ETag of the list it holds: one
  * statement on the server, and a 304 with no body when nothing changed. Only
  * a changed version fetches the list, with the same If-None-Match. The list
- * is today's OPEN orders; finished ones are history (/api/kitchen/history).
+ * contains today's open orders plus the newest eight orders finished within
+ * ten minutes. The rest of history uses /api/kitchen/history.
  *
  * THE "DID NOT PRINT" FLAG turns on by the clock alone (2 minutes without a
  * confirmed delivery), which no version can see. So the board computes it
@@ -59,14 +60,15 @@ const FRESH_MS = 30_000;
 
 export type LiveStatus = "loading" | "live" | "reconnecting" | "unconfigured";
 
-export type OrderAction = "accept" | "complete" | "cancel" | "reprint";
+export type OrderAction = "accept" | "complete" | "cancel" | "reprint" | "undo";
 
 /** All an action needs to know about its order: which, what to call it, which printer. */
-export type OrderRef = Pick<Order, "id" | "orderNumber" | "station">;
+export type OrderRef = Pick<Order, "id" | "orderNumber" | "station"> & Partial<Pick<Order, "status" | "donePreviousStatus">>;
 
 interface OrdersPayload {
   ok: boolean;
   orders?: Order[];
+  recentlyDone?: Order[];
   printers?: StationPrinterHealth[];
   printersConfigured?: boolean;
   error?: string;
@@ -75,6 +77,7 @@ interface OrdersPayload {
 /** What the server read for the first paint (KitchenFrame). */
 export interface LiveSnapshot {
   orders: Order[];
+  recentlyDone?: Order[];
   printers: StationPrinterHealth[];
   printersConfigured: boolean;
   /** The ETag it was read at, so the first /version poll is a 304. */
@@ -94,6 +97,7 @@ const STUCK_MS = PRINT_STUCK_SECONDS * 1000;
 
 interface LiveValue {
   orders: Order[];
+  recentlyDone: Order[];
   printers: StationPrinterHealth[];
   printersConfigured: boolean;
   status: LiveStatus;
@@ -118,14 +122,16 @@ interface LiveValue {
 const LiveContext = createContext<LiveValue | null>(null);
 
 /** What an action looks like on screen before the server answers. */
-function optimisticPatch(action: OrderAction): Partial<Order> {
+function optimisticPatch(action: OrderAction, order: OrderRef): Partial<Order> {
   switch (action) {
     case "accept":
       return { status: "ACCEPTED" };
     case "complete":
-      return { status: "COMPLETED" };
+      return { status: "COMPLETED", donePreviousStatus: order.status, doneAt: new Date().toISOString() };
     case "cancel":
-      return { status: "CANCELLED", printStuck: false };
+      return { status: "CANCELLED", printStuck: false, donePreviousStatus: order.status, doneAt: new Date().toISOString() };
+    case "undo":
+      return { status: order.donePreviousStatus ?? order.status, donePreviousStatus: null, doneAt: null };
     case "reprint":
       // A reprint asks for a copy; it never moves the order. Status and
       // station stay as they are, so the card does not jump lanes.
@@ -145,7 +151,7 @@ export function KitchenLiveProvider({
   const { t } = useKitchenI18n();
   const { toast } = useToast();
 
-  const [serverOrders, setServerOrders] = useState<Order[]>(() => initial?.orders ?? []);
+  const [serverOrders, setServerOrders] = useState<Order[]>(() => [...(initial?.orders ?? []), ...(initial?.recentlyDone ?? [])]);
   const [printers, setPrinters] = useState<StationPrinterHealth[]>(() => initial?.printers ?? []);
   const [printersConfigured, setPrintersConfigured] = useState(() => initial?.printersConfigured ?? true);
   const [status, setLiveStatus] = useState<LiveStatus>(
@@ -285,7 +291,7 @@ export function KitchenLiveProvider({
         for (const o of arrivals) seen.add(o.id);
         if (arrivals.length > 0) announce(arrivals);
       }
-      setServerOrders(next);
+      setServerOrders([...next, ...(data.recentlyDone ?? [])]);
       setPrinters(data.printers ?? []);
       setPrintersConfigured(data.printersConfigured !== false);
       setLiveStatus("live");
@@ -413,7 +419,7 @@ export function KitchenLiveProvider({
 
   const act = useCallback<LiveValue["act"]>(
     async (order, action, extra) => {
-      const token = setOverlay([order.id], optimisticPatch(action));
+      const token = setOverlay([order.id], optimisticPatch(action, order));
       const failed = (reason?: string) => {
         dropOverlay([order.id], token);
         toast(
@@ -471,7 +477,9 @@ export function KitchenLiveProvider({
             ? t("toast.completed", { number: order.orderNumber })
             : action === "cancel"
               ? t("toast.cancelled", { number: order.orderNumber })
-              : t("toast.reprinted", { number: order.orderNumber, station: stationName }),
+              : action === "undo"
+                ? t("toast.undone", { number: order.orderNumber })
+                : t("toast.reprinted", { number: order.orderNumber, station: stationName }),
       );
       return true;
     },
@@ -527,7 +535,7 @@ export function KitchenLiveProvider({
           }),
     [serverOrders, serverNow],
   );
-  const orders = useMemo(
+  const allOrders = useMemo(
     () =>
       overlays.size === 0
         ? clocked
@@ -537,11 +545,17 @@ export function KitchenLiveProvider({
           }),
     [clocked, overlays],
   );
+  const orders = useMemo(() => allOrders.filter((o) => o.status !== "COMPLETED" && o.status !== "CANCELLED"), [allOrders]);
+  const recentlyDone = useMemo(() => allOrders
+    .filter((o) => (o.status === "COMPLETED" || o.status === "CANCELLED") && o.doneAt &&
+      (serverNow === null || Date.parse(o.doneAt) > serverNow - 600_000))
+    .sort((a, b) => Date.parse(b.doneAt!) - Date.parse(a.doneAt!) || b.id - a.id).slice(0, 8), [allOrders, serverNow]);
   const pendingIds = useMemo(() => new Set(overlays.keys()), [overlays]);
 
   const value = useMemo<LiveValue>(
     () => ({
       orders,
+      recentlyDone,
       printers,
       printersConfigured,
       status,
@@ -557,7 +571,7 @@ export function KitchenLiveProvider({
       clearTable,
     }),
     [
-      orders, printers, printersConfigured, status, freshIds, pendingIds,
+      orders, recentlyDone, printers, printersConfigured, status, freshIds, pendingIds,
       muted, sound, toggleMute, enableSound, declineSound, refresh, act, clearTable,
     ],
   );

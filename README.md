@@ -98,3 +98,9 @@ npx wrangler hyperdrive update 1011a8a541654fc09428eaa9708eb094 --caching-disabl
 
 Verify `caching.disabled` with `npx wrangler hyperdrive get 1011a8a541654fc09428eaa9708eb094`.
 Keep caching off while this branch runs. See [the stale-read deploy plan](docs/PRINT_STALE_READS.md).
+
+Apply migrations in order: 011, 012, 013, then 014 (`014_recently_done.sql`)
+before deploying. Migration 014 stores each terminal transition's previous
+status and timestamp for the ten-minute Undo window. Undo updates only status
+and that bookkeeping; it does not create a delivery or request a reprint.
+Restoring QUEUED resumes the order's existing queue eligibility.

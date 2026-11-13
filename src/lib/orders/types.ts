@@ -269,6 +269,8 @@ export interface Order {
   tableClearedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  donePreviousStatus?: OrderStatus | null;
+  doneAt?: string | null;
 }
 
 /** What createOrder needs to reserve a row. The number is allocated for you. */

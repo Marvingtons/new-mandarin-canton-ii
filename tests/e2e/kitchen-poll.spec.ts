@@ -26,6 +26,7 @@ const card = (page: Page, number: string) =>
   page.locator("article").filter({ has: page.getByRole("heading", { name: number }) });
 
 test("the board polls a version, picks up a POS order within 5 s, and still chimes for a web order", async ({ browser }) => {
+  test.setTimeout(60_000);
   const context = await browser.newContext({ viewport: { width: 1180, height: 820 } });
   await context.addInitScript(() => {
     window.__audio = { contexts: [], oscillators: 0 };
@@ -107,6 +108,24 @@ test("the board polls a version, picks up a POS order within 5 s, and still chim
     // A store order was typed in at this counter: highlighted, not announced.
     expect(await oscillators(board)).toBe(chimesBeforePos);
     expect(calls.some((c) => c.path === "/api/kitchen/orders" && c.status === 200)).toBe(true);
+
+    // Complete from ACCEPTED, undo from the collapsed strip, then check quiet polling again.
+    await card(board, number).getByRole("button", { name: "接單", exact: true }).click();
+    await expect(card(board, number).getByRole("button", { name: "完成", exact: true })).toBeEnabled();
+    await card(board, number).getByRole("button", { name: "完成", exact: true }).click();
+    const recent = board.locator("details").filter({ has: board.locator("summary", { hasText: "Recently done" }) });
+    await expect(recent).not.toHaveAttribute("open", "");
+    await recent.locator("summary").click();
+    await expect(card(board, number)).toBeVisible();
+    await card(board, number).getByRole("button", { name: "Undo / 復原 / Deshacer" }).click();
+    await expect(board.locator("section article").filter({ has: board.getByRole("heading", { name: number }) })).toBeVisible();
+    await expect.poll(async () => (await db.query(`select status from orders where tenant_id = $1 and order_number = $2`, [TENANT, number])).rows[0]?.status).toBe("ACCEPTED");
+    // Let the changed version settle before measuring two quiet polls.
+    await board.waitForTimeout(5_000);
+    calls.splice(0);
+    await board.waitForTimeout(9_000);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls).toEqual(calls.map(() => ({ path: "/api/kitchen/orders/version", status: 304 })));
 
     // ---- a web order still chimes and toasts ----
     const chimesBeforeWeb = await oscillators(board);
