@@ -111,6 +111,11 @@ export const en = {
     "This note only reaches the kitchen when your ticket prints.",
   "sheet.chooseToAdd": "Please choose {groups} to add this to your cart.",
   "sheet.addToCart": "Add to Cart",
+  /* The question on an "or" dish (data/menu.ts eitherOr.labelKey). The
+     options are dish names, which stay EN + 中文 in every locale. */
+  "choice.beefOrChicken": "Beef or chicken",
+  "choice.steamedOrFried": "Steamed or fried",
+  "choice.chickenOrBeef": "Chicken or beef",
   "sheet.close": "Close",
   "sheet.decreaseQty": "Decrease quantity",
   "sheet.increaseQty": "Increase quantity",
@@ -559,6 +564,9 @@ export const es: Record<TranslationKey, string> = {
     "Esta nota llega a la cocina solo cuando se imprime su ticket.",
   "sheet.chooseToAdd": "Elija {groups} para agregar esto al carrito.",
   "sheet.addToCart": "Agregar al carrito",
+  "choice.beefOrChicken": "Res o pollo",
+  "choice.steamedOrFried": "Al vapor o fritos",
+  "choice.chickenOrBeef": "Pollo o res",
   "sheet.close": "Cerrar",
   "sheet.decreaseQty": "Quitar uno",
   "sheet.increaseQty": "Agregar uno",

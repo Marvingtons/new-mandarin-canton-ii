@@ -23,6 +23,10 @@
  *  5. THE TWO RICES STAY DISTINCT. On one ticket, a steamed rice SIDE and an
  *     entrée's FRIED rice print unmistakably differently: the side on the item
  *     line, the entrée's rice as a ● side beneath it.
+ *  6. EVERY "OR" DISH MAKES THE CUSTOMER CHOOSE. No dish or entrée option
+ *     named "X or Y" / "X或Y" is orderable without an either/or group; the
+ *     group is required with NO default (sheet or server), a line without it
+ *     is refused, and the chosen dish prints on the item line, EN and 中文.
  *
  * Run: npm run verify:preparation
  */
@@ -41,7 +45,9 @@ import {
   applyPreparationDefault,
 } from "@/lib/menu/preparation";
 import { RICE_GROUP_ID, RICE_STEAMED_ID } from "@/lib/menu/rice";
-import { preparationOrder } from "./fixtures/orders";
+import { composeOrder } from "@/lib/orders/compose";
+import { EITHER_OR_GROUP_ID } from "@/lib/menu/preparation";
+import { fixtureOrder, preparationOrder } from "./fixtures/orders";
 
 const TIMEZONE = "America/Los_Angeles";
 
@@ -239,8 +245,88 @@ async function renderChecks(): Promise<void> {
   );
 }
 
+/* ------------------------- 6. "or" dishes make the customer choose ---- */
+
+const OR_NAME = /\bor\b|或/i;
+
+const OR_DISHES = [
+  { id: "black-pepper-beef-or-chicken", label: "Beef or chicken", pick: "or-black-pepper-chicken", en: "Black Pepper Chicken", zh: "黑椒雞肉" },
+  { id: "steamed-or-fried-dumplings", label: "Steamed or fried", pick: "or-fried-dumplings", en: "Fried Dumplings (8)", zh: "煎餃（8隻）" },
+  { id: "chow-fun-chicken-or-beef", label: "Chicken or beef", pick: "or-beef-chow-fun", en: "Beef Chow Fun (Dry)", zh: "乾炒牛肉河粉" },
+] as const;
+
+async function orDishChecks(): Promise<void> {
+  // The sweep: any orderable dish or entrée option still named "X or Y".
+  for (const it of menu.categories.flatMap((c) => c.items)) {
+    if (OR_NAME.test(it.nameEn) || OR_NAME.test(it.nameZh ?? "")) {
+      const g = it.modifierGroups.find((x) => x.id === EITHER_OR_GROUP_ID);
+      check(`"${it.nameEn}" carries a required either/or`, !!g && g.minRequired === 1 && g.maxAllowed === 1);
+    }
+    for (const g of it.modifierGroups) {
+      for (const m of g.modifiers) {
+        check(
+          `option "${m.nameEn}" on ${it.id} is not itself an unresolved "or"`,
+          !OR_NAME.test(m.nameEn) && !OR_NAME.test(m.nameZh ?? ""),
+        );
+      }
+    }
+  }
+
+  const lunch = byId.get("combo-lunch-16-25");
+  const entree = lunch?.modifierGroups.find((g) => g.id.endsWith("-entree"));
+  const chowFun = entree?.modifiers.filter((m) => /Chow Fun \(Dry\)/.test(m.nameEn)) ?? [];
+  check(
+    "the $16.25 lunch offers Chicken and Beef Chow Fun as two entrées, 中文 from the dish",
+    chowFun.map((m) => `${m.nameEn}=${m.nameZh}`).join(",") ===
+      "Chicken Chow Fun (Dry)=乾炒雞肉河粉,Beef Chow Fun (Dry)=乾炒牛肉河粉",
+    chowFun.map((m) => `${m.nameEn}=${m.nameZh}`).join(","),
+  );
+
+  for (const d of OR_DISHES) {
+    const it = byId.get(d.id);
+    check(`${d.id} resolves from the catalogue`, !!it);
+    if (!it) continue;
+    const g = it.modifierGroups[0];
+    check(`${d.id}: the either/or is its first group`, g?.id === EITHER_OR_GROUP_ID);
+    check(`${d.id}: labelled "${d.label}"`, g?.nameEn === d.label && !!g?.nameZh && g?.nameKey !== undefined);
+    check(`${d.id}: required single choice, never defaulted`, g?.minRequired === 1 && g?.maxAllowed === 1 && g?.noDefault === true);
+    check(`${d.id}: both options $0 and bilingual`, !!g && g.modifiers.length === 2 && g.modifiers.every((m) => m.priceCents === 0 && !!m.nameZh));
+    check(`${d.id}: the options are preparation-line ids`, !!g && g.modifiers.every((m) => isPreparationModifierId(m.id)));
+
+    for (const size of itemSizes(it)) {
+      const rice = groupsForSize(it, size.id).find((x) => x.id === RICE_GROUP_ID);
+      const base = rice ? [RICE_STEAMED_ID] : [];
+      const without = composeOrder(menu, [{ itemId: it.id, sizeId: size.id, modifierIds: base, quantity: 1 }], { taxRateBps: 875, lunchAllowed: true });
+      check(
+        `${d.id} @ ${size.id}: the server refuses a line with no choice`,
+        !without.ok && /choose/i.test(without.error) && without.error.toLowerCase().includes(d.label.toLowerCase()),
+        without.ok ? "accepted" : without.error,
+      );
+      const withPick = composeOrder(menu, [{ itemId: it.id, sizeId: size.id, modifierIds: [...base, d.pick], quantity: 1 }], { taxRateBps: 875, lunchAllowed: true });
+      check(`${d.id} @ ${size.id}: the server accepts the chosen line`, withPick.ok, withPick.ok ? "" : withPick.error);
+      if (withPick.ok) {
+        const stored = withPick.lines[0].modifiers.find((m) => m.id === d.pick);
+        check(`${d.id} @ ${size.id}: the stored line carries the choice`, stored?.nameEn === d.en && stored?.nameZh === d.zh);
+      }
+    }
+
+    const line = resolveOrderLine(it, itemSizes(it)[0].id, [
+      ...(groupsForSize(it, itemSizes(it)[0].id).some((x) => x.id === RICE_GROUP_ID) ? [RICE_STEAMED_ID] : []),
+      d.pick,
+    ], 1);
+    const { lines } = await composeTicketSvg({ ...fixtureOrder(), items: [line] }, { timezone: TIMEZONE });
+    const texts = lines.map((l) => l.text);
+    // A long name wraps onto a second laid-out line; read the ticket as text.
+    const joined = texts.join(" ");
+    check(`${d.id}: the ticket prints the chosen dish on the item line`, joined.includes(d.en) && texts.includes(d.zh), texts.join(" | "));
+    check(`${d.id}: the chosen dish is not a ● side`, !texts.some((t) => t.startsWith("●") && t.includes(d.en)));
+    check(`${d.id}: the unresolved "or" name does not print`, !joined.includes(it.nameEn) && !texts.includes(it.nameZh ?? "∅"));
+  }
+}
+
 async function main(): Promise<void> {
   await renderChecks();
+  await orDishChecks();
 
   const total = pass + failures.length;
   console.log(`preparation: ${pass}/${total} checks passed`);

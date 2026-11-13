@@ -7,6 +7,8 @@
  * printed ticket; floating-point dollars never enter a price calculation.
  */
 
+import type { TranslationKey } from "@/lib/i18n/dictionary";
+
 export interface MenuModifier {
   id: string;
   nameEn: string;
@@ -26,6 +28,16 @@ export interface MenuModifierGroup {
   id: string;
   nameEn: string;
   nameZh: string | null;
+  /**
+   * The web sheet's label from the dictionary, when the group has one in
+   * every locale (an "or" dish's question). Unset: nameEn, as before.
+   */
+  nameKey?: TranslationKey;
+  /**
+   * Never preselected, even when required and single-choice: the pick IS the
+   * dish ("Beef or chicken"), so a default would be ordering for the customer.
+   */
+  noDefault?: boolean;
   /** Minimum selections required. >= 1 means the customer must choose. */
   minRequired: number;
   /** Maximum selections allowed. null = unlimited. */

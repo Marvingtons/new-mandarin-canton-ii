@@ -1,3 +1,4 @@
+import { menu, type MenuItemEitherOr } from "@/data/menu";
 import type { MenuItem, MenuModifierGroup } from "@/lib/menu/types";
 
 /**
@@ -32,15 +33,30 @@ export const PREP_GROUP_ID = "prep";
 export const PREP_STEAMED_ID = "prep-steamed";
 export const PREP_FRIED_ID = "prep-fried";
 
+/**
+ * An "X or Y" dish's either/or ("Black Pepper Beef or Chicken"): the same
+ * idea as the preparation, the menu name is a choice the customer resolves,
+ * so the chosen dish prints ON the item line. A separate group id because,
+ * unlike the preparation, it has NO default anywhere: not in the sheet, not on
+ * the server (see applyPreparationDefault). A missing one is refused.
+ */
+export const EITHER_OR_GROUP_ID = "either-or";
+
+/** Every either/or option id in the catalogue (unique across the menu). */
+const EITHER_OR_MODIFIER_IDS: string[] = menu.flatMap((c) =>
+  c.items.flatMap((i) => (i.eitherOr?.options ?? []).map((o) => o.id)),
+);
+
 const PREP_MODIFIER_IDS: ReadonlySet<string> = new Set([
   PREP_STEAMED_ID,
   PREP_FRIED_ID,
+  ...EITHER_OR_MODIFIER_IDS,
 ]);
 
 /**
- * Is this stored modifier id one of the preparation choices? The ticket reads
- * this to lift the preparation onto the item line instead of printing it as a
- * ● side. An OrderLineModifier carries no group id, so identity is by the fixed
+ * Is this stored modifier id one of the preparation choices, or an "or"
+ * dish's resolved dish? The ticket reads this to lift it onto the item line
+ * instead of printing it as a ● side. An OrderLineModifier carries no group id, so identity is by the fixed
  * option ids — the same approach rice takes with its three constants.
  */
 export function isPreparationModifierId(id: string): boolean {
@@ -81,6 +97,28 @@ export function preparationGroup(): MenuModifierGroup {
       { id: PREP_STEAMED_ID, nameEn: "Steamed Rice", nameZh: "白飯", priceCents: 0 },
       { id: PREP_FRIED_ID, nameEn: "Fried Rice", nameZh: "炒飯", priceCents: 0 },
     ],
+  };
+}
+
+/**
+ * An "or" dish's required either/or group: single choice, no default, each
+ * option the resolved dish's own EN and 中文 (which is what prints), $0.
+ */
+export function eitherOrGroup(eitherOr: MenuItemEitherOr): MenuModifierGroup {
+  return {
+    id: EITHER_OR_GROUP_ID,
+    nameEn: eitherOr.label,
+    nameZh: eitherOr.labelZh,
+    nameKey: eitherOr.labelKey,
+    noDefault: true,
+    minRequired: 1,
+    maxAllowed: 1,
+    modifiers: eitherOr.options.map((o) => ({
+      id: o.id,
+      nameEn: o.name,
+      nameZh: o.chineseName,
+      priceCents: 0,
+    })),
   };
 }
 
@@ -130,6 +168,14 @@ export function preparationGlyphStrings(): string[] {
   for (const mod of group.modifiers) {
     out.push(mod.nameEn);
     if (mod.nameZh) out.push(mod.nameZh);
+  }
+  // The "or" dishes' resolved names print on the item line the same way.
+  // Their glyphs are a subset of the dish names already collected today; this
+  // keeps coverage from depending on that.
+  for (const category of menu) {
+    for (const item of category.items) {
+      for (const option of item.eitherOr?.options ?? []) out.push(option.name, option.chineseName);
+    }
   }
   return out;
 }

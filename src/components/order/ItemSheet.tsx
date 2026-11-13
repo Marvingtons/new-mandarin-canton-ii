@@ -173,7 +173,7 @@ function ItemSheetInner({
           {groups.map((g) => (
             <fieldset key={g.id} className="mb-5">
               <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-ink/55">
-                {g.nameEn}
+                {g.nameKey ? t(g.nameKey) : g.nameEn}
                 {g.minRequired > 0 && (
                   <span className="ml-1 text-lacquer">
                     · {t("sheet.required")}
@@ -291,7 +291,7 @@ function ItemSheetInner({
             {chooseBefore}
             <span className="font-semibold text-lacquer">
               {unmetGroups
-                .map((g) => g.nameEn.toLowerCase())
+                .map((g) => (g.nameKey ? t(g.nameKey) : g.nameEn).toLowerCase())
                 .join(` ${t("ui.and")} `)}
             </span>
             {chooseAfter}

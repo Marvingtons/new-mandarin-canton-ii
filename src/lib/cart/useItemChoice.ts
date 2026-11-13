@@ -53,7 +53,8 @@ export function useItemChoice(
     const initial: Record<string, string[]> = {};
     if (!preselectRequired) return initial;
     for (const g of item.modifierGroups) {
-      if (g.minRequired >= 1 && g.maxAllowed === 1 && g.modifiers[0]) {
+      // An "or" dish's either/or is never defaulted: the pick is the dish.
+      if (g.minRequired >= 1 && g.maxAllowed === 1 && !g.noDefault && g.modifiers[0]) {
         initial[g.id] = [g.modifiers[0].id];
       }
     }

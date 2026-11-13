@@ -11,7 +11,7 @@ import {
   resolveModifierZh,
 } from "@/data/menu-overrides";
 import { riceGroupForItem } from "@/lib/menu/rice";
-import { preparationGroup } from "@/lib/menu/preparation";
+import { eitherOrGroup, preparationGroup } from "@/lib/menu/preparation";
 import type {
   Menu,
   MenuCategory,
@@ -85,7 +85,11 @@ function modifierGroupsFor(
 ): MenuModifierGroup[] {
   const groups: MenuModifierGroup[] = [];
 
-  // Rice FIRST, because it is the required one. The sheet renders groups
+  // An "or" dish's either/or comes before everything: it decides which dish
+  // this is ("Black Pepper Beef or Chicken"). Required, never defaulted.
+  if (item.eitherOr) groups.push(eitherOrGroup(item.eitherOr));
+
+  // Rice next, because it is the required one. The sheet renders groups
   // in order, and a customer scrolling to a disabled Add button should
   // meet the thing blocking it before the optional extras.
   //

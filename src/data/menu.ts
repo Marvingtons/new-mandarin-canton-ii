@@ -38,6 +38,8 @@
  * `npm run build:ticket-font`, or the new characters print as □ on paper.
  */
 
+import type { TranslationKey } from "@/lib/i18n/dictionary";
+
 /** A price tier beyond the plain individual price (Half/Whole, Cup/Bowl). */
 export interface MenuItemSize {
   id: string;
@@ -52,6 +54,17 @@ export interface MenuItemModifier {
   name: string;
   /** Integer cents. */
   priceCents: number;
+}
+
+/** See MenuItem.eitherOr. */
+export interface MenuItemEitherOr {
+  /** The question, as the sheet asks it: "Beef or chicken". */
+  label: string;
+  labelZh: string;
+  /** The web sheet's label in every locale (the dictionary carries ES). */
+  labelKey: TranslationKey;
+  /** One per resolved dish. Ids are unique across the whole menu. */
+  options: { id: string; name: string; chineseName: string }[];
 }
 
 export interface MenuItem {
@@ -105,6 +118,14 @@ export interface MenuItem {
    * and the note on `includesRice` above). Unset everywhere else.
    */
   preparationChoice?: boolean;
+  /**
+   * An "X or Y" dish's own required either/or ("Black Pepper Beef or
+   * Chicken"): the dish each option resolves to, EN and 中文. Built into a
+   * required single-choice group by lib/menu/preparation.ts (eitherOrGroup)
+   * with NO default, so the customer or the staff member must pick; the chosen
+   * dish prints ON the item line, the same as #116's preparation.
+   */
+  eitherOr?: MenuItemEitherOr;
   spicy?: boolean;
   tags?: string[];
 }
@@ -206,6 +227,15 @@ export const menu: MenuCategory[] = [
         chineseName: "黑椒牛肉或雞肉",
         priceCents: 2150,
         trayCents: 7500,
+        eitherOr: {
+          label: "Beef or chicken",
+          labelZh: "牛肉或雞肉",
+          labelKey: "choice.beefOrChicken",
+          options: [
+            { id: "or-black-pepper-beef", name: "Black Pepper Beef", chineseName: "黑椒牛肉" },
+            { id: "or-black-pepper-chicken", name: "Black Pepper Chicken", chineseName: "黑椒雞肉" },
+          ],
+        },
         spicy: true,
       },
       {
@@ -260,6 +290,15 @@ export const menu: MenuCategory[] = [
         name: "Steamed or Fried Dumplings (8)",
         chineseName: "蒸餃或煎餃（8隻）",
         priceCents: 1595,
+        eitherOr: {
+          label: "Steamed or fried",
+          labelZh: "蒸或煎",
+          labelKey: "choice.steamedOrFried",
+          options: [
+            { id: "or-steamed-dumplings", name: "Steamed Dumplings (8)", chineseName: "蒸餃（8隻）" },
+            { id: "or-fried-dumplings", name: "Fried Dumplings (8)", chineseName: "煎餃（8隻）" },
+          ],
+        },
       },
       {
         // The printed menu says "Fired"; the site's corrected spelling stands.
@@ -1018,6 +1057,15 @@ export const menu: MenuCategory[] = [
         chineseName: "乾炒雞肉或牛肉河粉",
         priceCents: 1995,
         trayCents: 7000,
+        eitherOr: {
+          label: "Chicken or beef",
+          labelZh: "雞肉或牛肉",
+          labelKey: "choice.chickenOrBeef",
+          options: [
+            { id: "or-chicken-chow-fun", name: "Chicken Chow Fun (Dry)", chineseName: "乾炒雞肉河粉" },
+            { id: "or-beef-chow-fun", name: "Beef Chow Fun (Dry)", chineseName: "乾炒牛肉河粉" },
+          ],
+        },
       },
       {
         id: "seafood-chow-fun",
@@ -1138,6 +1186,11 @@ function buildDishIndex(): Map<string, string> {
       // section keeps the section's name, and the two agree anyway.
       const key = dishKey(item.name);
       if (!index.has(key)) index.set(key, item.chineseName);
+      // An "or" dish's resolved dishes are dishes too (lunch lists them).
+      for (const option of item.eitherOr?.options ?? []) {
+        const optionKey = dishKey(option.name);
+        if (!index.has(optionKey)) index.set(optionKey, option.chineseName);
+      }
     }
   }
   for (const [name, zh] of Object.entries(OFF_CATALOGUE_ZH)) {
@@ -1261,7 +1314,12 @@ export const combos: ComboSection[] = [
           // TODO(confirm): price partially obscured on menu photo — owner to confirm
           // (entrée 13: the NAME is partially obscured, not the tier price.)
           { name: "Chicken with Broccoli" },
-          { name: "Chicken or Beef Chow Fun (Dry)", noRiceSide: true },
+          // The printed menu's "Chicken or Beef Chow Fun (Dry)", as two
+          // choices: an entrée option cannot carry a choice of its own, and
+          // the kitchen must be told which meat. Their 中文 comes from the à
+          // la carte dish's eitherOr options through dishZh.
+          { name: "Chicken Chow Fun (Dry)", noRiceSide: true },
+          { name: "Beef Chow Fun (Dry)", noRiceSide: true },
           { name: "Chicken with Vegetable" },
           { name: "Orange Flavor Chicken" },
           { name: "Sweet & Sour Chicken" },
