@@ -1,5 +1,6 @@
 /**
- * The print path must be correct even when reads come back stale.
+ * The print path's stale-read incidents stay fixed, now that reads are plain
+ * queries and Hyperdrive caching is off.
  *
  *   npm run verify:print-stale-reads
  *
@@ -17,13 +18,22 @@
  *     the row as it was before the reprint, so the printer's confirmation looks
  *     superseded and is dropped. The ticket printed; we never recorded it.
  *
+ * THE FIX NOW. The cache is turned off on the Hyperdrive config (REQUIRED
+ * before deploy: docs/PRINT_STALE_READS.md), and every read is an ordinary
+ * query. The old workaround (lockedRead: FOR SHARE in its own transaction)
+ * is gone, because its row locks made the printer's FOR UPDATE SKIP LOCKED
+ * claim skip QUEUED tickets (verify:claim-no-skip).
+ *
  * HOW. The same real-things harness as verify:print-deliveries (embedded
- * Postgres, real schema, real repository, real route handlers), with
- * scripts/lib/hyperdrive-cache-emulator.ts in front of every query: it serves
- * any non-locking SELECT from a 60s cache that writes never invalidate. Time
- * passing is simulated the way the other print verifiers do it: expire the
- * delivery in the database, and clear() the cache when more than 60s would
- * have gone by.
+ * Postgres, real schema, real repository, real route handlers), reading the
+ * database directly, as production does with caching off. Time passing is
+ * simulated the way the other print verifiers do it: expire the delivery in
+ * the database.
+ *
+ * G puts scripts/lib/hyperdrive-cache-emulator.ts back in front of every
+ * query (caching ON, as the config was) and checks that the stale-read
+ * tripwire (src/lib/db/staleReadTripwire.ts) notices, once, and that it
+ * stayed silent through A to F.
  *
  * Windows are production's: 3 copies x 30s, floor 60s -> a 90s window, cap 4.
  */
@@ -32,10 +42,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "pg";
-import {
-  installHyperdriveCacheEmulator,
-  type CacheEmulator,
-} from "./lib/hyperdrive-cache-emulator";
+import { installHyperdriveCacheEmulator } from "./lib/hyperdrive-cache-emulator";
 
 const PORT = 55437;
 const DB_NAME = "nmc_stale_reads_test";
@@ -56,7 +63,7 @@ const params = Promise.resolve({ secret: SECRET });
 interface Deps {
   repo: typeof import("../src/lib/orders/repository");
   ordersPool: typeof import("../src/lib/db/postgres").ordersPool;
-  cache: CacheEmulator;
+  tripwire: typeof import("../src/lib/db/staleReadTripwire").staleReadTripwireForTests;
 }
 
 /* ------------------------------------------------------------- printer -- */
@@ -101,11 +108,11 @@ async function kitchenReprint(deps: Deps, orderId: number): Promise<void> {
 
 /* ---------------------------------------------------------- db helpers -- */
 
-/** Ground truth, read past the cache (a locking read is never cached). */
+/** Ground truth, straight from the database. */
 async function orderRow(deps: Deps, orderId: number) {
   const { rows } = await deps.ordersPool().query(
     `select status, print_attempts, print_delivery_id from orders
-      where tenant_id = $1 and id = $2 for update`,
+      where tenant_id = $1 and id = $2`,
     [TENANT, orderId],
   );
   return rows[0] as { status: string; print_attempts: number; print_delivery_id: string | null };
@@ -122,7 +129,7 @@ async function deliveriesFor(deps: Deps, orderId: number): Promise<DeliveryRow[]
   const { rows } = await deps.ordersPool().query(
     `select id, reason, offered_at, expires_at, confirmed_at from print_deliveries
       where tenant_id = $1 and order_id = $2
-      order by offered_at asc, created_at asc for update`,
+      order by offered_at asc, created_at asc`,
     [TENANT, orderId],
   );
   return rows as DeliveryRow[];
@@ -186,8 +193,6 @@ async function seedOrder(deps: Deps): Promise<{ id: number; orderNumber: string 
 
 async function reset(deps: Deps): Promise<void> {
   await deps.ordersPool().query("delete from orders where tenant_id = $1", [TENANT]);
-  deps.cache.clear();
-  deps.cache.resetStats();
 }
 
 /* ------------------------------------------------------------- results -- */
@@ -203,7 +208,7 @@ const offers = (ds: DeliveryRow[]) => ds.filter((d) => d.reason !== "manual_repr
 /* ----------------------------------------------------------- scenarios -- */
 
 // A. The A-008 retry burst. After one legitimate retry, polls 3s apart must
-//    HOLD the new delivery for its whole window, cache or no cache.
+//    HOLD the new delivery for its whole window.
 async function a_noRetryBurst(h: Handlers, deps: Deps): Promise<void> {
   console.log("\nA. after a retry, the next polls hold (no 3-second retry burst)");
   await reset(deps);
@@ -212,7 +217,6 @@ async function a_noRetryBurst(h: Handlers, deps: Deps): Promise<void> {
   const p1 = await poll(h); // first-offer D1
   await fetchJob(h, p1.token!);
   await expireInFlight(deps, order.id);
-  deps.cache.clear(); // 90s passed: anything cached has aged out
   const p2 = await poll(h); // legitimate retry D2
   // The printer polls every ~3s. Five more polls inside D2's window:
   const burst: PollAnswer[] = [];
@@ -224,7 +228,7 @@ async function a_noRetryBurst(h: Handlers, deps: Deps): Promise<void> {
   check(
     "the 5 polls inside D2's window were all held",
     burst.every((b) => !b.jobReady),
-    `offered on ${burst.filter((b) => b.jobReady).length} of 5 (cache hits ${deps.cache.hits}, misses ${deps.cache.misses})`,
+    `offered on ${burst.filter((b) => b.jobReady).length} of 5`,
   );
   check("exactly 2 deliveries exist (D1, D2)", ds.length === 2, `${ds.length} deliveries`);
 }
@@ -367,6 +371,62 @@ async function f_boardFlagsStuckTicket(h: Handlers, deps: Deps): Promise<void> {
   check("a fresh 重印 is not flagged yet", afterReprint?.printStuck === false);
 }
 
+// G. The tripwire: silent through everything above (caching off), and one
+//    warning when a cache like the old config's answers a read with a row
+//    older than this process's own write of it.
+async function g_tripwire(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\nG. the stale-read tripwire: silent with caching off, fires once with it on");
+  check("silent through A to F (caching off)", !deps.tripwire.fired());
+
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    const line = args.map(String).join(" ");
+    if (line.includes("STALE READ")) warnings.push(line);
+    else warn(...args);
+  };
+  const cache = installHyperdriveCacheEmulator(60_000);
+  try {
+    // The 重印 route's read lands in the cache, then the printer takes the
+    // ticket a little later (past the tripwire's 1 s slack), then the confirm
+    // path reads the order again: the incident's shape.
+    await deps.repo.getOrderById(TENANT, order.id);
+    await new Promise((r) => setTimeout(r, 1_200));
+    const p1 = await poll(h);
+    await deps.repo.getOrderById(TENANT, order.id);
+    await deps.repo.getOrderById(TENANT, order.id);
+    check("the cache answered the read (caching really on here)", cache.hits > 0, `hits=${cache.hits}`);
+    check("the tripwire fired", deps.tripwire.fired());
+    check("exactly one warning, however many stale reads", warnings.length === 1, `${warnings.length} warnings`);
+    check(
+      "the warning names the fix",
+      warnings.length === 1 && warnings[0].includes("--caching-disabled true") && warnings[0].includes("PRINT_STALE_READS.md"),
+      warnings[0] ?? "",
+    );
+    if (p1.token) await confirm(h, p1.token);
+  } finally {
+    cache.uninstall();
+    console.warn = warn;
+  }
+
+  // The version check: the board's database clock behind our newest write.
+  const tw = await import("../src/lib/db/staleReadTripwire");
+  deps.tripwire.reset();
+  console.warn = () => {};
+  try {
+    tw.noteOrderWrite(TENANT, 1, "2026-11-03T20:00:10.000Z");
+    tw.checkVersionRead(TENANT, "2026-11-03T20:00:10.500Z", "test");
+    check("version clock within the slack of our write: silent", !deps.tripwire.fired());
+    tw.checkVersionRead(TENANT, "2026-11-03T20:00:05.000Z", "test");
+    check("version clock 5 s behind our write: fires", deps.tripwire.fired());
+  } finally {
+    console.warn = warn;
+    deps.tripwire.reset();
+  }
+}
+
 /* ---------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -408,8 +468,8 @@ async function main(): Promise<void> {
 
   const repo = await import("../src/lib/orders/repository");
   const route = (await import("../src/app/api/print/[secret]/route")) as unknown as Handlers;
-  const cache = installHyperdriveCacheEmulator(60_000);
-  const deps: Deps = { repo, ordersPool, cache };
+  const { staleReadTripwireForTests: tripwire } = await import("../src/lib/db/staleReadTripwire");
+  const deps: Deps = { repo, ordersPool, tripwire };
 
   try {
     await a_noRetryBurst(route, deps);
@@ -418,8 +478,8 @@ async function main(): Promise<void> {
     await d_confirmAfterBoardRead(route, deps);
     await e_reprintWhilePrinting(route, deps);
     await f_boardFlagsStuckTicket(route, deps);
+    await g_tripwire(route, deps);
   } finally {
-    cache.uninstall();
     await closeOrdersPool();
     console.log("\nstopping postgres…");
     await pg.stop();
@@ -433,7 +493,7 @@ async function main(): Promise<void> {
     for (const f of failed) console.error(`  ✗ ${f.name}${f.detail ? ` — ${f.detail}` : ""}`);
     process.exit(1);
   }
-  console.log("\nstale reads cannot make the printer repeat or lose a ticket ✓");
+  console.log("\nthe printer neither repeats nor loses a ticket, and a cache left on is caught ✓");
 }
 
 main().catch((err) => {

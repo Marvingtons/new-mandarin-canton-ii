@@ -1,6 +1,6 @@
 import "server-only";
 
-import { lockedRead, ordersPool } from "@/lib/db/postgres";
+import { ordersPool } from "@/lib/db/postgres";
 import type { PrinterCondition } from "@/lib/print/printerStatus";
 import { printerBlockedReason } from "@/lib/print/printerStatus";
 import { STATIONS, isStation, type Station } from "@/config/stations";
@@ -479,8 +479,10 @@ const LEGACY_STATUS_COLUMNS = `printer_mac, last_seen_at, online, paper_out,
   offline_alerted_at, paper_alerted_at`;
 
 /**
- * Every printer's row, for the board strip and the alert sweep: one locking
+ * Every printer's row, for the board strip and the alert sweep: one plain
  * read, keyed by station. A station whose printer has never polled is absent.
+ * The alert sweep decides nothing from it alone: each text is claimed by a
+ * conditional UPDATE (claimPrinterAlert).
  */
 export async function readAllPrinterStatus(
   tenantId: string,
@@ -488,18 +490,17 @@ export async function readAllPrinterStatus(
   const rows = await eitherShape(
     async () =>
       (
-        await lockedRead(
+        await ordersPool().query(
           `select ${STATUS_COLUMNS}
-             from printer_station_status where tenant_id = $1 and station = any($2::text[])
-             for share`,
+             from printer_station_status where tenant_id = $1 and station = any($2::text[])`,
           [tenantId, [...STATIONS]],
         )
       ).rows,
     // Old schema: the one legacy row is the online printer's.
     async () =>
       (
-        await lockedRead(
-          `select ${LEGACY_STATUS_COLUMNS} from printer_status where tenant_id = $1 for share`,
+        await ordersPool().query(
+          `select ${LEGACY_STATUS_COLUMNS} from printer_status where tenant_id = $1`,
           [tenantId],
         )
       ).rows,

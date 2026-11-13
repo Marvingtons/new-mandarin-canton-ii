@@ -2,7 +2,8 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
-import { lockedRead, ordersPool, withTransaction } from "@/lib/db/postgres";
+import { ordersPool, withTransaction } from "@/lib/db/postgres";
+import { checkOrderRead, checkVersionRead, noteOrderWrite } from "@/lib/db/staleReadTripwire";
 import {
   formatOrderNumber,
   isOrderStatus,
@@ -213,6 +214,23 @@ function mapOrder(row: QueryResultRow): Order {
   };
 }
 
+/** An order our own write returned: remembered by the stale-read tripwire. */
+function wrote(order: Order): Order {
+  noteOrderWrite(order.tenantId, order.id, order.updatedAt);
+  return order;
+}
+
+/** wrote(), for the many writes that may match nothing. */
+function wroteOrNull(order: Order | null): Order | null {
+  return order ? wrote(order) : null;
+}
+
+/** An order a plain read returned: checked against our own writes of it. */
+function readBack(order: Order, where: string): Order {
+  checkOrderRead(order.tenantId, order.id, order.updatedAt, where);
+  return order;
+}
+
 /** Thrown internally when a concurrent transaction won the idempotency race. */
 class IdempotencyRace extends Error {}
 
@@ -221,11 +239,11 @@ async function selectByIdempotencyKey(
   tenantId: string,
   idempotencyKey: string,
 ): Promise<Order | null> {
-  // FOR SHARE: a locking read is never answered from Hyperdrive's cache.
+  // A plain read is enough: the guarantee is orders_idempotency_uniq and the
+  // ON CONFLICT below, not this fast path.
   const { rows } = await client.query(
     `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and idempotency_key = $2
-      for share`,
+      where tenant_id = $1 and idempotency_key = $2`,
     [tenantId, idempotencyKey],
   );
   return rows.length > 0 ? mapOrder(rows[0]) : null;
@@ -273,7 +291,7 @@ export async function createOrder(
   // its row is then visible to the fast path on the next pass.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await withTransaction(async (client) => {
+      const result = await withTransaction(async (client) => {
         const existing = await selectByIdempotencyKey(
           client,
           input.tenantId,
@@ -340,6 +358,8 @@ export async function createOrder(
 
         return { order: mapOrder(rows[0]), created: true };
       });
+      if (result.created) wrote(result.order);
+      return result;
     } catch (err) {
       if (err instanceof IdempotencyRace) continue;
       throw err;
@@ -381,9 +401,7 @@ async function checkTable(
         and channel = 'dine_in'
         and table_cleared_at is null
         and status <> 'CANCELLED'
-      order by created_at asc
-      -- Locking, so it is never a cached answer: seating decides on this.
-      for share`,
+      order by created_at asc`,
     [tenantId],
   );
   const open = rows.map((r) => ({
@@ -411,9 +429,9 @@ async function checkTable(
  * order frees the table without a separate step.
  */
 export async function listOpenTables(tenantId: string): Promise<OpenTable[]> {
-  // The floor plan seats parties from this, so it must be fresh: the rows are
-  // read with FOR SHARE (in a subquery, since a grouped query cannot lock).
-  const { rows } = await lockedRead(
+  // Display only. Seating is decided by checkTable, under createOrder's
+  // advisory lock, not from this list.
+  const { rows } = await ordersPool().query(
     `select table_label,
             (array_agg(guest_count order by is_addon asc, created_at asc))[1] as guest_count,
             min(created_at)                                         as seated_at,
@@ -427,7 +445,6 @@ export async function listOpenTables(tenantId: string): Promise<OpenTable[]> {
             and channel = 'dine_in'
             and table_cleared_at is null
             and status <> 'CANCELLED'
-          for share
        ) open_orders
       group by table_label
       order by min(created_at) asc`,
@@ -468,7 +485,7 @@ export async function clearTable(tenantId: string, tableLabelValue: string): Pro
       returning ${ORDER_COLUMNS}`,
     [tenantId, tableLabelValue],
   );
-  return rows.map(mapOrder);
+  return rows.map((r) => wrote(mapOrder(r)));
 }
 
 /**
@@ -632,7 +649,7 @@ export async function claimNextPrintJob(
    */
   scope: PrinterScope = SINGLE_PRINTER,
 ): Promise<Order | null> {
-  return withTransaction(async (client) => {
+  return wroteOrNull(await withTransaction(async (client) => {
     const deliveryId = randomUUID();
     const { rows } = await client.query(
       `update orders
@@ -671,7 +688,7 @@ export async function claimNextPrintJob(
       station: scope.station,
     });
     return order;
-  });
+  }));
 }
 
 /**
@@ -684,12 +701,18 @@ export async function currentPrintJob(
   /** Only this printer's stations: the other printer's job in flight is not ours to re-offer. */
   serves: readonly Station[] = STATIONS,
 ): Promise<Order | null> {
-  // FOR UPDATE: the poll's offer/hold/cap decision is made from this row. A
-  // cached copy of it (Hyperdrive served this query from a 60s cache) showed
-  // an already-replaced, expired delivery, and every poll re-offered the
-  // ticket. A locking read always goes to the database, and it waits for an
-  // in-progress confirmation to commit rather than reading around it.
-  const { rows } = await lockedRead(
+  // FOR UPDATE, kept on purpose, and the ONLY locking read left outside a
+  // write. The poll's offer/hold/cap decision is made from this row, and the
+  // lock orders that read against the printer's own writes to it: a
+  // confirmation (confirmPrintDelivery) or a re-offer still in progress is
+  // waited for, and the row re-read after it commits, instead of being read
+  // around. Without it, a poll racing its own DELETE could decide "capped"
+  // from the pre-confirm row and condemn a ticket that just printed.
+  //
+  // It cannot make claimNextPrintJob skip a QUEUED ticket: it only ever locks
+  // rows with print_attempts > 0, and the claim only considers rows with
+  // print_attempts = 0. One statement, so the lock is released as it returns.
+  const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1
         and print_attempts > 0
@@ -733,7 +756,7 @@ export async function reofferPrintDelivery(
   /** Its failover stations (PrinterScope.failoverFrom): a takeover is a reroute. */
   failoverFrom: readonly Station[] = [],
 ): Promise<Order | null> {
-  return withTransaction(async (client) => {
+  return wroteOrNull(await withTransaction(async (client) => {
     const deliveryId = randomUUID();
     const { rows } = await client.query(
       `update orders
@@ -794,7 +817,7 @@ export async function reofferPrintDelivery(
       station,
     });
     return order;
-  });
+  }));
 }
 
 /** Read one delivery by id, or null for an unknown/malformed token. */
@@ -803,12 +826,11 @@ export async function getPrintDelivery(
   deliveryId: string,
 ): Promise<PrintDelivery | null> {
   if (!isDeliveryId(deliveryId)) return null;
-  // Locking read: "already confirmed?" decides whether the printer gets the
-  // body again, so it must never be a cached answer.
-  const { rows } = await lockedRead(
+  // A plain read. Confirming is decided again inside confirmPrintDelivery's
+  // transaction, under its own FOR UPDATE on this row.
+  const { rows } = await ordersPool().query(
     `select ${DELIVERY_COLUMNS} from print_deliveries
-      where tenant_id = $1 and id = $2
-      for share`,
+      where tenant_id = $1 and id = $2`,
     [tenantId, deliveryId],
   );
   return rows.length > 0 ? mapDelivery(rows[0]) : null;
@@ -1070,10 +1092,9 @@ export async function printSegmentState(
   tenantId: string,
   orderId: number,
 ): Promise<PrintSegmentState> {
-  const { rows } = await lockedRead(
+  const { rows } = await ordersPool().query(
     `select print_segment, print_segments, print_job_key from orders
-      where tenant_id = $1 and id = $2
-      for share`,
+      where tenant_id = $1 and id = $2`,
     [tenantId, orderId],
   );
   if (rows.length === 0) return { segment: 0, segments: 0, jobKey: null };
@@ -1187,13 +1208,12 @@ export async function countQueuedOrders(
   stations: readonly Station[] = STATIONS,
 ): Promise<number> {
   // Tickets and 重印 copies alike: whatever this printer still owes paper.
-  const { rows } = await lockedRead(
-    `select count(*)::int as n from (
-       select 1 from orders
-        where tenant_id = $1
-          and ${needsPaperFrom("$3", "$2")}
-        for share of orders
-     ) queued`,
+  // No lock: it used to FOR SHARE every waiting ticket, which is exactly the
+  // set the printer's FOR UPDATE SKIP LOCKED claim was trying to take.
+  const { rows } = await ordersPool().query(
+    `select count(*)::int as n from orders
+      where tenant_id = $1
+        and ${needsPaperFrom("$3", "$2")}`,
     [tenantId, [...stations], PRINTABLE_STATUSES],
   );
   return rows.length > 0 ? Number(rows[0].n) : 0;
@@ -1225,7 +1245,7 @@ export async function markPrinted(
       returning ${ORDER_COLUMNS}`,
     [tenantId, orderId],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? wrote(mapOrder(rows[0])) : null;
 }
 
 /**
@@ -1274,7 +1294,7 @@ export async function requestReprint(
   /** Which printer. Omitted = the order's own station. */
   station?: Station,
 ): Promise<Order | null> {
-  return withTransaction(async (client) => {
+  return wroteOrNull(await withTransaction(async (client) => {
     const { rows: current } = await client.query(
       `select status, print_station, print_attempts, reprint_delivery_id,
               (print_delivery_id is not null
@@ -1340,7 +1360,7 @@ export async function requestReprint(
       [tenantId, orderId, requestId],
     );
     return mapOrder(rows[0]);
-  });
+  }));
 }
 
 /**
@@ -1366,7 +1386,10 @@ export async function findUnprintedForAlert(
   today: string,
   maxAlertAttempts: number,
 ): Promise<Order[]> {
-  const { rows } = await lockedRead(
+  // No lock. The right to alert is claimed by markAlerted's conditional
+  // UPDATE; this only finds candidates. Locking them here (it used to FOR
+  // SHARE) held exactly the QUEUED rows the printer's claim skips if locked.
+  const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1
         and status in ('QUEUED', 'PRINT_FAILED')
@@ -1374,8 +1397,7 @@ export async function findUnprintedForAlert(
         and alert_attempts < $4
         and business_date >= $3::date - 1
         and created_at < now() - make_interval(secs => $2)
-      order by created_at asc
-      for share`,
+      order by created_at asc`,
     [tenantId, olderThanSeconds, today, maxAlertAttempts],
   );
   return rows.map(mapOrder);
@@ -1470,17 +1492,13 @@ export async function countOrdersForPhone(
   businessDate: string,
   phoneE164: string,
 ): Promise<number> {
-  // Decides whether an order is accepted, so never a cached count.
-  const { rows } = await lockedRead(
-    `select count(*)::int as n from (
-       select 1 from orders
-        where tenant_id = $1
-          and business_date = $2::date
-          and customer->>'phone' = $3
-          and channel = 'web'
-          and status <> 'CANCELLED'
-        for share
-     ) placed`,
+  const { rows } = await ordersPool().query(
+    `select count(*)::int as n from orders
+      where tenant_id = $1
+        and business_date = $2::date
+        and customer->>'phone' = $3
+        and channel = 'web'
+        and status <> 'CANCELLED'`,
     [tenantId, businessDate, phoneE164],
   );
   return Number(rows[0].n);
@@ -1490,13 +1508,12 @@ export async function getOrderByIdempotencyKey(
   tenantId: string,
   idempotencyKey: string,
 ): Promise<Order | null> {
-  const { rows } = await lockedRead(
+  const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and idempotency_key = $2
-      for share`,
+      where tenant_id = $1 and idempotency_key = $2`,
     [tenantId, idempotencyKey],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? readBack(mapOrder(rows[0]), "getOrderByIdempotencyKey") : null;
 }
 
 /**
@@ -1514,15 +1531,14 @@ export async function findRecentOrderByNumber(
   tenantId: string,
   orderNumber: string,
 ): Promise<Order | null> {
-  const { rows } = await lockedRead(
+  const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS} from orders
       where tenant_id = $1 and order_number = $2
       order by created_at desc
-      limit 1
-      for share`,
+      limit 1`,
     [tenantId, orderNumber],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? readBack(mapOrder(rows[0]), "findRecentOrderByNumber") : null;
 }
 
 export async function getOrderByNumber(
@@ -1530,28 +1546,27 @@ export async function getOrderByNumber(
   businessDate: string,
   orderNumber: string,
 ): Promise<Order | null> {
-  const { rows } = await lockedRead(
+  const { rows } = await ordersPool().query(
     `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and business_date = $2::date and order_number = $3
-      for share`,
+      where tenant_id = $1 and business_date = $2::date and order_number = $3`,
     [tenantId, businessDate, orderNumber],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? readBack(mapOrder(rows[0]), "getOrderByNumber") : null;
 }
 
 export async function getOrderById(
   tenantId: string,
   orderId: number,
 ): Promise<Order | null> {
-  // Locking read. The print confirmation compares this row's delivery id with
-  // the printer's token; a cached copy from before a reprint made every
-  // confirmation of the reprint look superseded, and it was dropped.
-  const { rows } = await lockedRead(
-    `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2
-      for share`,
+  // A plain read. The print confirmation compares this row's delivery id with
+  // the printer's token; that needs a FRESH row (a Hyperdrive-cached copy from
+  // before a reprint once made every confirmation look superseded), which is
+  // what caching off gives. The tripwire logs if that ever stops being true.
+  const { rows } = await ordersPool().query(
+    `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2`,
     [tenantId, orderId],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? readBack(mapOrder(rows[0]), "getOrderById") : null;
 }
 
 /**
@@ -1561,15 +1576,10 @@ export async function getOrderById(
  * has a paper copy of, so they must be impossible to miss. Then oldest-first,
  * because a queue is a queue.
  *
- * NOT A LOCKING READ, and it does not need to be. lockedRead exists for reads
- * that decide a write or a printer answer; this one only paints a screen, and
- * its FOR SHARE was costing the print path: it row-locked every order on the
- * board on every tablet's poll, which made the printer's FOR UPDATE SKIP
- * LOCKED claim skip a QUEUED ticket for that instant, and wrote a lock into
- * each row (WAL) for a read. It is still fresh behind Hyperdrive: the text
- * names now(), and Hyperdrive never caches a query that names a volatile
- * function (scripts/lib/hyperdrive-cache-emulator.ts models exactly that, and
- * verify:print-stale-reads runs this query through it).
+ * A plain read: no lock, no transaction. It only paints a screen, and a lock
+ * here would hold the very QUEUED rows the printer's FOR UPDATE SKIP LOCKED
+ * claim takes. (now() below is the "did not print" threshold, not a cache
+ * trick.)
  *
  * The board fetches this only when readBoardVersion says something changed.
  */
@@ -1626,7 +1636,7 @@ export async function listActiveOrders(
                created_at asc`,
     [tenantId, businessDate, statuses, PRINT_STUCK_SECONDS],
   );
-  return rows.map(mapActiveOrder);
+  return rows.map((r) => readBack(mapActiveOrder(r), "listActiveOrders"));
 }
 
 /** What the board's version is computed from. See readBoardVersion. */
@@ -1678,8 +1688,9 @@ function printerFingerprintSql(table: "current" | "legacy"): string {
  * long the day's history grows. The printer half reads printer_station_status
  * by its primary key (two rows).
  *
- * Fresh behind Hyperdrive for the same reason as listActiveOrders: it names
- * now(), which Hyperdrive never caches.
+ * now() here is real input: the printer thresholds, and the clock the board
+ * measures "did not print" against (X-Server-Time). That clock is also the
+ * stale-read tripwire's second check (checkVersionRead).
  *
  * Covers every input of the board response except two, both deliberate:
  *   - the "did not print" flag, which turns on by the clock alone. The board
@@ -1724,12 +1735,14 @@ export async function readBoardVersion(
     ({ rows } = await ordersPool().query(sql("legacy"), params));
   }
   const row = rows[0];
+  const dbNow = (row.db_now as Date).toISOString();
+  checkVersionRead(tenantId, dbNow, "readBoardVersion");
   return {
     openCount: Number(row.open_count),
     maxUpdatedAt: row.max_updated_at == null ? null : (row.max_updated_at as Date).toISOString(),
     updatedSum: String(row.updated_sum),
     printers: row.printers == null ? null : String(row.printers),
-    dbNow: (row.db_now as Date).toISOString(),
+    dbNow,
   };
 }
 
@@ -1749,11 +1762,8 @@ export interface BoardPrinterInput {
 /**
  * Both printers and their queues for the header strip, in ONE statement and
  * without a lock: the same rows readAllPrinterStatus reads and the same count
- * countQueuedOrders makes, which both lock because the alert sweep and the
- * printer decide writes from them. The strip decides nothing, and the board
- * only asks when readBoardVersion has changed.
- *
- * Fresh behind Hyperdrive for the same reason as listActiveOrders.
+ * countQueuedOrders makes. The board only asks when readBoardVersion has
+ * changed.
  */
 export async function readBoardPrinterInputs(tenantId: string): Promise<BoardPrinterInput[]> {
   const sql = (table: "current" | "legacy") =>
@@ -1761,8 +1771,7 @@ export async function readBoardPrinterInputs(tenantId: string): Promise<BoardPri
             p.last_seen_at, p.paper_out, p.cover_open, p.paper_low, p.status_code,
             (select count(*)::int from orders
               where orders.tenant_id = $1
-                and ${needsPaperFrom("$3", "array[s.station]")}) as queued,
-            now() as read_at
+                and ${needsPaperFrom("$3", "array[s.station]")}) as queued
        from unnest($2::text[]) with ordinality as s(station, n)
        left join ${table === "current" ? "printer_station_status" : "printer_status"} p
          on p.tenant_id = $1 and ${table === "current" ? "p.station = s.station" : "s.station = 'online'"}
@@ -1816,7 +1825,7 @@ export async function updateStatus(
       returning ${ORDER_COLUMNS}`,
     [tenantId, orderId, status],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? wrote(mapOrder(rows[0])) : null;
 }
 
 /**
@@ -1857,7 +1866,7 @@ export async function recordPrintAttempt(
       outcome.ok ? null : (outcome.error ?? "unknown print error"),
     ],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? wrote(mapOrder(rows[0])) : null;
 }
 
 /**
@@ -1956,7 +1965,7 @@ export async function cancelOrder(
       returning ${ORDER_COLUMNS}`,
     [tenantId, orderId, note && note.trim() ? note.trim() : null],
   );
-  return rows.length > 0 ? mapOrder(rows[0]) : null;
+  return rows.length > 0 ? wrote(mapOrder(rows[0])) : null;
 }
 
 /**

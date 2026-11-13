@@ -86,3 +86,15 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Deploy to Cloudflare
+
+**REQUIRED BEFORE DEPLOY of this branch:** disable query caching on `nmc-db`.
+This command is documented only; it has not been run for this change.
+
+```bash
+npx wrangler hyperdrive update 1011a8a541654fc09428eaa9708eb094 --caching-disabled true
+```
+
+Verify `caching.disabled` with `npx wrangler hyperdrive get 1011a8a541654fc09428eaa9708eb094`.
+Keep caching off while this branch runs. See [the stale-read deploy plan](docs/PRINT_STALE_READS.md).

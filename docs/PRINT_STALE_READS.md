@@ -37,26 +37,22 @@ How that produced the incidents:
   route had just read that row, so the cached copy predated the reprint and
   every confirmation looked superseded and was dropped.
 
-`scripts/verify-print-stale-reads.ts` reproduces both locally, using a cache
-stand-in that follows Hyperdrive's documented rules
-(`scripts/lib/hyperdrive-cache-emulator.ts`). On the old code 9 of 24 checks
-pass; on this branch 24 of 24 pass.
+`scripts/verify-print-stale-reads.ts` checks the delivery incidents with caching
+ disabled, then deliberately enables the cache emulator to check the warning.
+`verify:claim-no-skip` races 20 board/cron readers against 200 claims. It fails
+on baseline `209f9b1` and passes with the ordinary reads.
 
 ## The fix
 
-1. **Every read that decides a write or a printer answer is a locking read in
-   its own transaction** (`lockedRead()` in `src/lib/db/postgres.ts`, which
-   refuses SQL without `FOR UPDATE` / `FOR SHARE`). The probe showed these are
-   never served from the cache. Covered reads:
-   - Print path: `currentPrintJob` (FOR UPDATE), `getPrintDelivery`,
-     `printSegmentState`, `getOrderById`
-   - Kitchen board: `listActiveOrders`, `readPrinterStatus`
-   - POS and ordering: `listOpenTables`, the open-table check in
-     `createOrder`, the idempotency-key lookups, `countOrdersForPhone`,
-     `getOrderByNumber`, `findRecentOrderByNumber`
-   - Alerts: `findUnprintedForAlert`, `countQueuedOrders`
-
-   Display-only reads (history, summaries, phone autofill) are unchanged.
+1. **Disable Hyperdrive query caching before deploying this branch.** Reads
+   are ordinary SELECTs. The old `lockedRead` helper and cache-only `now()`
+   projection are removed: FOR SHARE on queue rows caused SKIP LOCKED claims
+   to skip waiting tickets. `currentPrintJob` retains its single-statement
+   FOR UPDATE to wait for an in-progress confirmation/re-offer; it only locks
+   attempted jobs, outside the claim's zero-attempt candidate set. Write
+   transaction locks and the printer claim itself are unchanged.
+   A bounded, in-memory tripwire warns once per isolate when a read predates
+   a write that isolate observed. It adds no query and changes no response.
 2. **Re-offers check the delivery before replacing it.** `reofferPrintDelivery`
    now takes the delivery id the decision was based on and writes nothing
    unless that is still the current delivery and it has expired. A stale
@@ -71,7 +67,7 @@ pass; on this branch 24 of 24 pass.
    That includes a ticket never offered at all, such as a printer that stopped
    polling. Computed on the server from a fresh read.
 
-## Hyperdrive change (not applied yet)
+## REQUIRED BEFORE DEPLOY of this branch (not applied)
 
 ```bash
 npx wrangler hyperdrive update 1011a8a541654fc09428eaa9708eb094 --caching-disabled true
@@ -83,8 +79,7 @@ Rollback:
 npx wrangler hyperdrive update 1011a8a541654fc09428eaa9708eb094 --caching-disabled false
 ```
 
-The code fix does not depend on this setting, so the two can ship in either
-order. With caching off, the printer's 3-second poll costs a few direct
+This branch requires caching disabled BEFORE deployment. With caching off, the printer's 3-second poll costs a few direct
 queries; Hyperdrive still pools the connections.
 
 ## Deploy plan (after close, 8:30 PM or later)
@@ -108,8 +103,8 @@ queries; Hyperdrive still pools the connections.
 ### Rollback
 
 - Code: `npx wrangler rollback <version id from step 2>`
-- Hyperdrive: the rollback command above. Only needed if the setting itself
-  causes trouble; the old code also works with caching off.
+- Keep caching disabled while this branch is deployed. Only consider restoring
+  caching after rolling back to code that does not rely on ordinary fresh reads.
 
 ## Next-day test (during open hours)
 

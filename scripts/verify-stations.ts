@@ -5,9 +5,9 @@
  *
  * The same real-things harness as verify:print-stale-reads: embedded Postgres,
  * the real schema.sql, the real repository and the real CloudPRNT route
- * handlers, with the Hyperdrive cache emulator in front of every query so a
- * plain read is as stale as production can make it. Two MACs poll the same
- * endpoint, exactly as the two TSP143IVUEs will.
+ * handlers, with ordinary reads and Hyperdrive caching disabled. Two MACs
+ * poll the same endpoint, exactly as the two TSP143IVUEs will. The stale-read
+ * verifier separately enables its cache emulator to check the warning.
  *
  * What must hold:
  *   - the channel decides the station (config/stations.ts), at insert;
@@ -27,7 +27,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "pg";
-import { installHyperdriveCacheEmulator } from "./lib/hyperdrive-cache-emulator";
 import type { OrderChannel } from "../src/lib/orders/types";
 
 const PORT = 55445;
@@ -615,7 +614,6 @@ async function main(): Promise<void> {
 
   const repo = await import("../src/lib/orders/repository");
   const route = (await import("../src/app/api/print/[secret]/route")) as unknown as Handlers;
-  const cache = installHyperdriveCacheEmulator(60_000);
 
   try {
     await pureIdentity();
@@ -628,7 +626,6 @@ async function main(): Promise<void> {
     delete process.env.PRINT_FAILOVER_AFTER_SECONDS;
     await timedFailover(route, repo, ordersPool);
   } finally {
-    cache.uninstall();
     await closeOrdersPool();
     console.log("\nstopping postgres…");
     await pg.stop();
