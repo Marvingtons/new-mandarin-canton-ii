@@ -60,9 +60,9 @@ async function addDish() {
 
 async function print(): Promise<string> {
   await page.locator('[data-action="print"]').click();
-  const placed = page.getByRole("status").filter({ hasText: /A-\d{3}/ });
+  const placed = page.getByRole("status").filter({ hasText: /B-\d{3}/ });
   await expect(placed).toBeVisible();
-  return (await placed.textContent())!.match(/A-\d{3}/)![0];
+  return (await placed.textContent())!.match(/B-\d{3}/)![0];
 }
 
 /** The floor plan: 堂食's home with no table, or 換桌 from a ticket that has one. */
@@ -85,7 +85,7 @@ test("takeout phone order", async () => {
   await page.locator('[data-action="details-done"]').click();
   await shot(page, "pos-takeout");
   const number = await print();
-  expect(number).toMatch(/^A-\d{3}$/);
+  expect(number).toMatch(/^B-\d{3}$/);
 });
 
 test("seat a table", async () => {

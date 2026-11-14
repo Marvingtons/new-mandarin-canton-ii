@@ -424,6 +424,8 @@ async function downMigrationChecks(mainDir: string): Promise<void> {
 async function main(): Promise<void> {
   const m011 = await readFile(join(process.cwd(), "src/lib/db/migrations/011_print_stations.sql"), "utf8");
   const m012 = await readFile(join(process.cwd(), "src/lib/db/migrations/012_printer_status_per_station.sql"), "utf8");
+  const m015 = await readFile(join(process.cwd(), "src/lib/db/migrations/015_order_counters_per_station.sql"), "utf8");
+  const d015 = await readFile(join(process.cwd(), "src/lib/db/migrations/down_015_to_014.sql"), "utf8");
 
   const work = await mkdtemp(join(tmpdir(), "nmc-station-migrations-"));
   const dataDir = join(work, "pg");
@@ -495,8 +497,31 @@ async function main(): Promise<void> {
     // The board's additive Undo columns are independent of printer table shape.
     await db.query("alter table orders add column done_previous_status text, add column done_at timestamptz");
 
+    /* ---- 015: the per-station order counter, needed by every new-code run ---- */
+    // 015 is NOT old-code safe, unlike 011-014: the window between applying
+    // it and deploying is an ordering outage. Proved here, then undone so the
+    // old-code states below are the ones production passes through.
+    console.log("\napply 015 (per-station order counters)");
+    const counterBefore = (await db.query(`select tenant_id, business_date::text, seq from order_counters order by 1, 2`)).rows;
+    await db.query(m015);
+    await db.query(m015);
+    const counterAfter = (await db.query(`select tenant_id, business_date::text, seq, station from order_counters order by 1, 2`)).rows;
+    check("015 is repeatable and backfills every existing counter as online, seq unchanged",
+      counterAfter.length === counterBefore.length &&
+        counterAfter.every((r, i) => r.station === "online" && r.seq === counterBefore[i].seq && r.business_date === counterBefore[i].business_date),
+      JSON.stringify(counterAfter));
+    check("015 keys order_counters by (tenant_id, business_date, station)",
+      (await db.query(`select array_length(conkey, 1) as n from pg_constraint where conname = 'order_counters_pkey'`)).rows[0]?.n === 3);
+    let oldUpsert = "ran";
+    try {
+      await db.query(`insert into order_counters (tenant_id, business_date, seq) values ($1, current_date, 1)
+                      on conflict (tenant_id, business_date) do update set seq = order_counters.seq + 1`, [TENANT]);
+    } catch (error) { oldUpsert = (error as { code?: string }).code ?? "error"; }
+    check("HAZARD, as documented in 015: the old code's counter UPSERT fails once 015 is applied (42P10)",
+      oldUpsert === "42P10", oldUpsert);
+
     /* ---- new code on the OLD printer shape (011 only) ---- */
-    console.log("\nnew code on 011 only (printer_station_status missing)");
+    console.log("\nnew code on 011 + 015 only (printer_station_status missing)");
     const code: NewCode = {
       route: (await import("../src/app/api/print/[secret]/route")) as unknown as NewCode["route"],
       repo: await import("../src/lib/orders/repository"),
@@ -515,6 +540,9 @@ async function main(): Promise<void> {
     const strip011 = await code.strip.stationPrinterHealth(TENANT);
     check("[new code, 011 only] the store printer, with no health row, reads unknown: never offline",
       strip011.find((p) => p.station === "store")?.health === "unknown");
+
+    // Back to production's counter shape for the old-code states below.
+    await db.query(d015);
 
     /* ---- 012 ---- */
     console.log("\napply 012");
@@ -541,7 +569,8 @@ async function main(): Promise<void> {
     await db.query(await readFile(join(process.cwd(), "src/lib/db/migrations/014_recently_done.sql"), "utf8"));
 
     /* ---- new code on the NEW shape ---- */
-    console.log("\nnew code on 011 + 012 (after the deploy)");
+    console.log("\napply 015, then new code on 011-015 (after the deploy)");
+    await db.query(m015);
     code.health.resetPrinterTableModeForTests();
     await bothPrintersPrint(code, db, "011 + 012");
     check("[new code, 011 + 012] using the per-station table", code.health.printerTableModeForTests() === "current");
@@ -561,7 +590,10 @@ async function main(): Promise<void> {
 
     /* ---- rollback, and re-runs ---- */
     console.log("\nrollback and re-runs");
-    oldCodeWorks("rolled back after the deploy (no schema change)", runOldCode(mainDir, "rollback"));
+    await db.query(d015);
+    check("down_015_to_014 restores the (tenant_id, business_date) key and keeps the online count",
+      (await db.query(`select array_length(conkey, 1) as n from pg_constraint where conname = 'order_counters_pkey'`)).rows[0]?.n === 2);
+    oldCodeWorks("rolled back after the deploy (down_015_to_014, then the Worker)", runOldCode(mainDir, "rollback"));
     await db.query(`update orders set print_station = 'online' where idempotency_key = 'seed-A-002'`);
     await db.query(m011);
     await db.query(m012);

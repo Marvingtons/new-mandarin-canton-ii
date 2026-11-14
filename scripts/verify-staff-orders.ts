@@ -302,15 +302,17 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
 }
 
 async function s3_numbering(m: Mods): Promise<void> {
-  console.log("\n3. web and staff orders share one daily sequence under concurrency");
+  console.log("\n3. web orders number A-, store orders B-, each its own gapless daily sequence under concurrency");
   await resetTenant(m);
   const line = defaultLine(m, "egg-rolls");
 
+  // 20 at once, interleaved: 7 web, 13 store (phone and walk-in), so the two
+  // sequences end at different lengths and a shared counter cannot pass.
   const jobs: Promise<{ status: number; body: Record<string, unknown> }>[] = [];
   for (let i = 0; i < 20; i++) {
     jobs.push(
-      i % 2 === 0
-        ? staffPost(m, staffBody([line], { channel: i % 4 === 0 ? "phone" : "walk_in" }))
+      i % 3 !== 0
+        ? staffPost(m, staffBody([line], { channel: i % 2 === 0 ? "phone" : "walk_in" }))
         : webPost(m, [line], `61955502${String(i).padStart(2, "0")}`),
     );
   }
@@ -319,14 +321,38 @@ async function s3_numbering(m: Mods): Promise<void> {
     r.body.order ? String((r.body.order as { orderNumber: string }).orderNumber) : String(r.body.orderNumber),
   );
   check("all 20 accepted", results.every((r) => r.status === 200 && r.body.ok === true), results.filter((r) => r.status !== 200).map((r) => JSON.stringify(r.body)).join(" | ").slice(0, 200));
-  const expected = Array.from({ length: 20 }, (_, i) => `A-${String(i + 1).padStart(3, "0")}`);
   check("20 distinct numbers", new Set(numbers).size === 20, numbers.join(","));
-  check("no gaps: exactly A-001..A-020", [...numbers].sort().join() === expected.join(), [...numbers].sort().join(","));
+
+  const run = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}-${String(i + 1).padStart(3, "0")}`);
+  const a = numbers.filter((n) => n.startsWith("A-")).sort();
+  const b = numbers.filter((n) => n.startsWith("B-")).sort();
+  check(`web: exactly A-001..A-${String(a.length).padStart(3, "0")}, no gaps or duplicates`, a.length === 7 && a.join() === run("A", 7).join(), a.join(","));
+  check(`store: exactly B-001..B-${String(b.length).padStart(3, "0")}, no gaps or duplicates`, b.length === 13 && b.join() === run("B", 13).join(), b.join(","));
+
   const { rows } = await m.pool.ordersPool().query(
-    "select channel, count(*)::int as n from orders where tenant_id = $1 group by channel order by channel",
+    `select channel, print_station, array_agg(distinct left(order_number, 2)) as prefixes
+       from orders where tenant_id = $1 group by channel, print_station order by channel`,
     [TENANT],
   );
-  check("both channels present in the one sequence", rows.length === 3, JSON.stringify(rows));
+  check(
+    "every web order is A- on online, every phone/walk-in is B- on store",
+    rows.length === 3 &&
+      rows.every((r) => (r.channel === "web" ? r.print_station === "online" && r.prefixes.join() === "A-" : r.print_station === "store" && r.prefixes.join() === "B-")),
+    JSON.stringify(rows),
+  );
+  const counters = await m.pool.ordersPool().query(
+    "select station, seq from order_counters where tenant_id = $1 order by station",
+    [TENANT],
+  );
+  check("one counter row per station, at 7 and 13", JSON.stringify(counters.rows) === JSON.stringify([{ station: "online", seq: 7 }, { station: "store", seq: 13 }]), JSON.stringify(counters.rows));
+
+  // The order the board, reprint, Recently done and Undo act on is found by
+  // id; the ticket preview and search find it by number. Both prefixes.
+  for (const n of [a[0], b[0]]) {
+    const today = m.biz.businessDateFor(TIMEZONE);
+    const found = await m.repo.getOrderByNumber(TENANT, today, n);
+    check(`getOrderByNumber finds ${n}`, found?.orderNumber === n, found?.orderNumber ?? "null");
+  }
 }
 
 async function s4_history(m: Mods): Promise<void> {
@@ -453,8 +479,10 @@ async function s4_history(m: Mods): Promise<void> {
   check("search: partial phone", byPhone.total === 1 && byPhone.orders[0].orderNumber === created[7].number);
   const byName = await history("from=2026-09-01&to=2026-09-03&q=wong");
   check("search: name, case-insensitive", byName.total === 1);
-  const byNumber = await history("from=2026-09-03&to=2026-09-03&q=A-005");
-  check("search: order number", byNumber.total === 1 && byNumber.orders[0].orderNumber === "A-005");
+  const byNumber = await history("from=2026-09-03&to=2026-09-03&q=A-003");
+  check("search: order number", byNumber.total === 1 && byNumber.orders[0].orderNumber === "A-003");
+  const byStoreNumber = await history("from=2026-09-03&to=2026-09-03&q=B-005");
+  check("search: a store B- number", byStoreNumber.total === 1 && byStoreNumber.orders[0].orderNumber === "B-005", byStoreNumber.orders.map((o) => o.orderNumber).join(","));
   const bad = await m.history.GET(kitchenRequest("/api/kitchen/history?from=2026-09-03&to=2026-09-01"));
   check("a reversed range is a 400", bad.status === 400);
   const anon = await m.history.GET(new Request("https://example.test/api/kitchen/history?from=2026-09-01&to=2026-09-01"));

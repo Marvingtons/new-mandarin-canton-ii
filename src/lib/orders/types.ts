@@ -280,6 +280,11 @@ export interface NewOrderInput {
   readyTo?: Date | null;
   tenantId: string;
   businessDate: string;
+  /**
+   * The ONLINE station's prefix (the tenant's ORDER_NUMBER_PREFIX). A store
+   * order is numbered with the store prefix from config/stations instead;
+   * createOrder picks which from the channel's station.
+   */
   orderNumberPrefix: string;
   idempotencyKey: string;
   items: OrderLine[];

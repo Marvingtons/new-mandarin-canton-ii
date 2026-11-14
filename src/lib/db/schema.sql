@@ -216,17 +216,21 @@ create index if not exists orders_print_queue_idx
   on orders (tenant_id, created_at)
   where status in ('QUEUED', 'PRINT_FAILED');
 
--- Atomic daily counter. A plain sequence will not do — it does not reset per
--- day, and a read-then-write in application code races under concurrency.
+-- Atomic daily counter, one per station (migration 015): online orders are
+-- A-001…, store orders B-001… (src/config/stations.ts). A plain sequence will
+-- not do — it does not reset per day, and a read-then-write in application
+-- code races under concurrency.
 create table if not exists order_counters (
   tenant_id     text not null,
   business_date date not null,
+  station       text not null default 'online',
   seq           int  not null default 0,
-  primary key (tenant_id, business_date)
+  constraint order_counters_pkey primary key (tenant_id, business_date, station),
+  constraint order_counters_station_check check (station in ('online', 'store'))
 );
 
 comment on table order_counters is
-  'One row per tenant per business day. Incremented by a single atomic UPSERT so 50 concurrent submissions get 50 distinct numbers.';
+  'One row per tenant per business day per station (online = A-, store = B-). Incremented by a single atomic UPSERT so 50 concurrent submissions get 50 distinct numbers.';
 
 -- ---------------------------------------------------------------------------
 -- One row per HAND-OVER of a job body to the printer.

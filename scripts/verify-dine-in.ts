@@ -172,7 +172,7 @@ async function main(): Promise<void> {
     const t1 = takeout.body.order as { orderNumber: string; totalCents: number };
     check("seat table 4 for 3", first.status === 200 && o1.tableLabel === "4" && o1.guestCount === 3, `${first.status}`);
     check("same cart costs the same as takeout", o1.totalCents === t1.totalCents, `${o1.totalCents} vs ${t1.totalCents}`);
-    check("next number in the same A-xxx sequence", o1.orderNumber === "A-002" && t1.orderNumber === "A-001", `${t1.orderNumber}, ${o1.orderNumber}`);
+    check("next number in the same store B-xxx sequence as a walk-in", o1.orderNumber === "B-002" && t1.orderNumber === "B-001", `${t1.orderNumber}, ${o1.orderNumber}`);
     const stored = await m.repo.getOrderById(TENANT, o1.id);
     check("stored as dine_in, QUEUED, unprinted", stored?.channel === "dine_in" && stored.status === "QUEUED" && stored.printAttempts === 0 && stored.isAddon === false);
     const replay = await json(

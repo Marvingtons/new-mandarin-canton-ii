@@ -33,6 +33,7 @@ import {
 import {
   STATIONS,
   isStation,
+  orderNumberPrefix,
   stationForChannel,
   type Station,
 } from "@/config/stations";
@@ -254,24 +255,29 @@ async function selectByIdempotencyKey(
 }
 
 /**
- * Allocate the next daily number for a tenant.
+ * Allocate the next daily number for a tenant's station.
  *
  * One statement, no read-then-write. The UPSERT takes a row lock on
- * (tenant_id, business_date) that is held until the surrounding transaction
- * ends, which is what serializes concurrent allocations.
+ * (tenant_id, business_date, station) that is held until the surrounding
+ * transaction ends, which is what serializes concurrent allocations. Each
+ * station has its own row, so the website's A- sequence and the counter's B-
+ * sequence never wait on each other and never share a number.
+ *
+ * Needs migration 015 (the station column and the three-column primary key).
  */
 async function allocateSequence(
   client: PoolClient,
   tenantId: string,
   businessDate: string,
+  station: Station,
 ): Promise<number> {
   const { rows } = await client.query(
-    `insert into order_counters (tenant_id, business_date, seq)
-       values ($1, $2::date, 1)
-     on conflict (tenant_id, business_date)
+    `insert into order_counters (tenant_id, business_date, station, seq)
+       values ($1, $2::date, $3, 1)
+     on conflict (tenant_id, business_date, station)
        do update set seq = order_counters.seq + 1
      returning seq`,
-    [tenantId, businessDate],
+    [tenantId, businessDate, station],
   );
   return Number(rows[0].seq);
 }
@@ -312,12 +318,21 @@ export async function createOrder(
           guestCount = await checkTable(client, input.tenantId, input.dineIn);
         }
 
+        // The printer is decided here, once, from the channel, and BEFORE the
+        // number: the station picks the sequence and its prefix. Nothing
+        // downstream re-derives it: reprint can move it, nothing else does.
+        const channel = input.channel ?? "web";
+        const station = stationForChannel(channel);
         const seq = await allocateSequence(
           client,
           input.tenantId,
           input.businessDate,
+          station,
         );
-        const orderNumber = formatOrderNumber(input.orderNumberPrefix, seq);
+        const orderNumber = formatOrderNumber(
+          orderNumberPrefix(station, input.orderNumberPrefix),
+          seq,
+        );
 
         const { rows } = await client.query(
           `insert into orders (
@@ -343,15 +358,13 @@ export async function createOrder(
             input.pickupAt,
             input.readyFrom ?? null,
             input.readyTo ?? null,
-            input.channel ?? "web",
+            channel,
             input.paymentNote ?? null,
             input.staffNote ?? null,
             input.dineIn?.tableLabel ?? null,
             guestCount,
             input.dineIn?.isAddon ?? false,
-            // The printer is decided here, once, from the channel. Nothing
-            // downstream re-derives it: reprint can move it, nothing else does.
-            stationForChannel(input.channel ?? "web"),
+            station,
           ],
         );
 

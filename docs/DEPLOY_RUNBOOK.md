@@ -291,6 +291,13 @@ rather than a seek to the end of it.
    From then on phone, walk-in and dine-in tickets print on it and web tickets
    on printer A; the staff header shows both. Until it is set, printer A prints
    everything.
+6. **A-/B- order numbers.** Requires migration 015
+   (`015_order_counters_per_station.sql`). **Apply 015, then deploy at once.**
+   Unlike 011-014 it is NOT safe under the code already running: the old
+   counter UPSERT names a conflict target 015 removes, so every order fails
+   between the migration and the deploy, and the new code fails on a
+   database without 015. Do both back to back, ideally while closed. Rollback:
+   `down_015_to_014.sql` together with the Worker rollback.
 
 ---
 

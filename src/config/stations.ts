@@ -43,6 +43,29 @@ export function stationForChannel(channel: OrderChannel): Station {
 }
 
 /**
+ * ORDER NUMBER PREFIX PER STATION. Each station has its own daily sequence
+ * (order_counters is keyed by tenant, business date and station, migration
+ * 015), so a day reads A-001, A-002 for the website and B-001, B-002 for the
+ * counter, and the prefix alone says which printer a ticket belongs to.
+ *
+ * The online prefix is only the fallback: ORDER_NUMBER_PREFIX, which every
+ * deployment already sets, stays the online prefix (see orderNumberPrefix).
+ */
+export const STATION_ORDER_PREFIX: Record<Station, string> = {
+  online: "A",
+  store: "B",
+};
+
+/**
+ * The prefix a new order on `station` is numbered with. `onlinePrefix` is the
+ * tenant's configured ORDER_NUMBER_PREFIX; the store prefix is fixed here.
+ */
+export function orderNumberPrefix(station: Station, onlinePrefix?: string): string {
+  if (station === "online") return onlinePrefix || STATION_ORDER_PREFIX.online;
+  return STATION_ORDER_PREFIX[station];
+}
+
+/**
  * The station in plain English, for the owner's text message. Staff screens
  * name stations through the kitchen dictionary (station.online /
  * station.store) in either language.

@@ -101,9 +101,9 @@ test("the board polls a version, picks up a POS order within 5 s, and still chim
     await pos.locator('[data-action="details-done"]').click();
     const chimesBeforePos = await oscillators(board);
     await pos.locator('[data-action="print"]').click();
-    const placed = pos.getByRole("status").filter({ hasText: /A-\d{3}/ });
+    const placed = pos.getByRole("status").filter({ hasText: /B-\d{3}/ });
     await expect(placed).toBeVisible();
-    const number = (await placed.textContent())!.match(/A-\d{3}/)![0];
+    const number = (await placed.textContent())!.match(/B-\d{3}/)![0];
     created.push(number);
 
     // The board tab is still a visible tab, polling at 4 s.
