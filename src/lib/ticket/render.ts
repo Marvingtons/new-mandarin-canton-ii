@@ -14,6 +14,7 @@ import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 import { formatPickupTime } from "@/lib/orders/businessDate";
 import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { formatCents } from "@/lib/money";
+import { formatPhoneNational } from "@/lib/phone";
 import { isPreparationModifierId } from "@/lib/menu/preparation";
 import type { Order, OrderLine } from "@/lib/orders/types";
 
@@ -400,6 +401,23 @@ export interface TicketMoney {
   totals: { subtotal: number; tax: number; tip: number; total: number } | null;
 }
 
+/** The takeout order number: bold, but a clear step under the phone. */
+export const TAKEOUT_NUMBER_SIZE = 60;
+/** The phone's ceiling; a NANP number lands at 72, the most 536px holds. */
+const PHONE_MAX_SIZE = 96;
+/** Never at or below the number: a long foreign number wraps instead. */
+const PHONE_MIN_SIZE = TAKEOUT_NUMBER_SIZE + 6;
+
+/** The largest size, in even steps, at which `phone` fits on one line. */
+export function phoneSize(
+  phone: string,
+  metrics: { measure(text: string, size: number, weight: 400 | 700): number },
+): number {
+  let size = PHONE_MAX_SIZE;
+  while (size > PHONE_MIN_SIZE && metrics.measure(phone, size, 700) > CONTENT_WIDTH) size -= 2;
+  return size;
+}
+
 /**
  * Compose the ticket as SVG and report what was laid out.
  *
@@ -562,8 +580,10 @@ export async function composeTicketSvg(
   } else {
     // No 外賣 TAKEOUT line: the copy bar above and the channel line below
     // already say what this ticket is, and the pass reads the number first.
+    // One step down from the old 96: the phone below is the largest type on
+    // the ticket, and the number must not compete with it.
     const numberTop = c.height;
-    c.text(order.orderNumber, { size: 96, weight: 700, lineHeight: 1.1 });
+    c.text(order.orderNumber, { size: TAKEOUT_NUMBER_SIZE, weight: 700, lineHeight: 1.1 });
     if (options.reprint) reprintChip(numberTop);
 
     /* A staff-entered order says so, inverted, under the number: there is no
@@ -575,9 +595,18 @@ export async function composeTicketSvg(
       c.banner(zh ? `${zh} ${en}` : en, { size: 30, marginTop: 6 });
     }
 
+    /* THE PHONE IS THE BIGGEST THING ON THE TICKET. It is what the counter
+       calls out and what the customer recognises, so it prints as
+       (858) 207-7770 at the largest size that keeps it on one line, with a
+       small 電話 label above it. A walk-in who gave no number prints none. */
+    if (order.customer.phone !== "-") {
+      const phone = formatPhoneNational(order.customer.phone);
+      c.text(L.phone, { size: 24, weight: 700, marginTop: 8 });
+      c.text(phone, { size: phoneSize(phone, metrics), weight: 700, lineHeight: 1.1 });
+    }
+
     // Who to hand the bag to, before what is in it.
-    c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 8 });
-    c.text(`${L.phone} ${order.customer.phone}`, { size: 30, weight: 700, marginTop: 2 });
+    c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 4 });
 
     c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
       box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
