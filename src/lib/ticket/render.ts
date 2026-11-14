@@ -15,6 +15,7 @@ import { formatPickupTime } from "@/lib/orders/businessDate";
 import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { formatCents } from "@/lib/money";
 import { formatPhoneNational } from "@/lib/phone";
+import { stationForChannel } from "@/config/stations";
 import { isPreparationModifierId } from "@/lib/menu/preparation";
 import type { Order, OrderLine } from "@/lib/orders/types";
 
@@ -605,8 +606,14 @@ export async function composeTicketSvg(
       c.text(phone, { size: phoneSize(phone, metrics), weight: 700, lineHeight: 1.1 });
     }
 
-    // Who to hand the bag to, before what is in it.
-    c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 4 });
+    /* The name only on a website order. A store order (phone, walk-in) is
+       called by its number and phone at the counter, so it prints no 客人
+       line at all. Decided by the CHANNEL'S station, not order.station: a
+       reprint or a failover that moves a web ticket to the counter printer
+       is still a web order and keeps its name. */
+    if (stationForChannel(order.channel ?? "web") !== "store") {
+      c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 4 });
+    }
 
     c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
       box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
