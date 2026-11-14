@@ -559,7 +559,7 @@ export function dineInOrder(): Order {
   return {
     ...base,
     id: 2,
-    orderNumber: "A-021",
+    orderNumber: "B-021",
     channel: "dine_in",
     customer: { name: "Table 4", phone: "" },
     tableLabel: "4",
@@ -575,7 +575,7 @@ export function dineInAddonOrder(): Order {
   return {
     ...dineInOrder(),
     id: 3,
-    orderNumber: "A-024",
+    orderNumber: "B-024",
     tableLabel: "4+5",
     guestCount: 9,
     isAddon: true,
@@ -590,7 +590,7 @@ export function phoneTakeoutOrder(): Order {
   return {
     ...base,
     id: 4,
-    orderNumber: "A-022",
+    orderNumber: "B-022",
     channel: "phone",
     customer: { name: "Mrs. Chan", phone: "+16195550177" },
     items: base.items.slice(0, 3),

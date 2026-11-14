@@ -32,6 +32,8 @@ import { resolveSizeZh } from "../src/data/menu-overrides";
 import { restaurant } from "../src/data/restaurant";
 import { collectTicketGlyphs, TICKET_LABELS } from "../src/lib/ticket/glyphs";
 import { TICKET_COPY_PROFILES } from "../src/lib/ticket/copies";
+import { formatPhoneNational } from "../src/lib/phone";
+import { STATION_ORDER_PREFIX } from "../src/config/stations";
 
 const FONT_DIR = join(process.cwd(), "public", "fonts");
 
@@ -65,6 +67,10 @@ function chromeSources(): Source[] {
     // The modifier bullet, the bilingual separator, the size-chip brackets.
     { where: "line chrome", text: "● / 【】" },
     { where: "restaurant", text: restaurant.name },
+    // The customer phone as the ticket prints it, through the real formatter,
+    // and every daily order-number prefix.
+    { where: "phone (formatPhoneNational)", text: formatPhoneNational("+18582077770") },
+    { where: "order number prefixes", text: Object.values(STATION_ORDER_PREFIX).map((p) => `${p}-0123456789`).join(" ") },
   );
   if (restaurant.chineseName) {
     out.push({ where: "restaurant 中文", text: restaurant.chineseName });

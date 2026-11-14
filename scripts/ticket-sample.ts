@@ -47,6 +47,7 @@ import {
   MAX_JOB_BYTES,
 } from "../src/lib/ticket/starprnt";
 import { formatCents } from "../src/lib/money";
+import { formatPhoneNational } from "../src/lib/phone";
 import type { Order } from "../src/lib/orders/types";
 import {
   breadthOrder,
@@ -135,6 +136,57 @@ async function render(
   if (png.length === 0) throw new Error(`${out} is empty`);
   assertStarPng(out, info);
   await assertDecodable(out, info);
+}
+
+/**
+ * The header rules, asserted on what was laid out, on all three copies:
+ *   - no 外賣 TAKEOUT line anywhere;
+ *   - the phone prints as (619) 555-0101 and is the largest text on the
+ *     ticket, strictly larger than the order number;
+ *   - an online ticket keeps its 客人 name line, under the phone;
+ *   - a store ticket (phone, dine-in) prints no 客人 line at all;
+ *   - a dine-in ticket keeps its table.
+ */
+async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise<void> {
+  console.log("\nheader (3 copies each):");
+  const bad: string[] = [];
+  const layout = async (o: Order) =>
+    (await composeTicketSvg(o, { timezone: TIMEZONE, copies: 3 })).lines;
+
+  for (const [name, o] of [["online", online], ["phone", phone]] as const) {
+    const lines = await layout(o);
+    const want = formatPhoneNational(o.customer.phone);
+    const phones = lines.filter((l) => l.text === want);
+    const numbers = lines.filter((l) => l.text === o.orderNumber);
+    const largest = Math.max(...lines.map((l) => l.size));
+    if (phones.length !== 3) bad.push(`${name}: expected ${want} on 3 copies, found ${phones.length}`);
+    if (!phones.every((l) => l.size === largest)) bad.push(`${name}: the phone is not the largest text`);
+    if (lines.some((l) => l.size === largest && l.text !== want)) bad.push(`${name}: something else is as large as the phone`);
+    if (numbers.length !== 3 || !numbers.every((n) => n.size < phones[0].size)) bad.push(`${name}: the order number is not smaller than the phone`);
+    if (lines.some((l) => /TAKEOUT|外賣/.test(l.text))) bad.push(`${name}: still prints a TAKEOUT line`);
+    const names = lines.filter((l) => l.text.startsWith("客人"));
+    if (name === "online" && names.length !== 3) bad.push(`online: expected the 客人 line on 3 copies, found ${names.length}`);
+    if (name === "phone" && names.length !== 0) bad.push(`phone: a store ticket prints ${names.length} 客人 line(s)`);
+    if (name === "online") {
+      const order = lines.map((l) => l.text);
+      const iPhone = order.indexOf(want);
+      const iName = order.findIndex((t) => t.startsWith("客人"));
+      if (!(iPhone >= 0 && iName > iPhone)) bad.push("online: the name is not under the phone");
+    }
+    console.log(
+      `  ${name.padEnd(8)} ${o.orderNumber} @${numbers[0]?.size}px  ${want} @${phones[0]?.size}px  ` +
+        `客人 lines: ${names.length}`,
+    );
+  }
+  const dine = await layout(dineIn);
+  const tables = dine.filter((l) => l.text.includes(`TABLE ${dineIn.tableLabel}`));
+  if (tables.length !== 3) bad.push(`dine-in: expected the table on 3 copies, found ${tables.length}`);
+  if (dine.some((l) => l.text.startsWith("客人"))) bad.push("dine-in: prints a 客人 line");
+  if (dine.some((l) => /TAKEOUT|外賣/.test(l.text))) bad.push("dine-in: prints a TAKEOUT line");
+  console.log(`  dine-in  ${dineIn.orderNumber}  ${tables[0]?.text}  客人 lines: 0`);
+
+  if (bad.length > 0) throw new Error(`header rules broken:\n  ${bad.join("\n  ")}`);
+  console.log("  no TAKEOUT line; phone largest on every copy; name on web only; table kept ✓");
 }
 
 /* ------------------------------------------------------------ PNG checks -- */
@@ -522,6 +574,13 @@ async function main(): Promise<void> {
     reroutedFrom: "store",
   });
   await render("ticket-sample-rerouted-from-online.png", { ...typical, station: "store", reroutedFrom: "online" });
+  // The header after the takeout-band removal, three cut copies each
+  // (kitchen / bag / register), stacked with tear lines so one PNG shows all:
+  // an online order WITH its 客人 name, a phone order with NO name line, and a
+  // dine-in at its table with no name.
+  await render("ticket-sample-online-with-name.png", typical, false, 3);
+  await render("ticket-sample-phone-no-name.png", phoneTakeoutOrder(), false, 3);
+  await render("ticket-sample-dine-in-table-no-name.png", dineInOrder(), false, 3);
 
   // Geometry is asserted, not eyeballed: nothing may exceed its column or run
   // off the 576px roll. This is the check that a hand-rolled wrapper needs and
@@ -546,6 +605,8 @@ async function main(): Promise<void> {
     reroutedFrom: "store",
   });
   console.log("  all lines within their columns and inside 576px ✓");
+
+  await assertHeader(typical, phoneTakeoutOrder(), dineInOrder());
 
   // THE COLUMNS ADD UP. Asserted against what the renderer printed, on every
   // copy profile, for every fixture whose stored totals are coherent.

@@ -295,10 +295,14 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
     phoneTicket.find((t) => t.includes("PHONE ORDER")) ?? "no PHONE ORDER line",
   );
   check("the staff note is NOT printed", !phoneTicket.some((t) => t.includes("extra spicy")));
+  check("the phone ticket prints the number as (619) 555-0177", phoneTicket.includes("(619) 555-0177"));
+  check("the phone ticket prints no 客人 name line", !phoneTicket.some((t) => t.startsWith("客人")));
   const walkIn = await texts({ ...order!, channel: "walk_in" });
   check("a walk-in ticket says 到店 WALK-IN", walkIn.includes("到店 WALK-IN"));
   const web = await texts({ ...order!, channel: "web" });
   check("a web ticket carries no channel line", !web.some((t) => /PHONE ORDER|WALK-IN/.test(t)));
+  check("a web ticket keeps its 客人 name line", web.includes("客人 Staff Test"));
+  check("a walk-in ticket prints no 客人 name line", !walkIn.some((t) => t.startsWith("客人")));
 }
 
 async function s3_numbering(m: Mods): Promise<void> {
