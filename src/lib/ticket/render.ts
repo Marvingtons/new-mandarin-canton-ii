@@ -521,8 +521,8 @@ export async function composeTicketSvg(
      table, a takeout ticket goes in a bag, and the person at the pass decides
      which from across the counter. So the very first band differs in kind,
      not just in words: dine-in opens on a full-width INVERTED bar carrying
-     the table at the largest size that fits; takeout opens on plain black
-     type over white and puts the customer's name and phone up top. */
+     the table at the largest size that fits; takeout opens on the order
+     number in plain black type over white, with the customer up top. */
   const reprintChip = (top: number) => {
     // Right-aligned inverted chip, overlaid on a row that is already drawn.
     const label = `${L.reprint} REPRINT`;
@@ -560,12 +560,11 @@ export async function composeTicketSvg(
     c.text(order.orderNumber, { size: 72, weight: 700, lineHeight: 1.1, marginTop: 6 });
     if (options.reprint) reprintChip(numberTop);
   } else {
-    const headerTop = c.height;
-    const zhTakeout = zhIfPrintable(L.takeout, coverage);
-    c.text(zhTakeout ? `${zhTakeout} TAKEOUT` : "TAKEOUT", { size: 44, weight: 700 });
-    if (options.reprint) reprintChip(headerTop);
-
-    c.text(order.orderNumber, { size: 96, weight: 700, lineHeight: 1.1, marginTop: 2 });
+    // No 外賣 TAKEOUT line: the copy bar above and the channel line below
+    // already say what this ticket is, and the pass reads the number first.
+    const numberTop = c.height;
+    c.text(order.orderNumber, { size: 96, weight: 700, lineHeight: 1.1 });
+    if (options.reprint) reprintChip(numberTop);
 
     /* A staff-entered order says so, inverted, under the number: there is no
        customer refreshing a confirmation page for it, and the person at the

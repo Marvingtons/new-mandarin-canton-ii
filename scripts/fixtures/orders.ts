@@ -584,7 +584,7 @@ export function dineInAddonOrder(): Order {
   };
 }
 
-/** A staff phone order: 外賣 TAKEOUT, the customer up top, the 電話訂單 tag. */
+/** A staff phone order: the number, the 電話訂單 tag, the customer up top. */
 export function phoneTakeoutOrder(): Order {
   const base = fixtureOrder();
   return {
