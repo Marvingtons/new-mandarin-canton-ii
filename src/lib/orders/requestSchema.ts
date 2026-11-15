@@ -57,13 +57,15 @@ const staffCommon = {
  *
  * What differs is who the customer is. There is no OTP: staff on the phone or
  * at the counter are the verification. A walk-in may give no number at all,
- * which the route allows for `walk_in` and refuses for `phone`.
+ * which the route allows for `walk_in` and refuses for `phone`. The NAME is
+ * optional for both: a store order is called by its number and phone, and its
+ * ticket prints no name. (The web checkout still requires one.)
  */
 export const StaffTakeoutRequestSchema = z.strictObject({
   ...staffCommon,
   channel: z.enum(["phone", "walk_in"]),
   customer: z.strictObject({
-    name: z.string().trim().min(1).max(80),
+    name: z.string().trim().max(80).optional(),
     phone: z.string().max(32).optional(),
   }),
   pickup: z.strictObject({ time: z.string().min(1).max(20) }),

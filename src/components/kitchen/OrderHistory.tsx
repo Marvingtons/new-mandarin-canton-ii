@@ -371,7 +371,7 @@ export default function OrderHistory({
                     {o.channel === "dine_in" ? (
                       <TableBadge order={o} />
                     ) : (
-                      <span className="block truncate text-staff-body font-medium">{o.customer.name}</span>
+                      o.customer.name.trim() && <span className="block truncate text-staff-body font-medium">{o.customer.name}</span>
                     )}
                     {o.channel !== "dine_in" && o.customer.phone && (
                       <span className="block truncate text-staff-caption text-staff-soft">{formatPhoneNational(o.customer.phone)}</span>

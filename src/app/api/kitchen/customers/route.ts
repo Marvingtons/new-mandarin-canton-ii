@@ -34,7 +34,8 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json(
       {
         ok: true,
-        name: orders[0]?.customer.name ?? null,
+        // The newest name they gave: a POS order may have none.
+        name: orders.map((o) => o.customer.name.trim()).find(Boolean) ?? null,
         orders: orders.map((o) => ({
           id: o.id,
           orderNumber: o.orderNumber,

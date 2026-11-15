@@ -118,7 +118,7 @@ function staffBody(lines: CartLine[], extra: Record<string, unknown> = {}) {
 }
 
 let ipSeq = 0;
-async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap") {
+async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap", name = "Web Test") {
   const e164 = `+1${phone.replace(/\D/g, "")}`;
   const res = await m.webOrders.POST(
     // localhost: POST /api/orders refuses any other host (lib/http/deployHost).
@@ -132,7 +132,7 @@ async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap")
       },
       body: JSON.stringify({
         lines,
-        pickup: { name: "Web Test", phone, time },
+        pickup: { name, phone, time },
         idempotencyKey: nextKey(),
       }),
     }),
@@ -346,6 +346,25 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
     scheduledTicket.slice(iPhone, iPhone + 3).join(" | "),
   );
   check("a scheduled phone ticket prints no PICKUP box", !scheduledTicket.some((t) => /PICKUP|取餐時間/.test(t)));
+
+  // The name is optional on the POS: left out, or sent blank, the order is
+  // taken and stored with "" and nothing on the ticket says "undefined" or
+  // prints an empty 客人 line. A phone order still needs its number.
+  for (const [label, customer] of [
+    ["omitted", { phone: "(619) 555-0177" }],
+    ["blank", { name: "   ", phone: "(619) 555-0177" }],
+  ] as const) {
+    const res = await staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { customer }));
+    check(`a phone order with the name ${label} is accepted`, res.status === 200 && res.body.ok === true, JSON.stringify(res.body).slice(0, 160));
+    const o = await m.repo.getOrderById(TENANT, Number((res.body.order as { id: number }).id));
+    check(`  and stores the name as ""`, o?.customer.name === "", JSON.stringify(o?.customer));
+    const lines = await texts(o!);
+    check(`  and its ticket prints no name line and no "undefined"`, !lines.some((t) => t.startsWith("客人") || /undefined|null/.test(t)), lines.slice(0, 6).join(" | "));
+  }
+  const walkInNoOne = await staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { channel: "walk_in", customer: {} }));
+  check("a walk-in with no name and no phone is accepted", walkInNoOne.status === 200 && walkInNoOne.body.ok === true, JSON.stringify(walkInNoOne.body).slice(0, 160));
+  const noPhone = await staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { customer: {} }));
+  check("a phone order with no phone is still refused", noPhone.body.code === "phone_required", JSON.stringify(noPhone.body).slice(0, 160));
 }
 
 async function s3_numbering(m: Mods): Promise<void> {
@@ -651,7 +670,9 @@ async function s7_cancelAndValidation(m: Mods): Promise<void> {
   const badPhone = await staffPost(m, staffBody([defaultLine(m, "egg-rolls")], { customer: { name: "X", phone: "123" } }));
   check("a malformed phone is refused", badPhone.body.code === "phone_invalid");
   const noName = await staffPost(m, staffBody([defaultLine(m, "egg-rolls")], { customer: { name: "  ", phone: "6195550111" } }));
-  check("a blank name is refused", noName.status === 400);
+  check("a blank name is accepted on the POS (the name is optional)", noName.status === 200 && noName.body.ok === true, JSON.stringify(noName.body).slice(0, 120));
+  const webNoName = await webPost(m, [defaultLine(m, "egg-rolls")], "6195550112", "asap", "");
+  check("the web checkout still refuses a blank name", webNoName.status === 400, `status=${webNoName.status}`);
 
   const saved = kitchenCookie;
   kitchenCookie = "";

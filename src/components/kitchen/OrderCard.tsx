@@ -83,7 +83,7 @@ function OrderCard({
         className={`${ui.card} flex flex-wrap items-center gap-3 p-3`}>
         <h3 id={headingId} className="text-staff-title font-bold">{order.orderNumber}</h3>
         <StatusPill status={order.status} />
-        <span className="flex-1 text-staff-caption text-staff-soft">{order.customer.name}</span>
+        <span className="flex-1 text-staff-caption text-staff-soft">{order.customer.name.trim()}</span>
         <Button variant="secondary" size="sm" disabled={pending || !order.donePreviousStatus}
           onClick={() => onRequest(order, "undo")}>{t("card.undo")}</Button>
       </article>
@@ -164,10 +164,13 @@ function OrderCard({
           <TableBadge order={order} />
         ) : (
           <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="flex items-center gap-1.5 font-semibold">
-              <Icon name="user" size={18} className="text-staff-soft" />
-              {order.customer.name}
-            </span>
+            {/* A POS order may have no name; then the phone stands alone. */}
+            {order.customer.name.trim() && (
+              <span className="flex items-center gap-1.5 font-semibold">
+                <Icon name="user" size={18} className="text-staff-soft" />
+                {order.customer.name}
+              </span>
+            )}
             {order.customer.phone ? (
               <a
                 href={`tel:${order.customer.phone.replace(/\D/g, "")}`}

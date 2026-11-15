@@ -350,7 +350,6 @@ export default function PosScreen({
   if (mode === "dine_in") {
     if (!seating) missing.push("pos.missing.table");
   } else {
-    if (!name.trim()) missing.push("pos.missing.name");
     if (channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
     if (now && !scheduledOk) missing.push("pos.missing.scheduled");
   }
@@ -560,7 +559,10 @@ export default function PosScreen({
               }
             : {
                 channel,
-                customer: { name: name.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}) },
+                customer: {
+                  ...(name.trim() ? { name: name.trim() } : {}),
+                  ...(phone.trim() ? { phone: phone.trim() } : {}),
+                },
                 pickup: { time: scheduled || "asap" },
               }),
           ...(paymentNote.trim() ? { paymentNote: paymentNote.trim() } : {}),
@@ -1172,8 +1174,8 @@ export default function PosScreen({
                         <span className="flex items-center gap-2 text-base">
                           <Icon name="user" size={18} className="text-staff-ink" />
                           <span>
-                            <span className="text-staff-soft">{t("pos.returning")}</span>{" "}
-                            <span className="font-semibold">{returningHere.name}</span>
+                            <span className="text-staff-soft">{t("pos.returning")}</span>
+                            {returningHere.name && <span className="font-semibold"> {returningHere.name}</span>}
                           </span>
                         </span>
                         {returningHere.name && name.trim() !== returningHere.name && (

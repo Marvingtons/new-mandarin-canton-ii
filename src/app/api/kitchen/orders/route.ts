@@ -243,7 +243,8 @@ export async function POST(request: Request): Promise<Response> {
       items: composed.lines,
       totals: composed.totals,
       customer: {
-        name: body.customer.name.trim(),
+        // Optional on the POS; stored as "" when staff left it blank.
+        name: (body.customer.name ?? "").trim(),
         phone: phoneE164,
         // Staff set "Scheduled for": it prints as 預訂 SCHEDULED. ASAP prints
         // no time at all (lib/orders/types.ts, OrderCustomer.scheduledFor).
