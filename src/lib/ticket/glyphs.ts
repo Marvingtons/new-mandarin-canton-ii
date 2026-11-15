@@ -70,6 +70,8 @@ export const TICKET_LABELS = {
   stationOnline: "網上",
   stationStore: "店內",
   pickup: "取餐時間",
+  /** A store order staff scheduled for a time: 預訂 SCHEDULED 5:30 PM. */
+  scheduled: "預訂",
   note: "備註",
   customer: "客人",
   phone: "電話",

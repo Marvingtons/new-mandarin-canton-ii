@@ -118,7 +118,7 @@ function staffBody(lines: CartLine[], extra: Record<string, unknown> = {}) {
 }
 
 let ipSeq = 0;
-async function webPost(m: Mods, lines: CartLine[], phone: string) {
+async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap") {
   const e164 = `+1${phone.replace(/\D/g, "")}`;
   const res = await m.webOrders.POST(
     // localhost: POST /api/orders refuses any other host (lib/http/deployHost).
@@ -132,7 +132,7 @@ async function webPost(m: Mods, lines: CartLine[], phone: string) {
       },
       body: JSON.stringify({
         lines,
-        pickup: { name: "Web Test", phone, time: "asap" },
+        pickup: { name: "Web Test", phone, time },
         idempotencyKey: nextKey(),
       }),
     }),
@@ -241,6 +241,21 @@ async function s1_pricing(m: Mods): Promise<void> {
   );
   check("staff order is channel=phone, status QUEUED", staffOrder?.channel === "phone" && staffOrder?.status === "QUEUED");
   check("web order is channel=web", webOrder?.channel === "web");
+  check("an ASAP web order stores no scheduledFor", webOrder?.customer.scheduledFor === undefined);
+
+  // A web order for a chosen slot keeps the slot on the customer, and its
+  // ticket prints 取餐時間 PICKUP and that one time. Bypassed, so the slot
+  // need only be well formed.
+  const slotted = await webPost(m, cart, "6195550102", "17:30");
+  check("a web order for a slot is accepted", slotted.status === 200 && slotted.body.ok === true, JSON.stringify(slotted.body).slice(0, 160));
+  const slottedOrder = await m.repo.getOrderByNumber(TENANT, m.biz.businessDateFor(TIMEZONE), String(slotted.body.orderNumber));
+  const slot = slottedOrder?.customer.scheduledFor;
+  check("a web slot order stores scheduledFor at 5:30 PM local", !!slot && m.biz.formatPickupTime(slot, TIMEZONE) === "5:30 PM", String(slot));
+  const slotTicket = (await m.render.composeTicketSvg(slottedOrder!, { timezone: TIMEZONE })).lines.map((l) => l.text);
+  check(
+    "a web slot ticket prints 取餐時間 PICKUP 5:30 PM, one time",
+    slotTicket.includes("取餐時間 PICKUP") && slotTicket.includes("5:30 PM") && !slotTicket.some((t) => t.includes("–")),
+  );
   check("the 86'd item is refused for staff too", (await staffPost(m, staffBody([{ itemId: "roasted-duck", sizeId: "half", modifierIds: [], quantity: 1 }]))).body.code === "item_unavailable");
 }
 
@@ -303,6 +318,34 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
   check("a web ticket carries no channel line", !web.some((t) => /PHONE ORDER|WALK-IN/.test(t)));
   check("a web ticket keeps its 客人 name line", web.includes("客人 Staff Test"));
   check("a walk-in ticket prints no 客人 name line", !walkIn.some((t) => t.startsWith("客人")));
+
+  // The time box: an ASAP order stored no chosen time and prints none; a
+  // "Scheduled for" time is stored on the customer and prints as 預訂
+  // SCHEDULED, once, right under the phone. Bypassed so any well-formed
+  // slot is accepted whatever the clock says.
+  check("an ASAP phone order stores no scheduledFor", order?.customer.scheduledFor === undefined);
+  check("an ASAP phone ticket prints no time box", !phoneTicket.some((t) => /SCHEDULED|PICKUP|預訂|取餐時間/.test(t)));
+  const scheduled = await staffPost(
+    m,
+    staffBody([defaultLine(m, "chicken-broccoli")], { pickup: { time: "17:30" } }),
+    { bypass: true },
+  );
+  check("a scheduled phone order is accepted", scheduled.status === 200 && scheduled.body.ok === true, JSON.stringify(scheduled.body).slice(0, 160));
+  const scheduledOrder = await m.repo.getOrderById(TENANT, Number((scheduled.body.order as { id: number }).id));
+  const at = scheduledOrder?.customer.scheduledFor;
+  check(
+    "a scheduled phone order stores scheduledFor at 5:30 PM local",
+    !!at && m.biz.formatPickupTime(at, TIMEZONE) === "5:30 PM",
+    String(at),
+  );
+  const scheduledTicket = await texts(scheduledOrder!);
+  const iPhone = scheduledTicket.indexOf("(619) 555-0177");
+  check(
+    "a scheduled phone ticket prints 預訂 SCHEDULED 5:30 PM under the phone",
+    scheduledTicket[iPhone + 1] === "預訂 SCHEDULED" && scheduledTicket[iPhone + 2] === "5:30 PM",
+    scheduledTicket.slice(iPhone, iPhone + 3).join(" | "),
+  );
+  check("a scheduled phone ticket prints no PICKUP box", !scheduledTicket.some((t) => /PICKUP|取餐時間/.test(t)));
 }
 
 async function s3_numbering(m: Mods): Promise<void> {

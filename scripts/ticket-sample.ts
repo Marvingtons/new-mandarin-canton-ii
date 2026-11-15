@@ -192,6 +192,61 @@ async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise
   console.log("  no TAKEOUT line; phone largest on every copy; name on web only; table kept ✓");
 }
 
+/**
+ * The time box, asserted on both copies:
+ *   - an ASAP order (no scheduledFor) prints NO time box, web or store;
+ *   - a web order for a chosen slot prints 取餐時間 PICKUP and ONE time;
+ *   - a store order with a staff-set time prints 預訂 SCHEDULED directly
+ *     under the phone, with ONE time, smaller than the phone.
+ */
+async function assertTimeBox(online: Order, phone: Order): Promise<void> {
+  console.log(`\ntime box (${COPIES} copies each):`);
+  const bad: string[] = [];
+  // 6:45 PM in Los Angeles on the fixture date.
+  const slot = "2026-07-27T01:45:00.000Z";
+  const want = "6:45 PM";
+  const layout = async (o: Order) =>
+    (await composeTicketSvg(o, { timezone: TIMEZONE, copies: COPIES })).lines.map((l) => ({ text: l.text, size: l.size }));
+  const timeLike = /\d{1,2}:\d{2}/;
+  const isBoxLabel = (t: string) => /PICKUP|SCHEDULED|取餐時間|預訂/.test(t);
+
+  for (const [name, o] of [["online asap", online], ["phone asap", phone]] as const) {
+    const lines = await layout(o);
+    if (lines.some((l) => isBoxLabel(l.text))) bad.push(`${name}: prints a time box`);
+    // The only clock on an ASAP ticket is the 落單 placed line.
+    const clocks = lines.filter((l) => timeLike.test(l.text) && !l.text.startsWith("落單"));
+    if (clocks.length > 0) bad.push(`${name}: prints a time (${clocks.map((l) => l.text).join(", ")})`);
+    console.log(`  ${name.padEnd(16)} no time box`);
+  }
+
+  const web = await layout({ ...online, customer: { ...online.customer, scheduledFor: slot } });
+  const webLabels = web.filter((l) => l.text === "取餐時間 PICKUP");
+  const webTimes = web.filter((l) => l.text === want);
+  if (webLabels.length !== COPIES) bad.push(`online slot: expected 取餐時間 PICKUP on ${COPIES} copies, found ${webLabels.length}`);
+  if (webTimes.length !== COPIES) bad.push(`online slot: expected "${want}" on ${COPIES} copies, found ${webTimes.length}`);
+  if (web.some((l) => /SCHEDULED|預訂|–/.test(l.text) && !l.text.startsWith("落單"))) bad.push("online slot: prints SCHEDULED or a window");
+  console.log(`  ${"online slot".padEnd(16)} 取餐時間 PICKUP ${want}`);
+
+  const store = await layout({ ...phone, customer: { ...phone.customer, scheduledFor: slot } });
+  const phoneText = formatPhoneNational(phone.customer.phone);
+  const storeLabels = store.filter((l) => l.text === "預訂 SCHEDULED");
+  const storeTimes = store.filter((l) => l.text === want);
+  if (storeLabels.length !== COPIES) bad.push(`phone scheduled: expected 預訂 SCHEDULED on ${COPIES} copies, found ${storeLabels.length}`);
+  if (storeTimes.length !== COPIES) bad.push(`phone scheduled: expected "${want}" on ${COPIES} copies, found ${storeTimes.length}`);
+  if (store.some((l) => /PICKUP|取餐時間/.test(l.text))) bad.push("phone scheduled: prints a PICKUP box");
+  const texts = store.map((l) => l.text);
+  const iPhone = texts.indexOf(phoneText);
+  if (!(iPhone >= 0 && texts[iPhone + 1] === "預訂 SCHEDULED" && texts[iPhone + 2] === want)) {
+    bad.push("phone scheduled: SCHEDULED is not directly under the phone");
+  }
+  const phoneSizePx = store[iPhone]?.size ?? 0;
+  if (!storeTimes.every((l) => l.size < phoneSizePx)) bad.push("phone scheduled: the time is not smaller than the phone");
+  console.log(`  ${"phone scheduled".padEnd(16)} 預訂 SCHEDULED ${want} @${storeTimes[0]?.size}px under ${phoneText} @${phoneSizePx}px`);
+
+  if (bad.length > 0) throw new Error(`time box rules broken:\n  ${bad.join("\n  ")}`);
+  console.log("  ASAP prints no time; a chosen time prints once, as one time ✓");
+}
+
 /* ------------------------------------------------------------ PNG checks -- */
 
 interface PngInfo {
@@ -610,6 +665,7 @@ async function main(): Promise<void> {
   console.log("  all lines within their columns and inside 576px ✓");
 
   await assertHeader(typical, phoneTakeoutOrder(), dineInOrder());
+  await assertTimeBox(typical, phoneTakeoutOrder());
 
   // THE COLUMNS ADD UP. Asserted against what the renderer printed, on every
   // copy profile, for every fixture whose stored totals are coherent.

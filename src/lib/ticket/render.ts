@@ -12,7 +12,6 @@ import { copyProfile } from "@/lib/ticket/copies";
 import type { TicketCopyProfile, TicketCopyRole } from "@/lib/ticket/copies";
 import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 import { formatPickupTime } from "@/lib/orders/businessDate";
-import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { formatCents } from "@/lib/money";
 import { formatPhoneNational } from "@/lib/phone";
 import { stationForChannel } from "@/config/stations";
@@ -142,6 +141,12 @@ function asCount(value: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+/** An ISO instant that parses, or undefined. A bad value prints no time rather than "Invalid Date". */
+function asInstant(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return Number.isNaN(new Date(value).getTime()) ? undefined : value;
+}
+
 function asCents(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? Math.round(n) : 0;
@@ -206,6 +211,7 @@ function normalizeOrder(order: Order): Order {
       ...(order.customer ?? {}),
       name: asText(customer.name).trim() || "-",
       phone: asText(customer.phone).trim() || "-",
+      scheduledFor: asInstant(customer.scheduledFor),
     },
     totals: {
       ...(order.totals ?? {}),
@@ -448,9 +454,14 @@ export async function composeTicketSvg(
   ]);
   const { coverage } = fonts;
 
-  // The STORED window (lib/order/readyWindow) so the ticket, the board, the
-  // confirmation, and the SMS all quote the same promise.
-  const pickupLabel = orderReadyLabel(order, options.timezone);
+  /* A TIME PRINTS ONLY WHEN SOMEONE CHOSE IT. An ASAP order's ready window is
+     an estimate the board already shows; printing it put a big, confident
+     time on paper that nobody had agreed to. A chosen time (the customer's
+     slot online, staff's "Scheduled for" on the POS) is a promise, so it
+     prints as one time, not a window. */
+  const chosenTime = order.customer.scheduledFor
+    ? formatPickupTime(order.customer.scheduledFor, options.timezone)
+    : null;
   const placedLabel = formatPickupTime(order.createdAt, options.timezone);
 
   const c = new Canvas(CONTENT_WIDTH, metrics);
@@ -606,19 +617,35 @@ export async function composeTicketSvg(
       c.text(phone, { size: phoneSize(phone, metrics), weight: 700, lineHeight: 1.1 });
     }
 
+    const storeOrder = stationForChannel(order.channel ?? "web") === "store";
+
+    /* SCHEDULED, right under the phone, on a store order staff set a time
+       for. Heavier border than any other box on the ticket: a phone order for
+       5:30 that gets cooked at 4:15 is the mistake this exists to stop. The
+       time stays a step under the phone, which remains the largest type. */
+    if (storeOrder && chosenTime) {
+      c.box({ border: 6, padding: 10, marginTop: 8 }, (box) => {
+        box.text(`${L.scheduled} SCHEDULED`, { size: 28, weight: 700 });
+        box.text(chosenTime, { size: 60, weight: 700, lineHeight: 1.1 });
+      });
+    }
+
     /* The name only on a website order. A store order (phone, walk-in) is
        called by its number and phone at the counter, so it prints no 客人
        line at all. Decided by the CHANNEL'S station, not order.station: a
        reprint or a failover that moves a web ticket to the counter printer
        is still a web order and keeps its name. */
-    if (stationForChannel(order.channel ?? "web") !== "store") {
+    if (!storeOrder) {
       c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 4 });
     }
 
-    c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
-      box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
-      box.text(pickupLabel, { size: 52, weight: 700 });
-    });
+    /* PICKUP only when the customer picked a slot. ASAP prints no box. */
+    if (!storeOrder && chosenTime) {
+      c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
+        box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
+        box.text(chosenTime, { size: 52, weight: 700 });
+      });
+    }
   }
 
   c.rule(5);

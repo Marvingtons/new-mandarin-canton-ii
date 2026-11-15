@@ -242,7 +242,13 @@ export async function POST(request: Request): Promise<Response> {
       idempotencyKey: `pos:${body.idempotencyKey}`,
       items: composed.lines,
       totals: composed.totals,
-      customer: { name: body.customer.name.trim(), phone: phoneE164 },
+      customer: {
+        name: body.customer.name.trim(),
+        phone: phoneE164,
+        // Staff set "Scheduled for": it prints as 預訂 SCHEDULED. ASAP prints
+        // no time at all (lib/orders/types.ts, OrderCustomer.scheduledFor).
+        ...(body.pickup.time === "asap" ? {} : { scheduledFor: pickupAt.toISOString() }),
+      },
       // Staff taking the order IS the verification; see migration 009.
       phoneVerifiedAt: now,
       pickupAt: ready.from,

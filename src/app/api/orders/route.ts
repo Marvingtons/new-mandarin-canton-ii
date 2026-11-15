@@ -240,7 +240,13 @@ export async function POST(request: Request): Promise<Response> {
       items: resolvedLines,
       totals: composed.totals,
       channel: "web",
-      customer: { name: body.pickup.name, phone: phoneE164 },
+      customer: {
+        name: body.pickup.name,
+        phone: phoneE164,
+        // A chosen slot prints on the ticket; ASAP was only an estimate and
+        // does not (lib/orders/types.ts, OrderCustomer.scheduledFor).
+        ...(body.pickup.time === "asap" ? {} : { scheduledFor: pickupAt.toISOString() }),
+      },
       phoneVerifiedAt: new Date(verified.verifiedAt),
       // pickup_at IS the start of the stored window, so the ticket and the
       // board cannot disagree with the confirmation about when food is due.

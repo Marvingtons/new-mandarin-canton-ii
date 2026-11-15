@@ -155,6 +155,18 @@ export interface OrderCustomer {
    * Empty string for a walk-in who gave no number; every reader must cope.
    */
   phone: string;
+  /**
+   * The pickup time the customer (web) or staff (POS "Scheduled for") CHOSE,
+   * ISO-8601, or absent when the order was ASAP and its time was only
+   * estimated. Only the ticket reads it: a chosen time prints in a box
+   * (取餐時間 PICKUP on a web order, 預訂 SCHEDULED on a store order), an
+   * estimated one prints nothing. The board keeps reading readyFrom/readyTo.
+   *
+   * Stored inside the `customer` jsonb column rather than a column of its own,
+   * so it needed no migration. Orders written before it existed have no key
+   * and print no time box, which is what an ASAP order prints.
+   */
+  scheduledFor?: string;
 }
 
 /** A full order row, as the repository returns it. */

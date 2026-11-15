@@ -295,7 +295,8 @@ export default function PosScreen({
   const [seating, setSeating] = useState<Seating | null>(null);
   /** Dine-in with a table, choosing another one. */
   const [floorOpen, setFloorOpen] = useState(false);
-  const [pickup, setPickup] = useState("asap");
+  /** "Scheduled for": a staff-chosen "HH:MM", or "" for none (ASAP, no time printed). */
+  const [scheduled, setScheduled] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [staffNote, setStaffNote] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(newKey);
@@ -312,8 +313,14 @@ export default function PosScreen({
   const [editing, setEditing] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
 
-  // A chosen slot that has since passed falls back to the first one offered.
-  const pickupValue = slots.some((x) => x.value === pickup) ? pickup : (slots[0]?.value ?? "");
+  // "Scheduled for" offers the clock times; leaving it empty is ASAP, which
+  // the store only takes while its doors are open.
+  const scheduledSlots = slots.filter((x) => x.value !== "asap");
+  const asapOpen = slots.some((x) => x.value === "asap");
+  // A chosen time that has since passed is NOT swapped for another one: what
+  // prints is what staff told the caller, so they choose again.
+  const scheduledOk = scheduled === "" ? asapOpen : scheduledSlots.some((x) => x.value === scheduled);
+  const scheduledLabel = scheduledSlots.find((x) => x.value === scheduled)?.label ?? null;
 
   const priced = useMemo(
     () =>
@@ -345,12 +352,13 @@ export default function PosScreen({
   } else {
     if (!name.trim()) missing.push("pos.missing.name");
     if (channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
+    if (now && !scheduledOk) missing.push("pos.missing.scheduled");
   }
   const canSubmit =
     missing.length === 0 &&
     !submitting &&
     taxRateBps != null &&
-    (mode === "dine_in" || (!phoneBad && pickupValue !== ""));
+    (mode === "dine_in" || (!phoneBad && now !== null));
 
   /* ------------------------------------------------------ menu selection -- */
   const [query, setQuery] = useState("");
@@ -517,7 +525,7 @@ export default function PosScreen({
     setPhone("");
     setChannel("phone");
     setSeating(null);
-    setPickup("asap");
+    setScheduled("");
     setPaymentNote("");
     setStaffNote("");
     setLunchOverride(false);
@@ -553,7 +561,7 @@ export default function PosScreen({
             : {
                 channel,
                 customer: { name: name.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}) },
-                pickup: { time: pickupValue },
+                pickup: { time: scheduled || "asap" },
               }),
           ...(paymentNote.trim() ? { paymentNote: paymentNote.trim() } : {}),
           ...(staffNote.trim() ? { staffNote: staffNote.trim() } : {}),
@@ -752,6 +760,7 @@ export default function PosScreen({
           className={btn("secondary")}
         >
           {phone.trim() ? <span className={s.num}>{phone.trim()}</span> : t("pos.addCustomer")}
+          {scheduledLabel && <span className={s.num}>{t("pos.scheduledAt", { time: scheduledLabel })}</span>}
         </button>
       )}
     </div>
@@ -1203,13 +1212,26 @@ export default function PosScreen({
                     </div>
                   )}
 
+                  {/* Optional. Empty is ASAP and prints no time; a time set here
+                      prints as 預訂 SCHEDULED under the phone number. */}
                   <label>
-                    <span className={label}>{t("pos.pickup")}</span>
-                    <select value={pickupValue} onChange={(e) => setPickup(e.target.value)} className={field} disabled={slots.length === 0}>
-                      {slots.length === 0 && <option value="">{now ? t("pos.noSlots") : t("common.loading")}</option>}
-                      {slots.map((x) => (
+                    <span className={label}>{t("pos.scheduledFor")}</span>
+                    <select
+                      value={scheduled}
+                      onChange={(e) => setScheduled(e.target.value)}
+                      data-field="scheduled"
+                      className={field}
+                    >
+                      <option value="">{t("pos.scheduledNone")}</option>
+                      {scheduled !== "" && !scheduledLabel && (
+                        // The chosen time has passed: keep it visible, unselectable.
+                        <option value={scheduled} disabled>
+                          {scheduled}
+                        </option>
+                      )}
+                      {scheduledSlots.map((x) => (
                         <option key={x.value} value={x.value}>
-                          {x.value === "asap" ? t("pos.asap", { n: pickupOptions.leadMinutes }) : x.label}
+                          {x.label}
                         </option>
                       ))}
                     </select>

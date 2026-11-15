@@ -59,7 +59,7 @@ function chromeSources(): Source[] {
     });
   }
   out.push(
-    { where: "header", text: "PICKUP REPRINT NOTE PHONE ORDER WALK-IN" },
+    { where: "header", text: "PICKUP SCHEDULED REPRINT NOTE PHONE ORDER WALK-IN" },
     { where: "customer", text: "AMPM" },
     { where: "totals", text: "SUBTOTAL TAX TIP TOTAL · COLLECT PAYMENT" },
     // Every glyph formatCents and the quantity badge can emit.
