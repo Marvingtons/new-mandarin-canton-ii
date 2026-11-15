@@ -116,7 +116,6 @@ interface LiveValue {
   declineSound: () => void;
   refresh: () => Promise<void>;
   act: (order: OrderRef, action: OrderAction, extra?: { note?: string; station?: Station }) => Promise<boolean>;
-  clearTable: (tableLabel: string) => Promise<boolean>;
 }
 
 const LiveContext = createContext<LiveValue | null>(null);
@@ -486,42 +485,6 @@ export function KitchenLiveProvider({
     [setOverlay, dropOverlay, adopt, toast, t],
   );
 
-  const clearTable = useCallback<LiveValue["clearTable"]>(
-    async (tableLabel) => {
-      const ids: number[] = [];
-      for (const o of serverOrders) {
-        if (o.channel === "dine_in" && o.tableLabel === tableLabel && o.tableClearedAt === null) ids.push(o.id);
-      }
-      // What the server does (repository clearTable): stamp the table cleared
-      // and close what was printed or cooking. Shown now, confirmed below.
-      const token = setOverlay(ids, { tableClearedAt: new Date().toISOString() });
-      try {
-        const res = await fetch("/api/kitchen/tables", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "clear", label: tableLabel }),
-        });
-        // 409 is "that table is not seated": someone else already cleared it,
-        // which is the outcome staff wanted.
-        const cleared = res.status === 409 || (res.ok && ((await res.json()) as { ok: boolean }).ok);
-        if (!cleared) {
-          dropOverlay(ids, token);
-          toast(t("toast.failedReason", { number: t("board.table", { table: tableLabel }), reason: t("board.actionFailed") }), "error");
-          return false;
-        }
-      } catch {
-        dropOverlay(ids, token);
-        toast(t("toast.offline"), "error");
-        return false;
-      }
-      await refresh();
-      dropOverlay(ids, token);
-      toast(t("toast.tableCleared", { table: tableLabel }));
-      return true;
-    },
-    [serverOrders, setOverlay, dropOverlay, refresh, toast, t],
-  );
-
   // "Did not print", measured against the server's clock (see the deadline
   // effect above). The server's own flag stands until the first X-Server-Time.
   const clocked = useMemo(
@@ -568,11 +531,10 @@ export function KitchenLiveProvider({
       declineSound,
       refresh,
       act,
-      clearTable,
     }),
     [
       orders, recentlyDone, printers, printersConfigured, status, freshIds, pendingIds,
-      muted, sound, toggleMute, enableSound, declineSound, refresh, act, clearTable,
+      muted, sound, toggleMute, enableSound, declineSound, refresh, act,
     ],
   );
 

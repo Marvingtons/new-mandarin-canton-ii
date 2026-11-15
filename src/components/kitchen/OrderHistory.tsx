@@ -12,8 +12,7 @@ import {
   type RangePreset,
 } from "@/lib/orders/history";
 import {
-  ORDER_CHANNELS,
-  TAKEOUT_CHANNELS,
+  LIVE_CHANNELS,
   ORDER_STATUSES,
   type OrderChannel,
   type OrderStatus,
@@ -24,7 +23,7 @@ import Icon from "@/components/kitchen/Icon";
 import OrderList from "@/components/kitchen/OrderList";
 import Button from "@/components/kitchen/ui/Button";
 import { buttonClass } from "@/components/kitchen/ui/buttonClass";
-import { ChannelBadge, StationBadge, StatusPill, TableBadge } from "@/components/kitchen/ui/Badges";
+import { ChannelBadge, StationBadge, StatusPill } from "@/components/kitchen/ui/Badges";
 import EmptyState from "@/components/kitchen/ui/EmptyState";
 import Segmented from "@/components/kitchen/ui/Segmented";
 import { Skeleton } from "@/components/kitchen/ui/Skeleton";
@@ -231,38 +230,9 @@ export default function OrderHistory({
               </button>
             ))}
           </div>
-          {/* Service: the two halves of the POS, as one tap each. Sets the same
-              channel filter as the chips below, so the server reads one rule. */}
-          <div role="group" aria-label={t("history.service")} className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-staff-caption font-semibold text-staff-soft">{t("history.service")}</span>
-            {(
-              [
-                ["all", [] as OrderChannel[], "history.all"],
-                ["dineIn", ["dine_in"] as OrderChannel[], "history.service.dineIn"],
-                ["takeout", [...TAKEOUT_CHANNELS] as OrderChannel[], "history.service.takeout"],
-              ] as const
-            ).map(([id, set, label]) => {
-              const chosen = new Set(channels);
-              const on = set.length === chosen.size && set.every((c) => chosen.has(c));
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => {
-                    setChannels([...set]);
-                    setPage(1);
-                  }}
-                  className={ui.chip}
-                >
-                  {t(label)}
-                </button>
-              );
-            })}
-          </div>
           <div role="group" aria-label={t("history.channel")} className="flex flex-wrap items-center gap-1.5">
             <span className="mr-1 text-staff-caption font-semibold text-staff-soft">{t("history.channel")}</span>
-            {ORDER_CHANNELS.map((c) => (
+            {LIVE_CHANNELS.map((c) => (
               <button
                 key={c}
                 type="button"
@@ -295,7 +265,7 @@ export default function OrderHistory({
             </div>
           ))}
           <div className="col-span-2 flex flex-col justify-center gap-1.5 px-4 py-3 sm:col-span-4 lg:col-span-1">
-            {ORDER_CHANNELS.map((c) => (
+            {LIVE_CHANNELS.map((c) => (
               <div key={c} className="flex items-center justify-between gap-3 text-staff-body">
                 <ChannelBadge channel={c} />
                 <span className="text-staff-soft">
@@ -368,12 +338,9 @@ export default function OrderHistory({
                     {formatPickupTime(o.createdAt, timezone)}
                   </span>
                   <span className="col-span-3 min-w-0 xl:col-span-1">
-                    {o.channel === "dine_in" ? (
-                      <TableBadge order={o} />
-                    ) : (
-                      o.customer.name.trim() && <span className="block truncate text-staff-body font-medium">{o.customer.name}</span>
-                    )}
-                    {o.channel !== "dine_in" && o.customer.phone && (
+                    {/* A historical dine_in row shows its stored name ("Table 4") like any other. */}
+                    {o.customer.name.trim() && <span className="block truncate text-staff-body font-medium">{o.customer.name}</span>}
+                    {o.customer.phone && (
                       <span className="block truncate text-staff-caption text-staff-soft">{formatPhoneNational(o.customer.phone)}</span>
                     )}
                   </span>

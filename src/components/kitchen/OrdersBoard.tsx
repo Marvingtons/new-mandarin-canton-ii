@@ -53,8 +53,7 @@ function matchesSearch(order: Order, q: string): boolean {
   return (
     order.orderNumber.toLowerCase().includes(needle) ||
     order.customer.name.toLowerCase().includes(needle) ||
-    (digits.length >= 3 && order.customer.phone.replace(/\D/g, "").includes(digits)) ||
-    (order.tableLabel !== null && order.tableLabel.toLowerCase() === needle)
+    (digits.length >= 3 && order.customer.phone.replace(/\D/g, "").includes(digits))
   );
 }
 

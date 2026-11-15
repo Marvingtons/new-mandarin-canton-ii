@@ -10,7 +10,8 @@ import type { OrderChannel } from "@/lib/orders/types";
  *
  *   online  printer A, by the pass: orders customers place on the website.
  *   store   printer B, by the counter: everything staff enter on the POS
- *           (phone, walk-in, dine-in and dine-in add-ons).
+ *           (phone and walk-in; also the retired dine_in channel, so a
+ *           historical dine-in row still has a station).
  *
  * Both are the same Star TSP143IVUE on the same CloudPRNT firmware and print
  * the same ticket. A printer is told apart from the other by the MAC it sends

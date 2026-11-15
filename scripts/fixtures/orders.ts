@@ -172,10 +172,6 @@ export function fixtureOrder(): Order {
     reroutedFrom: null,
     paymentNote: null,
     staffNote: null,
-    tableLabel: null,
-    guestCount: null,
-    isAddon: false,
-    tableClearedAt: null,
     createdAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
   };
@@ -497,10 +493,6 @@ export function sqlShapedOrder(): Order {
     channel: "web",
     paymentNote: null,
     staffNote: null,
-    tableLabel: null,
-    guestCount: null,
-    isAddon: false,
-    tableClearedAt: null,
     createdAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-30T01:05:00.000Z").toISOString(),
   } as unknown as Order;
@@ -551,36 +543,22 @@ export async function fixtureOrders(): Promise<NamedOrder[]> {
 }
 
 /**
- * A party of three at table 4: the dine-in header (inverted 桌 4 TABLE 4, then
- * 堂食 DINE IN · 3 位 guests), no customer block, no pickup box.
+ * A HISTORICAL dine-in row. Dine-in is retired, but rows from before remain
+ * on the retired `dine_in` channel with the customer the POS gave a table
+ * ("Table 4", no phone). Nothing creates one now; it must still render, as a
+ * plain store ticket: the number, no table header, no 客人 line, no time.
  */
-export function dineInOrder(): Order {
+export function legacyDineInOrder(): Order {
   const base = fixtureOrder();
   return {
     ...base,
     id: 2,
     orderNumber: "B-021",
     channel: "dine_in",
+    station: "store",
     customer: { name: "Table 4", phone: "" },
-    tableLabel: "4",
-    guestCount: 3,
     items: base.items.slice(0, 3),
     totals: totalsFor(base.items.slice(0, 3)),
-  };
-}
-
-/** A second round for the combined 4+5: the widest table label, plus 加菜 ADD-ON. */
-export function dineInAddonOrder(): Order {
-  const base = fixtureOrder();
-  return {
-    ...dineInOrder(),
-    id: 3,
-    orderNumber: "B-024",
-    tableLabel: "4+5",
-    guestCount: 9,
-    isAddon: true,
-    items: base.items.slice(0, 1),
-    totals: totalsFor(base.items.slice(0, 1)),
   };
 }
 

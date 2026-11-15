@@ -547,12 +547,10 @@ export async function composeTicketSvg(
   }
 
   /* ---------------- header ---------------- */
-  /* TWO HEADERS, AND THEY MUST NOT LOOK ALIKE. A dine-in ticket goes to a
-     table, a takeout ticket goes in a bag, and the person at the pass decides
-     which from across the counter. So the very first band differs in kind,
-     not just in words: dine-in opens on a full-width INVERTED bar carrying
-     the table at the largest size that fits; takeout opens on the order
-     number in plain black type over white, with the customer up top. */
+  /* The order number first, in plain black type over white, then who it is
+     for. (There used to be a second, inverted dine-in header for a table;
+     dine-in is retired, and a historical dine_in row prints this header like
+     any other store order.) */
   const reprintChip = (top: number) => {
     // Right-aligned inverted chip, overlaid on a row that is already drawn.
     const label = `${L.reprint} REPRINT`;
@@ -563,89 +561,61 @@ export async function composeTicketSvg(
     });
   };
 
-  if (order.channel === "dine_in") {
-    const table = order.tableLabel ?? "?";
-    const zhTable = zhIfPrintable(L.table, coverage);
-    const tableLine = zhTable ? `${zhTable} ${table} TABLE ${table}` : `TABLE ${table}`;
-    // The largest size that fits one line, capped where a 4+5 still does.
-    let size = 88;
-    while (size > 40 && metrics.measure(tableLine, size, 700) > CONTENT_WIDTH - 24) size -= 4;
-    c.banner(tableLine, { size, padY: 10 });
+  // No 外賣 TAKEOUT line: the copy bar above and the channel line below
+  // already say what this ticket is, and the pass reads the number first.
+  // One step down from the old 96: the phone below is the largest type on
+  // the ticket, and the number must not compete with it.
+  const numberTop = c.height;
+  c.text(order.orderNumber, { size: TAKEOUT_NUMBER_SIZE, weight: 700, lineHeight: 1.1 });
+  if (options.reprint) reprintChip(numberTop);
 
-    const zhDine = zhIfPrintable(L.dineIn, coverage);
-    const zhGuests = zhIfPrintable(L.guests, coverage);
-    const guests = order.guestCount;
-    const party =
-      guests == null ? "" : ` · ${guests}${zhGuests ? ` ${zhGuests}` : ""} ${guests === 1 ? "guest" : "guests"}`;
-    c.text(`${zhDine ? `${zhDine} ` : ""}DINE IN${party}`, { size: 40, weight: 700, marginTop: 8 });
+  /* A staff-entered order says so, inverted, under the number: there is no
+     customer refreshing a confirmation page for it, and the person at the
+     counter may be the one who took the call. Web orders print nothing here. */
+  if (order.channel === "phone" || order.channel === "walk_in") {
+    const zh = zhIfPrintable(order.channel === "phone" ? L.phoneOrder : L.walkIn, coverage);
+    const en = order.channel === "phone" ? "PHONE ORDER" : "WALK-IN";
+    c.banner(zh ? `${zh} ${en}` : en, { size: 30, marginTop: 6 });
+  }
 
-    if (order.isAddon) {
-      const zhAddon = zhIfPrintable(L.addon, coverage);
-      c.box({ border: 5, padding: 6, marginTop: 8 }, (box) => {
-        box.text(zhAddon ? `${zhAddon} ADD-ON` : "ADD-ON", { size: 48, weight: 700, align: "center" });
-      });
-    }
+  /* THE PHONE IS THE BIGGEST THING ON THE TICKET. It is what the counter
+     calls out and what the customer recognises, so it prints as
+     (858) 207-7770 at the largest size that keeps it on one line, with a
+     small 電話 label above it. A walk-in who gave no number prints none. */
+  if (order.customer.phone !== "-") {
+    const phone = formatPhoneNational(order.customer.phone);
+    c.text(L.phone, { size: 24, weight: 700, marginTop: 8 });
+    c.text(phone, { size: phoneSize(phone, metrics), weight: 700, lineHeight: 1.1 });
+  }
 
-    const numberTop = c.height + 6;
-    c.text(order.orderNumber, { size: 72, weight: 700, lineHeight: 1.1, marginTop: 6 });
-    if (options.reprint) reprintChip(numberTop);
-  } else {
-    // No 外賣 TAKEOUT line: the copy bar above and the channel line below
-    // already say what this ticket is, and the pass reads the number first.
-    // One step down from the old 96: the phone below is the largest type on
-    // the ticket, and the number must not compete with it.
-    const numberTop = c.height;
-    c.text(order.orderNumber, { size: TAKEOUT_NUMBER_SIZE, weight: 700, lineHeight: 1.1 });
-    if (options.reprint) reprintChip(numberTop);
+  const storeOrder = stationForChannel(order.channel ?? "web") === "store";
 
-    /* A staff-entered order says so, inverted, under the number: there is no
-       customer refreshing a confirmation page for it, and the person at the
-       counter may be the one who took the call. Web orders print nothing here. */
-    if (order.channel === "phone" || order.channel === "walk_in") {
-      const zh = zhIfPrintable(order.channel === "phone" ? L.phoneOrder : L.walkIn, coverage);
-      const en = order.channel === "phone" ? "PHONE ORDER" : "WALK-IN";
-      c.banner(zh ? `${zh} ${en}` : en, { size: 30, marginTop: 6 });
-    }
+  /* SCHEDULED, right under the phone, on a store order staff set a time
+     for. Heavier border than any other box on the ticket: a phone order for
+     5:30 that gets cooked at 4:15 is the mistake this exists to stop. The
+     time stays a step under the phone, which remains the largest type. */
+  if (storeOrder && chosenTime) {
+    c.box({ border: 6, padding: 10, marginTop: 8 }, (box) => {
+      box.text(`${L.scheduled} SCHEDULED`, { size: 28, weight: 700 });
+      box.text(chosenTime, { size: 60, weight: 700, lineHeight: 1.1 });
+    });
+  }
 
-    /* THE PHONE IS THE BIGGEST THING ON THE TICKET. It is what the counter
-       calls out and what the customer recognises, so it prints as
-       (858) 207-7770 at the largest size that keeps it on one line, with a
-       small 電話 label above it. A walk-in who gave no number prints none. */
-    if (order.customer.phone !== "-") {
-      const phone = formatPhoneNational(order.customer.phone);
-      c.text(L.phone, { size: 24, weight: 700, marginTop: 8 });
-      c.text(phone, { size: phoneSize(phone, metrics), weight: 700, lineHeight: 1.1 });
-    }
+  /* The name only on a website order. A store order (phone, walk-in) is
+     called by its number and phone at the counter, so it prints no 客人
+     line at all. Decided by the CHANNEL'S station, not order.station: a
+     reprint or a failover that moves a web ticket to the counter printer
+     is still a web order and keeps its name. */
+  if (!storeOrder) {
+    c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 4 });
+  }
 
-    const storeOrder = stationForChannel(order.channel ?? "web") === "store";
-
-    /* SCHEDULED, right under the phone, on a store order staff set a time
-       for. Heavier border than any other box on the ticket: a phone order for
-       5:30 that gets cooked at 4:15 is the mistake this exists to stop. The
-       time stays a step under the phone, which remains the largest type. */
-    if (storeOrder && chosenTime) {
-      c.box({ border: 6, padding: 10, marginTop: 8 }, (box) => {
-        box.text(`${L.scheduled} SCHEDULED`, { size: 28, weight: 700 });
-        box.text(chosenTime, { size: 60, weight: 700, lineHeight: 1.1 });
-      });
-    }
-
-    /* The name only on a website order. A store order (phone, walk-in) is
-       called by its number and phone at the counter, so it prints no 客人
-       line at all. Decided by the CHANNEL'S station, not order.station: a
-       reprint or a failover that moves a web ticket to the counter printer
-       is still a web order and keeps its name. */
-    if (!storeOrder) {
-      c.text(`${L.customer} ${order.customer.name}`, { size: 34, weight: 700, marginTop: 4 });
-    }
-
-    /* PICKUP only when the customer picked a slot. ASAP prints no box. */
-    if (!storeOrder && chosenTime) {
-      c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
-        box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
-        box.text(chosenTime, { size: 52, weight: 700 });
-      });
-    }
+  /* PICKUP only when the customer picked a slot. ASAP prints no box. */
+  if (!storeOrder && chosenTime) {
+    c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
+      box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
+      box.text(chosenTime, { size: 52, weight: 700 });
+    });
   }
 
   c.rule(5);
@@ -656,7 +626,7 @@ export async function composeTicketSvg(
   c.rule(5);
 
   /* ---------------- placed ---------------- */
-  // The customer moved up into the takeout header; a table has none.
+  // The customer is in the header above.
   c.text(`${L.placed} ${placedLabel}`, { size: 21, marginTop: 6 });
 
   /* ---------------- totals ---------------- */

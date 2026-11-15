@@ -80,7 +80,6 @@ interface Mods {
   version: { GET: Handler };
   orders: { GET: Handler };
   action: { POST: ActionHandler };
-  tables: { POST: Handler };
   feed: typeof import("../src/lib/kitchen/boardFeed");
   repo: typeof import("../src/lib/orders/repository");
   emulator: typeof import("./lib/hyperdrive-cache-emulator");
@@ -364,11 +363,10 @@ async function s3_changes(m: Mods): Promise<void> {
     db.query(`update orders set status = 'PRINTED', updated_at = now() where id = $1`, [a]));
   await moved("a 重印 to the other printer", async () => check("   reprint answered 200", (await act(m, a, "reprint", { station: "store" })) === 200));
   await moved("complete (完成): leaves the board", async () => check("   complete answered 200", (await act(m, b, "complete")) === 200));
-  await moved("clear table 7", async () => {
-    const res = await m.tables.POST(req("/api/kitchen/tables", { method: "POST", body: JSON.stringify({ action: "clear", label: "7" }) }));
-    check("   clear answered 200", res.status === 200, `status=${res.status}`);
-  });
-  void t;
+  // A historical dine-in row (the service is retired) is finished like any
+  // other order: there is no table to clear any more.
+  await moved("complete a historical dine-in order (table 7)", async () =>
+    check("   complete answered 200", (await act(m, t, "complete")) === 200));
   // A transaction's now() is its START: a write that began first and
   // committed last lands with an updated_at OLDER than the newest one seen.
   await moved("a write committed with an older updated_at than the newest (max and count unchanged)", async () => {
@@ -541,7 +539,6 @@ async function main(): Promise<void> {
     version: (await import("../src/app/api/kitchen/orders/version/route")) as unknown as Mods["version"],
     orders: (await import("../src/app/api/kitchen/orders/route")) as unknown as Mods["orders"],
     action: (await import("../src/app/api/kitchen/orders/[id]/route")) as unknown as Mods["action"],
-    tables: (await import("../src/app/api/kitchen/tables/route")) as unknown as Mods["tables"],
     feed: await import("../src/lib/kitchen/boardFeed"),
     repo: await import("../src/lib/orders/repository"),
     emulator: await import("./lib/hyperdrive-cache-emulator"),

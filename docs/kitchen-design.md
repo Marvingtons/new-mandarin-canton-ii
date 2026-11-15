@@ -1,5 +1,11 @@
 # Kitchen POS design spec
 
+> **Dine-in retired (2026-11-14).** The POS no longer has the 外賣 / 堂食
+> toggle, the floor plan, table picker, guest count, add-on or clear-table
+> flow. The sections below that describe them, and `docs/kitchen-mockups/floor.html`
+> with its floor-plan and guest-count screenshots, are kept as a record of the
+> old design only. Order entry is phone and walk-in takeout.
+
 The staff POS at `/{kitchen}/pos`: order entry and the dine-in floor plan, on a 13" iPad
 (1376 × 1032 landscape, 1032 × 1376 portrait) with a 大字 (large text) mode.
 

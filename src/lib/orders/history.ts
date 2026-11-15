@@ -175,12 +175,9 @@ export const CSV_HEADER = [
   "tax",
   "total",
   "status",
-  // Dine-in (migration 010). Appended, so a spreadsheet built on the first
-  // eleven columns keeps working. Empty for takeout.
-  "table",
-  "guests",
-  "addon",
-  // Two printers (migration 011). Appended for the same reason.
+  // Two printers (migration 011). Appended, so a spreadsheet built on the
+  // first eleven columns keeps working. (The dine-in table, guests and addon
+  // columns that sat before it were removed with dine-in on 2026-11-14.)
   "station",
 ] as const;
 
@@ -238,9 +235,6 @@ export function csvRow(order: Order, timezone: string): string {
     dollars(order.totals.taxCents),
     dollars(order.totals.totalCents),
     order.status,
-    order.tableLabel ?? "",
-    order.guestCount ?? "",
-    order.isAddon ? "yes" : "",
     order.station,
   ]
     .map((v) => csvCell(String(v ?? "")))

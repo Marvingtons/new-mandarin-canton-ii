@@ -13,16 +13,16 @@ import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
 
 /**
  * A grid of OrderCards, and the one place an action on an order is carried
- * out: the live act/clearTable (optimistic, with rollback), the reprint
- * station picker, and the confirm step for the two destructive actions
- * (cancel, clear table). The board and history both render this, so an
+ * out: the live act (optimistic, with rollback), the reprint station
+ * picker, and the confirm step for the destructive action (cancel). The
+ * board and history both render this, so an
  * action behaves the same whichever screen, and whichever station.
  *
  * Keyboard (board only): J/K or the arrows move the selection, A accept,
  * C complete, P reprint, X cancel. A selected card is ringed in lacquer.
  */
 
-type Pending = { kind: "reprint" | "cancel" | "clearTable"; order: Order } | null;
+type Pending = { kind: "reprint" | "cancel"; order: Order } | null;
 
 export default function OrderList({
   orders,
@@ -44,7 +44,7 @@ export default function OrderList({
   onActed?: () => void;
 }) {
   const t = useKT();
-  const { act, clearTable, freshIds, pendingIds } = useKitchenLive();
+  const { act, freshIds, pendingIds } = useKitchenLive();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [dialog, setDialog] = useState<Pending>(null);
   const [cancelNote, setCancelNote] = useState("");
@@ -65,7 +65,6 @@ export default function OrderList({
       }
       if (kind === "reprint" && order.status === "CANCELLED") return;
       if (kind === "cancel" && (order.status === "CANCELLED" || order.status === "COMPLETED")) return;
-      if (kind === "clearTable" && !(order.channel === "dine_in" && order.tableLabel && order.tableClearedAt === null)) return;
       setCancelNote("");
       setDialog({ kind, order });
     },
@@ -167,20 +166,6 @@ export default function OrderList({
             />
           </label>
         </ConfirmDialog>
-      )}
-
-      {dialog?.kind === "clearTable" && dialog.order.tableLabel && (
-        <ConfirmDialog
-          title={t("confirm.clearTitle", { table: dialog.order.tableLabel })}
-          body={t("confirm.clearBody")}
-          confirmLabel={t("confirm.clearConfirm")}
-          onClose={() => setDialog(null)}
-          onConfirm={() => {
-            const label = dialog.order.tableLabel!;
-            setDialog(null);
-            void clearTable(label).then(done);
-          }}
-        />
       )}
     </>
   );

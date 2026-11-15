@@ -8,13 +8,12 @@ import { E2E_KITCHEN_PASSWORD } from "./env";
  * default "kitchen"):
  *
  *   /{slug}           the kitchen board       -> the Orders tab
- *   /{slug}/pos       the POS, with the floor plan as its 堂食 mode
+ *   /{slug}/pos       the POS
  *   /{slug}/history   order history
  *
  * The unified shell kept every one of those paths, so none needs a redirect:
  * a 308 from a path to itself would loop. This pins that: each answers 200
- * directly (no redirect hop at all), inside the shell, on the right tab, and
- * the floor plan is still reached the way main reached it.
+ * directly (no redirect hop at all), inside the shell, on the right tab.
  *
  * If a path ever does move, add its 308 in next.config.ts and a row here.
  */
@@ -44,9 +43,10 @@ test("main's staff routes answer directly in the unified shell", async ({ browse
     await expect(nav.getByRole("link", { name: new RegExp(`^${tab}`) })).toHaveAttribute("aria-current", "page");
   }
 
-  // The floor plan: main's POS 堂食 mode, unchanged.
+  // Dine-in is retired: the POS has no 堂食 mode and no floor plan.
   await page.goto("/kitchen/pos");
-  await page.locator('[data-value="dine_in"]').click();
-  await expect(page.locator("[data-table]").first()).toBeVisible();
+  await expect(page.locator('[data-action="print"]')).toBeVisible();
+  await expect(page.locator('[data-value="dine_in"]')).toHaveCount(0);
+  await expect(page.locator("[data-table]")).toHaveCount(0);
   await context.close();
 });

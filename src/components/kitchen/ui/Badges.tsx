@@ -1,7 +1,7 @@
 "use client";
 
 import type { Station } from "@/config/stations";
-import type { Order, OrderChannel, OrderStatus } from "@/lib/orders/types";
+import { isLiveChannel, type LiveChannel, type OrderChannel, type OrderStatus } from "@/lib/orders/types";
 import Icon, { type IconName } from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import ui from "@/components/kitchen/ui/ui.module.css";
@@ -31,16 +31,20 @@ export function StationBadge({ station }: { station: Station }) {
   );
 }
 
-const CHANNEL_ICON: Record<OrderChannel, IconName> = {
+const CHANNEL_ICON: Record<LiveChannel, IconName> = {
   web: "globe",
   phone: "phone",
   walk_in: "user",
-  dine_in: "table",
 };
 
-/** How the order came in: 網上 / 電話 / 到店 / 堂食. Quiet: the station badge leads. */
+/**
+ * How the order came in: 網上 / 電話 / 到店. Quiet: the station badge leads.
+ * A historical row on the retired dine_in channel gets no channel badge; its
+ * station badge (店內) still says where it printed.
+ */
 export function ChannelBadge({ channel }: { channel: OrderChannel }) {
   const t = useKT();
+  if (!isLiveChannel(channel)) return null;
   return (
     <span className={`${ui.pill} bg-staff-sunken text-staff-ink`}>
       <Icon name={CHANNEL_ICON[channel]} size={16} />
@@ -65,29 +69,6 @@ export function StatusPill({ status }: { status: OrderStatus }) {
     <span className={`${ui.pill} ${look.className}`}>
       <Icon name={look.icon} size={16} />
       {t(`status.${status}`)}
-    </span>
-  );
-}
-
-/** Where a dine-in order goes: 4 號桌 · 3 位, and 加菜 for a later round. Nothing for takeout. */
-export function TableBadge({ order }: { order: Pick<Order, "channel" | "tableLabel" | "guestCount" | "isAddon"> }) {
-  const t = useKT();
-  if (order.channel !== "dine_in" || !order.tableLabel) return null;
-  return (
-    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 font-semibold">
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        <Icon name="table" size={20} />
-        {t("board.table", { table: order.tableLabel })}
-      </span>
-      {order.guestCount != null && (
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-staff-soft">
-          <Icon name="users" size={20} />
-          {t("board.guests", { n: order.guestCount })}
-        </span>
-      )}
-      {order.isAddon && (
-        <span className={`${ui.pill} bg-staff-brand-tint text-staff-brand`}>{t("ticket.addon")}</span>
-      )}
     </span>
   );
 }

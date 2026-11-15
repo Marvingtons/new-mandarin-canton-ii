@@ -301,7 +301,7 @@ function failoverText(station: Station, phase: "start" | "back"): string {
     : `${restaurant.name}: the ${name} is back. Its new tickets print on it again.`;
 }
 
-/** "the STORE printer (phone, walk-in and dine-in orders) is out of paper..." */
+/** "the STORE printer (phone and walk-in orders) is out of paper..." */
 function printerAlertText(
   station: Station,
   serves: Station[],

@@ -5,7 +5,7 @@ import { chooseRequired } from "./posSheet";
 
 /**
  * Clearing a POS draft is destructive: two taps, always, through the same
- * shared ConfirmDialog as cancelling an order or clearing a table. The safe
+ * shared ConfirmDialog as cancelling an order. The safe
  * choice is focused first, so a stray Enter goes back rather than clearing.
  */
 test("clearing a draft ticket takes the shared destructive confirm", async ({ browser }) => {
@@ -16,7 +16,7 @@ test("clearing a draft ticket takes the shared destructive confirm", async ({ br
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");
-  await expect(page.locator('[data-value="takeout"]')).toBeVisible();
+  await expect(page.locator('[data-action="print"]')).toBeVisible();
 
   const ticket = page.getByRole("complementary", { name: "單據" });
   const lines = ticket.locator("[aria-expanded]");

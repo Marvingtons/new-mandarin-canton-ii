@@ -12,24 +12,22 @@ import { staffPickupSlots, clockLabel, type PickupOptions } from "@/lib/order/pi
 import { isLunchService, LUNCH_END_MINUTES, LUNCH_START_MINUTES } from "@/lib/order/gates";
 import { resolveSizeZh } from "@/data/menu-overrides";
 import { menuNumber } from "@/data/menu-presentation";
-import type { OrderLine, StaffTakeoutChannel } from "@/lib/orders/types";
+import type { OrderLine, StaffChannel } from "@/lib/orders/types";
 import type { Station } from "@/config/stations";
 import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/posCategories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import PosItemSheet, { type PosLineDraft } from "@/components/kitchen/PosItemSheet";
 import Icon from "@/components/kitchen/Icon";
-import FloorPlan, { type Seating } from "@/components/kitchen/FloorPlan";
 import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import ReprintDialog from "@/components/kitchen/ReprintDialog";
 import { ConfirmDialog } from "@/components/kitchen/ui/Dialog";
 import Button from "@/components/kitchen/ui/Button";
-import Segmented from "@/components/kitchen/ui/Segmented";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
 import s from "@/components/kitchen/pos.module.css";
 import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
- * Staff order entry: a phone call, a walk-in, or a table, tapped in and printed.
+ * Staff order entry: a phone call or a walk-in, tapped in and printed.
  * Built to docs/kitchen-design.md (Revision 2) and its mockups; the styles are
  * pos.module.css, whose tokens are the spec's.
  *
@@ -42,7 +40,6 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * ticket's lines: the shared staff header and a slim POS toolbar (service and
  * search), the category rail, the dish tiles of ONE
  * category, and the ticket with its total and Print pinned at the bottom.
- * Dine-in without a table shows the floor plan in place of the three zones.
  *
  * NAMES, NOT DETAILS. A dish tile is its 中文 and English on its category's
  * tint, nothing else: tap it and the regular size goes on the ticket; a second
@@ -55,8 +52,6 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * toggle, because the person taking the call and the person at the wok may
  * read different ones.
  */
-
-type Mode = "takeout" | "dine_in";
 
 interface TicketLine extends PosLineDraft {
   lineId: string;
@@ -290,11 +285,7 @@ export default function PosScreen({
   const [lines, setLines] = useState<TicketLine[]>([]);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [mode, setMode] = useState<Mode>("takeout");
-  const [channel, setChannel] = useState<StaffTakeoutChannel>("phone");
-  const [seating, setSeating] = useState<Seating | null>(null);
-  /** Dine-in with a table, choosing another one. */
-  const [floorOpen, setFloorOpen] = useState(false);
+  const [channel, setChannel] = useState<StaffChannel>("phone");
   /** "Scheduled for": a staff-chosen "HH:MM", or "" for none (ASAP, no time printed). */
   const [scheduled, setScheduled] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
@@ -347,17 +338,9 @@ export default function PosScreen({
 
   const missing: KitchenKey[] = [];
   if (lines.length === 0) missing.push("pos.missing.lines");
-  if (mode === "dine_in") {
-    if (!seating) missing.push("pos.missing.table");
-  } else {
-    if (channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
-    if (now && !scheduledOk) missing.push("pos.missing.scheduled");
-  }
-  const canSubmit =
-    missing.length === 0 &&
-    !submitting &&
-    taxRateBps != null &&
-    (mode === "dine_in" || (!phoneBad && now !== null));
+  if (channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
+  if (now && !scheduledOk) missing.push("pos.missing.scheduled");
+  const canSubmit = missing.length === 0 && !submitting && taxRateBps != null && !phoneBad && now !== null;
 
   /* ------------------------------------------------------ menu selection -- */
   const [query, setQuery] = useState("");
@@ -523,7 +506,6 @@ export default function PosScreen({
     setName("");
     setPhone("");
     setChannel("phone");
-    setSeating(null);
     setScheduled("");
     setPaymentNote("");
     setStaffNote("");
@@ -551,20 +533,12 @@ export default function PosScreen({
             quantity: l.quantity,
             ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
           })),
-          ...(mode === "dine_in" && seating
-            ? {
-                channel: "dine_in",
-                table: { label: seating.label, guests: seating.guests },
-                ...(seating.addon ? { addon: true } : {}),
-              }
-            : {
-                channel,
-                customer: {
-                  ...(name.trim() ? { name: name.trim() } : {}),
-                  ...(phone.trim() ? { phone: phone.trim() } : {}),
-                },
-                pickup: { time: scheduled || "asap" },
-              }),
+          channel,
+          customer: {
+            ...(name.trim() ? { name: name.trim() } : {}),
+            ...(phone.trim() ? { phone: phone.trim() } : {}),
+          },
+          pickup: { time: scheduled || "asap" },
           ...(paymentNote.trim() ? { paymentNote: paymentNote.trim() } : {}),
           ...(staffNote.trim() ? { staffNote: staffNote.trim() } : {}),
           ...(lunchOverride && hasLunchLine && !lunchNow ? { lunchOverride: true } : {}),
@@ -583,9 +557,6 @@ export default function PosScreen({
       };
       if (!data.ok || !data.order) {
         const code = data.code ?? "unavailable";
-        // The table changed under us (another tablet seated or cleared it):
-        // drop the stale seating so the next tap shows the real room.
-        if (code === "table_occupied" || code === "table_not_open") setSeating(null);
         setError(
           code === "rejected"
             ? t("pos.error.rejected", { detail: data.error ?? "" })
@@ -598,7 +569,6 @@ export default function PosScreen({
       // The board, the header's count and the printer strip learn about it
       // now rather than on the next poll.
       void refreshLive();
-      // The mode survives: the next order is most likely the same service.
       resetTicket();
       setQuery("");
       setSearchOpen(false);
@@ -630,10 +600,9 @@ export default function PosScreen({
     return counts;
   }, [lines]);
 
-  const showFloor = mode === "dine_in" && (!seating || floorOpen);
   const railRef = useRef<HTMLElement>(null);
-  const railBar = useMoreBar(railRef, "button", [menu, showFloor]);
-  const linesBar = useMoreBar(linesRef, `.${s.line}`, [lines, editing, noteOpen, showFloor]);
+  const railBar = useMoreBar(railRef, "button", [menu]);
+  const linesBar = useMoreBar(linesRef, `.${s.line}`, [lines, editing, noteOpen]);
 
   const tile = (item: MenuItem) => {
     const sizes = itemSizes(item);
@@ -719,15 +688,9 @@ export default function PosScreen({
       )}
       <div className={s.tRow}>
         <div className={s.tCtx}>
-          <span lang="zh-Hant" className={s.key}>
-            {t(mode === "takeout" ? "pos.mode.takeoutZh" : "pos.mode.dineInZh")}
-          </span>
-          <span className={s.ctx}>
-            {mode === "dine_in" && seating
-              ? t("pos.table.summaryZh", { table: seating.label, guests: seating.guests })
-              : name.trim() || t(`channel.${channel}`)}
-          </span>
-          {mode === "dine_in" && seating?.addon && <span className={s.addonTag}>{t("ticket.addon")}</span>}
+          {/* Phone or walk-in, and who it is for when staff took a name. */}
+          <span className={s.key}>{t(`channel.${channel}`)}</span>
+          {name.trim() && <span className={s.ctx}>{name.trim()}</span>}
         </div>
         {(lines.length > 0 || customerSummary) && (
           <button
@@ -744,27 +707,16 @@ export default function PosScreen({
           </button>
         )}
       </div>
-      {mode === "dine_in" ? (
-        <div className={s.row2}>
-          <button type="button" data-seating={seating?.label ?? ""} onClick={() => setFloorOpen(true)} className={btn("secondary")}>
-            {t("pos.changeTable")}
-          </button>
-          <button type="button" onClick={() => setDetailsOpen(true)} className={btn("secondary")}>
-            {t("pos.notesButton")}
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          data-context="takeout"
-          onClick={() => setDetailsOpen(true)}
-          aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
-          className={btn("secondary")}
-        >
-          {phone.trim() ? <span className={s.num}>{phone.trim()}</span> : t("pos.addCustomer")}
-          {scheduledLabel && <span className={s.num}>{t("pos.scheduledAt", { time: scheduledLabel })}</span>}
-        </button>
-      )}
+      <button
+        type="button"
+        data-context="takeout"
+        onClick={() => setDetailsOpen(true)}
+        aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
+        className={btn("secondary")}
+      >
+        {phone.trim() ? <span className={s.num}>{phone.trim()}</span> : t("pos.addCustomer")}
+        {scheduledLabel && <span className={s.num}>{t("pos.scheduledAt", { time: scheduledLabel })}</span>}
+      </button>
     </div>
   );
 
@@ -884,33 +836,11 @@ export default function PosScreen({
   );
 
   return (
-    <main className={`${s.root} ${showFloor ? s.floorMode : ""}`}>
-      {/* The POS's own controls, under the shared staff header: service mode
-          and search, plus lunch hours when the clock has not opened lunch. */}
+    <main className={s.root}>
+      {/* The POS's own controls, under the shared staff header: search, plus
+          lunch hours when the clock has not opened lunch. */}
       <div className={s.top}>
-        {searchField ?? (
-          <Segmented
-            label={t("pos.mode")}
-            value={mode}
-            onChange={(m) => {
-              setMode(m);
-              setError(null);
-              setFloorOpen(false);
-            }}
-            options={(["takeout", "dine_in"] as const).map((m) => ({
-              value: m,
-              ariaLabel: t(m === "takeout" ? "pos.mode.takeout" : "pos.mode.dineIn"),
-              label: (
-                <>
-                  <span lang="zh-Hant" className={s.zh}>
-                    {t(m === "takeout" ? "pos.mode.takeoutZh" : "pos.mode.dineInZh")}
-                  </span>
-                  <span lang="en">{t(m === "takeout" ? "pos.mode.takeoutEn" : "pos.mode.dineInEn")}</span>
-                </>
-              ),
-            }))}
-          />
-        )}
+        {searchField}
         <div className={s.topRight}>
           {!lunchNow && (
             <Button
@@ -929,180 +859,158 @@ export default function PosScreen({
               iconOnly
               icon="search"
               aria-label={t("pos.search")}
-              onClick={() => {
-                if (showFloor) setMode("takeout");
-                setSearchOpen(true);
-              }}
+              onClick={() => setSearchOpen(true)}
             />
           )}
         </div>
       </div>
 
-      {showFloor ? (
-        <FloorPlan
-          placed={placedStatus}
-          onBack={seating ? () => setFloorOpen(false) : null}
-          onSeat={(next) => {
-            setSeating(next);
-            setMode("dine_in");
-            setFloorOpen(false);
-            setError(null);
-            setPlaced(null);
-          }}
-          onCleared={(cleared) => {
-            if (seating?.label === cleared) setSeating(null);
-          }}
-        />
-      ) : (
-        <>
-          {/* ---------------------------------------------- categories -- */}
-          <div className={s.railWrap}>
-            <nav ref={railRef} aria-label={t("pos.categories")} className={`${s.rail} ${s.scroll}`}>
-              {menu.categories.map((c) => {
-                const l = categoryLook(c);
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => jumpTo(c)}
-                    aria-current={c.id === category?.id && !results ? "true" : undefined}
-                    style={tintStyle(l.tint)}
-                  >
-                    <span className={s.sw} />
-                    <span lang={l.zh ? "zh-Hant" : "en"} className={s.zh}>
-                      {l.zh ?? l.en}
-                    </span>
-                    {l.zh && (
-                      <span lang="en" className={`${s.en} ${s.one}`}>
-                        {l.en}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-            {railBar && (
-              <div className={s.more} style={{ top: railBar.top }}>
-                <button
-                  type="button"
-                  onClick={() => railRef.current?.scrollBy({ top: railRef.current.clientHeight * 0.75, behavior: "smooth" })}
-                  className={btn("secondary")}
-                >
-                  {t("pos.moreCategories", { n: railBar.hidden })}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* -------------------------------------------------- dishes -- */}
-          <section ref={dishPaneRef} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
-            {lunchOverride && !lunchNow && (
-              <p role="status" className={s.banner}>
-                <Icon name="alert" size={22} />
-                {t("pos.lunchOverrideWarning", lunchLabel)}
-              </p>
-            )}
-            {results ? (
-              <>
-                <h2 className={s.sectionH}>
-                  <span className={s.zh}>{t("pos.results")}</span>
-                </h2>
-                {results.length === 0 ? (
-                  <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
-                ) : (
-                  <div className={s.grid}>{results.map(tile)}</div>
-                )}
-              </>
-            ) : (
-              category &&
-              look && (
-                <section id={`pos-cat-${category.id}`}>
-                  <h2 className={s.sectionH}>
-                    <span lang={look.zh ? "zh-Hant" : "en"} className={s.zh}>
-                      {look.zh ?? look.en}
-                    </span>
-                    {look.zh && (
-                      <span lang="en" className={s.en}>
-                        {category.nameEn}
-                      </span>
-                    )}
-                    {category.items.some((i) => i.lunchSpecial) && (
-                      <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
-                    )}
-                  </h2>
-                  <div className={s.grid}>{category.items.map(tile)}</div>
-                </section>
-              )
-            )}
-          </section>
-
-          {/* -------------------------------------------------- ticket -- */}
-          <aside aria-label={t("pos.ticket")} className={s.ticket}>
-            {ticketHead}
-            <div className={s.linesWrap}>
-              <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
-                {ticketLines}
-              </div>
-              {linesBar && (
-                <div className={s.more} style={{ top: linesBar.top }}>
-                  <button
-                    type="button"
-                    onClick={() => linesRef.current?.scrollBy({ top: linesRef.current.clientHeight * 0.75, behavior: "smooth" })}
-                    className={btn("secondary")}
-                  >
-                    {t("pos.moreLines", { n: linesBar.hidden })}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className={s.tFoot}>
-              {lines.length > 0 && (
-                <div className={`${s.sums} ${s.num}`}>
-                  <span>
-                    {t("pos.subtotal")} {formatCents(subtotal)}
-                  </span>
-                  <span>
-                    {t("pos.tax")} {formatCents(tax)}
-                  </span>
-                </div>
-              )}
-              <div className={s.total}>
-                <span className={s.l}>
-                  <span lang="zh-Hant">{t("pos.totalZh")}</span>{" "}
-                  <span lang="en" className={s.en}>
-                    {t("pos.totalEn")}
-                  </span>
+      {/* ---------------------------------------------- categories -- */}
+      <div className={s.railWrap}>
+        <nav ref={railRef} aria-label={t("pos.categories")} className={`${s.rail} ${s.scroll}`}>
+          {menu.categories.map((c) => {
+            const l = categoryLook(c);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => jumpTo(c)}
+                aria-current={c.id === category?.id && !results ? "true" : undefined}
+                style={tintStyle(l.tint)}
+              >
+                <span className={s.sw} />
+                <span lang={l.zh ? "zh-Hant" : "en"} className={s.zh}>
+                  {l.zh ?? l.en}
                 </span>
-                <span className={`${s.v} ${s.num}`}>{formatCents(total)}</span>
-              </div>
-              {error && (
-                <p role="alert" className={s.alert}>
-                  {error}
-                </p>
-              )}
-              {!error && lines.length > 0 && missing.length > 0 && (
-                <p className={s.alert}>{missing.map((k) => t(k)).join(" · ")}</p>
-              )}
+                {l.zh && (
+                  <span lang="en" className={`${s.en} ${s.one}`}>
+                    {l.en}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+        {railBar && (
+          <div className={s.more} style={{ top: railBar.top }}>
+            <button
+              type="button"
+              onClick={() => railRef.current?.scrollBy({ top: railRef.current.clientHeight * 0.75, behavior: "smooth" })}
+              className={btn("secondary")}
+            >
+              {t("pos.moreCategories", { n: railBar.hidden })}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* -------------------------------------------------- dishes -- */}
+      <section ref={dishPaneRef} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
+        {lunchOverride && !lunchNow && (
+          <p role="status" className={s.banner}>
+            <Icon name="alert" size={22} />
+            {t("pos.lunchOverrideWarning", lunchLabel)}
+          </p>
+        )}
+        {results ? (
+          <>
+            <h2 className={s.sectionH}>
+              <span className={s.zh}>{t("pos.results")}</span>
+            </h2>
+            {results.length === 0 ? (
+              <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
+            ) : (
+              <div className={s.grid}>{results.map(tile)}</div>
+            )}
+          </>
+        ) : (
+          category &&
+          look && (
+            <section id={`pos-cat-${category.id}`}>
+              <h2 className={s.sectionH}>
+                <span lang={look.zh ? "zh-Hant" : "en"} className={s.zh}>
+                  {look.zh ?? look.en}
+                </span>
+                {look.zh && (
+                  <span lang="en" className={s.en}>
+                    {category.nameEn}
+                  </span>
+                )}
+                {category.items.some((i) => i.lunchSpecial) && (
+                  <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
+                )}
+              </h2>
+              <div className={s.grid}>{category.items.map(tile)}</div>
+            </section>
+          )
+        )}
+      </section>
+
+      {/* -------------------------------------------------- ticket -- */}
+      <aside aria-label={t("pos.ticket")} className={s.ticket}>
+        {ticketHead}
+        <div className={s.linesWrap}>
+          <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
+            {ticketLines}
+          </div>
+          {linesBar && (
+            <div className={s.more} style={{ top: linesBar.top }}>
               <button
                 type="button"
-                onClick={submit}
-                disabled={!canSubmit}
-                data-action="print"
-                className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.print}`}
+                onClick={() => linesRef.current?.scrollBy({ top: linesRef.current.clientHeight * 0.75, behavior: "smooth" })}
+                className={btn("secondary")}
               >
-                {printLabel}
+                {t("pos.moreLines", { n: linesBar.hidden })}
               </button>
             </div>
-          </aside>
-        </>
-      )}
+          )}
+        </div>
+
+        <div className={s.tFoot}>
+          {lines.length > 0 && (
+            <div className={`${s.sums} ${s.num}`}>
+              <span>
+                {t("pos.subtotal")} {formatCents(subtotal)}
+              </span>
+              <span>
+                {t("pos.tax")} {formatCents(tax)}
+              </span>
+            </div>
+          )}
+          <div className={s.total}>
+            <span className={s.l}>
+              <span lang="zh-Hant">{t("pos.totalZh")}</span>{" "}
+              <span lang="en" className={s.en}>
+                {t("pos.totalEn")}
+              </span>
+            </span>
+            <span className={`${s.v} ${s.num}`}>{formatCents(total)}</span>
+          </div>
+          {error && (
+            <p role="alert" className={s.alert}>
+              {error}
+            </p>
+          )}
+          {!error && lines.length > 0 && missing.length > 0 && (
+            <p className={s.alert}>{missing.map((k) => t(k)).join(" · ")}</p>
+          )}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            data-action="print"
+            className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.print}`}
+          >
+            {printLabel}
+          </button>
+        </div>
+      </aside>
 
       {/* --------------------------------------- customer details + notes -- */}
       {detailsOpen && (
         <dialog
           ref={detailsRef}
-          aria-label={mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}
+          aria-label={t("pos.details.title")}
           onClose={() => setDetailsOpen(false)}
           className="m-0 h-full max-h-none w-full max-w-none justify-end overflow-hidden bg-transparent p-0 text-staff-ink open:flex backdrop:bg-transparent"
         >
@@ -1117,7 +1025,7 @@ export default function PosScreen({
           />
           <div className="staff-sheet-in relative flex h-full w-full max-w-[26rem] flex-col bg-staff-bg shadow-staff-raised">
             <div className="flex h-[var(--z-top)] shrink-0 items-center justify-between gap-4 px-6">
-              <h2 className="text-[1.273rem] font-bold">{mode === "takeout" ? t("pos.details.title") : t("pos.notesTitle")}</h2>
+              <h2 className="text-[1.273rem] font-bold">{t("pos.details.title")}</h2>
               <button
                 type="button"
                 data-action="details-done"
@@ -1129,117 +1037,113 @@ export default function PosScreen({
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-2 pb-8">
-              {mode === "takeout" && (
-                <>
-                  <div role="group" aria-label={t("pos.takeoutKind")} className="grid grid-cols-2 gap-1 rounded-2xl bg-staff-sunken p-1">
-                    {(["phone", "walk_in"] as const).map((c) => (
+              <div role="group" aria-label={t("pos.takeoutKind")} className="grid grid-cols-2 gap-1 rounded-2xl bg-staff-sunken p-1">
+                {(["phone", "walk_in"] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    data-channel={c}
+                    aria-pressed={channel === c}
+                    onClick={() => setChannel(c)}
+                    className={`flex h-[2.545rem] items-center justify-center gap-2 rounded-xl text-base font-bold transition-colors ${
+                      channel === c ? "bg-staff-brand text-staff-on-brand shadow-staff-card" : "text-staff-ink hover:bg-staff-panel/60"
+                    }`}
+                  >
+                    <Icon name={c === "phone" ? "phone" : "store"} size={20} />
+                    {t(`channel.${c}`)}
+                  </button>
+                ))}
+              </div>
+
+              <label>
+                <span className={label}>{t("pos.customerName")}</span>
+                <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" className={field} />
+              </label>
+
+              <label>
+                <span className={label}>{channel === "phone" ? t("pos.phone") : t("pos.phoneOptional")}</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="off"
+                  value={phone}
+                  onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
+                  aria-invalid={phoneBad}
+                  className={`${field} tabular-nums ${phoneBad ? "shadow-[inset_0_0_0_2px_var(--color-staff-brand)]" : ""}`}
+                />
+                {phoneBad && <span className="mt-1 block text-base font-medium text-staff-brand">{t("pos.phoneInvalid")}</span>}
+              </label>
+
+              {returningHere && (
+                <div className="flex flex-col gap-3 rounded-pos bg-staff-panel p-4 shadow-staff-card">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-base">
+                      <Icon name="user" size={18} className="text-staff-ink" />
+                      <span>
+                        <span className="text-staff-soft">{t("pos.returning")}</span>
+                        {returningHere.name && <span className="font-semibold"> {returningHere.name}</span>}
+                      </span>
+                    </span>
+                    {returningHere.name && name.trim() !== returningHere.name && (
                       <button
-                        key={c}
                         type="button"
-                        data-channel={c}
-                        aria-pressed={channel === c}
-                        onClick={() => setChannel(c)}
-                        className={`flex h-[2.545rem] items-center justify-center gap-2 rounded-xl text-base font-bold transition-colors ${
-                          channel === c ? "bg-staff-brand text-staff-on-brand shadow-staff-card" : "text-staff-ink hover:bg-staff-panel/60"
-                        }`}
+                        onClick={() => setName(returningHere.name ?? "")}
+                        className="min-h-[2.545rem] rounded-xl px-3 text-base font-semibold text-staff-brand hover:bg-staff-brand-tint"
                       >
-                        <Icon name={c === "phone" ? "phone" : "store"} size={20} />
-                        {t(`channel.${c}`)}
+                        {t("pos.useName")}
                       </button>
-                    ))}
+                    )}
                   </div>
-
-                  <label>
-                    <span className={label}>{t("pos.customerName")}</span>
-                    <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" className={field} />
-                  </label>
-
-                  <label>
-                    <span className={label}>{channel === "phone" ? t("pos.phone") : t("pos.phoneOptional")}</span>
-                    <input
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="off"
-                      value={phone}
-                      onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
-                      aria-invalid={phoneBad}
-                      className={`${field} tabular-nums ${phoneBad ? "shadow-[inset_0_0_0_2px_var(--color-staff-brand)]" : ""}`}
-                    />
-                    {phoneBad && <span className="mt-1 block text-base font-medium text-staff-brand">{t("pos.phoneInvalid")}</span>}
-                  </label>
-
-                  {returningHere && (
-                    <div className="flex flex-col gap-3 rounded-pos bg-staff-panel p-4 shadow-staff-card">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="flex items-center gap-2 text-base">
-                          <Icon name="user" size={18} className="text-staff-ink" />
-                          <span>
-                            <span className="text-staff-soft">{t("pos.returning")}</span>
-                            {returningHere.name && <span className="font-semibold"> {returningHere.name}</span>}
+                  <div className="text-base font-medium text-staff-soft">{t("pos.recentOrders")}</div>
+                  <ul className="flex flex-col gap-2">
+                    {returningHere.orders.map((o) => (
+                      <li key={o.id} className="flex items-center justify-between gap-2 rounded-xl bg-staff-bg py-2 pr-2 pl-3">
+                        <span className="min-w-0 text-base">
+                          <span className="block text-staff-soft tabular-nums">
+                            {o.businessDate} · {o.orderNumber} · {formatCents(o.totalCents)}
+                          </span>
+                          <span lang="zh-Hant" className="block truncate font-medium">
+                            {o.items.map((l) => `${l.quantity}× ${l.nameZh ?? l.nameEn}`).join("、")}
                           </span>
                         </span>
-                        {returningHere.name && name.trim() !== returningHere.name && (
-                          <button
-                            type="button"
-                            onClick={() => setName(returningHere.name ?? "")}
-                            className="min-h-[2.545rem] rounded-xl px-3 text-base font-semibold text-staff-brand hover:bg-staff-brand-tint"
-                          >
-                            {t("pos.useName")}
-                          </button>
-                        )}
-                      </div>
-                      <div className="text-base font-medium text-staff-soft">{t("pos.recentOrders")}</div>
-                      <ul className="flex flex-col gap-2">
-                        {returningHere.orders.map((o) => (
-                          <li key={o.id} className="flex items-center justify-between gap-2 rounded-xl bg-staff-bg py-2 pr-2 pl-3">
-                            <span className="min-w-0 text-base">
-                              <span className="block text-staff-soft tabular-nums">
-                                {o.businessDate} · {o.orderNumber} · {formatCents(o.totalCents)}
-                              </span>
-                              <span lang="zh-Hant" className="block truncate font-medium">
-                                {o.items.map((l) => `${l.quantity}× ${l.nameZh ?? l.nameEn}`).join("、")}
-                              </span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => reorder(o)}
-                              className="flex min-h-[2.545rem] shrink-0 items-center gap-1.5 rounded-xl bg-staff-brand-tint px-3 text-base font-semibold text-staff-brand hover:bg-staff-sunken"
-                            >
-                              <Icon name="repeat" size={16} />
-                              {t("pos.reorder")}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Optional. Empty is ASAP and prints no time; a time set here
-                      prints as 預訂 SCHEDULED under the phone number. */}
-                  <label>
-                    <span className={label}>{t("pos.scheduledFor")}</span>
-                    <select
-                      value={scheduled}
-                      onChange={(e) => setScheduled(e.target.value)}
-                      data-field="scheduled"
-                      className={field}
-                    >
-                      <option value="">{t("pos.scheduledNone")}</option>
-                      {scheduled !== "" && !scheduledLabel && (
-                        // The chosen time has passed: keep it visible, unselectable.
-                        <option value={scheduled} disabled>
-                          {scheduled}
-                        </option>
-                      )}
-                      {scheduledSlots.map((x) => (
-                        <option key={x.value} value={x.value}>
-                          {x.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
+                        <button
+                          type="button"
+                          onClick={() => reorder(o)}
+                          className="flex min-h-[2.545rem] shrink-0 items-center gap-1.5 rounded-xl bg-staff-brand-tint px-3 text-base font-semibold text-staff-brand hover:bg-staff-sunken"
+                        >
+                          <Icon name="repeat" size={16} />
+                          {t("pos.reorder")}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
+
+              {/* Optional. Empty is ASAP and prints no time; a time set here
+                  prints as 預訂 SCHEDULED under the phone number. */}
+              <label>
+                <span className={label}>{t("pos.scheduledFor")}</span>
+                <select
+                  value={scheduled}
+                  onChange={(e) => setScheduled(e.target.value)}
+                  data-field="scheduled"
+                  className={field}
+                >
+                  <option value="">{t("pos.scheduledNone")}</option>
+                  {scheduled !== "" && !scheduledLabel && (
+                    // The chosen time has passed: keep it visible, unselectable.
+                    <option value={scheduled} disabled>
+                      {scheduled}
+                    </option>
+                  )}
+                  {scheduledSlots.map((x) => (
+                    <option key={x.value} value={x.value}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label>
                 <span className={label}>{t("pos.paymentNote")}</span>

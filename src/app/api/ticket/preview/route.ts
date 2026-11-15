@@ -106,10 +106,6 @@ function fixtureOrder(taxRateBps: number | null): Order {
     reroutedFrom: null,
     paymentNote: null,
     staffNote: null,
-    tableLabel: null,
-    guestCount: null,
-    isAddon: false,
-    tableClearedAt: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

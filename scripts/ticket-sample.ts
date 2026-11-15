@@ -57,8 +57,7 @@ import {
   mixedSizeOrder,
   sqlShapedOrder,
   tortureOrder,
-  dineInOrder,
-  dineInAddonOrder,
+  legacyDineInOrder,
   phoneTakeoutOrder,
   typicalOrder,
 } from "./fixtures/orders";
@@ -147,10 +146,11 @@ async function render(
  *   - the phone prints as (619) 555-0101 and is the largest text on the
  *     ticket, strictly larger than the order number;
  *   - an online ticket keeps its 客人 name line, under the phone;
- *   - a store ticket (phone, dine-in) prints no 客人 line at all;
- *   - a dine-in ticket keeps its table.
+ *   - a store ticket (phone) prints no 客人 line at all;
+ *   - a HISTORICAL dine-in row (the retired channel) still renders, as a
+ *     plain store ticket: its number, no table header, no 客人 line.
  */
-async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise<void> {
+async function assertHeader(online: Order, phone: Order, legacyDineIn: Order): Promise<void> {
   console.log(`\nheader (${COPIES} copies each):`);
   const bad: string[] = [];
   const layout = async (o: Order) =>
@@ -181,15 +181,16 @@ async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise
         `客人 lines: ${names.length}`,
     );
   }
-  const dine = await layout(dineIn);
-  const tables = dine.filter((l) => l.text.includes(`TABLE ${dineIn.tableLabel}`));
-  if (tables.length !== COPIES) bad.push(`dine-in: expected the table on ${COPIES} copies, found ${tables.length}`);
-  if (dine.some((l) => l.text.startsWith("客人"))) bad.push("dine-in: prints a 客人 line");
-  if (dine.some((l) => /TAKEOUT|外賣/.test(l.text))) bad.push("dine-in: prints a TAKEOUT line");
-  console.log(`  dine-in  ${dineIn.orderNumber}  ${tables[0]?.text}  客人 lines: 0`);
+  const dine = await layout(legacyDineIn);
+  const numbers = dine.filter((l) => l.text === legacyDineIn.orderNumber);
+  if (numbers.length !== COPIES) bad.push(`legacy dine-in: expected its number on ${COPIES} copies, found ${numbers.length}`);
+  if (dine.some((l) => /TABLE|DINE IN|ADD-ON|堂食|加菜/.test(l.text))) bad.push("legacy dine-in: still prints a dine-in header");
+  if (dine.some((l) => l.text.startsWith("客人"))) bad.push("legacy dine-in: prints a 客人 line");
+  if (dine.some((l) => /TAKEOUT|外賣/.test(l.text))) bad.push("legacy dine-in: prints a TAKEOUT line");
+  console.log(`  legacy   ${legacyDineIn.orderNumber} (dine_in row)  plain store ticket, 客人 lines: 0`);
 
   if (bad.length > 0) throw new Error(`header rules broken:\n  ${bad.join("\n  ")}`);
-  console.log("  no TAKEOUT line; phone largest on every copy; name on web only; table kept ✓");
+  console.log("  no TAKEOUT line; phone largest on every copy; name on web only; a legacy dine-in row renders plainly ✓");
 }
 
 /**
@@ -620,9 +621,7 @@ async function main(): Promise<void> {
   console.log(`  (2-copy render took ${Date.now() - t0} ms)`);
   await render("ticket-sample-sql-shaped.png", sqlShaped);
   await render("ticket-sample-malformed.png", malformed);
-  await render("ticket-sample-dine-in.png", dineInOrder());
-  await render("ticket-sample-dine-in-addon.png", dineInAddonOrder());
-  await render("ticket-sample-dine-in-reprint.png", dineInOrder(), true);
+  await render("ticket-sample-legacy-dine-in.png", legacyDineInOrder());
   await render("ticket-sample-takeout-phone.png", phoneTakeoutOrder());
   // Timed failover: a phone order the online printer took because the store
   // printer had gone silent, and a web order the other way round.
@@ -634,11 +633,9 @@ async function main(): Promise<void> {
   await render("ticket-sample-rerouted-from-online.png", { ...typical, station: "store", reroutedFrom: "online" });
   // The header after the takeout-band removal, both cut copies each
   // (kitchen / register), stacked with a tear line so one PNG shows both:
-  // an online order WITH its 客人 name, a phone order with NO name line, and a
-  // dine-in at its table with no name.
+  // an online order WITH its 客人 name, and a phone order with NO name line.
   await render("ticket-sample-online-with-name.png", typical, false, COPIES);
   await render("ticket-sample-phone-no-name.png", phoneTakeoutOrder(), false, COPIES);
-  await render("ticket-sample-dine-in-table-no-name.png", dineInOrder(), false, COPIES);
 
   // Geometry is asserted, not eyeballed: nothing may exceed its column or run
   // off the 576px roll. This is the check that a hand-rolled wrapper needs and
@@ -653,9 +650,7 @@ async function main(): Promise<void> {
   await assertNoOverflow("ticket-sample-torture", torture);
   await assertNoOverflow("ticket-sample-sql-shaped", sqlShaped);
   await assertNoOverflow("ticket-sample-malformed", malformed);
-  await assertNoOverflow("ticket-sample-dine-in", dineInOrder());
-  await assertNoOverflow("ticket-sample-dine-in-addon", dineInAddonOrder());
-  await assertNoOverflow("ticket-sample-dine-in-reprint", dineInOrder(), true);
+  await assertNoOverflow("ticket-sample-legacy-dine-in", legacyDineInOrder());
   await assertNoOverflow("ticket-sample-takeout-phone", phoneTakeoutOrder());
   await assertNoOverflow("ticket-sample-rerouted-from-store", {
     ...phoneTakeoutOrder(),
@@ -664,7 +659,7 @@ async function main(): Promise<void> {
   });
   console.log("  all lines within their columns and inside 576px ✓");
 
-  await assertHeader(typical, phoneTakeoutOrder(), dineInOrder());
+  await assertHeader(typical, phoneTakeoutOrder(), legacyDineInOrder());
   await assertTimeBox(typical, phoneTakeoutOrder());
 
   // THE COLUMNS ADD UP. Asserted against what the renderer printed, on every

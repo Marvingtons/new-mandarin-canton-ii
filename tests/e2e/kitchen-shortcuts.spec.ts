@@ -105,7 +105,7 @@ test("board: typing a and x in the search box accepts and cancels nothing", asyn
 
 test("POS: typing a and x in the dish search and the line note fires nothing", async () => {
   await page.goto("/kitchen/pos");
-  await expect(page.locator('[data-value="takeout"]')).toBeVisible();
+  await expect(page.locator('[data-action="print"]')).toBeVisible();
 
   // The dish search.
   await page.getByRole("button", { name: "搜尋菜名或編號" }).click();

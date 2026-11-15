@@ -162,6 +162,29 @@ test("one board, both stations, with an obvious station filter", async () => {
   await expect(card(web.number)).toBeVisible();
 });
 
+test("a historical dine-in order still renders, as a plain store order", async () => {
+  // Dine-in is retired; the "Table 7" row seeded above is one from before.
+  const errors: string[] = [];
+  const onError = (e: Error) => errors.push(e.message);
+  page.on("pageerror", onError);
+
+  const legacy = page.locator("article").filter({ hasText: "Table 7" });
+  await expect(legacy).toBeVisible();
+  await expect(legacy).toContainText("店內");
+  await expect(legacy.getByRole("button", { name: "清台" })).toHaveCount(0);
+  await expect(legacy).not.toContainText("堂食");
+
+  // History lists it too, with no dine-in filter or badge anywhere.
+  await page.goto("/kitchen/history");
+  await expect(page.getByText("Table 7").first()).toBeVisible();
+  await expect(page.locator("[data-kitchen-surface]")).not.toContainText("堂食");
+
+  page.off("pageerror", onError);
+  expect(errors).toEqual([]);
+  await page.goto("/kitchen");
+  await expect(card(web.number)).toBeVisible();
+});
+
 test("accept is optimistic; a refused action rolls back with a toast", async () => {
   await card(web.number).getByRole("button", { name: /接單/ }).click();
   await expect(card(web.number)).toContainText("製作中");

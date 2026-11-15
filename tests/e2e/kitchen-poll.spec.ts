@@ -85,7 +85,7 @@ test("the board polls a version, picks up a POS order within 5 s, and still chim
     // ---- an order placed on the POS in a second tab ----
     const pos = await context.newPage();
     await pos.goto("/kitchen/pos");
-    await expect(pos.locator('[data-value="takeout"]')).toBeVisible();
+    await expect(pos.locator('[data-action="print"]')).toBeVisible();
     const ticket = pos.getByRole("complementary", { name: "單據" });
     await pos.locator("button[data-item]:not([disabled])").first().click();
     const sheetAdd = pos.getByRole("button", { name: /加入單據/ });

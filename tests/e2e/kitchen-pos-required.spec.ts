@@ -27,7 +27,7 @@ test("a Lunch Special opens its sheet, cannot be added unchosen, and prints entr
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");
-  await expect(page.locator('[data-value="takeout"]')).toBeVisible();
+  await expect(page.locator('[data-action="print"]')).toBeVisible();
 
   // Lunch is a time-gated category: open it by hand whatever the clock says.
   const lunchHours = page.getByRole("button", { name: "午餐時段" });

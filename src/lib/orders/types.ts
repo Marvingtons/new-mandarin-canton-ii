@@ -51,7 +51,10 @@ export function isOrderStatus(value: string): value is OrderStatus {
  *   web:     the online checkout, with an OTP-verified phone.
  *   phone:   taken by staff on the POS while the customer was on the phone.
  *   walk_in: taken by staff on the POS with the customer at the counter.
- *   dine_in: taken by staff on the POS for a party seated at a table.
+ *   dine_in: RETIRED. The POS took seated tables until 2026-11-14; nothing
+ *            creates one now, but rows from before remain in the database
+ *            (the channel check still allows the value) and must still read
+ *            and render. They render as a plain store order.
  *
  * One pipeline regardless: the same daily number sequence, the same
  * server-side price recompute, the same printer path. The channel only changes
@@ -61,15 +64,19 @@ export const ORDER_CHANNELS = ["web", "phone", "walk_in", "dine_in"] as const;
 
 export type OrderChannel = (typeof ORDER_CHANNELS)[number];
 
+/** The channels an order can be placed through today: every one but the retired dine_in. */
+export const LIVE_CHANNELS = ["web", "phone", "walk_in"] as const satisfies readonly OrderChannel[];
+
+export type LiveChannel = (typeof LIVE_CHANNELS)[number];
+
+export function isLiveChannel(value: string): value is LiveChannel {
+  return (LIVE_CHANNELS as readonly string[]).includes(value);
+}
+
 /** The channels staff can choose on the POS. */
-export const STAFF_CHANNELS = ["phone", "walk_in", "dine_in"] as const satisfies readonly OrderChannel[];
+export const STAFF_CHANNELS = ["phone", "walk_in"] as const satisfies readonly OrderChannel[];
 
 export type StaffChannel = (typeof STAFF_CHANNELS)[number];
-
-/** The takeout half of the POS: everything but a seated table. */
-export const TAKEOUT_CHANNELS = ["web", "phone", "walk_in"] as const satisfies readonly OrderChannel[];
-
-export type StaffTakeoutChannel = Exclude<StaffChannel, "dine_in">;
 
 export function isOrderChannel(value: string): value is OrderChannel {
   return (ORDER_CHANNELS as readonly string[]).includes(value);
@@ -271,14 +278,6 @@ export interface Order {
   paymentNote: string | null;
   /** Internal staff note. Never printed. */
   staffNote: string | null;
-  /** Dine-in only: "4", or "4+5" for a combined table. Null otherwise. */
-  tableLabel: string | null;
-  /** Dine-in only: party size. Guidance, never a cap. */
-  guestCount: number | null;
-  /** A later round for a party already seated. Prints 加菜 ADD-ON. */
-  isAddon: boolean;
-  /** When staff cleared the table. Null while the table is open. */
-  tableClearedAt: string | null;
   createdAt: string;
   updatedAt: string;
   donePreviousStatus?: OrderStatus | null;
@@ -312,43 +311,6 @@ export interface NewOrderInput {
   channel?: OrderChannel;
   paymentNote?: string | null;
   staffNote?: string | null;
-  /**
-   * Dine-in seating. createOrder checks occupancy INSIDE its transaction, under
-   * a lock, so two tablets cannot seat the same table at the same moment.
-   */
-  dineIn?: {
-    tableLabel: string;
-    /** The tables the label occupies, from lib/kitchen/floorPlan. */
-    tableIds: string[];
-    /** Ignored for an add-on, which takes the seated party's count. */
-    guestCount: number;
-    isAddon: boolean;
-  } | null;
-}
-
-/** Why createOrder refused a dine-in order. */
-export type TableConflict = "occupied" | "not_open";
-
-/** Thrown by createOrder when the table is not in the state the order assumed. */
-export class TableConflictError extends Error {
-  constructor(readonly conflict: TableConflict, readonly tableLabel: string) {
-    super(`table ${tableLabel}: ${conflict}`);
-  }
-}
-
-/** One open table, derived from its uncleared dine-in orders. */
-export interface OpenTable {
-  /** As seated: "4" or "4+5". */
-  tableLabel: string;
-  /** From the seating order. */
-  guestCount: number | null;
-  /** When the party was seated: the first order's created_at, ISO. */
-  seatedAt: string;
-  /** Orders on the table, the seating plus every add-on, not cancelled. */
-  orderCount: number;
-  /** Their numbers, oldest first, e.g. ["A-012", "A-019"]. */
-  orderNumbers: string[];
-  totalCents: number;
 }
 
 /**

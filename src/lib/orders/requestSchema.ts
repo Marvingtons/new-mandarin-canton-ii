@@ -39,7 +39,7 @@ export const OrderRequestSchema = z.strictObject({
 
 export type OrderRequest = z.infer<typeof OrderRequestSchema>;
 
-/** Fields every staff order carries, whatever the service. */
+/** Fields every staff order carries. */
 const staffCommon = {
   lines: z.array(OrderLineSchema).min(1).max(60),
   /** Free text such as "paid by phone, card ending 4417". Never a card field. */
@@ -72,31 +72,10 @@ export const StaffTakeoutRequestSchema = z.strictObject({
 });
 
 /**
- * The staff POS's dine-in order: a table and a party, no customer and no
- * pickup time. The label is checked against lib/kitchen/floorPlan by the
- * route, and occupancy by createOrder; this only bounds the shape.
- *
- * `addon` is a later round for a party already seated. Its guest count is
- * taken from the seating, not from here, so `guests` is only required to be
- * sane.
+ * What POST /api/kitchen/orders accepts: the takeout order above, and nothing
+ * else. (The POS used to take seated dine-in tables too; that service is
+ * retired, so a body with `channel: "dine_in"` or a `table` is a hard 400.)
  */
-export const StaffDineInRequestSchema = z.strictObject({
-  ...staffCommon,
-  channel: z.literal("dine_in"),
-  table: z.strictObject({
-    label: z.string().min(1).max(16),
-    // Seats are guidance; this is only a typo guard.
-    guests: z.number().int().min(1).max(200),
-  }),
-  addon: z.boolean().optional(),
-});
-
-/** Either service, told apart by `channel`. Both halves are strict objects. */
-export const StaffOrderRequestSchema = z.discriminatedUnion("channel", [
-  StaffTakeoutRequestSchema,
-  StaffDineInRequestSchema,
-]);
+export const StaffOrderRequestSchema = StaffTakeoutRequestSchema;
 
 export type StaffOrderRequest = z.infer<typeof StaffOrderRequestSchema>;
-export type StaffTakeoutRequest = z.infer<typeof StaffTakeoutRequestSchema>;
-export type StaffDineInRequest = z.infer<typeof StaffDineInRequestSchema>;

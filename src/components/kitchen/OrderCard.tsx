@@ -9,7 +9,7 @@ import type { Order } from "@/lib/orders/types";
 import Icon from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import Button from "@/components/kitchen/ui/Button";
-import { ChannelBadge, StationBadge, StatusPill, TableBadge } from "@/components/kitchen/ui/Badges";
+import { ChannelBadge, StationBadge, StatusPill } from "@/components/kitchen/ui/Badges";
 import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
@@ -27,7 +27,7 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * the keyboard all go through the same path.
  */
 
-export type CardRequest = "accept" | "complete" | "reprint" | "cancel" | "clearTable" | "undo";
+export type CardRequest = "accept" | "complete" | "reprint" | "cancel" | "undo";
 
 function OrderCard({
   order,
@@ -62,8 +62,6 @@ function OrderCard({
   const cancelled = order.status === "CANCELLED";
   const done = order.status === "COMPLETED" || cancelled;
   const onBoard = variant === "board";
-  const dineIn = order.channel === "dine_in";
-  const tableOpen = dineIn && order.tableLabel !== null && order.tableClearedAt === null && !cancelled;
 
   const fetchCount = order.fetchCount ?? 0;
   const deliveryCount = order.deliveryCount ?? 0;
@@ -140,16 +138,8 @@ function OrderCard({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          {dineIn ? (
-            <div className="text-staff-title font-semibold whitespace-nowrap">
-              {t("card.placed", { time: formatPickupTime(order.createdAt, timezone) })}
-            </div>
-          ) : (
-            <>
-              <div className="text-staff-caption font-medium text-staff-soft">{t("card.pickup")}</div>
-              <div className="text-staff-heading font-bold whitespace-nowrap">{orderReadyLabel(order, timezone)}</div>
-            </>
-          )}
+          <div className="text-staff-caption font-medium text-staff-soft">{t("card.pickup")}</div>
+          <div className="text-staff-heading font-bold whitespace-nowrap">{orderReadyLabel(order, timezone)}</div>
           {!onBoard && (
             <div className="mt-1 text-staff-caption text-staff-soft">
               {t("card.placed", { time: `${order.businessDate} ${formatPickupTime(order.createdAt, timezone)}` })}
@@ -158,31 +148,27 @@ function OrderCard({
         </div>
       </div>
 
-      {/* ---- customer or table ---- */}
+      {/* ---- customer ---- */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 pb-3 text-staff-body">
-        {dineIn ? (
-          <TableBadge order={order} />
-        ) : (
-          <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            {/* A POS order may have no name; then the phone stands alone. */}
-            {order.customer.name.trim() && (
-              <span className="flex items-center gap-1.5 font-semibold">
-                <Icon name="user" size={18} className="text-staff-soft" />
-                {order.customer.name}
-              </span>
-            )}
-            {order.customer.phone ? (
-              <a
-                href={`tel:${order.customer.phone.replace(/\D/g, "")}`}
-                className="inline-flex min-h-11 items-center text-staff-ink underline decoration-staff-line-strong underline-offset-4"
-              >
-                {formatPhoneNational(order.customer.phone)}
-              </a>
-            ) : (
-              <span className="text-staff-soft">{t("card.noPhone")}</span>
-            )}
-          </span>
-        )}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          {/* A POS order may have no name; then the phone stands alone. */}
+          {order.customer.name.trim() && (
+            <span className="flex items-center gap-1.5 font-semibold">
+              <Icon name="user" size={18} className="text-staff-soft" />
+              {order.customer.name}
+            </span>
+          )}
+          {order.customer.phone ? (
+            <a
+              href={`tel:${order.customer.phone.replace(/\D/g, "")}`}
+              className="inline-flex min-h-11 items-center text-staff-ink underline decoration-staff-line-strong underline-offset-4"
+            >
+              {formatPhoneNational(order.customer.phone)}
+            </a>
+          ) : (
+            <span className="text-staff-soft">{t("card.noPhone")}</span>
+          )}
+        </span>
         <span className="text-staff-caption text-staff-soft">{t("card.items", { n: itemCount })}</span>
       </div>
 
@@ -300,11 +286,6 @@ function OrderCard({
         <Button variant="secondary" icon="receipt" aria-expanded={showTicket} onClick={() => setShowTicket((v) => !v)}>
           {showTicket ? t("card.hideReceipt") : t("card.receipt")}
         </Button>
-        {onBoard && tableOpen && (
-          <Button variant="danger" icon="table" disabled={pending} onClick={() => onRequest(order, "clearTable")}>
-            {t("card.clearTable")}
-          </Button>
-        )}
         {onBoard && !done && (
           <Button variant="danger" className="ml-auto" shortcut="X" disabled={pending} onClick={() => onRequest(order, "cancel")}>
             {t("card.cancel")}

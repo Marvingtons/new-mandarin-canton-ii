@@ -88,7 +88,7 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `DATABASE_POOL_MAX` | `4` | keep small on serverless |
 | `CRON_SECRET` | — | unset leaves the cron endpoint open; it returns counts only, never order data |
 | `CLOUDPRNT_PRINTER_MAC_ONLINE` | — | printer A (web orders); set in step 5 after its MAC is known. The old `CLOUDPRNT_PRINTER_MAC` still works as this |
-| `CLOUDPRNT_PRINTER_MAC_STORE` | — | printer B (phone, walk-in, dine-in); see step 5.5. Unset = printer A prints the store's tickets too |
+| `CLOUDPRNT_PRINTER_MAC_STORE` | — | printer B (phone, walk-in); see step 5.5. Unset = printer A prints the store's tickets too |
 | `PRINT_FAILOVER_AFTER_SECONDS` | `90` | a printer with a MAC set that has not polled for this long has its new tickets printed by the other printer, marked REROUTED; one owner text at start, one when it is back. `0` = off |
 | `CLOUDPRNT_BUZZER` | `off` | `drawer` for this restaurant's DK-port buzzer; see step 6 |
 
@@ -288,7 +288,7 @@ rather than a seek to the end of it.
    against them. 012 adds a new `printer_station_status` table and leaves
    `printer_status` alone, so a rollback needs no schema change. Point the second TSP143IVUE at the same URL with the same settings,
    read its MAC off its self-test print, and set `CLOUDPRNT_PRINTER_MAC_STORE`.
-   From then on phone, walk-in and dine-in tickets print on it and web tickets
+   From then on phone and walk-in tickets print on it and web tickets
    on printer A; the staff header shows both. Until it is set, printer A prints
    everything.
 6. **A-/B- order numbers.** Requires migration 015

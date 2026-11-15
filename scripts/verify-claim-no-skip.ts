@@ -10,18 +10,17 @@
  * read that locks QUEUED rows, run often enough by enough tablets and the
  * cron, starves the printer.
  *
- * HOW. Embedded Postgres, the real schema, the real route handlers. Twenty
+ * HOW. Embedded Postgres, the real schema, the real route handlers. Fifteen
  * readers loop without pause for the whole run, through the board's and the
  * cron's real handlers:
  *
  *   5 x GET /api/kitchen/orders/version   (the board's 4-second poll)
  *   5 x GET /api/kitchen/orders           (the board's full list)
- *   5 x GET /api/kitchen/tables           (the floor plan)
  *   5 x GET /api/cron/unprinted-alert     (the minute sweep)
  *
  * The data makes every one of those reach its QUEUED rows: the tickets are
  * three minutes old (past the sweep's 120 s alert threshold), a third are
- * dine-in at open tables, and both printers' rows are ten minutes stale, so
+ * historical dine-in rows (the retired channel, still in the data), and both printers' rows are ten minutes stale, so
  * the sweep counts the queue behind each. OWNER_ALERT_PHONE is unset, so the
  * sweep writes nothing: everything here is a read.
  *
@@ -62,7 +61,6 @@ type Handler = (r: Request) => Promise<Response>;
 interface Mods {
   version: { GET: Handler };
   orders: { GET: Handler };
-  tables: { GET: Handler };
   cron: { GET: Handler };
   repo: typeof import("../src/lib/orders/repository");
 }
@@ -125,14 +123,13 @@ function req(path: string, headers: Record<string, string> = {}): Request {
   return new Request(`http://localhost${path}`, { headers: { cookie, ...headers } });
 }
 
-/** Twenty readers, each looping its handler until stopped. */
+/** Fifteen readers, each looping its handler until stopped. */
 function startReaders(m: Mods, extra?: () => Promise<unknown>): { stop: () => Promise<number> } {
   let running = true;
   let reads = 0;
   const kinds: (() => Promise<unknown>)[] = [
     async () => (await m.version.GET(req("/api/kitchen/orders/version"))).arrayBuffer(),
     async () => (await m.orders.GET(req("/api/kitchen/orders"))).arrayBuffer(),
-    async () => (await m.tables.GET(req("/api/kitchen/tables"))).arrayBuffer(),
     async () =>
       (await m.cron.GET(req("/api/cron/unprinted-alert", { authorization: `Bearer ${CRON}` }))).arrayBuffer(),
   ];
@@ -211,8 +208,8 @@ async function main(): Promise<void> {
   const url = `postgresql://postgres:postgres@localhost:${PORT}/${DB}`;
   Object.assign(process.env, {
     DATABASE_URL: url,
-    // Twenty readers and the printer each get a connection of their own, as
-    // twenty tablets and a cron do in production.
+    // Fifteen readers and the printer each get a connection of their own, as
+    // a room of tablets and a cron do in production.
     DATABASE_POOL_MAX: "32",
     TENANT_ID: TENANT,
     RESTAURANT_TIMEZONE: TIMEZONE,
@@ -247,7 +244,6 @@ async function main(): Promise<void> {
   const m: Mods = {
     version: (await import("../src/app/api/kitchen/orders/version/route")) as unknown as Mods["version"],
     orders: (await import("../src/app/api/kitchen/orders/route")) as unknown as Mods["orders"],
-    tables: (await import("../src/app/api/kitchen/tables/route")) as unknown as Mods["tables"],
     cron: (await import("../src/app/api/cron/unprinted-alert/route")) as unknown as Mods["cron"],
     repo: await import("../src/lib/orders/repository"),
   };
@@ -255,7 +251,7 @@ async function main(): Promise<void> {
   businessDate = biz.businessDateFor(TIMEZONE);
 
   try {
-    console.log(`\n1. the printer claims ${ROUNDS} x ${TICKETS_PER_ROUND} tickets against ${4 * READERS_PER_KIND} looping board and cron reads`);
+    console.log(`\n1. the printer claims ${ROUNDS} x ${TICKETS_PER_ROUND} tickets against ${3 * READERS_PER_KIND} looping board and cron reads`);
     const real = await run(m);
     check(
       "every claim took the oldest unclaimed QUEUED ticket: none skipped",
