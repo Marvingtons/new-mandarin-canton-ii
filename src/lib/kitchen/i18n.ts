@@ -62,7 +62,6 @@ const zhHant = {
   "login.badPassword": "密碼不正確。",
 
   "board.title": "今日訂單",
-  "board.soundOn": "有聲",
   "board.dbMissing": "訂單資料庫未設定。請設定 DATABASE_URL，設定前無法儲存或顯示訂單。",
   "board.failedBanner": "{n} 張訂單未印出，請在此查看，需要時手寫。",
   "board.todayInHistory": "今日全部訂單及營業額",
@@ -136,7 +135,6 @@ const zhHant = {
   "pos.paymentNotePlaceholder": "例如：已電話付款，卡號尾數 4417",
   "pos.staffNote": "內部備註（不列印）",
   "pos.staffNotePlaceholder": "例如：熟客，要加辣",
-  "pos.print": "列印單據",
   "pos.printing": "傳送中…",
   "pos.sent": "已送往打印機",
   "pos.justNow": "剛才",
@@ -340,7 +338,6 @@ const en: Record<KitchenKey, string> = {
   "login.badPassword": "Incorrect password.",
 
   "board.title": "Today's orders",
-  "board.soundOn": "Sound on",
   "board.dbMissing": "The order database is not configured. Set DATABASE_URL; no orders can be stored or shown until you do.",
   "board.failedBanner": "{n} order(s) did not print. Read them here and hand-write if needed.",
   "board.todayInHistory": "All of today's orders and sales",
@@ -414,7 +411,6 @@ const en: Record<KitchenKey, string> = {
   "pos.paymentNotePlaceholder": "e.g. paid by phone, card ending 4417",
   "pos.staffNote": "Staff note (not printed)",
   "pos.staffNotePlaceholder": "e.g. regular, always extra spicy",
-  "pos.print": "Print ticket",
   "pos.printing": "Sending…",
   "pos.sent": "Sent to the printer",
   "pos.justNow": "Just now",
