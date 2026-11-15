@@ -656,7 +656,7 @@ async function main(): Promise<void> {
   process.env.RESTAURANT_TIMEZONE = "America/Los_Angeles";
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
-  process.env.TICKET_COPIES = "3";
+  process.env.TICKET_COPIES = "2";
   process.env.ADMIN_DASH_PASSWORD = "verify-printer-health-password";
 
   const { ordersPool } = await import("../src/lib/db/postgres");

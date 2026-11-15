@@ -502,7 +502,7 @@ export async function composeTicketSvg(
     }
 
   /* ---------------- copy bar ---------------- */
-  /* THE FIRST THING VISIBLE, above everything else. Three loose tickets land
+  /* THE FIRST THING VISIBLE, above everything else. Two loose tickets land
      in the same tray, and until now the only thing telling them apart was a
      20px line at the very bottom — under the totals, under the payment banner,
      on the part that gets folded. A full-width inverted bar at the top is
@@ -974,7 +974,7 @@ export async function renderTicketJob(
   const maxHeight = job.maxHeight ?? null;
   const segment = job.segment ?? 0;
 
-  // THREE TICKETS, NOT ONE TALL ONE. On the starprnt path each copy is its own
+  // SEPARATE TICKETS, NOT ONE TALL ONE. On the starprnt path each copy is its own
   // raster with its own full cut after it, so the copies drop as separate
   // pieces of paper. The copies are NOT stacked into a single image here —
   // that is what produced one long strip with a printed tear line, and a

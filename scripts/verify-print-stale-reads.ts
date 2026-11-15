@@ -35,7 +35,7 @@
  * tripwire (src/lib/db/staleReadTripwire.ts) notices, once, and that it
  * stayed silent through A to F.
  *
- * Windows are production's: 3 copies x 30s, floor 60s -> a 90s window, cap 4.
+ * Windows are production's: 2 copies x 30s, floor 60s -> a 60s window, cap 4.
  */
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -50,7 +50,7 @@ const SECRET = "verify-print-stale-reads-secret";
 const MAC = "00:11:62:00:00:07";
 const TENANT = "stale-reads-test";
 const BASE = `https://example.test/api/print/${SECRET}`;
-const WINDOW_SECONDS = 90;
+const WINDOW_SECONDS = 60;
 
 type Handler = (r: Request, ctx: { params: Promise<{ secret: string }> }) => Promise<Response>;
 interface Handlers {
@@ -455,8 +455,8 @@ async function main(): Promise<void> {
   process.env.RESTAURANT_TIMEZONE = "America/Los_Angeles";
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
-  // Production's numbers: 3 copies x 30s over a 60s floor = 90s; cap 4.
-  process.env.TICKET_COPIES = "3";
+  // Production's numbers: 2 copies x 30s over a 60s floor = 60s; cap 4.
+  process.env.TICKET_COPIES = "2";
   process.env.PRINT_CONFIRM_FLOOR_SECONDS = "60";
   process.env.PRINT_SECONDS_PER_COPY = "30";
   process.env.PRINT_OFFER_CAP = "4";

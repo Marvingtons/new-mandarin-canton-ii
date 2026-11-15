@@ -178,7 +178,7 @@ function runOldCode(mainDir: string, label: string, databaseUrl = DATABASE_URL):
         RESTAURANT_TIMEZONE: "America/Los_Angeles",
         TENANT_TAX_RATE_BPS: "875",
         ORDER_NUMBER_PREFIX: "A",
-        TICKET_COPIES: "3",
+        TICKET_COPIES: "2",
       },
     },
   );
@@ -456,7 +456,7 @@ async function main(): Promise<void> {
     RESTAURANT_TIMEZONE: "America/Los_Angeles",
     TENANT_TAX_RATE_BPS: "875",
     ORDER_NUMBER_PREFIX: "A",
-    TICKET_COPIES: "3",
+    TICKET_COPIES: "2",
     PRINT_CONFIRM_FLOOR_SECONDS: "60",
     PRINT_SECONDS_PER_COPY: "30",
     PRINT_OFFER_CAP: "4",

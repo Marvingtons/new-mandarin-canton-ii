@@ -23,7 +23,7 @@ const PX_PER_MM = 8;
 
 async function main(): Promise<void> {
   const fixtures = await fixtureOrders();
-  const copies = 3;
+  const copies = 2;
 
   /* THE CEILING NO LONGER FAILS ANYTHING. A StarPRNT job is capped at
      512 KB, which at this width is maxStarPrntRows() rows — but that is a

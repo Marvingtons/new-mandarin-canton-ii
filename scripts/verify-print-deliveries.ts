@@ -495,7 +495,7 @@ async function main(): Promise<void> {
   process.env.RESTAURANT_TIMEZONE = "America/Los_Angeles";
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
-  process.env.TICKET_COPIES = "3";
+  process.env.TICKET_COPIES = "2";
   // A 25s window — long enough that "within the window" is unambiguous, short
   // enough to be honest. Expiry is simulated by expireInFlight(), not by waiting.
   process.env.PRINT_CONFIRM_FLOOR_SECONDS = "25";

@@ -3,21 +3,26 @@ import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
 /**
  * WHICH COPIES A JOB PRINTS, AND WHAT EACH ONE SHOWS.
  *
- * A print job drops several loose tickets (see renderCutCopies in render.ts)
- * and they are not interchangeable: one goes to the line, one goes to the
- * register, one goes on the bag. They carry different information, and the
- * difference is declared here rather than discovered in the renderer.
+ * A print job drops two loose tickets (see renderCutCopies in render.ts) and
+ * they are not interchangeable: the kitchen copy goes to the line and then
+ * into the bag with the food, the register copy goes to the register. They
+ * carry different information, and the difference is declared here rather
+ * than discovered in the renderer.
+ *
+ * THERE IS NO BAG COPY. There used to be a third ticket (袋 BAG) that rode on
+ * the bag; the kitchen copy now does that job, so every job is two pieces of
+ * paper. "bag" is not a role any more and TICKET_COPY_ROLES refuses it.
  *
  * ONE LAYOUT ENGINE, FLAGS ON TOP. There is no second renderer for the kitchen
  * copy — the same composer draws every copy and reads these booleans. That is
- * deliberate: two renderers is how a price fix lands on the bag copy and not
- * the register's, and how the two drift until nobody can say which is right.
+ * deliberate: two renderers is how a price fix lands on one copy and not the
+ * other, and how the two drift until nobody can say which is right.
  *
  * Pure data + pure functions. No env, no `server-only`: the fixture scripts and
  * the print route resolve copies through exactly the same table.
  */
 
-export type TicketCopyRole = "kitchen" | "register" | "bag" | "all";
+export type TicketCopyRole = "kitchen" | "register" | "all";
 
 export interface TicketCopyProfile {
   role: TicketCopyRole;
@@ -37,8 +42,7 @@ export interface TicketCopyProfile {
  * COLLECT PAYMENT bar. A cook does not ring the order and does not need to
  * parse it; every number on that copy is a line of paper spent on something
  * nobody reads, and something to mis-read under pressure. The register rings
- * from the register copy and the customer reads the bag copy, so both of those
- * keep the full pricing.
+ * from the register copy, so that one keeps the full pricing.
  */
 export const TICKET_COPY_PROFILES: Record<TicketCopyRole, TicketCopyProfile> = {
   kitchen: {
@@ -55,16 +59,9 @@ export const TICKET_COPY_PROFILES: Record<TicketCopyRole, TicketCopyProfile> = {
     linePrices: true,
     priceBlock: true,
   },
-  bag: {
-    role: "bag",
-    labelZh: L.copyBag,
-    labelEn: "BAG",
-    linePrices: true,
-    priceBlock: true,
-  },
   /**
    * A job of exactly one ticket. There is nothing to tell it apart FROM, so it
-   * carries no copy bar and everything else — it has to serve as all three.
+   * carries no copy bar and everything else — it has to serve as both.
    * This is what the /kitchen browser view and the dev preview render.
    */
   all: {
@@ -79,21 +76,17 @@ export const TICKET_COPY_PROFILES: Record<TicketCopyRole, TicketCopyProfile> = {
 /**
  * Which roles a job of `total` copies prints, in order.
  *
- * N=3 is the configured case and its order is fixed by the kitchen: 廚房 / 袋 /
- * 收銀. Everything else degrades around it — kitchen always first, bag always
- * last, register filling the middle — so a change to TICKET_COPIES never
- * produces an unlabelled or misordered stack.
+ * N=2 is the configured case and its order is fixed by the kitchen: 廚房 then
+ * 收銀. Anything larger degrades around it — kitchen first, every further copy
+ * a register copy — so a change to TICKET_COPIES never produces an unlabelled
+ * or misordered stack.
  */
 export function defaultCopyRoles(total: number): TicketCopyRole[] {
   if (total <= 1) return ["all"];
-  if (total === 2) return ["kitchen", "bag"];
-  if (total === 3) return ["kitchen", "bag", "register"];
-  return Array.from({ length: total }, (_, i) =>
-    i === 0 ? "kitchen" : i === total - 1 ? "bag" : "register",
-  );
+  return Array.from({ length: total }, (_, i) => (i === 0 ? "kitchen" : "register"));
 }
 
-/** Parse a configured role list, e.g. "kitchen,bag,register". Null if unusable. */
+/** Parse a configured role list, e.g. "kitchen,register". Null if unusable. */
 export function parseCopyRoles(value: string | null | undefined): TicketCopyRole[] | null {
   if (!value) return null;
   const roles = value
@@ -104,7 +97,7 @@ export function parseCopyRoles(value: string | null | undefined): TicketCopyRole
   // "all" is what a one-copy job resolves to on its own; naming it explicitly
   // in a multi-copy list would print two tickets nothing tells apart.
   const valid = roles.every(
-    (r): r is TicketCopyRole => r === "kitchen" || r === "register" || r === "bag",
+    (r): r is TicketCopyRole => r === "kitchen" || r === "register",
   );
   return valid ? (roles as TicketCopyRole[]) : null;
 }

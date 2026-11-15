@@ -383,9 +383,13 @@ export function cronSecret(): string | null {
 /**
  * Copies of each ticket in one print job, each cut from the last.
  *
- * Two by default: one stays with the cooks, one goes on the bag so whoever
- * hands the order over can check it without walking back to the line. The
- * restaurant runs three — kitchen, bag, register.
+ * Two, and two is what the restaurant runs: KITCHEN (no prices; it goes to
+ * the line and then into the bag with the food) and REGISTER (priced,
+ * for ringing up). There is no third bag copy any more.
+ *
+ * Everything that scales with paper follows this number on its own: the
+ * confirmation window (max(floor, copies × PRINT_SECONDS_PER_COPY)), the
+ * re-offer window, and a reprint, which prints the same two copies.
  */
 export function ticketCopies(): number {
   const n = intEnv("TICKET_COPIES", 2);
@@ -399,7 +403,7 @@ export function ticketCopies(): number {
  * The roles decide the render profile — the kitchen copy carries no prices at
  * all (see lib/ticket/copies.ts). Unset is the normal case: the default
  * sequence for the configured count is what the kitchen asked for. Set
- * TICKET_COPY_ROLES to a comma list ("kitchen,register,bag") to reorder, and
+ * TICKET_COPY_ROLES to a comma list ("kitchen,register") to reorder, and
  * it is IGNORED unless it names exactly as many copies as TICKET_COPIES, so a
  * half-edited variable can never silently drop a ticket.
  */
@@ -420,8 +424,8 @@ export function ticketCopyRoles(): TicketCopyRole[] {
  * what it always claimed to: actual deliveries of paper.
  *
  * Four, not forty. Each retry is now separated by a full confirmation window —
- * 90s for the configured three copies — so four hand-overs is about four and a
- * half minutes of trying, which is longer than the old forty polls bought.
+ * 60s for the configured two copies — so four hand-overs is about four
+ * minutes of trying, which is longer than the old forty polls bought.
  * Beyond that the printer is not coming back on its own: jam, cover open, out
  * of paper, offline. The kitchen board and the unprinted-order alert are the
  * right answer then, not a fifth copy-set.
@@ -472,7 +476,7 @@ export function printConfirmFloorSeconds(): number {
  * symmetric: waiting too long on a dead print costs one delayed ticket that is
  * on the kitchen board the whole time and covered by the unprinted-order alert,
  * while waiting too little costs a duplicate copy-set and two cooks making the
- * same order. At the configured three copies this gives a 90s window.
+ * same order. At the configured two copies this gives max(60, 2 × 30) = 60s.
  */
 export function printSecondsPerCopy(): number {
   const n = intEnv("PRINT_SECONDS_PER_COPY", 30);

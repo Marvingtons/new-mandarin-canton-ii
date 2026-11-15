@@ -56,7 +56,7 @@ export function jobBytesFor(copyHeights: readonly number[], width: number): numb
  *
  * Greedy, left to right, which both minimises the number of jobs and
  * keeps copies in printing order — the kitchen copy comes off the printer
- * before the bag copy, as it does today.
+ * before the register copy, as it does today.
  *
  * `sliceCountFor` is asked only about a copy that does not fit ALONE, and
  * is the caller's escape into pixel-level splitting. It is a callback

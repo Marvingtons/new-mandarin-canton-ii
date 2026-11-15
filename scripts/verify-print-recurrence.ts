@@ -15,7 +15,7 @@
  *   - real wall-clock seconds, because the bug IS a timing bug and a fake clock
  *     is exactly the thing that would have let it through
  *
- * It takes a few minutes. That is the point: a 3-copy job legitimately needs
+ * It takes a few minutes. That is the point: a 2-copy job legitimately needs
  * tens of seconds, and the whole failure was a server that would not wait.
  *
  * R2 is not configured here, so the poll answers without a jobGetUrl and the
@@ -138,7 +138,7 @@ interface Result {
 /**
  * SLOW CONFIRM — the production failure, reproduced.
  *
- * The printer takes the job, spends 45 seconds physically printing three copies
+ * The printer takes the job, spends 45 seconds physically printing two copies
  * and cutting between them, and only then confirms. Throughout, it keeps
  * polling every three seconds exactly as the real one does.
  *
@@ -150,7 +150,7 @@ async function slowConfirm(h: Handlers, repo: Repo, businessDate: string): Promi
   const t0 = Date.now();
   const CONFIRM_AFTER_MS = 45_000;
 
-  console.log(`\n── slow confirm: 3 copies, DELETE after 45s (${order.orderNumber})`);
+  console.log(`\n── slow confirm: 2 copies, DELETE after 45s (${order.orderNumber})`);
 
   let handovers = 0;
   let token: string | null = null;
@@ -183,7 +183,7 @@ async function slowConfirm(h: Handlers, repo: Repo, businessDate: string): Promi
   const final = await repo.getOrderByNumber(TENANT, businessDate, order.orderNumber);
   const passed = handovers === 1 && final?.status === "PRINTED";
   return {
-    name: "slow confirm (3 copies, DELETE at 45s)",
+    name: "slow confirm (2 copies, DELETE at 45s)",
     passed,
     detail:
       `${handovers} hand-over(s), final status ${final?.status ?? "?"}, ` +
@@ -212,7 +212,7 @@ async function trueDeath(
   const RUN_FOR_MS = (windowSeconds + 15) * 1000;
 
   console.log(
-    `\n── true death: 3 copies, no DELETE ever, ${windowSeconds}s window (${order.orderNumber})`,
+    `\n── true death: 2 copies, no DELETE ever, ${windowSeconds}s window (${order.orderNumber})`,
   );
 
   const handoverAt: number[] = [];
@@ -253,7 +253,7 @@ async function trueDeath(
  * IF the harness could have observed more than one. So this runs the identical
  * slow print with the confirmation window shrunk below the print time, which is
  * exactly the state the shipped code was in: a flat 60s window against a
- * 3-copy job that takes longer, and a second hand-over allowed with no delay
+ * 2-copy job that takes longer, and a second hand-over allowed with no delay
  * at all.
  *
  * PASS = the failure reproduces. Several hand-overs, several copy-sets. If
@@ -270,7 +270,7 @@ async function guardHasTeeth(h: Handlers, repo: Repo, businessDate: string): Pro
   process.env.PRINT_SECONDS_PER_COPY = "0";
 
   console.log(
-    `\n── guard check: same 3-copy print, window shrunk to 2s (${order.orderNumber})`,
+    `\n── guard check: same 2-copy print, window shrunk to 2s (${order.orderNumber})`,
   );
 
   let handovers = 0;
@@ -345,7 +345,7 @@ async function main(): Promise<void> {
   process.env.ORDER_NUMBER_PREFIX = "A";
   // The production configuration, unchanged — this test is only meaningful
   // against the numbers that actually ship.
-  process.env.TICKET_COPIES = "3";
+  process.env.TICKET_COPIES = "2";
   delete process.env.PRINT_CONFIRM_FLOOR_SECONDS;
   delete process.env.PRINT_SECONDS_PER_COPY;
   delete process.env.PRINT_OFFER_CAP;

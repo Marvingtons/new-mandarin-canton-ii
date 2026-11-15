@@ -65,6 +65,9 @@ import {
 
 const TIMEZONE = "America/Los_Angeles";
 
+/** Production's TICKET_COPIES: 廚房 KITCHEN and 收銀 REGISTER, no bag copy. */
+const COPIES = 2;
+
 /** Ticket padding, so the assertion can work in page coordinates. */
 const PAD = 20;
 
@@ -139,7 +142,7 @@ async function render(
 }
 
 /**
- * The header rules, asserted on what was laid out, on all three copies:
+ * The header rules, asserted on what was laid out, on both copies:
  *   - no 外賣 TAKEOUT line anywhere;
  *   - the phone prints as (619) 555-0101 and is the largest text on the
  *     ticket, strictly larger than the order number;
@@ -148,10 +151,10 @@ async function render(
  *   - a dine-in ticket keeps its table.
  */
 async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise<void> {
-  console.log("\nheader (3 copies each):");
+  console.log(`\nheader (${COPIES} copies each):`);
   const bad: string[] = [];
   const layout = async (o: Order) =>
-    (await composeTicketSvg(o, { timezone: TIMEZONE, copies: 3 })).lines;
+    (await composeTicketSvg(o, { timezone: TIMEZONE, copies: COPIES })).lines;
 
   for (const [name, o] of [["online", online], ["phone", phone]] as const) {
     const lines = await layout(o);
@@ -159,13 +162,13 @@ async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise
     const phones = lines.filter((l) => l.text === want);
     const numbers = lines.filter((l) => l.text === o.orderNumber);
     const largest = Math.max(...lines.map((l) => l.size));
-    if (phones.length !== 3) bad.push(`${name}: expected ${want} on 3 copies, found ${phones.length}`);
+    if (phones.length !== COPIES) bad.push(`${name}: expected ${want} on ${COPIES} copies, found ${phones.length}`);
     if (!phones.every((l) => l.size === largest)) bad.push(`${name}: the phone is not the largest text`);
     if (lines.some((l) => l.size === largest && l.text !== want)) bad.push(`${name}: something else is as large as the phone`);
-    if (numbers.length !== 3 || !numbers.every((n) => n.size < phones[0].size)) bad.push(`${name}: the order number is not smaller than the phone`);
+    if (numbers.length !== COPIES || !numbers.every((n) => n.size < phones[0].size)) bad.push(`${name}: the order number is not smaller than the phone`);
     if (lines.some((l) => /TAKEOUT|外賣/.test(l.text))) bad.push(`${name}: still prints a TAKEOUT line`);
     const names = lines.filter((l) => l.text.startsWith("客人"));
-    if (name === "online" && names.length !== 3) bad.push(`online: expected the 客人 line on 3 copies, found ${names.length}`);
+    if (name === "online" && names.length !== COPIES) bad.push(`online: expected the 客人 line on ${COPIES} copies, found ${names.length}`);
     if (name === "phone" && names.length !== 0) bad.push(`phone: a store ticket prints ${names.length} 客人 line(s)`);
     if (name === "online") {
       const order = lines.map((l) => l.text);
@@ -180,7 +183,7 @@ async function assertHeader(online: Order, phone: Order, dineIn: Order): Promise
   }
   const dine = await layout(dineIn);
   const tables = dine.filter((l) => l.text.includes(`TABLE ${dineIn.tableLabel}`));
-  if (tables.length !== 3) bad.push(`dine-in: expected the table on 3 copies, found ${tables.length}`);
+  if (tables.length !== COPIES) bad.push(`dine-in: expected the table on ${COPIES} copies, found ${tables.length}`);
   if (dine.some((l) => l.text.startsWith("客人"))) bad.push("dine-in: prints a 客人 line");
   if (dine.some((l) => /TAKEOUT|外賣/.test(l.text))) bad.push("dine-in: prints a TAKEOUT line");
   console.log(`  dine-in  ${dineIn.orderNumber}  ${tables[0]?.text}  客人 lines: 0`);
@@ -574,13 +577,13 @@ async function main(): Promise<void> {
     reroutedFrom: "store",
   });
   await render("ticket-sample-rerouted-from-online.png", { ...typical, station: "store", reroutedFrom: "online" });
-  // The header after the takeout-band removal, three cut copies each
-  // (kitchen / bag / register), stacked with tear lines so one PNG shows all:
+  // The header after the takeout-band removal, both cut copies each
+  // (kitchen / register), stacked with a tear line so one PNG shows both:
   // an online order WITH its 客人 name, a phone order with NO name line, and a
   // dine-in at its table with no name.
-  await render("ticket-sample-online-with-name.png", typical, false, 3);
-  await render("ticket-sample-phone-no-name.png", phoneTakeoutOrder(), false, 3);
-  await render("ticket-sample-dine-in-table-no-name.png", dineInOrder(), false, 3);
+  await render("ticket-sample-online-with-name.png", typical, false, COPIES);
+  await render("ticket-sample-phone-no-name.png", phoneTakeoutOrder(), false, COPIES);
+  await render("ticket-sample-dine-in-table-no-name.png", dineInOrder(), false, COPIES);
 
   // Geometry is asserted, not eyeballed: nothing may exceed its column or run
   // off the 576px roll. This is the check that a hand-rolled wrapper needs and
@@ -610,7 +613,7 @@ async function main(): Promise<void> {
 
   // THE COLUMNS ADD UP. Asserted against what the renderer printed, on every
   // copy profile, for every fixture whose stored totals are coherent.
-  console.log("\ntotals integrity (3 copies: kitchen / bag / register):");
+  console.log(`\ntotals integrity (${COPIES} copies: kitchen / register):`);
   for (const [name, o] of [
     ["baseline", order],
     ["typical", typical],
@@ -620,7 +623,7 @@ async function main(): Promise<void> {
     ["wrapping torture", torture],
     ["sql-shaped", sqlShaped],
   ] as [string, Order][]) {
-    await assertTotalsAddUp(name, o, 3);
+    await assertTotalsAddUp(name, o, COPIES);
   }
   for (const [name, o] of [
     ["baseline", order],
@@ -642,18 +645,18 @@ async function main(): Promise<void> {
       "so no renderer could make its column add up)",
   );
 
-  // The three copy profiles, side by side, from ONE order. This is the picture
+  // The copy profiles, side by side, from ONE order. This is the picture
   // the layout change is about: the kitchen copy is the short one.
   console.log("\ncopy profiles (same order, one job):");
-  for (let copy = 0; copy < 3; copy++) {
+  for (let copy = 0; copy < COPIES; copy++) {
     const { height, money } = await composeTicketSvg(order, {
       timezone: TIMEZONE,
-      copies: 3,
+      copies: COPIES,
       copyIndex: copy,
     });
     const png = await renderTicket(order, {
       timezone: TIMEZONE,
-      copies: 3,
+      copies: COPIES,
       copyIndex: copy,
     });
     const out = join(tmpdir(), `ticket-sample-copy-${copy + 1}-${money[0].role}.png`);
@@ -677,34 +680,34 @@ async function main(): Promise<void> {
   // Multi-copy is not checked here: a copies>1 starprnt job is now several
   // rasters with cuts between them, not one tall one, so it decodes to N
   // tickets and the single-raster diff below does not describe it. The
-  // "three copies" section that follows is where that case is proven.
+  // "individually cut" section that follows is where that case is proven.
   await assertFormats("sql-shaped", sqlShaped);
   await assertFormats("malformed", malformed);
   console.log(`  all payloads inside Star's ${512}KB GET cap ✓`);
 
-  // THREE INDIVIDUALLY CUT COPIES — the requirement is three loose tickets,
+  // INDIVIDUALLY CUT COPIES — the requirement is two loose tickets,
   // not one strip. Proven by decoding: the payload is split at its ESC d 2
   // commands, and a strip would decode to ONE entry however many copies it
   // drew. Each entry is then diffed against its own re-render, so a cut in the
   // wrong place shows up as a pixel mismatch rather than as a shrug.
-  console.log("\nthree copies, each individually cut:");
+  console.log(`\n${COPIES} copies, each individually cut:`);
   for (const [name, order] of [
     ["short ticket", await Promise.resolve(fixtureOrder())],
     ["12-line party tray", long],
   ] as [string, Order][]) {
-    const job = await renderTicketJob(order, { timezone: TIMEZONE, copies: 3 }, {
+    const job = await renderTicketJob(order, { timezone: TIMEZONE, copies: COPIES }, {
       format: "starprnt",
     });
     const raster = decodeStarPrntRaster(job.body, TICKET_WIDTH_PX);
-    if (raster.copies.length !== 3) {
-      throw new Error(`${name}: decoded ${raster.copies.length} tickets, expected 3`);
+    if (raster.copies.length !== COPIES) {
+      throw new Error(`${name}: decoded ${raster.copies.length} tickets, expected ${COPIES}`);
     }
     if (!raster.cut) throw new Error(`${name}: no cut commands at all`);
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < COPIES; i++) {
       const src = await rasterizeTicket(order, {
         timezone: TIMEZONE,
-        copies: 3,
+        copies: COPIES,
         copyIndex: i,
       });
       let expected: Uint8Array;
@@ -726,13 +729,13 @@ async function main(): Promise<void> {
 
     const heights = raster.copies.map((c) => c.height);
     if (job.body.length > MAX_JOB_BYTES) {
-      throw new Error(`${name}: 3 copies is ${job.body.length}B, over the 512KB cap`);
+      throw new Error(`${name}: ${COPIES} copies is ${job.body.length}B, over the 512KB cap`);
     }
     console.log(
-      `  ${name.padEnd(22)} 3 tickets ${heights.join(" + ")}px  ` +
+      `  ${name.padEnd(22)} ${COPIES} tickets ${heights.join(" + ")}px  ` +
         `${(job.body.length / 1024).toFixed(1)}KB total  ` +
         `${((job.body.length / MAX_JOB_BYTES) * 100).toFixed(0)}% of cap  ` +
-        `all three match source ✓`,
+        `all ${COPIES} match source ✓`,
     );
   }
 

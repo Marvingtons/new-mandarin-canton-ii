@@ -94,16 +94,25 @@
 		"MAX_PICKUP_HOURS": "48",
 		"TIP_PRESETS": "",
 		"CLOUDPRNT_BUZZER": "off",
-		// Three tickets per order, each individually cut: kitchen, bag, register.
+		// Two tickets per order, each individually cut: 廚房 KITCHEN (no prices;
+		// it goes to the line, then into the bag) and 收銀 REGISTER. There is no
+		// bag copy any more. The confirmation window, the re-offer window and a
+		// 重印 reprint all follow this number: max(60, 2 × 30s) = 60s.
 		//
-		// ⚠️ THIS IS NEAR A HARD CEILING. Command data is uncompressed, so three
-		// copies of the worst realistic ticket (the 12-line party tray, 2193px
-		// each) is 462.8KB against Star's 512KB job-download cap — 90%. The
-		// headroom is about 230 dot rows, call it three or four more item lines.
-		// A fourth copy does not fit at all and is refused at render rather than
-		// sent for the printer to answer 521. Raise this only with the size
-		// numbers from `npm run ticket:sample` in front of you.
-		"TICKET_COPIES": "3",
+		// ⚠️ THIS WAS "3" UNTIL 2026-11-14. `wrangler deploy` replaces the
+		// Worker's vars with these, so the deploy itself sets it to 2 — but if
+		// TICKET_COPIES or TICKET_COPY_ROLES was ever also set by hand in the
+		// Cloudflare dashboard, set it to these values there too.
+		//
+		// Size ceiling: command data is uncompressed and Star caps a job download
+		// at 512KB. Two copies of the worst realistic ticket (the 12-line party
+		// tray) leave far more room than three did; a job too big is split at
+		// copy boundaries (lib/ticket/segments.ts), never refused. Raise this only
+		// with the size numbers from `npm run ticket:sample` in front of you.
+		"TICKET_COPIES": "2",
+		// Which copy is which. Must name exactly TICKET_COPIES roles or it is
+		// ignored; "bag" is no longer a role and makes the list invalid.
+		"TICKET_COPY_ROLES": "kitchen,register",
 		// Where the printer fetches job bodies from — the R2 bucket's public
 		// custom domain, on our own zone. Empty disables the R2 path entirely
 		// and the Worker serves job bodies itself, which is the behaviour that

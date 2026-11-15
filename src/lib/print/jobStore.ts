@@ -112,7 +112,7 @@ export function printJobKeyFor(
 
      THE SEGMENT IS ALSO IN THE KEY because the hash alone is not unique per
      piece: under a configured TICKET_COPY_ROLES with a repeated role
-     (kitchen,kitchen,bag) two pieces are byte-identical and would otherwise
+     (kitchen,kitchen,register) two pieces are byte-identical and would otherwise
      share a key. Cheap to make impossible. */
   return `${KEY_PREFIX}${safeToken}-${safeDelivery}-s${segment}-${sha256}.bin`;
 }

@@ -87,7 +87,6 @@ export const TICKET_LABELS = {
   walkIn: "到店",
   /** The copy bar at the top of each ticket. */
   copyKitchen: "廚房",
-  copyBag: "袋",
   copyRegister: "收銀",
 } as const;
 

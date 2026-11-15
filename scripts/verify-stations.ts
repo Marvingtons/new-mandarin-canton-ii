@@ -602,7 +602,7 @@ async function main(): Promise<void> {
   process.env.RESTAURANT_TIMEZONE = "America/Los_Angeles";
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
-  process.env.TICKET_COPIES = "3";
+  process.env.TICKET_COPIES = "2";
   process.env.PRINT_CONFIRM_FLOOR_SECONDS = "60";
   process.env.PRINT_SECONDS_PER_COPY = "30";
   process.env.PRINT_OFFER_CAP = "4";

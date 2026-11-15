@@ -92,7 +92,7 @@ export const PRINTABLE_STATUSES: OrderStatus[] = ["QUEUED"];
 
 /**
  * How long a ticket may go unconfirmed before the board says it did not print.
- * A healthy print confirms in about 30 seconds (3 copies), so 2 minutes is
+ * A healthy print confirms in about 20 seconds (2 copies), so 2 minutes is
  * well past normal and well before anyone at the pass would notice. Here, not
  * in the repository, because the board applies it too (KitchenLive).
  */
