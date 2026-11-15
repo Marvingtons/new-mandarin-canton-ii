@@ -15,6 +15,7 @@
     "build:ticket-font:module": "tsx scripts/emit-font-module.ts",
     "build:site-cjk-font": "node scripts/build-site-cjk-font.mjs",
     "ticket:sample": "tsx --conditions=react-server scripts/ticket-sample.ts",
+    "ticket:review": "tsx --conditions=react-server scripts/ticket-review.ts",
     "ticket:heights": "tsx --conditions=react-server scripts/ticket-heights.ts",
     "verify:ticket-glyphs": "tsx --conditions=react-server scripts/verify-ticket-glyphs.ts",
     "verify:orders": "tsx --conditions=react-server scripts/verify-orders.ts",
