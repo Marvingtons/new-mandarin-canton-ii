@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { MenuItem } from "@/lib/menu/types";
 import { useItemChoice } from "@/lib/cart/useItemChoice";
 import { resolveSizeZh } from "@/data/menu-overrides";
@@ -51,16 +51,72 @@ const check = (on: boolean) => (
   </span>
 );
 
+/** A section's head: tap to open or close it; the current choice shows while closed. */
+function SectionHead({
+  open,
+  onToggle,
+  name,
+  nameEn,
+  required,
+  requiredLabel,
+  extra,
+  summary,
+  unmet,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  name: string;
+  nameEn: string | null;
+  required: boolean;
+  requiredLabel: string;
+  extra?: string | null;
+  summary: string;
+  unmet: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="flex min-h-[2.364rem] w-full flex-wrap items-center gap-x-2 rounded-xl py-1 text-left text-base font-semibold text-staff-soft hover:bg-staff-sunken/60"
+    >
+      <span className="text-base text-staff-ink">{name}</span>
+      {nameEn && <span className="font-normal">{nameEn}</span>}
+      {required && (
+        <span
+          className={`rounded-full px-2 text-base font-semibold text-staff-ink ${unmet ? "bg-staff-gold-tint" : "bg-staff-sunken"}`}
+        >
+          {requiredLabel}
+        </span>
+      )}
+      {extra && <span className="text-base font-normal">{extra}</span>}
+      <span className="ml-auto flex min-w-0 items-center gap-2">
+        {!open && summary && <span className="truncate font-semibold text-staff-ink">{summary}</span>}
+        <span aria-hidden="true" className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>
+          ›
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export default function PosItemSheet({
   item,
   initialSizeId,
+  focus,
   menuNumber,
   onAdd,
   onClose,
 }: {
   item: MenuItem;
-  /** Open on this size (the tray button on a dish card). */
+  /** Open on this size (the strip's default, or the line being edited). */
   initialSizeId?: string;
+  /**
+   * The one choice to open expanded, the rest closed: a group id, or "size".
+   * A tile tap that asks sets it to the choice the defaults did not cover.
+   * Unset: every section open.
+   */
+  focus?: string;
   menuNumber: number | null;
   onAdd: (line: PosLineDraft) => void;
   onClose: () => void;
@@ -83,6 +139,29 @@ export default function PosItemSheet({
     groupsValid,
   } = useItemChoice(item, initialSizeId, false);
 
+  /** Which sections are open. A focused sheet opens just the choice it needs. */
+  const [open, setOpen] = useState<Set<string>>(() =>
+    focus ? new Set([focus]) : new Set(["size", "instructions", ...item.modifierGroups.map((g) => g.id)]),
+  );
+  const toggle = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /**
+   * A single choice made: if another required one is still unmade, open it
+   * next, so "Choose first" always has its section in view.
+   */
+  function choose(groupId: string, modId: string, maxAllowed: number | null) {
+    toggleModifier(groupId, modId, maxAllowed);
+    if (maxAllowed !== 1) return;
+    const nextUnmet = unmetGroups.find((g) => g.id !== groupId);
+    if (nextUnmet) setOpen((prev) => new Set(prev).add(nextUnmet.id));
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -102,9 +181,6 @@ export default function PosItemSheet({
     });
   }
 
-
-  const sectionLabel = "mb-3 flex flex-wrap items-baseline gap-2 text-base font-semibold text-staff-soft";
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
@@ -117,7 +193,9 @@ export default function PosItemSheet({
         <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             {menuNumber !== null && (
-              <span className="mt-1 rounded-lg bg-staff-sunken px-2 text-base font-semibold text-staff-soft tabular-nums">#{menuNumber}</span>
+              <span className="mt-1 rounded-lg bg-staff-sunken px-2 text-base font-semibold text-staff-soft tabular-nums">
+                #{menuNumber}
+              </span>
             )}
             <DishName nameZh={item.nameZh} nameEn={item.nameEn} size="lg" />
           </div>
@@ -133,77 +211,122 @@ export default function PosItemSheet({
 
         <div className="flex-1 overflow-y-auto px-6 pt-3 pb-5">
           {sizes.length > 1 && (
-            <fieldset className="mb-6">
-              <legend className={sectionLabel}>{t("sheet.size")}</legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {sizes.map((s) => {
-                  const zh = resolveSizeZh(s.label);
-                  const on = sizeId === s.id;
-                  return (
-                    <button key={s.id} type="button" aria-pressed={on} onClick={() => setSizeId(s.id)} className={option(on)}>
-                      <span className="flex min-w-0 items-center gap-3">
-                        {check(on)}
-                        <DishName nameZh={zh} nameEn={s.label} size="sm" />
-                      </span>
-                      <span className="font-bold tabular-nums">{formatCents(s.priceCents)}</span>
-                    </button>
-                  );
-                })}
-              </div>
+            <fieldset className="mb-4" data-section="size">
+              <legend className="mb-2 w-full">
+                <SectionHead
+                  open={open.has("size")}
+                  onToggle={() => toggle("size")}
+                  name={t("sheet.size")}
+                  nameEn={null}
+                  required={false}
+                  requiredLabel={t("sheet.required")}
+                  summary={(() => {
+                    const cur = sizes.find((x) => x.id === sizeId);
+                    return cur ? `${resolveSizeZh(cur.label) ?? ""} ${cur.label}`.trim() : "";
+                  })()}
+                  unmet={false}
+                />
+              </legend>
+              {open.has("size") && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {sizes.map((s) => {
+                    const zh = resolveSizeZh(s.label);
+                    const on = sizeId === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setSizeId(s.id)}
+                        className={option(on)}
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          {check(on)}
+                          <DishName nameZh={zh} nameEn={s.label} size="sm" />
+                        </span>
+                        <span className="font-bold tabular-nums">{formatCents(s.priceCents)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </fieldset>
           )}
 
-          {groups.map((g) => (
-            <fieldset key={g.id} className="mb-6">
-              <legend className={sectionLabel}>
-                <span className="text-base text-staff-ink">{g.nameZh ?? g.nameEn}</span>
-                {g.nameZh && <span className="font-normal">{g.nameEn}</span>}
-                {g.minRequired > 0 && (
-                  <span className="rounded-full bg-staff-gold-tint px-2 text-base font-semibold text-staff-ink">
-                    {t("sheet.required")}
-                  </span>
+          {groups.map((g) => {
+            const chosen = g.modifiers.filter((m) => isSelected(g.id, m.id));
+            const isUnmet = unmetGroups.some((u) => u.id === g.id);
+            return (
+              <fieldset key={g.id} className="mb-4" data-section={g.id}>
+                <legend className="mb-2 w-full">
+                  <SectionHead
+                    open={open.has(g.id)}
+                    onToggle={() => toggle(g.id)}
+                    name={g.nameZh ?? g.nameEn}
+                    nameEn={g.nameZh ? g.nameEn : null}
+                    required={g.minRequired > 0}
+                    requiredLabel={t("sheet.required")}
+                    extra={g.maxAllowed !== null && g.maxAllowed > 1 ? t("sheet.upTo", { n: g.maxAllowed }) : null}
+                    summary={chosen.map((m) => m.nameZh ?? m.nameEn).join("、")}
+                    unmet={isUnmet}
+                  />
+                </legend>
+                {open.has(g.id) && (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {g.modifiers.map((m) => {
+                      const selected = isSelected(g.id, m.id);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => choose(g.id, m.id, g.maxAllowed)}
+                          className={option(selected)}
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            {check(selected)}
+                            <span className="flex min-w-0 flex-col">
+                              <DishName nameZh={m.nameZh} nameEn={m.nameEn} size="sm" />
+                              {m.note && <span className="text-base text-staff-soft">{m.note}</span>}
+                            </span>
+                          </span>
+                          {m.priceCents > 0 && (
+                            <span className="text-base font-semibold tabular-nums">+{formatCents(m.priceCents)}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-                {g.maxAllowed !== null && g.maxAllowed > 1 && (
-                  <span className="text-base font-normal">{t("sheet.upTo", { n: g.maxAllowed })}</span>
-                )}
-              </legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {g.modifiers.map((m) => {
-                  const selected = isSelected(g.id, m.id);
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => toggleModifier(g.id, m.id, g.maxAllowed)}
-                      className={option(selected)}
-                    >
-                      <span className="flex min-w-0 items-center gap-3">
-                        {check(selected)}
-                        <span className="flex min-w-0 flex-col">
-                          <DishName nameZh={m.nameZh} nameEn={m.nameEn} size="sm" />
-                          {m.note && <span className="text-base text-staff-soft">{m.note}</span>}
-                        </span>
-                      </span>
-                      {m.priceCents > 0 && <span className="text-base font-semibold tabular-nums">+{formatCents(m.priceCents)}</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ))}
+              </fieldset>
+            );
+          })}
 
-          <label className="block">
-            <span className={sectionLabel}>{t("sheet.instructions")}</span>
-            <textarea
-              value={instructions}
-              maxLength={MAX_INSTRUCTIONS}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={2}
-              placeholder={t("sheet.instructionsPlaceholder")}
-              className="w-full resize-none rounded-xl bg-staff-panel px-4 py-3 text-base shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
+          <div data-section="instructions">
+            <SectionHead
+              open={open.has("instructions")}
+              onToggle={() => toggle("instructions")}
+              name={t("sheet.instructions")}
+              nameEn={null}
+              required={false}
+              requiredLabel={t("sheet.required")}
+              summary={instructions.trim()}
+              unmet={false}
             />
-          </label>
+          </div>
+          {open.has("instructions") && (
+            <label className="mt-2 block">
+              <span className="sr-only">{t("sheet.instructions")}</span>
+              <textarea
+                value={instructions}
+                maxLength={MAX_INSTRUCTIONS}
+                onChange={(e) => setInstructions(e.target.value)}
+                rows={2}
+                placeholder={t("sheet.instructionsPlaceholder")}
+                className="w-full resize-none rounded-xl bg-staff-panel px-4 py-3 text-base shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
+              />
+            </label>
+          )}
         </div>
 
         {!groupsValid && (

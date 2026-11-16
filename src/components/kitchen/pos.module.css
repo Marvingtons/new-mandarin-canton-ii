@@ -367,8 +367,12 @@
 .tile.hasQ .en {
   padding-right: calc(var(--spacing) * 8);
 }
-.tile.hasAlt .en {
-  padding-right: calc(72 * var(--staff-u));
+/* Room for the 改 corner under the names. */
+.tile.hasMod .en {
+  padding-right: calc(var(--spacing) * 11);
+}
+.tile.hasMod.long .zh {
+  padding-right: calc(var(--spacing) * 6);
 }
 .tile.off {
   background: var(--color-staff-sunken);
@@ -381,25 +385,73 @@
 .off .tileMain {
   cursor: not-allowed;
 }
-.alt {
+/* 改: the full sheet. A 44px corner, quiet until pressed. */
+.mod {
   position: absolute;
-  right: calc(var(--spacing) * 2);
-  bottom: calc(var(--spacing) * 2);
-  min-width: calc(64 * var(--staff-u));
-  height: calc(44 * var(--staff-u));
-  padding: 0 calc(var(--spacing) * 3);
+  right: calc(var(--spacing) * 1);
+  bottom: calc(var(--spacing) * 1);
+  width: calc(var(--spacing) * 11);
+  height: calc(var(--spacing) * 11);
   border-radius: var(--radius-staff-control);
-  background: var(--color-staff-panel);
+  background: color-mix(in srgb, var(--color-staff-panel) 70%, transparent);
   box-shadow: inset 0 0 0 1px var(--edge);
   font-size: var(--text-staff-body);
-  font-weight: 600;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background var(--staff-motion);
 }
-.alt:active {
+.mod:active {
   background: var(--color-staff-sunken);
+}
+/* A tap on this dish will ask (a required choice no default covers). */
+.asks {
+  position: absolute;
+  top: calc(var(--spacing) * 3);
+  right: calc(var(--spacing) * 3);
+  width: calc(12 * var(--staff-u));
+  height: calc(12 * var(--staff-u));
+  border-radius: 50%;
+  background: var(--color-staff-brand);
+  box-shadow: 0 0 0 2px var(--color-staff-panel);
+  pointer-events: none;
+}
+.tile.hasQ .asks {
+  right: calc(var(--spacing) * 11);
+}
+/* The tap that added: a short lift of the whole tile. */
+.tapFlash {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-staff-card);
+  box-shadow: inset 0 0 0 3px var(--color-staff-brand);
+  pointer-events: none;
+  animation: tapFlash 600ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+@keyframes tapFlash {
+  0% {
+    opacity: 1;
+    background: color-mix(in srgb, var(--color-staff-panel) 45%, transparent);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* The number key that adds a search result. */
+.hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(24 * var(--staff-u));
+  height: calc(24 * var(--staff-u));
+  margin-right: calc(var(--spacing) * 2);
+  border-radius: var(--radius-staff-tag);
+  background: var(--color-staff-ink);
+  color: var(--color-staff-on-brand);
+  font-size: var(--text-staff-caption);
+  font-weight: 700;
+  vertical-align: 0.15em;
 }
 .state {
   position: absolute;
@@ -527,6 +579,8 @@
    line being edited shows a stepper and the note field. */
 .line {
   --c-ink: color-mix(in oklab, var(--c), var(--color-staff-ink) 30%);
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: calc(6 * var(--staff-u)) calc(36 * var(--staff-u)) minmax(0, 1fr) auto;
   column-gap: calc(var(--spacing) * 3);
@@ -536,6 +590,25 @@
   text-align: left;
   width: 100%;
   transition: background var(--staff-motion);
+}
+/* The line just added or bumped. */
+.lineFlash {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-staff-control);
+  background: var(--color-staff-gold-tint);
+  pointer-events: none;
+  z-index: -1;
+  animation: lineFlash 900ms ease-out forwards;
+}
+@keyframes lineFlash {
+  0%,
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 .line.editing {
   background: var(--color-staff-bg);
@@ -773,7 +846,13 @@ button.print:disabled .zh {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qtyBadge {
+  .qtyBadge,
+  .tapFlash,
+  .lineFlash {
     animation: none;
+  }
+  .tapFlash,
+  .lineFlash {
+    display: none;
   }
 }

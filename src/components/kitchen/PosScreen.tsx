@@ -179,23 +179,37 @@ function useMoreBar(listRef: React.RefObject<HTMLElement | null>, itemSelector: 
   return bar;
 }
 
-/** A dish tile. Measures its own 中文 so a two-line name drops the English to one. */
+/**
+ * A dish tile. The body adds one with the strip's defaults; the 改 corner
+ * opens the full sheet. A dot marks a dish whose tap will ask (a required
+ * choice the defaults do not cover). Measures its own 中文 so a two-line name
+ * drops the English to one.
+ */
 function DishTile({
   item,
   tint,
   count,
   disabledLabel,
-  altLabel,
+  asks,
+  flash,
+  hint,
+  labels,
   onTap,
-  onAlt,
+  onModify,
 }: {
   item: MenuItem;
   tint: CategoryTint;
   count: number;
   disabledLabel: string | null;
-  altLabel: string | null;
+  /** The tap opens the sheet instead of adding. */
+  asks: boolean;
+  /** Bumped on each tap that added: replays the highlight. */
+  flash: number;
+  /** The number key that adds it (search results), if any. */
+  hint: number | null;
+  labels: { modify: string; modifyShort: string; asks: string };
   onTap: () => void;
-  onAlt: () => void;
+  onModify: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -210,21 +224,26 @@ function DishTile({
     return () => observer.disconnect();
   }, []);
   const zhName = item.nameZh ?? item.nameEn;
+  const name = item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn;
   return (
     <div
       ref={ref}
       style={tintStyle(tint)}
-      className={[s.tile, count > 0 && s.hasQ, altLabel && s.hasAlt, disabledLabel && s.off].filter(Boolean).join(" ")}
+      data-tile={item.id}
+      className={[s.tile, count > 0 && s.hasQ, !disabledLabel && s.hasMod, disabledLabel && s.off].filter(Boolean).join(" ")}
     >
       <button
         type="button"
         data-item={item.id}
+        data-asks={asks || undefined}
         disabled={disabledLabel !== null}
         onClick={onTap}
-        aria-label={item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn}
+        aria-label={asks ? `${name} · ${labels.asks}` : name}
         className={s.tileMain}
       />
+      {flash > 0 && <span key={flash} aria-hidden="true" className={s.tapFlash} />}
       <span lang={item.nameZh ? "zh-Hant" : "en"} className={s.zh}>
+        {hint !== null && <span className={`${s.hint} ${s.num}`}>{hint}</span>}
         <ZhName name={zhName} />
       </span>
       {item.nameZh && (
@@ -232,15 +251,23 @@ function DishTile({
           {item.nameEn}
         </span>
       )}
+      {asks && !disabledLabel && <span aria-hidden="true" title={labels.asks} className={s.asks} />}
       {count > 0 && (
         <span key={count} className={`${s.qtyBadge} ${s.num}`}>
           {count}
         </span>
       )}
       {disabledLabel && <span className={s.state}>{disabledLabel}</span>}
-      {altLabel && !disabledLabel && (
-        <button type="button" data-item-size="alt" onClick={onAlt} className={s.alt}>
-          {altLabel}
+      {!disabledLabel && (
+        <button
+          type="button"
+          data-modify={item.id}
+          onClick={onModify}
+          aria-label={`${labels.modify} ${name}`}
+          title={labels.modify}
+          className={s.mod}
+        >
+          <span lang="zh-Hant">{labels.modifyShort}</span>
         </button>
       )}
     </div>
@@ -378,8 +405,17 @@ export default function PosScreen({
 
   /* ------------------------------------------------------ menu selection -- */
   const [query, setQuery] = useState("");
-  /** The dish being chosen, the size its tap asked for, and the line it replaces. */
-  const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string; replace?: string } | null>(null);
+  /**
+   * The dish being chosen: the size to open on, the one choice to open
+   * expanded (a group id, or "size"), and the line it replaces.
+   */
+  const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string; focus?: string; replace?: string } | null>(
+    null,
+  );
+  /** The tile just tapped, and a counter that replays its highlight. */
+  const [tileFlash, setTileFlash] = useState<{ id: string; n: number }>({ id: "", n: 0 });
+  /** The ticket line just added or bumped, likewise. */
+  const [lineFlash, setLineFlash] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsRef = useRef<HTMLDialogElement>(null);
@@ -433,14 +469,24 @@ export default function PosScreen({
    * when a required choice is one the defaults do not cover. A size asked for
    * by the tile's corner chip always opens the sheet on that size.
    */
-  function tapDish(item: MenuItem, sizeId?: string) {
-    if (sizeId) {
-      setSheetItem({ item, sizeId });
-      return;
-    }
+  function tapDish(item: MenuItem) {
     const quick = quickAdd(item, defaults);
-    if (quick.kind === "add") addLine(quick.line);
-    else setSheetItem({ item, sizeId: quick.sizeId });
+    if (quick.kind === "add") {
+      addLine(quick.line);
+      setTileFlash((f) => ({ id: item.id, n: f.n + 1 }));
+    } else {
+      setSheetItem({ item, sizeId: quick.sizeId, focus: quick.focus });
+    }
+  }
+
+  /** The tile's 改 corner: the full sheet, on the choice a tap would ask for. */
+  function modifyDish(item: MenuItem) {
+    const quick = quickAdd(item, defaults);
+    setSheetItem(
+      quick.kind === "add"
+        ? { item, sizeId: quick.line.sizeId }
+        : { item, sizeId: quick.sizeId, focus: quick.focus },
+    );
   }
 
   /**
@@ -467,25 +513,30 @@ export default function PosScreen({
 
   const linesRef = useRef<HTMLDivElement>(null);
   function addLine(draft: PosLineDraft, replace?: string) {
-    setLines((prev) => {
-      const rest = replace ? prev.filter((l) => l.lineId !== replace) : prev;
-      // Same dish, same choices, no note: bump the quantity rather than add a
-      // second identical row the kitchen has to sum.
-      const same = rest.find(
-        (l) =>
-          !l.specialInstructions &&
-          !draft.specialInstructions &&
-          l.itemId === draft.itemId &&
-          l.sizeId === draft.sizeId &&
-          [...l.modifierIds].sort().join() === [...draft.modifierIds].sort().join(),
-      );
-      if (same) {
-        return rest.map((l) =>
-          l.lineId === same.lineId ? { ...l, quantity: Math.min(50, l.quantity + draft.quantity) } : l,
-        );
-      }
-      return [...rest, { ...draft, lineId: newKey() }];
-    });
+    const rest = replace ? lines.filter((l) => l.lineId !== replace) : lines;
+    // Same dish, same choices, no note: bump the quantity rather than add a
+    // second identical row the kitchen has to sum.
+    const same = rest.find(
+      (l) =>
+        !l.specialInstructions &&
+        !draft.specialInstructions &&
+        l.itemId === draft.itemId &&
+        l.sizeId === draft.sizeId &&
+        [...l.modifierIds].sort().join() === [...draft.modifierIds].sort().join(),
+    );
+    let flashId: string;
+    if (same) {
+      flashId = same.lineId;
+      setLines(rest.map((l) => (l.lineId === same.lineId ? { ...l, quantity: Math.min(50, l.quantity + draft.quantity) } : l)));
+    } else if (replace) {
+      // An edited line keeps its place on the ticket.
+      flashId = replace;
+      setLines(lines.map((l) => (l.lineId === replace ? { ...draft, lineId: replace } : l)));
+    } else {
+      flashId = newKey();
+      setLines([...rest, { ...draft, lineId: flashId }]);
+    }
+    setLineFlash((f) => ({ id: flashId, n: f.n + 1 }));
     setSheetItem(null);
     setPlaced(null);
     setError(null);
@@ -666,14 +717,13 @@ export default function PosScreen({
   const railBar = useMoreBar(railRef, "button", [menu]);
   const linesBar = useMoreBar(linesRef, `.${s.line}`, [lines, editing, noteOpen]);
 
-  const tile = (item: MenuItem) => {
-    const sizes = itemSizes(item);
+  const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
+  const tile = (item: MenuItem, hint: number | null = null) => {
     const disabledLabel = !isAvailable(item)
       ? t("pos.86d")
       : item.lunchSpecial === true && !lunchOpen
         ? t("pos.lunchClosed")
         : null;
-    const alt = sizes.length === 2 ? sizes[1] : null;
     return (
       <DishTile
         key={item.id}
@@ -681,9 +731,12 @@ export default function PosScreen({
         tint={tintOf.get(item.id) ?? "sides"}
         count={onTicket.get(item.id) ?? 0}
         disabledLabel={disabledLabel}
-        altLabel={alt ? (resolveSizeZh(alt.label) ?? alt.label) : null}
+        asks={quickAdd(item, defaults).kind === "ask"}
+        flash={tileFlash.id === item.id ? tileFlash.n : 0}
+        hint={hint}
+        labels={tileLabels}
         onTap={() => tapDish(item)}
-        onAlt={() => alt && tapDish(item, alt.id)}
+        onModify={() => modifyDish(item)}
       />
     );
   };
@@ -809,7 +862,11 @@ export default function PosScreen({
             key={line.lineId}
             className={`${s.line} ${isEditing ? s.editing : ""}`}
             style={tintStyle(tintOf.get(line.itemId) ?? "sides")}
+            data-line={line.lineId}
           >
+            {lineFlash.id === line.lineId && lineFlash.n > 0 && (
+              <span key={lineFlash.n} aria-hidden="true" className={s.lineFlash} />
+            )}
             <button
               type="button"
               aria-expanded={isEditing}
@@ -1041,7 +1098,7 @@ export default function PosScreen({
             {results.length === 0 ? (
               <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
             ) : (
-              <div className={s.grid}>{results.map(tile)}</div>
+              <div className={s.grid}>{results.map((item) => tile(item))}</div>
             )}
           </>
         ) : (
@@ -1061,7 +1118,7 @@ export default function PosScreen({
                   <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
                 )}
               </h2>
-              <div className={s.grid}>{category.items.map(tile)}</div>
+              <div className={s.grid}>{category.items.map((item) => tile(item))}</div>
             </section>
           )
         )}
@@ -1299,6 +1356,7 @@ export default function PosScreen({
           key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}:${sheetItem.replace ?? ""}`}
           item={sheetItem.item}
           initialSizeId={sheetItem.sizeId}
+          focus={sheetItem.focus}
           menuNumber={menuNumber(sheetItem.item.id)}
           onAdd={(draft) => addLine(draft, sheetItem.replace)}
           onClose={() => setSheetItem(null)}

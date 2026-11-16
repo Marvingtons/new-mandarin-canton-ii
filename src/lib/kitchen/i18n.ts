@@ -250,6 +250,9 @@ const zhHant = {
   "pos.applyAllHint": "把單據上每項有飯的菜改成這個飯 · Change the rice on every line with rice · Cambiar el arroz en todas las líneas",
   "pos.updatedLines": "已更新 {n} 項 · Updated {n} lines · {n} líneas actualizadas",
   "pos.defaults": "預設 Defaults / Predeterminados",
+  "pos.modify": "改 Modify / Modificar",
+  "pos.modifyShort": "改",
+  "pos.asks": "要選擇 Needs a choice / Elegir opción",
 
   "station.online": "網上",
   "station.store": "店內",
@@ -553,6 +556,9 @@ const en: Record<KitchenKey, string> = {
   "pos.applyAllHint": "把單據上每項有飯的菜改成這個飯 · Change the rice on every line with rice · Cambiar el arroz en todas las líneas",
   "pos.updatedLines": "已更新 {n} 項 · Updated {n} lines · {n} líneas actualizadas",
   "pos.defaults": "預設 Defaults / Predeterminados",
+  "pos.modify": "改 Modify / Modificar",
+  "pos.modifyShort": "改",
+  "pos.asks": "要選擇 Needs a choice / Elegir opción",
 
   "station.online": "Online",
   "station.store": "Store",
