@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Menu, MenuCategory, MenuItem } from "@/lib/menu/types";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
-import { groupsForSize } from "@/lib/menu/rice";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { itemMatches, queryTerms } from "@/lib/menu/search";
 import { formatCents, taxCents } from "@/lib/money";
@@ -25,6 +24,21 @@ import Button from "@/components/kitchen/ui/Button";
 import type { KitchenKey } from "@/lib/kitchen/i18n";
 import s from "@/components/kitchen/pos.module.css";
 import ui from "@/components/kitchen/ui/ui.module.css";
+import { useToast } from "@/components/kitchen/ui/Toasts";
+import {
+  INITIAL_DEFAULTS,
+  isRiceDefault,
+  isSizeDefault,
+  POS_RICE_STORAGE_KEY,
+  POS_SIZE_STORAGE_KEY,
+  quickAdd,
+  RICE_DEFAULTS,
+  SIZE_DEFAULTS,
+  withRice,
+  type PosDefaults,
+  type RiceDefault,
+  type SizeDefault,
+} from "@/lib/kitchen/posDefaults";
 
 /**
  * Staff order entry: a phone call or a walk-in, tapped in and printed.
@@ -89,6 +103,18 @@ const label = "mb-2 block text-staff-body font-semibold text-staff-ink";
 /** The shared staff button classes (components/kitchen/ui). */
 const btn = (kind: "primary" | "secondary" | "quiet") => `${ui.btn} ${ui[kind]}`;
 
+/** The strip's labels: 中文 over English on the button, all three languages for assistive tech. */
+const RICE_LABEL: Record<RiceDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
+  steamed: { zh: "pos.riceSteamedZh", en: "pos.riceSteamedEn", all: "pos.riceSteamedAll" },
+  fried: { zh: "pos.riceFriedZh", en: "pos.riceFriedEn", all: "pos.riceFriedAll" },
+  half: { zh: "pos.riceHalfZh", en: "pos.riceHalfEn", all: "pos.riceHalfAll" },
+  none: { zh: "pos.riceNoneZh", en: "pos.riceNoneEn", all: "pos.riceNoneAll" },
+};
+const SIZE_LABEL: Record<SizeDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
+  individual: { zh: "pos.sizeIndividualZh", en: "pos.sizeIndividualEn", all: "pos.sizeIndividualAll" },
+  tray: { zh: "pos.sizeTrayZh", en: "pos.sizeTrayEn", all: "pos.sizeTrayAll" },
+};
+
 function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -97,21 +123,6 @@ function newKey(): string {
 
 function isDefaultSize(label: string): boolean {
   return ["individual", "regular", ""].includes(label.toLowerCase());
-}
-
-/**
- * The line one tap adds, or null when the dish needs its sheet: any required
- * group is a decision the caller makes (the sheet opens with it unmade), so
- * only a dish with nothing required goes straight onto the ticket.
- */
-function quickDraft(item: MenuItem, sizeId: string): PosLineDraft | null {
-  if (groupsForSize(item, sizeId).some((g) => g.minRequired >= 1)) return null;
-  try {
-    resolveLinePrice(item, sizeId, [], 1);
-  } catch {
-    return null;
-  }
-  return { itemId: item.id, sizeId, modifierIds: [], quantity: 1 };
 }
 
 /** "春卷（2條）": the count is data, not name, so it is one step smaller. */
@@ -296,6 +307,29 @@ export default function PosScreen({
   const [notice, setNotice] = useState<string | null>(null);
   const [reprinting, setReprinting] = useState<Placed | null>(null);
   const { act, refresh: refreshLive } = useKitchenLive();
+  const { toast } = useToast();
+
+  /* ---------------------------------------------- the sticky defaults -- */
+  // The rice and size every tile tap uses, kept per tablet. Read after mount
+  // so the server render and hydration agree.
+  const [defaults, setDefaults] = useState<PosDefaults>(INITIAL_DEFAULTS);
+  useEffect(() => {
+    const rice = localStorage.getItem(POS_RICE_STORAGE_KEY);
+    const size = localStorage.getItem(POS_SIZE_STORAGE_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a stored per-device preference, read once
+    setDefaults({
+      rice: isRiceDefault(rice) ? rice : INITIAL_DEFAULTS.rice,
+      size: isSizeDefault(size) ? size : INITIAL_DEFAULTS.size,
+    });
+  }, []);
+  function setRiceDefault(rice: RiceDefault) {
+    setDefaults((d) => ({ ...d, rice }));
+    localStorage.setItem(POS_RICE_STORAGE_KEY, rice);
+  }
+  function setSizeDefault(size: SizeDefault) {
+    setDefaults((d) => ({ ...d, size }));
+    localStorage.setItem(POS_SIZE_STORAGE_KEY, size);
+  }
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [justNow, setJustNow] = useState<Placed | null>(null);
   /** The clear-ticket confirm is open (a destructive action, like cancel). */
@@ -394,13 +428,41 @@ export default function PosScreen({
     dishPaneRef.current?.scrollTo({ top: 0 });
   }
 
-  /** A tile's tap: straight onto the ticket, or the sheet when there is a choice to make. */
+  /**
+   * A tile's tap: onto the ticket with the strip's rice and size, or the sheet
+   * when a required choice is one the defaults do not cover. A size asked for
+   * by the tile's corner chip always opens the sheet on that size.
+   */
   function tapDish(item: MenuItem, sizeId?: string) {
-    const sizes = itemSizes(item);
-    const size = sizeId ?? (sizes.length <= 2 ? sizes[0]?.id : undefined);
-    const draft = size ? quickDraft(item, size) : null;
-    if (draft) addLine(draft);
-    else setSheetItem({ item, sizeId });
+    if (sizeId) {
+      setSheetItem({ item, sizeId });
+      return;
+    }
+    const quick = quickAdd(item, defaults);
+    if (quick.kind === "add") addLine(quick.line);
+    else setSheetItem({ item, sizeId: quick.sizeId });
+  }
+
+  /**
+   * 套用到全部: the strip's rice onto every line that has rice and offers it.
+   * No confirm; the toast says how many changed and its Undo puts them back.
+   */
+  function applyRiceToAll() {
+    const before = lines;
+    let changed = 0;
+    const after = lines.map((l) => {
+      const item = index.get(l.itemId);
+      const next = item ? withRice(item, l.sizeId, l.modifierIds, defaults.rice) : null;
+      if (!next) return l;
+      changed++;
+      return { ...l, modifierIds: next };
+    });
+    if (changed > 0) setLines(after);
+    toast(
+      t("pos.updatedLines", { n: changed }),
+      "info",
+      changed > 0 ? { label: t("card.undo"), onAction: () => setLines(before) } : undefined,
+    );
   }
 
   const linesRef = useRef<HTMLDivElement>(null);
@@ -836,26 +898,85 @@ export default function PosScreen({
   );
 
   return (
-    <main className={s.root}>
+    <main className={s.root} data-pos-screen>
       {/* The POS's own controls, under the shared staff header: search, plus
           lunch hours when the clock has not opened lunch. */}
-      <div className={s.top}>
-        {searchField}
+      <div className={s.top} role="toolbar" aria-label={t("pos.defaults")}>
+        {searchField ?? (
+          <>
+            <div role="group" aria-label={t("pos.riceGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="rice">
+              {RICE_DEFAULTS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  data-value={r}
+                  aria-pressed={defaults.rice === r}
+                  aria-label={t(RICE_LABEL[r].all)}
+                  title={t(RICE_LABEL[r].all)}
+                  onClick={() => setRiceDefault(r)}
+                >
+                  <span lang="zh-Hant" className={s.zh}>
+                    {t(RICE_LABEL[r].zh)}
+                  </span>
+                  <span lang="en" className={s.en}>
+                    {t(RICE_LABEL[r].en)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              data-action="apply-rice-all"
+              onClick={applyRiceToAll}
+              aria-label={t("pos.applyAll")}
+              title={t("pos.applyAllHint")}
+              className={s.applyAll}
+            >
+              <span lang="zh-Hant">{t("pos.applyAllZh")}</span>
+              <span lang="en" className={s.en}>
+                {t("pos.applyAllEn")}
+              </span>
+            </button>
+            <div role="group" aria-label={t("pos.sizeGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="size">
+              {SIZE_DEFAULTS.map((z) => (
+                <button
+                  key={z}
+                  type="button"
+                  data-value={z}
+                  aria-pressed={defaults.size === z}
+                  aria-label={t(SIZE_LABEL[z].all)}
+                  title={t(SIZE_LABEL[z].all)}
+                  onClick={() => setSizeDefault(z)}
+                >
+                  <span lang="zh-Hant" className={s.zh}>
+                    {t(SIZE_LABEL[z].zh)}
+                  </span>
+                  <span lang="en" className={s.en}>
+                    {t(SIZE_LABEL[z].en)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         <div className={s.topRight}>
           {!lunchNow && (
-            <Button
-              variant={lunchOverride ? "primary" : "secondary"}
-              icon="clock"
+            <button
+              type="button"
               aria-pressed={lunchOverride}
+              aria-label={t("pos.lunchHours")}
               title={t("pos.lunchOverrideHint")}
               onClick={() => setLunchOverride((v) => !v)}
+              className={s.lunchBtn}
             >
-              {t("pos.lunchHours")}
-            </Button>
+              <Icon name="clock" size={18} />
+              <span>{t("pos.lunchShort")}</span>
+            </button>
           )}
           {!searchField && (
             <Button
               variant="secondary"
+              size="sm"
               iconOnly
               icon="search"
               aria-label={t("pos.search")}

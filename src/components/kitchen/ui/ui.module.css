@@ -295,6 +295,12 @@
   width: min(calc(440 * var(--staff-u)), calc(100vw - var(--spacing) * 8));
   pointer-events: none;
 }
+/* On the POS the ticket's Print button lives bottom-right: toasts (Undo) go
+   bottom-left, over the dishes, so they never cover it. */
+:global(html:has([data-pos-screen])) .toasts {
+  right: auto;
+  left: calc(var(--spacing) * 4);
+}
 .toast {
   display: flex;
   align-items: flex-start;
@@ -329,6 +335,12 @@
 }
 .toast .btn {
   color: inherit;
+}
+/* The toast's own action (Undo): a light button on the dark toast. */
+.toast .btn.secondary {
+  flex: none;
+  background: var(--color-staff-panel);
+  color: var(--color-staff-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {

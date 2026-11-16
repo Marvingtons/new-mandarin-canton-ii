@@ -27,6 +27,7 @@ import { resolveLinePrice } from "@/lib/cart/pricing";
 import { checkModifierGroups } from "@/lib/orders/modifierRules";
 import { resolveOrderLine } from "@/lib/orders/lines";
 import {
+  RICE_NONE_ID,
   RICE_BOTH_ID,
   RICE_FRIED_ID,
   RICE_GROUP_ID,
@@ -75,7 +76,8 @@ for (const cat of menu.categories) {
     const g = riceOf(item);
     if (g) {
       c.withRice++;
-      c.opts.add(g.modifiers.length);
+      // The customer's choice: the staff-only 走飯 is counted separately below.
+      c.opts.add(g.modifiers.filter((m) => !m.staffOnly).length);
     } else {
       c.noRice.push(item.id);
     }
@@ -166,7 +168,7 @@ for (const id of RICE_CATEGORY_IDS) {
   const beef = byId.get("mongolian-beef-special");
   check(
     "Mongolian Beef (a Specials entrée) still offers two-option rice",
-    !!beef && riceOf(beef)?.modifiers.length === 2,
+    !!beef && riceOf(beef)?.modifiers.filter((m) => !m.staffOnly).length === 2,
     "the category default stopped reaching an entrée in the same section",
   );
 
@@ -233,7 +235,7 @@ for (const id of RICE_SPLIT_CATEGORY_IDS) {
     );
     check(
       "lunch-specials: rice is two options",
-      lunch.items.every((i) => riceOf(i)?.modifiers.length === 2),
+      lunch.items.every((i) => riceOf(i)?.modifiers.filter((m) => !m.staffOnly).length === 2),
       "",
     );
     check(
@@ -485,7 +487,7 @@ check(
         itemSizes(item).every(
           (s) =>
             groupsForSize(item, s.id).find((g) => g.id === RICE_GROUP_ID)
-              ?.modifiers.length === 3,
+              ?.modifiers.filter((m) => !m.staffOnly).length === 3,
         ),
       ),
       "a combo size lost the 各一半 option",
@@ -569,6 +571,28 @@ check(
       "the $0 claim broke on the individual tier",
     );
   }
+}
+
+/* ---------------------------------- staff-only 走飯 No Rice ---- */
+// Every rice group carries it, last, at $0, flagged staff only, so the POS's
+// 無 None default has a real choice to put on a line and the website never
+// offers it.
+{
+  const groups = menu.categories.flatMap((cat) => cat.items).map(riceOf).filter((g) => g !== null);
+  const bad = groups.filter((g) => {
+    const last = g.modifiers[g.modifiers.length - 1];
+    return !(last?.id === RICE_NONE_ID && last.staffOnly === true && last.priceCents === 0 && last.nameZh === "走飯");
+  });
+  check(
+    "every rice group ends with the staff-only $0 走飯 No Rice",
+    groups.length > 0 && bad.length === 0,
+    `${bad.length} of ${groups.length} groups do not`,
+  );
+  check(
+    "走飯 is the only staff-only rice choice",
+    groups.every((g) => g.modifiers.filter((m) => m.staffOnly).length === 1),
+    "",
+  );
 }
 
 const total = pass + failures.length;

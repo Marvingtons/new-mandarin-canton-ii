@@ -17,14 +17,21 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  */
 export type ToastTone = "info" | "error" | "arrival";
 
+/** One button on the toast, e.g. Undo. Taking it dismisses the toast. */
+export interface ToastAction {
+  label: string;
+  onAction: () => void;
+}
+
 interface Toast {
   id: number;
   tone: ToastTone;
   text: string;
+  action?: ToastAction;
 }
 
 interface ToastApi {
-  toast: (text: string, tone?: ToastTone) => void;
+  toast: (text: string, tone?: ToastTone, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -52,13 +59,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toast = useCallback(
-    (text: string, tone: ToastTone = "info") => {
+    (text: string, tone: ToastTone = "info", action?: ToastAction) => {
       const id = nextId.current++;
-      setToasts((list) => [...list.slice(-(MAX_VISIBLE - 1)), { id, tone, text }]);
+      setToasts((list) => [...list.slice(-(MAX_VISIBLE - 1)), { id, tone, text, action }]);
+      // A toast with an Undo stays long enough to reach for it.
       const timer = setTimeout(() => {
         timers.current.delete(timer);
         dismiss(id);
-      }, LIFETIME[tone]);
+      }, action ? Math.max(LIFETIME[tone], 8_000) : LIFETIME[tone]);
       timers.current.add(timer);
     },
     [dismiss],
@@ -107,6 +115,19 @@ function ToastView({
     <div className={ui.toast} data-tone={toast.tone}>
       <Icon name={ICON[toast.tone]} size={22} />
       <span className={ui.toastText}>{toast.text}</span>
+      {toast.action && (
+        <Button
+          variant="secondary"
+          size="sm"
+          data-action="toast-action"
+          onClick={() => {
+            toast.action?.onAction();
+            onDismiss(toast.id);
+          }}
+        >
+          {toast.action.label}
+        </Button>
+      )}
       <Button variant="quiet" size="sm" iconOnly icon="x" aria-label={dismissLabel} onClick={() => onDismiss(toast.id)} />
     </div>
   );

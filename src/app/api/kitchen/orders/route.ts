@@ -197,6 +197,7 @@ export async function POST(request: Request): Promise<Response> {
       override: body.lunchOverride === true,
       bypass,
     }),
+    allowStaffOnly: true,
   });
   if (!composed.ok) {
     return refuse(composed.reason === "item_unavailable" ? "item_unavailable" : "rejected", composed.error);

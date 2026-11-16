@@ -41,6 +41,11 @@ export interface ComposeOptions {
   taxRateBps: number;
   /** May a lunch special be on this order right now? See the header. */
   lunchAllowed: boolean;
+  /**
+   * May a line carry a staff-only choice (走飯 No Rice)? The POS route passes
+   * true; the web leaves it unset, so a hand-built web cart cannot.
+   */
+  allowStaffOnly?: boolean;
 }
 
 /**
@@ -127,6 +132,17 @@ export function composeOrder(
         `[orders] a "${size.label}" line of "${item.nameEn}" arrived with no ` +
           `preparation choice; defaulted to Steamed (stale cart)`,
       );
+    }
+
+    /* STAFF-ONLY CHOICES stay on the POS: the customer sheet never offers
+       them, so one arriving on a web order is refused, not printed. */
+    if (!options.allowStaffOnly) {
+      const staffOnly = new Set(
+        item.modifierGroups.flatMap((g) => g.modifiers.filter((m) => m.staffOnly).map((m) => m.id)),
+      );
+      if (modifierIds.some((id) => staffOnly.has(id))) {
+        return { ok: false, error: `An option is no longer available for "${item.nameEn}".` };
+      }
     }
 
     /* REQUIRED CHOICES ARE ENFORCED HERE: minRequired / maxAllowed are a

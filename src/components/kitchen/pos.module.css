@@ -56,7 +56,10 @@
   height: calc(100svh - var(--staff-header-h));
   overflow: hidden;
   display: grid;
-  grid-template-areas: "top top top" "rail dishes ticket";
+  /* The strip of sticky defaults sits over the dishes only: the rail keeps
+     the full height (every category at 44px on a 768px screen) and the
+     ticket never moves down. */
+  grid-template-areas: "rail top ticket" "rail dishes ticket";
   grid-template-columns: var(--z-rail) minmax(0, 1fr) var(--z-ticket);
   grid-template-rows: var(--z-top) minmax(0, 1fr);
   font-family: var(--font-staff);
@@ -107,20 +110,94 @@
 /* Buttons and segmented controls are the staff app's shared ones:
    components/kitchen/ui/ui.module.css. */
 
-/* ---- the POS toolbar: search, lunch hours -------------------------------- */
+/* ---- the strip: sticky rice and size, Apply to all, lunch hours, search -- */
 .top {
   grid-area: top;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: calc(var(--spacing) * 3);
-  padding: 0 calc(var(--spacing) * 6);
+  gap: calc(var(--spacing) * 1);
+  padding: 0 calc(var(--spacing) * 2);
   background: var(--color-staff-bg);
 }
 .topRight {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: calc(var(--spacing) * 2);
+  gap: calc(var(--spacing) * 1);
+}
+/* Lunch hours, smaller: the clock over 午餐, the same 44px floor. */
+.lunchBtn {
+  flex: none;
+  min-height: calc(var(--spacing) * 11);
+  min-width: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.05;
+  border-radius: var(--radius-staff-control);
+  background: var(--color-staff-sunken);
+  font-size: calc(12 * var(--staff-u));
+  font-weight: 600;
+  transition: background var(--staff-motion);
+}
+.lunchBtn svg {
+  width: calc(18 * var(--staff-u));
+  height: calc(18 * var(--staff-u));
+}
+.lunchBtn[aria-pressed="true"] {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
+}
+/* A compact segmented control: 中文 over English, the 44px floor, no wider
+   than its words, so rice and size share one row at 1024. */
+.defSeg {
+  flex: none;
+  padding: calc(2 * var(--staff-u));
+  gap: calc(2 * var(--staff-u));
+}
+.defSeg > button {
+  min-height: calc(var(--spacing) * 11);
+  min-width: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 1);
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  line-height: 1.05;
+}
+.defSeg .zh {
+  font-size: var(--text-staff-caption);
+  font-weight: 700;
+}
+.defSeg .en {
+  font-size: calc(12 * var(--staff-u));
+  font-weight: 500;
+}
+.applyAll {
+  flex: none;
+  min-height: calc(var(--spacing) * 11);
+  min-width: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 1);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.05;
+  border-radius: var(--radius-staff-control);
+  font-size: calc(13 * var(--staff-u));
+  font-weight: 700;
+  color: var(--color-staff-brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.applyAll .en {
+  font-size: calc(12 * var(--staff-u));
+  font-weight: 500;
+}
+.applyAll:active {
+  background: var(--color-staff-sunken);
 }
 .searchField {
   position: relative;
@@ -660,6 +737,15 @@ button.print:disabled {
 }
 button.print:disabled .zh {
   font-size: var(--text-staff-body);
+}
+
+/* A 10" landscape tablet (1024 wide): rail and ticket a step narrower so the
+   strip stays one row. */
+@media (orientation: landscape) and (max-width: 1100px) {
+  .root {
+    --z-rail: calc(150 * var(--staff-u));
+    --z-ticket: calc(348 * var(--staff-u));
+  }
 }
 
 /* Portrait: the same three columns; the ticket narrows and dishes go to two. */

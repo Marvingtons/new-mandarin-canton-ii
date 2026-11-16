@@ -33,6 +33,15 @@ export const RICE_GROUP_ID = "rice";
 export const RICE_STEAMED_ID = "rice-steamed";
 export const RICE_FRIED_ID = "rice-fried";
 export const RICE_BOTH_ID = "rice-both";
+/**
+ * 走飯 NO RICE, staff only. The POS's 無 None default needs a real choice to
+ * put on the line, because the rice group is required and the server refuses a
+ * rice dish with no rice pick. 走飯 is the kitchen's own word for it and both
+ * glyphs are already in the ticket font, so it prints with no font rebuild.
+ * `staffOnly` keeps it off the website: the customer sheet hides it and the
+ * web order route refuses it.
+ */
+export const RICE_NONE_ID = "rice-none";
 
 /**
  * Categories whose entrées come with rice, i.e. everything that arrives as
@@ -162,7 +171,7 @@ export function stripRice(
   if (itemSizeOffersRice(item, sizeId)) {
     return { modifierIds: [...modifierIds], removed: [] };
   }
-  const rice = new Set<string>([RICE_STEAMED_ID, RICE_FRIED_ID, RICE_BOTH_ID]);
+  const rice = new Set<string>([RICE_STEAMED_ID, RICE_FRIED_ID, RICE_BOTH_ID, RICE_NONE_ID]);
   const removed = modifierIds.filter((id) => rice.has(id));
   return {
     modifierIds: removed.length
@@ -220,6 +229,13 @@ export function riceGroup(allowSplit: boolean): MenuModifierGroup {
             },
           ]
         : []),
+      {
+        id: RICE_NONE_ID,
+        nameEn: "No Rice",
+        nameZh: "走飯",
+        priceCents: 0,
+        staffOnly: true,
+      },
     ],
   };
 }

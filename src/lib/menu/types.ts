@@ -22,6 +22,12 @@ export interface MenuModifier {
    * the stored order or the kitchen ticket.
    */
   note?: string;
+  /**
+   * Offered on the staff POS only (走飯 No Rice): the customer sheet never
+   * shows it and POST /api/orders refuses it. Staff relay a caller who says
+   * "no rice"; the website keeps its two-rice choice.
+   */
+  staffOnly?: boolean;
 }
 
 export interface MenuModifierGroup {

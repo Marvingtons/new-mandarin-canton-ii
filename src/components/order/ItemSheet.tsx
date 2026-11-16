@@ -181,7 +181,7 @@ function ItemSheetInner({
                 )}
               </legend>
               <div className="grid gap-2">
-                {g.modifiers.map((m) => {
+                {g.modifiers.filter((m) => !m.staffOnly).map((m) => {
                   const checked = isSelected(g.id, m.id);
                   return (
                     <label
