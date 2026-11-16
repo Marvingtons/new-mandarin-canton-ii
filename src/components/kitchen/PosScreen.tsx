@@ -139,44 +139,6 @@ function ZhName({ name }: { name: string }) {
 }
 
 /**
- * When a list outgrows its pane, where the "N more" bar goes: from the end of
- * the last whole item down, so a half item is never shown bare. Null when
- * everything fits or the list is scrolled to its end.
- */
-function useMoreBar(listRef: React.RefObject<HTMLElement | null>, itemSelector: string, deps: unknown[]) {
-  const [bar, setBar] = useState<{ top: number; hidden: number } | null>(null);
-  useLayoutEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const measure = () => {
-      const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 1;
-      if (list.scrollHeight <= list.clientHeight + 1 || atEnd) {
-        setBar(null);
-        return;
-      }
-      const box = list.getBoundingClientRect();
-      // Room for the bar's own 56px button and its 8px gap, in spec pixels.
-      const u = parseFloat(getComputedStyle(document.documentElement).fontSize) / 22;
-      const limit = box.bottom - 64 * u;
-      const items = [...list.querySelectorAll<HTMLElement>(itemSelector)];
-      const whole = items.filter((el) => el.getBoundingClientRect().bottom <= limit);
-      const last = whole[whole.length - 1];
-      setBar({ top: last ? last.getBoundingClientRect().bottom - box.top + 4 : 0, hidden: items.length - whole.length });
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(list);
-    list.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      observer.disconnect();
-      list.removeEventListener("scroll", measure);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-measure when the caller's content changes
-  }, deps);
-  return bar;
-}
-
-/**
  * How many ticket lines sit wholly or partly below the visible list, for the
  * row under it. Zero when everything fits or the list is at its end.
  */
@@ -454,8 +416,18 @@ export default function PosScreen({
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
-  const [activeCategory, setActiveCategory] = useState<string>(menu.categories[0]?.id ?? "");
-  const category = menu.categories.find((c) => c.id === activeCategory) ?? menu.categories[0];
+  /**
+   * The rail's order: 招牌菜 Specials, 午餐 Lunch Specials (only while lunch
+   * is open, by the clock or the override), 家庭餐 Family Dinners, then the
+   * rest in menu order. The grid shows them all, in the same order.
+   */
+  const railCategories = useMemo(() => {
+    const first = ["specials", ...(lunchOpen ? ["lunch-specials"] : []), "family-dinners"];
+    const pinned = first.map((id) => menu.categories.find((c) => c.id === id)).filter((c) => c !== undefined);
+    const rest = menu.categories.filter((c) => !first.includes(c.id) && c.id !== "lunch-specials");
+    return [...pinned, ...rest];
+  }, [menu, lunchOpen]);
+  const [activeCategory, setActiveCategory] = useState<string>(railCategories[0]?.id ?? "");
 
   const results = useMemo(() => {
     const q = query.trim();
@@ -482,11 +454,36 @@ export default function PosScreen({
   );
 
   const dishPaneRef = useRef<HTMLElement>(null);
+  /** Set while the grid scrolls to a rail tap, so the spy does not fight it. */
+  const jumping = useRef(false);
   function jumpTo(c: MenuCategory) {
     setQuery("");
     setSearchOpen(false);
     setActiveCategory(c.id);
-    dishPaneRef.current?.scrollTo({ top: 0 });
+    jumping.current = true;
+    // After the render that brings the categories back (if search was open).
+    requestAnimationFrame(() => {
+      const pane = dishPaneRef.current;
+      const section = pane?.querySelector<HTMLElement>(`[data-cat="${c.id}"]`);
+      if (pane && section) pane.scrollTo({ top: section.offsetTop - pane.offsetTop });
+      requestAnimationFrame(() => {
+        jumping.current = false;
+      });
+    });
+  }
+
+  /** Scrolling the grid: the category whose heading has passed the top is the active one. */
+  function spy() {
+    const pane = dishPaneRef.current;
+    if (!pane || jumping.current) return;
+    const top = pane.getBoundingClientRect().top + 8;
+    let current: string | null = null;
+    for (const el of pane.querySelectorAll<HTMLElement>("[data-cat]")) {
+      if (el.getBoundingClientRect().top <= top) current = el.dataset.cat ?? null;
+      else break;
+    }
+    const id = current ?? railCategories[0]?.id;
+    if (id && id !== activeCategory) setActiveCategory(id);
   }
 
   /**
@@ -760,7 +757,6 @@ export default function PosScreen({
   }, [lines]);
 
   const railRef = useRef<HTMLElement>(null);
-  const railBar = useMoreBar(railRef, "button", [menu]);
   const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines]);
 
   const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
@@ -816,8 +812,6 @@ export default function PosScreen({
       </button>
     </div>
   ) : null;
-
-  const look = category ? categoryLook(category) : null;
 
   /* ---- ticket header: the order type and who or which table, strongest on screen ---- */
   const placedStatus = placed && (
@@ -1092,46 +1086,34 @@ export default function PosScreen({
       </div>
 
       {/* ---------------------------------------------- categories -- */}
-      <div className={s.railWrap}>
-        <nav ref={railRef} aria-label={t("pos.categories")} className={`${s.rail} ${s.scroll}`}>
-          {menu.categories.map((c) => {
-            const l = categoryLook(c);
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => jumpTo(c)}
-                aria-current={c.id === category?.id && !results ? "true" : undefined}
-                style={tintStyle(l.tint)}
-              >
-                <span className={s.sw} />
-                <span lang={l.zh ? "zh-Hant" : "en"} className={s.zh}>
-                  {l.zh ?? l.en}
-                </span>
-                {l.zh && (
-                  <span lang="en" className={`${s.en} ${s.one}`}>
-                    {l.en}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-        {railBar && (
-          <div className={s.more} style={{ top: railBar.top }}>
+      <nav ref={railRef} aria-label={t("pos.categories")} className={`${s.rail} ${s.scroll}`}>
+        {railCategories.map((c) => {
+          const l = categoryLook(c);
+          return (
             <button
+              key={c.id}
               type="button"
-              onClick={() => railRef.current?.scrollBy({ top: railRef.current.clientHeight * 0.75, behavior: "smooth" })}
-              className={btn("secondary")}
+              data-cat-link={c.id}
+              onClick={() => jumpTo(c)}
+              aria-current={c.id === activeCategory && !results ? "true" : undefined}
+              style={tintStyle(l.tint)}
             >
-              {t("pos.moreCategories", { n: railBar.hidden })}
+              <span className={s.sw} />
+              <span lang={l.zh ? "zh-Hant" : "en"} className={s.zh}>
+                {l.zh ?? l.en}
+              </span>
+              {l.zh && (
+                <span lang="en" className={s.en}>
+                  {l.en}
+                </span>
+              )}
             </button>
-          </div>
-        )}
-      </div>
+          );
+        })}
+      </nav>
 
       {/* -------------------------------------------------- dishes -- */}
-      <section ref={dishPaneRef} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
+      <section ref={dishPaneRef} onScroll={results ? undefined : spy} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
         {lunchOverride && !lunchNow && (
           <p role="status" className={s.banner}>
             <Icon name="alert" size={22} />
@@ -1150,25 +1132,27 @@ export default function PosScreen({
             )}
           </>
         ) : (
-          category &&
-          look && (
-            <section id={`pos-cat-${category.id}`}>
-              <h2 className={s.sectionH}>
-                <span lang={look.zh ? "zh-Hant" : "en"} className={s.zh}>
-                  {look.zh ?? look.en}
-                </span>
-                {look.zh && (
-                  <span lang="en" className={s.en}>
-                    {category.nameEn}
+          railCategories.map((category) => {
+            const look = categoryLook(category);
+            return (
+              <section key={category.id} id={`pos-cat-${category.id}`} data-cat={category.id} className={s.catSection}>
+                <h2 className={s.sectionH}>
+                  <span lang={look.zh ? "zh-Hant" : "en"} className={s.zh}>
+                    {look.zh ?? look.en}
                   </span>
-                )}
-                {category.items.some((i) => i.lunchSpecial) && (
-                  <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
-                )}
-              </h2>
-              <div className={s.grid}>{category.items.map((item) => tile(item))}</div>
-            </section>
-          )
+                  {look.zh && (
+                    <span lang="en" className={s.en}>
+                      {category.nameEn}
+                    </span>
+                  )}
+                  {category.items.some((i) => i.lunchSpecial) && (
+                    <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
+                  )}
+                </h2>
+                <div className={s.grid}>{category.items.map((item) => tile(item))}</div>
+              </section>
+            );
+          })
         )}
       </section>
 

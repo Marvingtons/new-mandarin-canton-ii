@@ -221,30 +221,30 @@
   right: 0;
 }
 
-/* ---- rail: a swatch, the Chinese, the English --------------------------- */
-.railWrap {
-  grid-area: rail;
-  position: relative;
-  min-height: 0;
-}
+/* ---- rail: every category, a swatch, 中文 and English on one line -------
+   44px rows with no gap: all fifteen fit a 768px-tall screen. If they still
+   do not (大字), the rail scrolls on its own. */
 .rail {
-  height: 100%;
-  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3) calc(var(--spacing) * 4) calc(var(--spacing) * 6);
+  grid-area: rail;
+  min-height: 0;
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 3);
   display: flex;
   flex-direction: column;
-  gap: calc(var(--spacing) * 1);
+  gap: 0;
 }
 .rail button {
   --c-ink: color-mix(in oklab, var(--c), var(--color-staff-ink) 30%);
-  flex: none;
-  height: calc(var(--spacing) * 14);
-  padding: 0 calc(var(--spacing) * 3);
+  /* 44px when the screen is tight, up to 56 when there is room. */
+  flex: 1 0 calc(var(--spacing) * 11);
+  min-height: calc(var(--spacing) * 11);
+  max-height: calc(var(--spacing) * 14);
+  padding: 0 calc(var(--spacing) * 2);
   border-radius: var(--radius-staff-control);
-  display: grid;
-  grid-template-columns: calc(var(--spacing) * 1) minmax(0, 1fr);
-  column-gap: calc(var(--spacing) * 2);
-  align-content: center;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
   text-align: left;
+  white-space: nowrap;
   color: var(--color-staff-ink);
   transition: background var(--staff-motion);
 }
@@ -252,21 +252,25 @@
   background: var(--color-staff-sunken);
 }
 .sw {
-  grid-row: span 2;
+  flex: none;
   align-self: stretch;
-  margin: calc(var(--spacing) * 1) 0;
+  width: calc(var(--spacing) * 1);
+  margin: calc(var(--spacing) * 2) 0;
   border-radius: calc(4 * var(--staff-u));
   background: var(--c-ink);
 }
 .rail .zh {
-  font-size: var(--text-staff-title);
+  flex: none;
+  font-size: var(--text-staff-body);
   line-height: 1.15;
 }
 .rail .en {
-  font-size: var(--text-staff-caption);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(13 * var(--staff-u));
   line-height: 1.2;
   color: var(--color-staff-soft);
-  max-width: 100%;
 }
 .rail button[aria-current="true"] {
   background: var(--color-staff-brand);
@@ -285,6 +289,11 @@
   min-height: 0;
   min-width: 0;
   padding: calc(var(--spacing) * 2) calc(var(--spacing) * 6) calc(var(--spacing) * 6) calc(var(--spacing) * 3);
+}
+/* Every category in one scroll; the last one is at least a pane tall so a
+   rail tap can bring any heading to the top. */
+.catSection:last-child {
+  min-height: 100%;
 }
 .sectionH {
   display: flex;
@@ -723,21 +732,6 @@ button.who {
   font-size: var(--text-staff-title);
   font-weight: 700;
 }
-/* Lines that outgrow the panel: a bar covers from the last whole line down and
-   says how many are below. A half line is never shown bare. Same for the rail. */
-.more {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: flex-end;
-  background: var(--color-staff-bg);
-  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3) 0 calc(var(--spacing) * 6);
-}
-.more button {
-  width: 100%;
-}
 .empty {
   height: 100%;
   display: flex;
@@ -819,6 +813,13 @@ button.print:disabled .zh {
   font-size: var(--text-staff-body);
 }
 
+/* A wide landscape screen: room for every category's English in full. */
+@media (orientation: landscape) and (min-width: 1280px) {
+  .root {
+    --z-rail: calc(212 * var(--staff-u));
+  }
+}
+
 /* A 10" landscape tablet (1024 wide): rail and ticket a step narrower so the
    strip stays one row. */
 @media (orientation: landscape) and (max-width: 1100px) {
@@ -843,9 +844,6 @@ button.print:disabled .zh {
   .root {
     --z-rail: calc(152 * var(--staff-u));
     --z-ticket: calc(320 * var(--staff-u));
-  }
-  .rail {
-    padding-left: calc(var(--spacing) * 4);
   }
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(calc(150 * var(--staff-u)), 1fr));
