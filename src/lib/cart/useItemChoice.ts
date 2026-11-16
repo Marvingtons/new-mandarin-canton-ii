@@ -26,6 +26,12 @@ export function useItemChoice(
    * made for them.
    */
   preselectRequired = true,
+  /**
+   * Open on these choices instead: the POS editing a line on its ticket, or a
+   * tap prefilled with the strip's rice. Ids the item does not offer are
+   * ignored. Unset: the defaults above.
+   */
+  initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string },
 ) {
   const sizes = itemSizes(item);
   // A caller that already knows the size (the POS tray button) opens on it.
@@ -50,18 +56,26 @@ export function useItemChoice(
    * and needs no effect.
    */
   const [selected, setSelected] = useState<Record<string, string[]>>(() => {
-    const initial: Record<string, string[]> = {};
-    if (!preselectRequired) return initial;
+    if (initial?.modifierIds) {
+      const seeded: Record<string, string[]> = {};
+      for (const g of item.modifierGroups) {
+        const ids = g.modifiers.map((m) => m.id).filter((id) => initial.modifierIds!.includes(id));
+        if (ids.length) seeded[g.id] = ids;
+      }
+      return seeded;
+    }
+    const initialSel: Record<string, string[]> = {};
+    if (!preselectRequired) return initialSel;
     for (const g of item.modifierGroups) {
       // An "or" dish's either/or is never defaulted: the pick is the dish.
       if (g.minRequired >= 1 && g.maxAllowed === 1 && !g.noDefault && g.modifiers[0]) {
-        initial[g.id] = [g.modifiers[0].id];
+        initialSel[g.id] = [g.modifiers[0].id];
       }
     }
-    return initial;
+    return initialSel;
   });
-  const [quantity, setQuantity] = useState(1);
-  const [instructions, setInstructions] = useState("");
+  const [quantity, setQuantity] = useState(initial?.quantity ?? 1);
+  const [instructions, setInstructions] = useState(initial?.instructions ?? "");
 
   /**
    * The groups this SIZE offers. A party tray has no rice group: rice

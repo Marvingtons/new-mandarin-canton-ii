@@ -507,44 +507,63 @@
   background: var(--color-staff-panel);
   box-shadow: -1px 0 0 var(--color-staff-sunken);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* head, the lines (the only part that scrolls), the "more below" row,
+     and the total with Print pinned at the bottom. */
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 .tHead {
-  padding: calc(var(--spacing) * 4) calc(var(--spacing) * 6) calc(var(--spacing) * 3);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4) calc(var(--spacing) * 2);
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: calc(var(--spacing) * 2);
 }
+/* One row: the order type, who it is for (Add customer), clear. */
 .tRow {
   display: flex;
   align-items: center;
-  gap: calc(var(--spacing) * 3);
+  gap: calc(var(--spacing) * 2);
   min-height: calc(var(--spacing) * 14);
+  min-width: 0;
 }
-.tCtx {
+.tRow .key {
+  flex: none;
+  font-size: var(--text-staff-heading);
+  font-weight: 700;
+  line-height: 1.1;
+}
+button.who {
   flex: 1;
   min-width: 0;
-  font-size: var(--text-staff-title);
-  font-weight: 600;
+  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
   line-height: 1.2;
+}
+.whoText {
   display: flex;
-  align-items: baseline;
   gap: calc(var(--spacing) * 2);
+  max-width: 100%;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.tCtx .key {
-  font-size: var(--text-staff-display);
-  font-weight: 700;
-}
-.tCtx .ctx {
+.whoText .ctx {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tHead > button {
-  width: 100%;
-  justify-content: flex-start;
+.whoEn {
+  font-size: var(--text-staff-caption);
+  font-weight: 500;
+  color: var(--color-staff-soft);
+}
+.when {
+  font-size: var(--text-staff-caption);
+  font-weight: 600;
+  color: var(--color-staff-brand);
 }
 
 .status {
@@ -564,32 +583,38 @@
 .status button {
   margin-left: auto;
 }
-.linesWrap {
-  position: relative;
-  min-height: 0;
-}
 .lines {
-  height: 100%;
-  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 4);
+  min-height: 0;
+  overflow-x: hidden;
+  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
   display: flex;
   flex-direction: column;
   gap: calc(var(--spacing) * 1);
 }
-/* A line: category stripe, quantity, name, price. Tap it to edit; only the
-   line being edited shows a stepper and the note field. */
+/* "N more below": a row of its own between the lines and the total, so it
+   can never sit over a line. Empty (and 0 tall) when nothing is below. */
+.below {
+  display: flex;
+  justify-content: center;
+  padding: 0 calc(var(--spacing) * 3);
+}
+.below button {
+  width: 100%;
+  color: var(--color-staff-soft);
+}
+/* A line: category stripe, name and price over its choices, and the
+   stepper. Tap the line itself to change it in the sheet. */
 .line {
   --c-ink: color-mix(in oklab, var(--c), var(--color-staff-ink) 30%);
   position: relative;
   isolation: isolate;
+  flex: none;
   display: grid;
-  grid-template-columns: calc(6 * var(--staff-u)) calc(36 * var(--staff-u)) minmax(0, 1fr) auto;
-  column-gap: calc(var(--spacing) * 3);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 2) 0;
+  column-gap: calc(var(--spacing) * 1);
   border-radius: var(--radius-staff-control);
-  text-align: left;
-  width: 100%;
-  transition: background var(--staff-motion);
+  min-width: 0;
 }
 /* The line just added or bumped. */
 .lineFlash {
@@ -610,90 +635,70 @@
     opacity: 0;
   }
 }
-.line.editing {
+.lineHit {
+  min-width: 0;
+  min-height: calc(var(--spacing) * 14);
+  display: grid;
+  grid-template-columns: calc(5 * var(--staff-u)) minmax(0, 1fr);
+  column-gap: calc(var(--spacing) * 2);
+  align-items: stretch;
+  padding: calc(var(--spacing) * 1) 0;
+  border-radius: var(--radius-staff-control);
+  text-align: left;
+  transition: background var(--staff-motion);
+}
+.lineHit:active {
   background: var(--color-staff-bg);
 }
-.lineHit {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  align-items: center;
-  text-align: left;
-  min-height: calc(var(--spacing) * 14);
-}
 .st {
-  align-self: stretch;
   border-radius: calc(4 * var(--staff-u));
   background: var(--c-ink);
 }
-.line .q {
-  font-size: var(--text-staff-title);
-  font-weight: 700;
-  text-align: right;
+.lineText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.lineTop {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--spacing) * 2);
+  min-width: 0;
 }
 .line .zh {
+  flex: 1;
+  min-width: 0;
   font-size: var(--text-staff-title);
   line-height: 1.2;
-  display: block;
 }
-.line .en {
-  font-size: var(--text-staff-caption);
-  color: var(--color-staff-soft);
-  line-height: 1.35;
+.sub {
   display: block;
+  font-size: var(--text-staff-caption);
+  line-height: 1.35;
+  color: var(--color-staff-soft);
+}
+.opts {
+  font-weight: 700;
+  color: var(--color-staff-ink);
+  margin-right: calc(var(--spacing) * 2);
 }
 .lp {
+  flex: none;
   font-size: var(--text-staff-body);
   font-weight: 600;
-}
-.tag {
-  font-size: 0.82em;
-  font-weight: 600;
-  color: var(--color-staff-ink);
-  background: var(--color-staff-sunken);
-  border-radius: var(--radius-staff-tag);
-  padding: 0 calc(var(--spacing) * 2);
-  margin-left: calc(var(--spacing) * 2);
-  vertical-align: 0.1em;
 }
 .note {
   display: block;
   font-size: var(--text-staff-caption);
   color: var(--color-staff-ink);
   line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .note::before {
   content: "✎ ";
   color: var(--color-staff-line-strong);
 }
-.edit {
-  grid-column: 2 / -1;
-  grid-row: 2;
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--spacing) * 2);
-  margin-top: calc(var(--spacing) * 2);
-}
-.edit > button {
-  flex: 1;
-}
-.noteField {
-  flex: 1 0 100%;
-  height: calc(var(--spacing) * 14);
-  border-radius: var(--radius-staff-control);
-  background: var(--color-staff-panel);
-  box-shadow: inset 0 0 0 2px var(--color-staff-sunken);
-  padding: 0 calc(var(--spacing) * 4);
-  font-size: var(--text-staff-body);
-  color: var(--color-staff-ink);
-  outline: none;
-}
-.noteField:focus {
-  box-shadow: inset 0 0 0 2px var(--color-staff-brand);
-}
+/* − qty +, each button the 44px floor. */
 .stepper {
   display: flex;
   align-items: center;
@@ -701,13 +706,19 @@
   border-radius: var(--radius-staff-control);
 }
 .stepper button {
-  width: calc(var(--spacing) * 14);
-  padding: 0;
-  font-size: var(--text-staff-heading);
-  font-weight: 500;
+  width: calc(var(--spacing) * 11);
+  height: calc(var(--spacing) * 11);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-staff-control);
+  transition: background var(--staff-motion);
+}
+.stepper button:active {
+  background: var(--color-staff-line);
 }
 .stepper .q {
-  width: calc(32 * var(--staff-u));
+  min-width: calc(24 * var(--staff-u));
   text-align: center;
   font-size: var(--text-staff-title);
   font-weight: 700;
@@ -721,10 +732,6 @@
   bottom: 0;
   display: flex;
   align-items: flex-end;
-  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 6) 0;
-  background: var(--color-staff-panel);
-}
-.railWrap > .more {
   background: var(--color-staff-bg);
   padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3) 0 calc(var(--spacing) * 6);
 }
@@ -749,10 +756,10 @@
   color: var(--color-staff-soft);
 }
 .tFoot {
-  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 6) calc(var(--spacing) * 6);
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 4) calc(var(--spacing) * 4);
   display: flex;
   flex-direction: column;
-  gap: calc(var(--spacing) * 3);
+  gap: calc(var(--spacing) * 2);
   min-width: 0;
   box-shadow: 0 -1px 0 var(--color-staff-sunken);
 }
@@ -793,7 +800,7 @@
   font-weight: 600;
 }
 button.print {
-  min-height: calc(var(--spacing) * 22);
+  min-height: calc(var(--spacing) * 18);
   width: 100%;
   font-size: var(--text-staff-title);
   justify-content: space-between;

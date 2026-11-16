@@ -10,6 +10,7 @@ import { formatPhoneAsTyped, normalizePhone } from "@/lib/phone";
 import { staffPickupSlots, clockLabel, type PickupOptions } from "@/lib/order/pickup";
 import { isLunchService, LUNCH_END_MINUTES, LUNCH_START_MINUTES } from "@/lib/order/gates";
 import { resolveSizeZh } from "@/data/menu-overrides";
+import { RICE_GROUP_ID } from "@/lib/menu/rice";
 import { menuNumber } from "@/data/menu-presentation";
 import type { OrderLine, StaffChannel } from "@/lib/orders/types";
 import type { Station } from "@/config/stations";
@@ -121,10 +122,6 @@ function newKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function isDefaultSize(label: string): boolean {
-  return ["individual", "regular", ""].includes(label.toLowerCase());
-}
-
 /** "春卷（2條）": the count is data, not name, so it is one step smaller. */
 function nameParts(name: string): { base: string; count: string | null } {
   const m = name.match(/^(.*?)(（.+）)$/);
@@ -177,6 +174,33 @@ function useMoreBar(listRef: React.RefObject<HTMLElement | null>, itemSelector: 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-measure when the caller's content changes
   }, deps);
   return bar;
+}
+
+/**
+ * How many ticket lines sit wholly or partly below the visible list, for the
+ * row under it. Zero when everything fits or the list is at its end.
+ */
+function useLinesBelow(listRef: React.RefObject<HTMLElement | null>, itemSelector: string, deps: unknown[]) {
+  const [below, setBelow] = useState(0);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const measure = () => {
+      const bottom = list.getBoundingClientRect().bottom;
+      const items = [...list.querySelectorAll<HTMLElement>(itemSelector)];
+      setBelow(items.filter((el) => el.getBoundingClientRect().bottom > bottom + 1).length);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    list.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      list.removeEventListener("scroll", measure);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-measure when the caller's content changes
+  }, deps);
+  return below;
 }
 
 /**
@@ -241,7 +265,7 @@ function DishTile({
         aria-label={asks ? `${name} · ${labels.asks}` : name}
         className={s.tileMain}
       />
-      {flash > 0 && <span key={flash} aria-hidden="true" className={s.tapFlash} />}
+      {flash > 0 && <span key={`flash-${flash}`} aria-hidden="true" className={s.tapFlash} />}
       <span lang={item.nameZh ? "zh-Hant" : "en"} className={s.zh}>
         {hint !== null && <span className={`${s.hint} ${s.num}`}>{hint}</span>}
         <ZhName name={zhName} />
@@ -253,7 +277,7 @@ function DishTile({
       )}
       {asks && !disabledLabel && <span aria-hidden="true" title={labels.asks} className={s.asks} />}
       {count > 0 && (
-        <span key={count} className={`${s.qtyBadge} ${s.num}`}>
+        <span key={`qty-${count}`} className={`${s.qtyBadge} ${s.num}`}>
           {count}
         </span>
       )}
@@ -361,9 +385,6 @@ export default function PosScreen({
   const [justNow, setJustNow] = useState<Placed | null>(null);
   /** The clear-ticket confirm is open (a destructive action, like cancel). */
   const [confirmClear, setConfirmClear] = useState(false);
-  /** The line showing its stepper and note, if any. */
-  const [editing, setEditing] = useState<string | null>(null);
-  const [noteOpen, setNoteOpen] = useState(false);
 
   // "Scheduled for" offers the clock times; leaving it empty is ASAP, which
   // the store only takes while its doors are open.
@@ -409,9 +430,13 @@ export default function PosScreen({
    * The dish being chosen: the size to open on, the one choice to open
    * expanded (a group id, or "size"), and the line it replaces.
    */
-  const [sheetItem, setSheetItem] = useState<{ item: MenuItem; sizeId?: string; focus?: string; replace?: string } | null>(
-    null,
-  );
+  const [sheetItem, setSheetItem] = useState<{
+    item: MenuItem;
+    sizeId?: string;
+    focus?: string;
+    replace?: string;
+    initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string };
+  } | null>(null);
   /** The tile just tapped, and a counter that replays its highlight. */
   const [tileFlash, setTileFlash] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   /** The ticket line just added or bumped, likewise. */
@@ -544,15 +569,37 @@ export default function PosScreen({
     requestAnimationFrame(() => linesRef.current?.scrollTo({ top: linesRef.current.scrollHeight }));
   }
 
+  /**
+   * The line's + and −. Minus at 1 takes the line off with no confirm; the
+   * toast's Undo puts it back where it was.
+   */
   function setQty(lineId: string, quantity: number) {
-    if (quantity < 1) setEditing(null);
-    setLines((prev) =>
-      quantity < 1 ? prev.filter((l) => l.lineId !== lineId) : prev.map((l) => (l.lineId === lineId ? { ...l, quantity: Math.min(50, quantity) } : l)),
-    );
+    if (quantity >= 1) {
+      setLines((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, quantity: Math.min(50, quantity) } : l)));
+      return;
+    }
+    const at = lines.findIndex((l) => l.lineId === lineId);
+    if (at < 0) return;
+    const removed = lines[at];
+    setLines(lines.filter((l) => l.lineId !== lineId));
+    const item = index.get(removed.itemId);
+    toast(t("pos.removedLine", { name: item?.nameZh ?? item?.nameEn ?? "" }), "info", {
+      label: t("card.undo"),
+      onAction: () =>
+        setLines((prev) => (prev.some((l) => l.lineId === lineId) ? prev : [...prev.slice(0, at), removed, ...prev.slice(at)])),
+    });
   }
 
-  function setNote(lineId: string, note: string) {
-    setLines((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, specialInstructions: note || undefined } : l)));
+  /** Tap a line: the sheet, on that line's own choices, to change it in place. */
+  function editLine(line: TicketLine) {
+    const item = index.get(line.itemId);
+    if (!item) return;
+    setSheetItem({
+      item,
+      sizeId: line.sizeId,
+      replace: line.lineId,
+      initial: { modifierIds: line.modifierIds, quantity: line.quantity, instructions: line.specialInstructions },
+    });
   }
 
   /* --------------------------------------------------- repeat customers -- */
@@ -627,7 +674,6 @@ export default function PosScreen({
     setReturning(null);
     setConfirmClear(false);
     setNotice(null);
-    setEditing(null);
   }
 
   async function submit() {
@@ -715,7 +761,7 @@ export default function PosScreen({
 
   const railRef = useRef<HTMLElement>(null);
   const railBar = useMoreBar(railRef, "button", [menu]);
-  const linesBar = useMoreBar(linesRef, `.${s.line}`, [lines, editing, noteOpen]);
+  const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines]);
 
   const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
   const tile = (item: MenuItem, hint: number | null = null) => {
@@ -802,11 +848,34 @@ export default function PosScreen({
         </p>
       )}
       <div className={s.tRow}>
-        <div className={s.tCtx}>
-          {/* Phone or walk-in, and who it is for when staff took a name. */}
-          <span className={s.key}>{t(`channel.${channel}`)}</span>
-          {name.trim() && <span className={s.ctx}>{name.trim()}</span>}
-        </div>
+        {/* Phone or walk-in, strongest on the ticket. */}
+        <span className={s.key}>{t(`channel.${channel}`)}</span>
+        {/* Who it is for: a name if staff took one (optional), the phone a
+            phone order needs, and the scheduled time if it has one. */}
+        <button
+          type="button"
+          data-context="takeout"
+          onClick={() => setDetailsOpen(true)}
+          aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
+          className={`${btn("secondary")} ${s.who}`}
+        >
+          {customerSummary ? (
+            <span className={s.whoText}>
+              {name.trim() && <span className={s.ctx}>{name.trim()}</span>}
+              {phone.trim() && <span className={s.num}>{phone.trim()}</span>}
+            </span>
+          ) : (
+            <>
+              <span lang="zh-Hant" className={s.whoText}>
+                {t("pos.addCustomerZh")}
+              </span>
+              <span lang="en" className={s.whoEn}>
+                {t("pos.addCustomerEn")}
+              </span>
+            </>
+          )}
+          {scheduledLabel && <span className={`${s.num} ${s.when}`}>{t("pos.scheduledAt", { time: scheduledLabel })}</span>}
+        </button>
         {(lines.length > 0 || customerSummary) && (
           <button
             type="button"
@@ -822,16 +891,6 @@ export default function PosScreen({
           </button>
         )}
       </div>
-      <button
-        type="button"
-        data-context="takeout"
-        onClick={() => setDetailsOpen(true)}
-        aria-label={t("pos.details.open", { summary: customerSummary || t(`channel.${channel}`) })}
-        className={btn("secondary")}
-      >
-        {phone.trim() ? <span className={s.num}>{phone.trim()}</span> : t("pos.addCustomer")}
-        {scheduledLabel && <span className={s.num}>{t("pos.scheduledAt", { time: scheduledLabel })}</span>}
-      </button>
     </div>
   );
 
@@ -847,87 +906,76 @@ export default function PosScreen({
       </div>
     ) : (
       priced.map(({ line, item, lineCents }) => {
-        const size = item ? itemSizes(item).find((x) => x.id === line.sizeId) : undefined;
-        const tag = size && !isDefaultSize(size.label) ? (resolveSizeZh(size.label) ?? size.label) : null;
-        // Every choice on the line: staff made each one, so each is shown.
+        const sizes = item ? itemSizes(item) : [];
+        const size = sizes.find((x) => x.id === line.sizeId);
+        // 飯 / size / choice: every choice staff made, 中文 first.
+        const summary: string[] = [];
         const chosen = new Set(line.modifierIds);
-        const mods: string[] = [];
+        const rice = item?.modifierGroups.find((g) => g.id === RICE_GROUP_ID);
+        for (const m of rice?.modifiers ?? []) if (chosen.has(m.id)) summary.push(m.nameZh ?? m.nameEn);
+        if (size && sizes.length > 1) summary.push(resolveSizeZh(size.label) ?? size.label);
         for (const g of item?.modifierGroups ?? []) {
-          for (const m of g.modifiers) if (chosen.has(m.id)) mods.push(m.nameZh ?? m.nameEn);
+          if (g.id === RICE_GROUP_ID) continue;
+          for (const m of g.modifiers) if (chosen.has(m.id)) summary.push(m.nameZh ?? m.nameEn);
         }
-        const isEditing = editing === line.lineId;
         const zhName = item?.nameZh ?? item?.nameEn ?? line.itemId;
         return (
           <div
             key={line.lineId}
-            className={`${s.line} ${isEditing ? s.editing : ""}`}
+            className={s.line}
             style={tintStyle(tintOf.get(line.itemId) ?? "sides")}
             data-line={line.lineId}
           >
             {lineFlash.id === line.lineId && lineFlash.n > 0 && (
-              <span key={lineFlash.n} aria-hidden="true" className={s.lineFlash} />
+              <span key={`flash-${lineFlash.n}`} aria-hidden="true" className={s.lineFlash} />
             )}
             <button
               type="button"
-              aria-expanded={isEditing}
-              onClick={() => {
-                setEditing(isEditing ? null : line.lineId);
-                setNoteOpen(false);
-              }}
+              aria-haspopup="dialog"
+              aria-label={`${t("pos.editLine")} ${line.quantity} ${item?.nameZh ?? ""} ${item?.nameEn ?? ""} ${summary.join(" ")}`}
+              onClick={() => editLine(line)}
               className={s.lineHit}
             >
               <span className={s.st} />
-              <span className={`${s.q} ${s.num}`}>{line.quantity}</span>
-              <span style={{ minWidth: 0 }}>
-                <span lang={item?.nameZh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
-                  <ZhName name={zhName} />
-                  {tag && <span className={s.tag}>{tag}</span>}
-                </span>
-                {item?.nameZh && (
-                  <span lang="en" className={`${s.en} ${s.one}`}>
-                    {[item.nameEn, ...mods].join(" · ")}
+              <span className={s.lineText}>
+                <span className={s.lineTop}>
+                  <span lang={item?.nameZh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
+                    <ZhName name={zhName} />
                   </span>
-                )}
-                {line.specialInstructions && <span className={s.note}>{line.specialInstructions}</span>}
+                  <span className={`${s.lp} ${s.num}`}>{formatCents(lineCents)}</span>
+                </span>
+                <span className={`${s.sub} ${s.one}`}>
+                  {summary.length > 0 && (
+                    <span lang="zh-Hant" className={s.opts}>
+                      {summary.join(" / ")}
+                    </span>
+                  )}
+                  {item?.nameZh && <span lang="en">{item.nameEn}</span>}
+                </span>
+                {line.specialInstructions && <span className={`${s.note} ${s.one}`}>{line.specialInstructions}</span>}
               </span>
-              <span className={`${s.lp} ${s.num}`}>{formatCents(lineCents)}</span>
             </button>
-            {isEditing && (
-              <div className={s.edit}>
-                <div className={s.stepper}>
-                  <button type="button" aria-label={t("pos.decrease")} onClick={() => setQty(line.lineId, line.quantity - 1)} className={btn("quiet")}>
-                    <Icon name={line.quantity > 1 ? "minus" : "trash"} size={24} />
-                  </button>
-                  <span className={`${s.q} ${s.num}`}>{line.quantity}</span>
-                  <button type="button" aria-label={t("pos.increase")} onClick={() => setQty(line.lineId, line.quantity + 1)} className={btn("quiet")}>
-                    <Icon name="plus" size={24} />
-                  </button>
-                </div>
-                <button type="button" aria-pressed={noteOpen} onClick={() => setNoteOpen((o) => !o)} className={btn("secondary")}>
-                  {t("pos.lineNoteButton")}
-                </button>
-                {item && item.modifierGroups.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSheetItem({ item, sizeId: line.sizeId, replace: line.lineId })}
-                    className={btn("secondary")}
-                  >
-                    {t("pos.options")}
-                  </button>
-                )}
-                {noteOpen && (
-                  <input
-                    value={line.specialInstructions ?? ""}
-                    onChange={(e) => setNote(line.lineId, e.target.value)}
-                    maxLength={200}
-                    placeholder={t("pos.lineNotePlaceholder")}
-                    aria-label={t("pos.lineNoteButton")}
-                    autoComplete="off"
-                    className={s.noteField}
-                  />
-                )}
-              </div>
-            )}
+            <div className={s.stepper} role="group" aria-label={t("sheet.quantity")}>
+              <button
+                type="button"
+                data-step="minus"
+                aria-label={line.quantity > 1 ? t("pos.decrease") : t("pos.removeLine")}
+                onClick={() => setQty(line.lineId, line.quantity - 1)}
+              >
+                <Icon name={line.quantity > 1 ? "minus" : "trash"} size={20} />
+              </button>
+              <span className={`${s.q} ${s.num}`} data-qty>
+                {line.quantity}
+              </span>
+              <button
+                type="button"
+                data-step="plus"
+                aria-label={t("pos.increase")}
+                onClick={() => setQty(line.lineId, line.quantity + 1)}
+              >
+                <Icon name="plus" size={20} />
+              </button>
+            </div>
           </div>
         );
       })
@@ -1127,20 +1175,21 @@ export default function PosScreen({
       {/* -------------------------------------------------- ticket -- */}
       <aside aria-label={t("pos.ticket")} className={s.ticket}>
         {ticketHead}
-        <div className={s.linesWrap}>
-          <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
-            {ticketLines}
-          </div>
-          {linesBar && (
-            <div className={s.more} style={{ top: linesBar.top }}>
-              <button
-                type="button"
-                onClick={() => linesRef.current?.scrollBy({ top: linesRef.current.clientHeight * 0.75, behavior: "smooth" })}
-                className={btn("secondary")}
-              >
-                {t("pos.moreLines", { n: linesBar.hidden })}
-              </button>
-            </div>
+        <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
+          {ticketLines}
+        </div>
+        {/* Its own row under the list, never over it: how many lines are
+            below, and a tap scrolls to them. */}
+        <div className={s.below}>
+          {linesBelow > 0 && (
+            <button
+              type="button"
+              data-action="more-lines"
+              onClick={() => linesRef.current?.scrollBy({ top: linesRef.current.clientHeight * 0.75, behavior: "smooth" })}
+              className={`${btn("quiet")} ${ui.sm}`}
+            >
+              {t("pos.moreLines", { n: linesBelow })}
+            </button>
           )}
         </div>
 
@@ -1356,6 +1405,8 @@ export default function PosScreen({
           key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}:${sheetItem.replace ?? ""}`}
           item={sheetItem.item}
           initialSizeId={sheetItem.sizeId}
+          initial={sheetItem.initial}
+          editing={sheetItem.replace !== undefined}
           focus={sheetItem.focus}
           menuNumber={menuNumber(sheetItem.item.id)}
           onAdd={(draft) => addLine(draft, sheetItem.replace)}

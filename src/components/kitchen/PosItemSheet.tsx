@@ -103,6 +103,8 @@ function SectionHead({
 export default function PosItemSheet({
   item,
   initialSizeId,
+  initial,
+  editing = false,
   focus,
   menuNumber,
   onAdd,
@@ -111,6 +113,10 @@ export default function PosItemSheet({
   item: MenuItem;
   /** Open on this size (the strip's default, or the line being edited). */
   initialSizeId?: string;
+  /** Open on these choices, quantity and note (a line on the ticket being edited). */
+  initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string };
+  /** Changing a line already on the ticket: the button says Update. */
+  editing?: boolean;
   /**
    * The one choice to open expanded, the rest closed: a group id, or "size".
    * A tile tap that asks sets it to the choice the defaults did not cover.
@@ -137,7 +143,7 @@ export default function PosItemSheet({
     priceCents,
     unmetGroups,
     groupsValid,
-  } = useItemChoice(item, initialSizeId, false);
+  } = useItemChoice(item, initialSizeId, false, initial);
 
   /** Which sections are open. A focused sheet opens just the choice it needs. */
   const [open, setOpen] = useState<Set<string>>(() =>
@@ -364,7 +370,7 @@ export default function PosItemSheet({
             disabled={!groupsValid}
             className="flex h-[4rem] flex-1 items-center justify-between gap-3 rounded-pos bg-staff-brand px-6 text-[1.182rem] font-bold whitespace-nowrap text-staff-on-brand transition-colors hover:bg-staff-brand-hover disabled:cursor-not-allowed disabled:bg-staff-sunken disabled:text-staff-soft"
           >
-            <span>{t("sheet.add")}</span>
+            <span>{editing ? t("sheet.update") : t("sheet.add")}</span>
             <span className="tabular-nums">{formatCents(priceCents)}</span>
           </button>
         </div>
