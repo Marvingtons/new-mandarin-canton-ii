@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MenuItem } from "@/lib/menu/types";
 import { useItemChoice } from "@/lib/cart/useItemChoice";
 import { resolveSizeZh } from "@/data/menu-overrides";
@@ -27,9 +27,11 @@ const MAX_INSTRUCTIONS = 200;
  *
  * Keyed by item id from the parent, so a new dish starts clean.
  *
- * NO REQUIRED CHOICE IS PRESELECTED here, unlike the customer sheet: a lunch
- * entrée, an "or" dish, the rice all open blank and Add stays disabled until
- * staff pick, so nothing reaches the kitchen that the caller did not say.
+ * THE SHEET NEVER CHOOSES ON ITS OWN, unlike the customer sheet. What it
+ * opens on comes from staff: the strip's sticky rice (a default they set), or
+ * the line being edited. A required choice with no sticky default (a lunch
+ * entrée, an "or" dish, a family dinner's head count) opens blank, expanded
+ * and first, and Add stays disabled until staff pick it.
  */
 /** One choice in the sheet (a size, a rice, an extra): selected is ringed in lacquer. */
 const option = (selected: boolean) =>
@@ -168,13 +170,56 @@ export default function PosItemSheet({
     if (nextUnmet) setOpen((prev) => new Set(prev).add(nextUnmet.id));
   }
 
+  /**
+   * A modal that keeps the keyboard: focus starts on the choice the sheet was
+   * opened for (else Add, else the first option), Tab and Shift+Tab cycle
+   * inside the sheet, Escape closes it, and focus goes back to the tile or
+   * line that opened it.
+   */
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
   useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  useEffect(() => {
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = panelRef.current;
+    const start =
+      (focus ? panel?.querySelector<HTMLElement>(`[data-section="${focus}"] [aria-pressed]`) : null) ??
+      panel?.querySelector<HTMLElement>('[data-action="sheet-add"]:not(:disabled)') ??
+      panel?.querySelector<HTMLElement>("[aria-pressed]");
+    start?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !panel) return;
+      const stops = [
+        ...panel.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex='-1'])",
+        ),
+      ].filter((el) => el.offsetParent !== null);
+      if (stops.length === 0) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const inside = panel.contains(document.activeElement);
+      if (e.shiftKey && (!inside || document.activeElement === first)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (!inside || document.activeElement === last)) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (returnTo?.isConnected) returnTo.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opening: the sheet is keyed by what it opened on
+  }, []);
 
   function add() {
     if (!groupsValid) return;
@@ -195,7 +240,10 @@ export default function PosItemSheet({
       aria-label={item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn}
     >
       <button aria-hidden="true" tabIndex={-1} className="absolute inset-0 bg-staff-scrim" onClick={onClose} />
-      <div className="staff-sheet-in relative z-10 flex max-h-[92svh] w-full max-w-[36rem] flex-col overflow-hidden rounded-t-[24px] bg-staff-bg text-staff-ink shadow-staff-raised sm:rounded-[24px]">
+      <div
+        ref={panelRef}
+        className="staff-sheet-in relative z-10 flex max-h-[92svh] w-full max-w-[36rem] flex-col overflow-hidden rounded-t-[24px] bg-staff-bg text-staff-ink shadow-staff-raised sm:rounded-[24px]"
+      >
         <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             {menuNumber !== null && (
@@ -368,6 +416,7 @@ export default function PosItemSheet({
             type="button"
             onClick={add}
             disabled={!groupsValid}
+            data-action="sheet-add"
             className="flex h-[4rem] flex-1 items-center justify-between gap-3 rounded-pos bg-staff-brand px-6 text-[1.182rem] font-bold whitespace-nowrap text-staff-on-brand transition-colors hover:bg-staff-brand-hover disabled:cursor-not-allowed disabled:bg-staff-sunken disabled:text-staff-soft"
           >
             <span>{editing ? t("sheet.update") : t("sheet.add")}</span>

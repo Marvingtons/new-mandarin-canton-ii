@@ -497,7 +497,9 @@ export default function PosScreen({
       addLine(quick.line);
       setTileFlash((f) => ({ id: item.id, n: f.n + 1 }));
     } else {
-      setSheetItem({ item, sizeId: quick.sizeId, focus: quick.focus });
+      // Prefilled with what the defaults do cover (the rice), open on the
+      // one choice they do not.
+      setSheetItem({ item, sizeId: quick.sizeId, focus: quick.focus, initial: { modifierIds: quick.modifierIds } });
     }
   }
 
@@ -506,8 +508,8 @@ export default function PosScreen({
     const quick = quickAdd(item, defaults);
     setSheetItem(
       quick.kind === "add"
-        ? { item, sizeId: quick.line.sizeId }
-        : { item, sizeId: quick.sizeId, focus: quick.focus },
+        ? { item, sizeId: quick.line.sizeId, initial: { modifierIds: quick.line.modifierIds } }
+        : { item, sizeId: quick.sizeId, focus: quick.focus, initial: { modifierIds: quick.modifierIds } },
     );
   }
 
