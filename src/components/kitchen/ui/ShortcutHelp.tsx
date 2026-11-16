@@ -18,6 +18,12 @@ const GROUPS: { keys: string[]; label: KitchenKey }[][] = [
     { keys: ["1", "2", "3"], label: "shortcuts.station" },
     { keys: ["/"], label: "shortcuts.search" },
   ],
+  // New order (the POS).
+  [
+    { keys: ["/"], label: "shortcuts.posSearch" },
+    { keys: ["Esc"], label: "shortcuts.posClear" },
+    { keys: ["1", "…", "9"], label: "shortcuts.posAdd" },
+  ],
   [
     { keys: ["N"], label: "shortcuts.newOrder" },
     { keys: ["B"], label: "shortcuts.board" },

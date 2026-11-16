@@ -26,6 +26,7 @@ import type { KitchenKey } from "@/lib/kitchen/i18n";
 import s from "@/components/kitchen/pos.module.css";
 import ui from "@/components/kitchen/ui/ui.module.css";
 import { useToast } from "@/components/kitchen/ui/Toasts";
+import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
 import {
   INITIAL_DEFAULTS,
   isRiceDefault,
@@ -472,6 +473,37 @@ export default function PosScreen({
     });
   }
 
+  function closeSearch() {
+    setQuery("");
+    setSearchOpen(false);
+  }
+
+  /**
+   * Keyboard, for a laptop at the counter. Never while typing in a field or
+   * with a sheet open (useShortcuts):
+   *   /     open the search and put the cursor in it
+   *   Esc   clear the search
+   *   1-9   with search results up, add that result with the strip's
+   *         defaults (or open its sheet if it asks)
+   */
+  const resultKeys: Record<string, () => void> = {};
+  for (let n = 1; n <= 9; n++) {
+    resultKeys[String(n)] = () => {
+      const item = results?.[n - 1];
+      if (item && orderable(item)) tapDish(item);
+    };
+  }
+  useShortcuts({
+    "/": () => {
+      if (searchOpen) searchRef.current?.focus();
+      else setSearchOpen(true);
+    },
+    Escape: () => {
+      if (searchOpen) closeSearch();
+    },
+    ...(results && results.length > 0 ? resultKeys : {}),
+  });
+
   /** Scrolling the grid: the category whose heading has passed the top is the active one. */
   function spy() {
     const pane = dishPaneRef.current;
@@ -798,15 +830,29 @@ export default function PosScreen({
         onChange={(e) => setQuery(e.target.value)}
         placeholder={t("pos.search")}
         aria-label={t("pos.search")}
+        aria-describedby="pos-search-keys"
         enterKeyHint="search"
         ref={searchRef}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            // Esc clears the search; on an empty one it closes it.
+            e.preventDefault();
+            e.stopPropagation();
+            if (query) setQuery("");
+            else closeSearch();
+          } else if (e.key === "Enter") {
+            // Enter leaves the field with the results up, so 1 to 9 add one.
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
       />
+      <span id="pos-search-keys" hidden>
+        {t("pos.searchKeys")}
+      </span>
       <button
         type="button"
-        onClick={() => {
-          setQuery("");
-          setSearchOpen(false);
-        }}
+        onClick={closeSearch}
         aria-label={t("pos.searchClose")}
         className={`${btn("quiet")} ${ui.icon}`}
       >
@@ -1130,7 +1176,7 @@ export default function PosScreen({
             {results.length === 0 ? (
               <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
             ) : (
-              <div className={s.grid}>{results.map((item) => tile(item))}</div>
+              <div className={s.grid}>{results.map((item, i) => tile(item, i < 9 ? i + 1 : null))}</div>
             )}
           </>
         ) : (
