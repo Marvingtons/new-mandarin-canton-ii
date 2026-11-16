@@ -6,9 +6,10 @@ import { enableTestMode } from "./testMode";
 
 /**
  * POS quick-add never makes a required choice for the caller. A Lunch Special
- * (entrée required) opens its sheet with nothing chosen, Add stays disabled
- * until staff pick, and the entrée they pick is what the ticket line and the
- * printed ticket say.
+ * (entrée required, no sticky default) opens its sheet on the entrée with
+ * nothing chosen, Add stays disabled until staff pick, and the entrée they
+ * pick is what the ticket line and the printed ticket say. The rice is the
+ * strip's sticky default (白飯), a choice staff set, so it arrives filled in.
  *
  * The printed ticket is read with scripts/ticket-text.ts against the order
  * this spec just placed: its text from composeTicketSvg and its PNG from
@@ -37,7 +38,7 @@ test("a Lunch Special opens its sheet, cannot be added unchosen, and prints entr
   await page.getByRole("navigation", { name: /分類/ }).getByRole("button", { name: /Lunch/ }).click();
 
   const ticket = page.getByRole("complementary", { name: "單據" });
-  const lines = ticket.locator("[aria-expanded]");
+  const lines = ticket.locator("[data-line]");
 
   // Quick-add: the tap opens the sheet instead of adding a line.
   await page.locator('button[data-item="combo-lunch-15-75"]').click();
@@ -51,11 +52,12 @@ test("a Lunch Special opens its sheet, cannot be added unchosen, and prints entr
   const add = sheet.getByRole("button", { name: /加入單據/ });
   await expect(add).toBeDisabled();
 
-  // Rice is required too and also starts unchosen; pick it alone first and
-  // Add must still refuse, because the entrée is still missing.
+  // Rice is required too, and the strip's default fills it: its section is
+  // closed and shows 白飯. Add must still refuse, because the entrée is not.
   const rice = sheet.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Rice" }) });
-  await expect(rice.locator('button[aria-pressed="true"]')).toHaveCount(0);
-  await rice.locator("button[aria-pressed]").first().click();
+  await expect(rice.locator("legend button[aria-expanded]")).toHaveAttribute("aria-expanded", "false");
+  await expect(rice.locator("legend")).toContainText("白飯");
+  await expect(entree.locator("legend button[aria-expanded]")).toHaveAttribute("aria-expanded", "true");
   await expect(add).toBeDisabled();
   await add.click({ force: true });
   await expect(lines).toHaveCount(0);

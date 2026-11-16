@@ -550,6 +550,7 @@ button.who {
   gap: 0;
   padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
   line-height: 1.2;
+  overflow: hidden;
 }
 .whoText {
   display: flex;
@@ -565,6 +566,10 @@ button.who {
   text-overflow: ellipsis;
 }
 .whoEn {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: var(--text-staff-caption);
   font-weight: 500;
   color: var(--color-staff-soft);
@@ -844,6 +849,13 @@ button.print:disabled .zh {
   .root {
     --z-rail: calc(152 * var(--staff-u));
     --z-ticket: calc(320 * var(--staff-u));
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  /* The strip is narrower than its controls here: it takes two rows. */
+  .top {
+    flex-wrap: wrap;
+    row-gap: calc(var(--spacing) * 1);
+    padding-block: calc(var(--spacing) * 2);
   }
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(calc(150 * var(--staff-u)), 1fr));

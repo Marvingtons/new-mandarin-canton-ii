@@ -52,7 +52,10 @@ async function main(): Promise<void> {
   console.log(`[e2e] throwaway database ready on :${E2E_DB_PORT}`);
 
   const nextBin = createRequire(import.meta.url).resolve("next/dist/bin/next");
-  const next = spawn(process.execPath, [nextBin, "start", "-p", String(E2E_PORT)], {
+  // E2E_NEXT_MODE=dev: the same throwaway database and test values under
+  // `next dev`, to look at a change without a production build.
+  const mode = process.env.E2E_NEXT_MODE === "dev" ? "dev" : "start";
+  const next = spawn(process.execPath, [nextBin, mode, "-p", String(E2E_PORT)], {
     stdio: "inherit",
     env: {
       ...process.env,

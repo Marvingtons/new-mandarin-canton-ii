@@ -19,7 +19,7 @@ test("clearing a draft ticket takes the shared destructive confirm", async ({ br
   await expect(page.locator('[data-action="print"]')).toBeVisible();
 
   const ticket = page.getByRole("complementary", { name: "單據" });
-  const lines = ticket.locator("[aria-expanded]");
+  const lines = ticket.locator("[data-line]");
   await page.locator("button[data-item]:not([disabled])").first().click();
   const sheetAdd = page.getByRole("button", { name: /加入單據/ });
   if (await sheetAdd.isVisible().catch(() => false)) {

@@ -93,7 +93,7 @@ test("the board polls a version, picks up a POS order within 5 s, and still chim
       await chooseRequired(pos);
       await sheetAdd.click();
     }
-    await expect(ticket.locator("[aria-expanded]")).toHaveCount(1);
+    await expect(ticket.locator("[data-line]")).toHaveCount(1);
     await pos.locator('[data-context="takeout"]').click();
     await pos.locator('[data-channel="phone"]').click();
     await pos.getByLabel("客人姓名").fill("E2E Poll Test");

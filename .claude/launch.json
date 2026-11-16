@@ -4,16 +4,35 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true
     },
     {
       "name": "preview-cf",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "preview:cf"],
+      "runtimeArgs": [
+        "run",
+        "preview:cf"
+      ],
       "port": 8787,
       "autoPort": true
+    },
+    {
+      "name": "pos-dev-throwaway-db",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "E2E_NEXT_MODE=dev",
+        "E2E_PORT=3200",
+        "E2E_DB_PORT=55442",
+        "npx",
+        "tsx",
+        "scripts/e2e-server.ts"
+      ],
+      "port": 3200
     }
   ]
 }
