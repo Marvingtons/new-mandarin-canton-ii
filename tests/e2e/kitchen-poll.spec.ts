@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
-import { chooseRequired } from "./posSheet";
+import { addFirstDish } from "./posSheet";
 
 /**
  * The board's cheap poll, in a real browser: while nothing changes it only
@@ -87,12 +87,7 @@ test("the board polls a version, picks up a POS order within 5 s, and still chim
     await pos.goto("/kitchen/pos");
     await expect(pos.locator('[data-action="print"]')).toBeVisible();
     const ticket = pos.getByRole("complementary", { name: "單據" });
-    await pos.locator("button[data-item]:not([disabled])").first().click();
-    const sheetAdd = pos.getByRole("button", { name: /加入單據/ });
-    if (await sheetAdd.isVisible().catch(() => false)) {
-      await chooseRequired(pos);
-      await sheetAdd.click();
-    }
+    await addFirstDish(pos);
     await expect(ticket.locator("[data-line]")).toHaveCount(1);
     await pos.locator('[data-context="takeout"]').click();
     await pos.locator('[data-channel="phone"]').click();

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
-import { chooseRequired } from "./posSheet";
+import { addFirstDish } from "./posSheet";
 
 /**
  * Clearing a POS draft is destructive: two taps, always, through the same
@@ -20,12 +20,7 @@ test("clearing a draft ticket takes the shared destructive confirm", async ({ br
 
   const ticket = page.getByRole("complementary", { name: "單據" });
   const lines = ticket.locator("[data-line]");
-  await page.locator("button[data-item]:not([disabled])").first().click();
-  const sheetAdd = page.getByRole("button", { name: /加入單據/ });
-  if (await sheetAdd.isVisible().catch(() => false)) {
-    await chooseRequired(page);
-    await sheetAdd.click();
-  }
+  await addFirstDish(page);
   await expect(lines).toHaveCount(1);
 
   // Tap 1: a dialog, not a cleared ticket.

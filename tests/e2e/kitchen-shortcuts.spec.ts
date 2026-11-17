@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
-import { chooseRequired } from "./posSheet";
+import { addFirstDish } from "./posSheet";
 
 /**
  * Single-key shortcuts (J K A C P X, 1 2 3, ?, and the shell's N B H M) must
@@ -120,17 +120,13 @@ test("POS: typing a and x in the dish search and a line's instructions fires not
 
   // Put a dish on the ticket, tap its line, and type its special
   // instructions in the sheet that opens.
-  await page.locator("button[data-item]:not([disabled])").first().click();
-  const sheetAdd = page.getByRole("button", { name: /加入單據/ });
-  if (await sheetAdd.isVisible().catch(() => false)) {
-    await chooseRequired(page);
-    await sheetAdd.click();
-  }
+  await addFirstDish(page);
   const ticket = page.getByRole("complementary", { name: "單據" });
   const line = ticket.locator("[data-line]").first();
   const qty = async () => line.locator("[data-qty]").textContent();
   const qtyBefore = await qty();
-  await line.locator("button[aria-haspopup]").click();
+  await line.locator("button[aria-expanded]").click();
+  await line.locator('[data-action="edit-line"]').click();
   const sheet = page.getByRole("dialog");
   const notesHead = sheet.locator('[data-section="instructions"] button[aria-expanded]');
   if ((await notesHead.getAttribute("aria-expanded")) !== "true") await notesHead.click();

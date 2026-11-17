@@ -8,10 +8,13 @@ import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
- * BOTH PRINTERS, ALWAYS ON SCREEN. Two chips in the header of every staff
- * page, Online and Store, so "why has the kitchen gone quiet" is a glance and
- * not a walk to the printer. When one needs a person, PrinterAlerts (below the
- * header) says which, and exactly what to do.
+ * THE ASSIGNED PRINTERS, ON SCREEN. A chip per printer that has a MAC set
+ * (CLOUDPRNT_PRINTER_MAC_ONLINE / _STORE) in the header of every staff page,
+ * so "why has the kitchen gone quiet" is a glance and not a walk to the
+ * printer. A station with no printer assigned is never drawn: its tickets
+ * print on the other one, and a chip for a printer that does not exist only
+ * makes staff look for it. When one needs a person, PrinterAlerts says which,
+ * in one slim line under the header.
  */
 
 type Look = "ok" | "low" | "blocked" | "offline" | "unknown" | "unset";
@@ -74,7 +77,8 @@ function helpKey(p: StationPrinterHealth): KitchenKey | null {
 /** The two chips. Compact enough to sit in the header at 768px. */
 export function PrinterStatusStrip() {
   const t = useKT();
-  const { printers, printersConfigured, status } = useKitchenLive();
+  const { printers: all, printersConfigured, status } = useKitchenLive();
+  const printers = all.filter((p) => p.configured);
 
   if (!printersConfigured) {
     return (
@@ -85,11 +89,10 @@ export function PrinterStatusStrip() {
     );
   }
 
-  if (printers.length === 0) {
+  if (all.length === 0) {
     // First load: the chips' own shape, so the header does not jump.
     return (
       <span aria-hidden="true" className="flex gap-2">
-        <span className={`${ui.skeleton} h-11 w-32`} />
         <span className={`${ui.skeleton} h-11 w-32`} />
       </span>
     );
@@ -103,7 +106,8 @@ export function PrinterStatusStrip() {
         const state = t(shortKey(p));
         const covered = p.printedBy !== p.station;
         return (
-          <li key={p.station}>
+          // Upright, a healthy chip steps out of the 64px header.
+          <li key={p.station} className={lookOf(p) === "ok" ? "portrait:hidden" : undefined}>
             <span
               role="status"
               aria-label={`${t("station.printer", { station })}: ${state}${covered ? `, ${t("printer.coveredBy", { station: t(`station.${p.printedBy}`) })}` : ""}${p.queued > 0 ? `, ${t("printer.queued", { n: p.queued })}` : ""}`}
@@ -125,9 +129,14 @@ export function PrinterStatusStrip() {
 }
 
 /**
- * The printer empty state: a banner per printer that needs a person, under
- * the header on every staff page, with the next step in words. Gold for "do
- * something soon", lacquer for "nothing is printing on this station".
+ * The printer empty state: ONE slim line under the header on every staff
+ * page, only when an assigned printer needs a person, with the next step in
+ * words. Never a stack of banners: two printers in trouble share the line.
+ * Gold for "do something soon", lacquer for "nothing is printing".
+ *
+ * Only assigned printers count. A station with no MAC set is "not-set-up",
+ * which is a setup choice and never a fault, so "Store printer offline"
+ * cannot appear before printer B is installed and its MAC is set.
  */
 export function PrinterAlerts() {
   const t = useKT();
@@ -135,47 +144,40 @@ export function PrinterAlerts() {
   if (!printersConfigured) return null;
 
   // A station covered by the other printer is not separately broken: its
-  // chip already says where it prints, and the covering printer's own banner
+  // chip already says where it prints, and the covering printer's own line
   // covers it.
-  const needs = printers.filter((p) => p.printedBy === p.station && helpKey(p) !== null);
+  const needs = printers.filter((p) => p.configured && p.printedBy === p.station && helpKey(p) !== null);
   if (needs.length === 0) return null;
 
+  const looks = needs.map(lookOf);
+  const urgent = looks.some((l) => l === "offline" || l === "blocked");
+  const tone = looks.includes("offline")
+    ? "bg-staff-brand text-staff-on-brand"
+    : looks.includes("blocked")
+      ? "bg-staff-gold text-staff-ink"
+      : "bg-staff-gold-tint text-staff-ink";
+  const first = needs[0];
+  const queued = needs.reduce((n, p) => n + p.queued, 0);
+  const text = needs.map((p) => t(helpKey(p)!, { station: t(`station.${p.station}`) })).join(" · ");
+  const detail = urgent
+    ? [
+        queued > 0 ? t("printer.queued", { n: queued }) : null,
+        first.failoverTo ? t("printer.failoverTo", { station: t(`station.${first.failoverTo}`) }) : t("printer.help.reprintHint"),
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-2 px-4 pt-3 sm:px-6">
-      {needs.map((p) => {
-        const look = lookOf(p);
-        const urgent = look === "offline" || look === "blocked";
-        const station = t(`station.${p.station}`);
-        return (
-          <div
-            key={p.station}
-            role={urgent ? "alert" : "status"}
-            className={`flex flex-wrap items-start gap-x-4 gap-y-1 rounded-staff-card px-5 py-3 text-staff-body ${
-              look === "offline"
-                ? "bg-staff-brand text-staff-on-brand"
-                : look === "blocked"
-                  ? "bg-staff-gold text-staff-ink"
-                  : "bg-staff-gold-tint text-staff-ink"
-            }`}
-          >
-            <Icon name="printer" size={22} className="mt-0.5" />
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">{t(helpKey(p)!, { station })}</p>
-              {urgent && (
-                <p className="mt-1 text-staff-caption opacity-90">
-                  {p.queued > 0 && <>{t("printer.queued", { n: p.queued })} · </>}
-                  {p.failoverTo
-                    ? t("printer.failoverTo", { station: t(`station.${p.failoverTo}`) })
-                    : t("printer.help.reprintHint")}
-                </p>
-              )}
-            </div>
-            {p.statusCode && urgent && (
-              <span className="text-staff-caption opacity-80">{t("printer.reported", { code: p.statusCode })}</span>
-            )}
-          </div>
-        );
-      })}
+    <div
+      role={urgent ? "alert" : "status"}
+      data-printer-alert
+      title={detail ?? undefined}
+      className={`flex min-h-10 w-full items-center gap-3 px-4 text-staff-caption font-semibold sm:px-6 ${tone}`}
+    >
+      <Icon name="printer" size={20} />
+      <span className="min-w-0 truncate">{text}</span>
+      {detail && <span className="hidden min-w-0 truncate font-medium opacity-90 md:inline">{detail}</span>}
     </div>
   );
 }

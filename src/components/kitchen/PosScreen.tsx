@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Menu, MenuCategory, MenuItem } from "@/lib/menu/types";
+import { createPortal } from "react-dom";
+import type { Menu, MenuItem } from "@/lib/menu/types";
 import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { itemMatches, queryTerms } from "@/lib/menu/search";
@@ -14,7 +15,16 @@ import { RICE_GROUP_ID } from "@/lib/menu/rice";
 import { menuNumber } from "@/data/menu-presentation";
 import type { OrderLine, StaffChannel } from "@/lib/orders/types";
 import type { Station } from "@/config/stations";
-import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/posCategories";
+import { POS_POPULAR_IDS } from "@/config/posPopular";
+import {
+  categoryLook,
+  POPULAR_TAB_ID,
+  POS_TABS,
+  posName,
+  tintStyle,
+  type CategoryTint,
+  type PosTab,
+} from "@/lib/kitchen/posCategories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import PosItemSheet, { type PosLineDraft } from "@/components/kitchen/PosItemSheet";
 import Icon from "@/components/kitchen/Icon";
@@ -27,19 +37,13 @@ import s from "@/components/kitchen/pos.module.css";
 import ui from "@/components/kitchen/ui/ui.module.css";
 import { useToast } from "@/components/kitchen/ui/Toasts";
 import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
+import { NOTE_SEP, QUICK_NOTES, toggleNote } from "@/lib/kitchen/quickNotes";
 import {
-  INITIAL_DEFAULTS,
-  isRiceDefault,
-  isSizeDefault,
-  POS_RICE_STORAGE_KEY,
-  POS_SIZE_STORAGE_KEY,
-  quickAdd,
-  RICE_DEFAULTS,
-  SIZE_DEFAULTS,
-  withRice,
-  type PosDefaults,
-  type RiceDefault,
-  type SizeDefault,
+  hasBothSizes,
+  riceLine,
+  tapPlan,
+  TRAY_SIZE_ID,
+  type RiceChoice,
 } from "@/lib/kitchen/posDefaults";
 
 /**
@@ -53,16 +57,19 @@ import {
  * recomputes from the menu. The request carries no money at all.
  *
  * A TILL, NOT A PAGE. Fixed zones and nothing scrolls but the dishes and the
- * ticket's lines: the shared staff header and a slim POS toolbar (service and
- * search), the category rail, the dish tiles of ONE
- * category, and the ticket with its total and Print pinned at the bottom.
+ * ticket's lines. Landscape: the nine tabs down the left, the dishes, and the
+ * ticket at the right with its total and Send pinned at the bottom. Portrait
+ * (an upright iPad): the tabs in one row under the header, the dishes three
+ * a row, and the ticket as an 88px bar that opens a sheet (pos.module.css).
+ * The search and lunch-hours buttons sit in the shell's header slot.
  *
- * NAMES, NOT DETAILS. A dish tile is its 中文 and English on its category's
- * tint, nothing else: tap it and the regular size goes on the ticket; a second
- * size is a chip in the corner. A dish with ANY required choice (a lunch
- * entrée, an "or" dish, the rice) or five party sizes opens the options sheet
- * instead, with the choice unmade: one tap never decides for the caller.
- * Prices are on the ticket.
+ * NAMES, NOT DETAILS. A dish card is its 中文 and English on its category's
+ * tint, nothing else: tap it and it goes on the ticket. A dish with rice asks
+ * on the card (白飯 炒飯 各一半 無, as the dish offers them; a second tap takes
+ * 白飯); a dish with any other required choice (a lunch entrée, an "or" dish,
+ * a head count) opens the options sheet with that choice unmade: one tap
+ * never decides for the caller. Prices are on the ticket. Tap a ticket line
+ * for its quick notes and 改.
  *
  * Every dish shows 中文 large and English beneath regardless of the language
  * toggle, because the person taking the call and the person at the wok may
@@ -105,16 +112,12 @@ const label = "mb-2 block text-staff-body font-semibold text-staff-ink";
 /** The shared staff button classes (components/kitchen/ui). */
 const btn = (kind: "primary" | "secondary" | "quiet") => `${ui.btn} ${ui[kind]}`;
 
-/** The strip's labels: 中文 over English on the button, all three languages for assistive tech. */
-const RICE_LABEL: Record<RiceDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
+/** The rice picker's labels: 中文 over English, all three languages for assistive tech. */
+const RICE_LABEL: Record<RiceChoice, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
   steamed: { zh: "pos.riceSteamedZh", en: "pos.riceSteamedEn", all: "pos.riceSteamedAll" },
   fried: { zh: "pos.riceFriedZh", en: "pos.riceFriedEn", all: "pos.riceFriedAll" },
   half: { zh: "pos.riceHalfZh", en: "pos.riceHalfEn", all: "pos.riceHalfAll" },
   none: { zh: "pos.riceNoneZh", en: "pos.riceNoneEn", all: "pos.riceNoneAll" },
-};
-const SIZE_LABEL: Record<SizeDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
-  individual: { zh: "pos.sizeIndividualZh", en: "pos.sizeIndividualEn", all: "pos.sizeIndividualAll" },
-  tray: { zh: "pos.sizeTrayZh", en: "pos.sizeTrayEn", all: "pos.sizeTrayAll" },
 };
 
 function newKey(): string {
@@ -167,24 +170,30 @@ function useLinesBelow(listRef: React.RefObject<HTMLElement | null>, itemSelecto
 }
 
 /**
- * A dish tile. The body adds one with the strip's defaults; the 改 corner
- * opens the full sheet. A dot marks a dish whose tap will ask (a required
- * choice the defaults do not cover). Measures its own 中文 so a two-line name
- * drops the English to one.
+ * A dish card: 中文 over English on its category's tint, nothing else. The
+ * card adds one; a dish that comes with rice opens the rice picker on the
+ * card, and a second tap on the card takes 白飯. A dish sold as a tray too
+ * carries a 餐盤 pill. Measures its own 中文 so a two-line name drops the
+ * English to one.
  */
 function DishTile({
   item,
+  tileKey,
   tint,
   count,
   disabledLabel,
   asks,
   flash,
   hint,
+  rice,
   labels,
   onTap,
-  onModify,
+  onTray,
+  onRice,
 }: {
   item: MenuItem;
+  /** The card's own key: a dish can be on the screen twice (常點 and its own section). */
+  tileKey: string;
   tint: CategoryTint;
   count: number;
   disabledLabel: string | null;
@@ -194,9 +203,12 @@ function DishTile({
   flash: number;
   /** The number key that adds it (search results), if any. */
   hint: number | null;
-  labels: { modify: string; modifyShort: string; asks: string };
+  /** The rice picker is open on this card, with these choices. */
+  rice: RiceChoice[] | null;
+  labels: { asks: string; tray: string; trayAll: string; rice: string; riceAgain: string; riceAll: Record<RiceChoice, { zh: string; en: string; all: string }> };
   onTap: () => void;
-  onModify: () => void;
+  onTray: (() => void) | null;
+  onRice: (choice: RiceChoice) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -210,14 +222,18 @@ function DishTile({
     observer.observe(tile);
     return () => observer.disconnect();
   }, []);
-  const zhName = item.nameZh ?? item.nameEn;
-  const name = item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn;
+  const shown = posName(item);
+  const zhName = shown.zh ?? shown.en;
+  const name = shown.zh ? `${shown.zh} ${shown.en}` : shown.en;
   return (
     <div
       ref={ref}
       style={tintStyle(tint)}
       data-tile={item.id}
-      className={[s.tile, count > 0 && s.hasQ, !disabledLabel && s.hasMod, disabledLabel && s.off].filter(Boolean).join(" ")}
+      data-tile-key={tileKey}
+      className={[s.tile, count > 0 && s.hasQ, onTray && !disabledLabel && s.hasTray, disabledLabel && s.off, rice && s.riceOpen]
+        .filter(Boolean)
+        .join(" ")}
     >
       <button
         type="button"
@@ -225,40 +241,65 @@ function DishTile({
         data-asks={asks || undefined}
         disabled={disabledLabel !== null}
         onClick={onTap}
-        aria-label={asks ? `${name} · ${labels.asks}` : name}
+        aria-expanded={rice ? true : undefined}
+        aria-label={rice ? `${name} · ${labels.riceAgain}` : asks ? `${name} · ${labels.asks}` : name}
         className={s.tileMain}
       />
       {flash > 0 && <span key={`flash-${flash}`} aria-hidden="true" className={s.tapFlash} />}
-      <span lang={item.nameZh ? "zh-Hant" : "en"} className={s.zh}>
+      <span lang={shown.zh ? "zh-Hant" : "en"} className={s.zh}>
         {hint !== null && <span className={`${s.hint} ${s.num}`}>{hint}</span>}
         <ZhName name={zhName} />
       </span>
-      {item.nameZh && (
+      {shown.zh && (
         <span lang="en" className={s.en}>
-          {item.nameEn}
+          {shown.en}
         </span>
       )}
       {asks && !disabledLabel && <span aria-hidden="true" title={labels.asks} className={s.asks} />}
       {count > 0 && (
-        <span key={`qty-${count}`} className={`${s.qtyBadge} ${s.num}`}>
+        <span key={`qty-${count}`} data-qty-badge className={`${s.qtyBadge} ${s.num}`}>
           {count}
         </span>
       )}
       {disabledLabel && <span className={s.state}>{disabledLabel}</span>}
-      {!disabledLabel && (
-        <button
-          type="button"
-          data-modify={item.id}
-          onClick={onModify}
-          aria-label={`${labels.modify} ${name}`}
-          title={labels.modify}
-          className={s.mod}
-        >
-          <span lang="zh-Hant">{labels.modifyShort}</span>
+      {onTray && !disabledLabel && (
+        <button type="button" data-tray={item.id} onClick={onTray} aria-label={`${labels.trayAll} ${name}`} className={s.trayPill}>
+          <span lang="zh-Hant">{labels.tray}</span>
         </button>
+      )}
+      {rice && (
+        <div role="group" aria-label={`${labels.rice} · ${name}`} data-rice-pop={item.id} className={s.ricePop}>
+          {rice.map((r) => (
+            <button
+              key={r}
+              type="button"
+              data-rice={r}
+              aria-label={labels.riceAll[r].all}
+              onClick={() => onRice(r)}
+              className={r === "steamed" ? s.riceDefault : undefined}
+            >
+              <span lang="zh-Hant" className={s.zh}>
+                {labels.riceAll[r].zh}
+              </span>
+              <span lang="en" className={s.en}>
+                {labels.riceAll[r].en}
+              </span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
+}
+
+/** The header slot the shell leaves for the screen's own controls (KitchenShell). */
+function useHeaderSlot(): HTMLElement | null {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a DOM node owned by the shell, found once
+    setSlot(document.querySelector<HTMLElement>("[data-header-slot]"));
+  }, []);
+  return slot;
 }
 
 export default function PosScreen({
@@ -323,27 +364,6 @@ export default function PosScreen({
   const { act, refresh: refreshLive } = useKitchenLive();
   const { toast } = useToast();
 
-  /* ---------------------------------------------- the sticky defaults -- */
-  // The rice and size every tile tap uses, kept per tablet. Read after mount
-  // so the server render and hydration agree.
-  const [defaults, setDefaults] = useState<PosDefaults>(INITIAL_DEFAULTS);
-  useEffect(() => {
-    const rice = localStorage.getItem(POS_RICE_STORAGE_KEY);
-    const size = localStorage.getItem(POS_SIZE_STORAGE_KEY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- a stored per-device preference, read once
-    setDefaults({
-      rice: isRiceDefault(rice) ? rice : INITIAL_DEFAULTS.rice,
-      size: isSizeDefault(size) ? size : INITIAL_DEFAULTS.size,
-    });
-  }, []);
-  function setRiceDefault(rice: RiceDefault) {
-    setDefaults((d) => ({ ...d, rice }));
-    localStorage.setItem(POS_RICE_STORAGE_KEY, rice);
-  }
-  function setSizeDefault(size: SizeDefault) {
-    setDefaults((d) => ({ ...d, size }));
-    localStorage.setItem(POS_SIZE_STORAGE_KEY, size);
-  }
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [justNow, setJustNow] = useState<Placed | null>(null);
   /** The clear-ticket confirm is open (a destructive action, like cancel). */
@@ -406,6 +426,8 @@ export default function PosScreen({
   const [lineFlash, setLineFlash] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** Portrait: the ticket sheet over the dishes is open. */
+  const [ticketOpen, setTicketOpen] = useState(false);
   const detailsRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -418,17 +440,29 @@ export default function PosScreen({
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
   /**
-   * The rail's order: 招牌菜 Specials, 午餐 Lunch Specials (only while lunch
-   * is open, by the clock or the override), 家庭餐 Family Dinners, then the
-   * rest in menu order. The grid shows them all, in the same order.
+   * The nine tabs and the dishes in each, in one scroll. 常點 is the owner's
+   * list; the lunch sets show only while lunch is open (by the clock or the
+   * override), as they always have.
    */
-  const railCategories = useMemo(() => {
-    const first = ["specials", ...(lunchOpen ? ["lunch-specials"] : []), "family-dinners"];
-    const pinned = first.map((id) => menu.categories.find((c) => c.id === id)).filter((c) => c !== undefined);
-    const rest = menu.categories.filter((c) => !first.includes(c.id) && c.id !== "lunch-specials");
-    return [...pinned, ...rest];
-  }, [menu, lunchOpen]);
-  const [activeCategory, setActiveCategory] = useState<string>(railCategories[0]?.id ?? "");
+  const sections = useMemo(() => {
+    const byId = new Map(menu.categories.map((c) => [c.id, c]));
+    return POS_TABS.map((tab) => {
+      if (tab.id === POPULAR_TAB_ID) {
+        const items = POS_POPULAR_IDS.map((id) => index.get(id)).filter((i): i is MenuItem => i !== undefined);
+        return { tab, groups: [{ id: POPULAR_TAB_ID, zh: null as string | null, en: null as string | null, items }] };
+      }
+      const groups = tab.categories
+        .filter((id) => id !== "lunch-specials" || lunchOpen)
+        .map((id) => byId.get(id))
+        .filter((c) => c !== undefined)
+        .map((c) => {
+          const look = categoryLook(c);
+          return { id: c.id, zh: look.zh, en: c.nameEn, items: c.items };
+        });
+      return { tab, groups };
+    });
+  }, [menu, index, lunchOpen]);
+  const [activeTab, setActiveTab] = useState<string>(POS_TABS[0].id);
 
   const results = useMemo(() => {
     const q = query.trim();
@@ -455,17 +489,18 @@ export default function PosScreen({
   );
 
   const dishPaneRef = useRef<HTMLElement>(null);
-  /** Set while the grid scrolls to a rail tap, so the spy does not fight it. */
+  /** Set while the grid scrolls to a tab tap, so the spy does not fight it. */
   const jumping = useRef(false);
-  function jumpTo(c: MenuCategory) {
+  function jumpTo(tab: PosTab) {
     setQuery("");
     setSearchOpen(false);
-    setActiveCategory(c.id);
+    setActiveTab(tab.id);
+    setRicePick(null);
     jumping.current = true;
-    // After the render that brings the categories back (if search was open).
+    // After the render that brings the sections back (if search was open).
     requestAnimationFrame(() => {
       const pane = dishPaneRef.current;
-      const section = pane?.querySelector<HTMLElement>(`[data-cat="${c.id}"]`);
+      const section = pane?.querySelector<HTMLElement>(`[data-cat="${tab.id}"]`);
       if (pane && section) pane.scrollTo({ top: section.offsetTop - pane.offsetTop });
       requestAnimationFrame(() => {
         jumping.current = false;
@@ -483,14 +518,14 @@ export default function PosScreen({
    * with a sheet open (useShortcuts):
    *   /     open the search and put the cursor in it
    *   Esc   clear the search
-   *   1-9   with search results up, add that result with the strip's
-   *         defaults (or open its sheet if it asks)
+   *   1-9   with search results up, tap that result (add it, or open its
+   *         rice picker or sheet)
    */
   const resultKeys: Record<string, () => void> = {};
   for (let n = 1; n <= 9; n++) {
     resultKeys[String(n)] = () => {
       const item = results?.[n - 1];
-      if (item && orderable(item)) tapDish(item);
+      if (item && orderable(item)) tapDish(item, `r:${item.id}`);
     };
   }
   useShortcuts({
@@ -499,12 +534,14 @@ export default function PosScreen({
       else setSearchOpen(true);
     },
     Escape: () => {
-      if (searchOpen) closeSearch();
+      if (ricePick) setRicePick(null);
+      else if (ticketOpen) setTicketOpen(false);
+      else if (searchOpen) closeSearch();
     },
     ...(results && results.length > 0 ? resultKeys : {}),
   });
 
-  /** Scrolling the grid: the category whose heading has passed the top is the active one. */
+  /** Scrolling the grid: the section whose heading has passed the top is the active tab. */
   function spy() {
     const pane = dishPaneRef.current;
     if (!pane || jumping.current) return;
@@ -514,57 +551,61 @@ export default function PosScreen({
       if (el.getBoundingClientRect().top <= top) current = el.dataset.cat ?? null;
       else break;
     }
-    const id = current ?? railCategories[0]?.id;
-    if (id && id !== activeCategory) setActiveCategory(id);
+    const id = current ?? POS_TABS[0].id;
+    if (id !== activeTab) setActiveTab(id);
   }
 
   /**
-   * A tile's tap: onto the ticket with the strip's rice and size, or the sheet
-   * when a required choice is one the defaults do not cover. A size asked for
-   * by the tile's corner chip always opens the sheet on that size.
+   * The rice picker open on one card: which card (a dish can show twice), the
+   * size it is for, and the choices the dish offers.
    */
-  function tapDish(item: MenuItem) {
-    const quick = quickAdd(item, defaults);
-    if (quick.kind === "add") {
-      addLine(quick.line);
-      setTileFlash((f) => ({ id: item.id, n: f.n + 1 }));
+  const [ricePick, setRicePick] = useState<{ key: string; item: MenuItem; sizeId: string; options: RiceChoice[] } | null>(null);
+  // A tap anywhere but the open card closes the picker.
+  useEffect(() => {
+    if (!ricePick) return;
+    const onDown = (e: PointerEvent) => {
+      const card = (e.target as Element | null)?.closest?.("[data-tile-key]");
+      if (!card || (card as HTMLElement).dataset.tileKey !== ricePick.key) setRicePick(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [ricePick]);
+
+  function flashTile(key: string) {
+    setTileFlash((f) => ({ id: key, n: f.n + 1 }));
+  }
+
+  /**
+   * A card's tap. Nothing to decide: onto the ticket. Only the rice to
+   * decide: the picker on the card, and a second tap takes 白飯. Anything
+   * else (an entrée, beef or chicken, a head count): the sheet, on that
+   * choice. `sizeId` is the 餐盤 pill's tray.
+   */
+  function tapDish(item: MenuItem, key: string, sizeId?: string) {
+    if (!sizeId && ricePick?.key === key) {
+      addLine(riceLine(item, ricePick.sizeId, "steamed"));
+      setRicePick(null);
+      flashTile(key);
+      return;
+    }
+    const plan = sizeId ? tapPlan(item, sizeId) : tapPlan(item);
+    if (plan.kind === "add") {
+      addLine(plan.line);
+      setRicePick(null);
+      flashTile(key);
+    } else if (plan.kind === "rice") {
+      setRicePick({ key, item, sizeId: plan.sizeId, options: plan.options });
     } else {
-      // Prefilled with what the defaults do cover (the rice), open on the
-      // one choice they do not.
-      setSheetItem({ item, sizeId: quick.sizeId, focus: quick.focus, initial: { modifierIds: quick.modifierIds } });
+      setRicePick(null);
+      setSheetItem({ item, sizeId: plan.sizeId, focus: plan.focus, initial: { modifierIds: plan.modifierIds } });
     }
   }
 
-  /** The tile's 改 corner: the full sheet, on the choice a tap would ask for. */
-  function modifyDish(item: MenuItem) {
-    const quick = quickAdd(item, defaults);
-    setSheetItem(
-      quick.kind === "add"
-        ? { item, sizeId: quick.line.sizeId, initial: { modifierIds: quick.line.modifierIds } }
-        : { item, sizeId: quick.sizeId, focus: quick.focus, initial: { modifierIds: quick.modifierIds } },
-    );
-  }
-
-  /**
-   * 套用到全部: the strip's rice onto every line that has rice and offers it.
-   * No confirm; the toast says how many changed and its Undo puts them back.
-   */
-  function applyRiceToAll() {
-    const before = lines;
-    let changed = 0;
-    const after = lines.map((l) => {
-      const item = index.get(l.itemId);
-      const next = item ? withRice(item, l.sizeId, l.modifierIds, defaults.rice) : null;
-      if (!next) return l;
-      changed++;
-      return { ...l, modifierIds: next };
-    });
-    if (changed > 0) setLines(after);
-    toast(
-      t("pos.updatedLines", { n: changed }),
-      "info",
-      changed > 0 ? { label: t("card.undo"), onAction: () => setLines(before) } : undefined,
-    );
+  function pickRice(choice: RiceChoice) {
+    if (!ricePick) return;
+    addLine(riceLine(ricePick.item, ricePick.sizeId, choice));
+    flashTile(ricePick.key);
+    setRicePick(null);
   }
 
   const linesRef = useRef<HTMLDivElement>(null);
@@ -621,7 +662,10 @@ export default function PosScreen({
     });
   }
 
-  /** Tap a line: the sheet, on that line's own choices, to change it in place. */
+  /** The ticket line whose quick notes and 改 are showing. */
+  const [openLine, setOpenLine] = useState<string | null>(null);
+
+  /** 改: the sheet, on that line's own choices, to change it in place. */
   function editLine(line: TicketLine) {
     const item = index.get(line.itemId);
     if (!item) return;
@@ -631,6 +675,12 @@ export default function PosScreen({
       replace: line.lineId,
       initial: { modifierIds: line.modifierIds, quantity: line.quantity, instructions: line.specialInstructions },
     });
+  }
+
+  function noteLine(lineId: string, note: string) {
+    setLines((prev) =>
+      prev.map((l) => (l.lineId === lineId ? { ...l, specialInstructions: toggleNote(l.specialInstructions, note) } : l)),
+    );
   }
 
   /* --------------------------------------------------- repeat customers -- */
@@ -763,6 +813,8 @@ export default function PosScreen({
       setQuery("");
       setSearchOpen(false);
       setDetailsOpen(false);
+      setTicketOpen(false);
+      setOpenLine(null);
     } catch {
       setError(t("pos.error.network"));
     } finally {
@@ -790,11 +842,21 @@ export default function PosScreen({
     return counts;
   }, [lines]);
 
-  const railRef = useRef<HTMLElement>(null);
-  const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines]);
+  const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines, openLine]);
+  const headerSlot = useHeaderSlot();
 
-  const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
-  const tile = (item: MenuItem, hint: number | null = null) => {
+  const riceAll = Object.fromEntries(
+    (Object.keys(RICE_LABEL) as RiceChoice[]).map((r) => [r, { zh: t(RICE_LABEL[r].zh), en: t(RICE_LABEL[r].en), all: t(RICE_LABEL[r].all) }]),
+  ) as Record<RiceChoice, { zh: string; en: string; all: string }>;
+  const tileLabels = {
+    asks: t("pos.asks"),
+    tray: t("pos.sizeTrayZh"),
+    trayAll: t("pos.sizeTrayAll"),
+    rice: t("pos.riceGroup"),
+    riceAgain: t("pos.riceAgain"),
+    riceAll,
+  };
+  const tile = (item: MenuItem, key: string, hint: number | null = null) => {
     const disabledLabel = !isAvailable(item)
       ? t("pos.86d")
       : item.lunchSpecial === true && !lunchOpen
@@ -802,22 +864,26 @@ export default function PosScreen({
         : null;
     return (
       <DishTile
-        key={item.id}
+        key={key}
+        tileKey={key}
         item={item}
         tint={tintOf.get(item.id) ?? "sides"}
         count={onTicket.get(item.id) ?? 0}
         disabledLabel={disabledLabel}
-        asks={quickAdd(item, defaults).kind === "ask"}
-        flash={tileFlash.id === item.id ? tileFlash.n : 0}
+        asks={tapPlan(item).kind === "ask"}
+        flash={tileFlash.id === key ? tileFlash.n : 0}
         hint={hint}
+        rice={ricePick?.key === key ? ricePick.options : null}
         labels={tileLabels}
-        onTap={() => tapDish(item)}
-        onModify={() => modifyDish(item)}
+        onTap={() => tapDish(item, key)}
+        onTray={hasBothSizes(item) ? () => tapDish(item, key, TRAY_SIZE_ID) : null}
+        onRice={pickRice}
       />
     );
   };
 
   const customerSummary = [name.trim(), phone.trim()].filter(Boolean).join(" · ");
+  const itemCount = lines.reduce((n, l) => n + l.quantity, 0);
 
   const searchField = searchOpen ? (
     <div className={s.searchField}>
@@ -861,34 +927,69 @@ export default function PosScreen({
     </div>
   ) : null;
 
-  /* ---- ticket header: the order type and who or which table, strongest on screen ---- */
-  const placedStatus = placed && (
-    <div role="status" className={s.status}>
-      <Icon name="check" size={24} />
+  /* ---- the POS's own header controls, in the shell's header slot ---- */
+  const headerControls = (
+    <>
+      {!lunchNow && (
+        <button
+          type="button"
+          aria-pressed={lunchOverride}
+          aria-label={t("pos.lunchHours")}
+          title={t("pos.lunchOverrideHint")}
+          onClick={() => setLunchOverride((v) => !v)}
+          className={s.lunchBtn}
+        >
+          <Icon name="clock" size={18} />
+          <span>{t("pos.lunchShort")}</span>
+        </button>
+      )}
+      <Button
+        variant={searchOpen ? "primary" : "secondary"}
+        size="sm"
+        iconOnly
+        icon="search"
+        aria-label={t("pos.search")}
+        aria-pressed={searchOpen}
+        onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+      />
+    </>
+  );
+
+  /* ---- one slim line, only when something needs attention ---- */
+  const statusLine = error ? (
+    <p role="alert" className={`${s.statusLine} ${s.statusUrgent}`}>
+      <Icon name="alert" size={20} />
+      {error}
+    </p>
+  ) : notice ? (
+    <p role="status" className={s.statusLine}>
+      <Icon name="alert" size={20} />
+      {notice}
+    </p>
+  ) : lunchOverride && !lunchNow ? (
+    <p role="status" className={s.statusLine}>
+      <Icon name="clock" size={20} />
+      {t("pos.lunchOverrideWarning", lunchLabel)}
+    </p>
+  ) : null;
+
+  /* ---- just sent: the number, and 重印 for two minutes ---- */
+  const sentStatus = placed ? (
+    <span role="status" className={s.sent}>
+      <Icon name="check" size={22} />
       <span className={`${s.big} ${s.num}`}>{placed.orderNumber}</span>
       <span>{t("pos.sent")}</span>
-    </div>
-  );
+    </span>
+  ) : justNow ? (
+    <span className={s.sent}>
+      <span>
+        {t("pos.justNow")} <span className={s.num}>{justNow.orderNumber}</span>
+      </span>
+    </span>
+  ) : null;
 
   const ticketHead = (
     <div className={s.tHead}>
-      {placedStatus}
-      {justNow && !placed && (
-        <div className={s.status}>
-          <span>
-            {t("pos.justNow")} <span className={s.num}>{justNow.orderNumber}</span>
-          </span>
-          <button type="button" onClick={() => reprint(justNow)} className={btn("quiet")}>
-            <Icon name="printer" size={22} />
-            {t("pos.reprint")}
-          </button>
-        </div>
-      )}
-      {notice && (
-        <p role="status" className={s.status}>
-          {notice}
-        </p>
-      )}
       <div className={s.tRow}>
         {/* Phone or walk-in, strongest on the ticket. */}
         <span className={s.key}>{t(`channel.${channel}`)}</span>
@@ -923,16 +1024,42 @@ export default function PosScreen({
             type="button"
             aria-label={t("pos.clearOrder")}
             // Two taps, always: this one, then the confirm. Clearing a draft
-            // throws away what the cashier just keyed in, so it is in the
-            // same class as cancelling an order or clearing a table and takes
-            // the same shared ConfirmDialog.
+            // throws away what the cashier just keyed in, so it takes the
+            // same shared ConfirmDialog as cancelling an order.
             onClick={() => setConfirmClear(true)}
             className={`${btn("quiet")} ${ui.icon}`}
           >
             <Icon name="trash" size={24} />
           </button>
         )}
+        <button
+          type="button"
+          data-action="close-ticket"
+          aria-label={t("pos.closeTicket")}
+          onClick={() => setTicketOpen(false)}
+          className={`${btn("quiet")} ${ui.icon} ${s.sheetOnly}`}
+        >
+          <Icon name="chevronDown" size={24} />
+        </button>
       </div>
+      {placed && (
+        <div role="status" className={s.status}>
+          <Icon name="check" size={24} />
+          <span className={`${s.big} ${s.num}`}>{placed.orderNumber}</span>
+          <span>{t("pos.sent")}</span>
+        </div>
+      )}
+      {justNow && !placed && (
+        <div className={s.status}>
+          <span>
+            {t("pos.justNow")} <span className={s.num}>{justNow.orderNumber}</span>
+          </span>
+          <button type="button" onClick={() => reprint(justNow)} className={btn("quiet")}>
+            <Icon name="printer" size={22} />
+            {t("pos.reprint")}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -960,11 +1087,14 @@ export default function PosScreen({
           if (g.id === RICE_GROUP_ID) continue;
           for (const m of g.modifiers) if (chosen.has(m.id)) summary.push(m.nameZh ?? m.nameEn);
         }
-        const zhName = item?.nameZh ?? item?.nameEn ?? line.itemId;
+        const shown = item ? posName(item) : { zh: null, en: line.itemId };
+        const zhName = shown.zh ?? shown.en;
+        const open = openLine === line.lineId;
+        const notes = new Set((line.specialInstructions ?? "").split(NOTE_SEP).map((n) => n.trim()));
         return (
           <div
             key={line.lineId}
-            className={s.line}
+            className={`${s.line} ${open ? s.lineOpen : ""}`}
             style={tintStyle(tintOf.get(line.itemId) ?? "sides")}
             data-line={line.lineId}
           >
@@ -973,15 +1103,15 @@ export default function PosScreen({
             )}
             <button
               type="button"
-              aria-haspopup="dialog"
-              aria-label={`${t("pos.editLine")} ${line.quantity} ${item?.nameZh ?? ""} ${item?.nameEn ?? ""} ${summary.join(" ")}`}
-              onClick={() => editLine(line)}
+              aria-expanded={open}
+              aria-label={`${line.quantity} ${shown.zh ?? ""} ${shown.en} ${summary.join(" ")}`}
+              onClick={() => setOpenLine(open ? null : line.lineId)}
               className={s.lineHit}
             >
               <span className={s.st} />
               <span className={s.lineText}>
                 <span className={s.lineTop}>
-                  <span lang={item?.nameZh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
+                  <span lang={shown.zh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
                     <ZhName name={zhName} />
                   </span>
                   <span className={`${s.lp} ${s.num}`}>{formatCents(lineCents)}</span>
@@ -992,7 +1122,7 @@ export default function PosScreen({
                       {summary.join(" / ")}
                     </span>
                   )}
-                  {item?.nameZh && <span lang="en">{item.nameEn}</span>}
+                  {shown.zh && <span lang="en">{shown.en}</span>}
                 </span>
                 {line.specialInstructions && <span className={`${s.note} ${s.one}`}>{line.specialInstructions}</span>}
               </span>
@@ -1018,156 +1148,76 @@ export default function PosScreen({
                 <Icon name="plus" size={20} />
               </button>
             </div>
+            {open && (
+              <div className={s.lineMore} role="group" aria-label={t("pos.quickNotes")}>
+                {QUICK_NOTES.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    data-note={n}
+                    aria-pressed={notes.has(n)}
+                    onClick={() => noteLine(line.lineId, n)}
+                    className={s.chip}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button type="button" data-action="edit-line" onClick={() => editLine(line)} className={`${s.chip} ${s.chipEdit}`}>
+                  <span lang="zh-Hant">{t("pos.modifyShort")}</span> {t("pos.editLineEn")}
+                </button>
+              </div>
+            )}
           </div>
         );
       })
     );
 
-  const printLabel = submitting ? (
+  const sendLabel = submitting ? (
     t("pos.printing")
-  ) : lines.length === 0 ? (
-    <>
-      <span lang="zh-Hant" className={s.zh}>
-        {t("pos.printEmptyZh")}
-      </span>{" "}
-      {t("pos.printEmptyEn")}
-    </>
   ) : (
     <>
-      <span>
-        <span lang="zh-Hant" className={s.zh}>
-          {t("pos.printZh")}
-        </span>{" "}
-        {t("pos.printEn")}
+      <span lang="zh-Hant" className={s.zh}>
+        {t("pos.sendZh")}
       </span>
-      <span className={s.num}>{formatCents(total)}</span>
+      <span lang="en" className={s.en}>
+        {t("pos.sendEn")}
+      </span>
     </>
   );
+  const missingNote = !error && lines.length > 0 && missing.length > 0 ? missing.map((k) => t(k)).join(" · ") : null;
 
   return (
-    <main className={s.root} data-pos-screen>
-      {/* The POS's own controls, under the shared staff header: search, plus
-          lunch hours when the clock has not opened lunch. */}
-      <div className={s.top} role="toolbar" aria-label={t("pos.defaults")}>
-        {searchField ?? (
-          <>
-            <div role="group" aria-label={t("pos.riceGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="rice">
-              {RICE_DEFAULTS.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  data-value={r}
-                  aria-pressed={defaults.rice === r}
-                  aria-label={t(RICE_LABEL[r].all)}
-                  title={t(RICE_LABEL[r].all)}
-                  onClick={() => setRiceDefault(r)}
-                >
-                  <span lang="zh-Hant" className={s.zh}>
-                    {t(RICE_LABEL[r].zh)}
-                  </span>
-                  <span lang="en" className={s.en}>
-                    {t(RICE_LABEL[r].en)}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              data-action="apply-rice-all"
-              onClick={applyRiceToAll}
-              aria-label={t("pos.applyAll")}
-              title={t("pos.applyAllHint")}
-              className={s.applyAll}
-            >
-              <span lang="zh-Hant">{t("pos.applyAllZh")}</span>
-              <span lang="en" className={s.en}>
-                {t("pos.applyAllEn")}
-              </span>
-            </button>
-            <div role="group" aria-label={t("pos.sizeGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="size">
-              {SIZE_DEFAULTS.map((z) => (
-                <button
-                  key={z}
-                  type="button"
-                  data-value={z}
-                  aria-pressed={defaults.size === z}
-                  aria-label={t(SIZE_LABEL[z].all)}
-                  title={t(SIZE_LABEL[z].all)}
-                  onClick={() => setSizeDefault(z)}
-                >
-                  <span lang="zh-Hant" className={s.zh}>
-                    {t(SIZE_LABEL[z].zh)}
-                  </span>
-                  <span lang="en" className={s.en}>
-                    {t(SIZE_LABEL[z].en)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        <div className={s.topRight}>
-          {!lunchNow && (
-            <button
-              type="button"
-              aria-pressed={lunchOverride}
-              aria-label={t("pos.lunchHours")}
-              title={t("pos.lunchOverrideHint")}
-              onClick={() => setLunchOverride((v) => !v)}
-              className={s.lunchBtn}
-            >
-              <Icon name="clock" size={18} />
-              <span>{t("pos.lunchShort")}</span>
-            </button>
-          )}
-          {!searchField && (
-            <Button
-              variant="secondary"
-              size="sm"
-              iconOnly
-              icon="search"
-              aria-label={t("pos.search")}
-              onClick={() => setSearchOpen(true)}
-            />
-          )}
-        </div>
-      </div>
+    <main className={`${s.root} ${ticketOpen ? s.ticketIsOpen : ""}`} data-pos-screen>
+      {headerSlot && createPortal(headerControls, headerSlot)}
 
-      {/* ---------------------------------------------- categories -- */}
-      <nav ref={railRef} aria-label={t("pos.categories")} className={`${s.rail} ${s.scroll}`}>
-        {railCategories.map((c) => {
-          const l = categoryLook(c);
-          return (
-            <button
-              key={c.id}
-              type="button"
-              data-cat-link={c.id}
-              onClick={() => jumpTo(c)}
-              aria-current={c.id === activeCategory && !results ? "true" : undefined}
-              style={tintStyle(l.tint)}
-            >
-              <span className={s.sw} />
-              <span lang={l.zh ? "zh-Hant" : "en"} className={s.zh}>
-                {l.zh ?? l.en}
-              </span>
-              {l.zh && (
-                <span lang="en" className={s.en}>
-                  {l.en}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {statusLine && <div className={s.statusArea}>{statusLine}</div>}
+      {searchField && <div className={s.searchArea}>{searchField}</div>}
+
+      {/* ------------------------------------------------- the tabs -- */}
+      <nav aria-label={t("pos.categories")} className={s.tabs}>
+        {POS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            data-cat-link={tab.id}
+            onClick={() => jumpTo(tab)}
+            aria-current={tab.id === activeTab && !results ? "true" : undefined}
+            aria-label={`${tab.zh} ${tab.enFull}`}
+            style={tintStyle(tab.tint)}
+          >
+            <Icon name={tab.icon} size={22} />
+            <span lang="zh-Hant" className={s.zh}>
+              {tab.zh}
+            </span>
+            <span lang="en" className={s.en}>
+              {tab.en}
+            </span>
+          </button>
+        ))}
       </nav>
 
       {/* -------------------------------------------------- dishes -- */}
       <section ref={dishPaneRef} onScroll={results ? undefined : spy} aria-label={t("pos.title")} className={`${s.dishes} ${s.scroll}`}>
-        {lunchOverride && !lunchNow && (
-          <p role="status" className={s.banner}>
-            <Icon name="alert" size={22} />
-            {t("pos.lunchOverrideWarning", lunchLabel)}
-          </p>
-        )}
         {results ? (
           <>
             <h2 className={s.sectionH}>
@@ -1176,36 +1226,56 @@ export default function PosScreen({
             {results.length === 0 ? (
               <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
             ) : (
-              <div className={s.grid}>{results.map((item, i) => tile(item, i < 9 ? i + 1 : null))}</div>
+              <div className={s.grid}>{results.map((item, i) => tile(item, `r:${item.id}`, i < 9 ? i + 1 : null))}</div>
             )}
           </>
         ) : (
-          railCategories.map((category) => {
-            const look = categoryLook(category);
-            return (
-              <section key={category.id} id={`pos-cat-${category.id}`} data-cat={category.id} className={s.catSection}>
-                <h2 className={s.sectionH}>
-                  <span lang={look.zh ? "zh-Hant" : "en"} className={s.zh}>
-                    {look.zh ?? look.en}
-                  </span>
-                  {look.zh && (
-                    <span lang="en" className={s.en}>
-                      {category.nameEn}
-                    </span>
+          sections.map(({ tab, groups }) => (
+            <section key={tab.id} id={`pos-cat-${tab.id}`} data-cat={tab.id} className={s.catSection}>
+              <h2 className={s.sectionH}>
+                <span lang="zh-Hant" className={s.zh}>
+                  {tab.zh}
+                </span>
+                <span lang="en" className={s.en}>
+                  {tab.enFull}
+                </span>
+              </h2>
+              {groups.map((g) => (
+                <div key={g.id} data-group={g.id}>
+                  {groups.length > 1 && (
+                    <h3 className={s.subH}>
+                      {g.zh && (
+                        <span lang="zh-Hant" className={s.zh}>
+                          {g.zh}
+                        </span>
+                      )}
+                      <span lang="en" className={s.en}>
+                        {g.en}
+                      </span>
+                      {g.id === "lunch-specials" && <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>}
+                    </h3>
                   )}
-                  {category.items.some((i) => i.lunchSpecial) && (
-                    <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
-                  )}
-                </h2>
-                <div className={s.grid}>{category.items.map((item) => tile(item))}</div>
-              </section>
-            );
-          })
+                  <div className={s.grid}>{g.items.map((item) => tile(item, `${tab.id}:${item.id}`))}</div>
+                </div>
+              ))}
+            </section>
+          ))
         )}
       </section>
 
-      {/* -------------------------------------------------- ticket -- */}
-      <aside aria-label={t("pos.ticket")} className={s.ticket}>
+      {/* -------------------------------------------------- ticket --
+          Landscape: the side panel. Portrait: a sheet over the dishes,
+          opened from the bar, at most 70% of the screen. */}
+      {ticketOpen && (
+        <button
+          type="button"
+          aria-hidden="true"
+          tabIndex={-1}
+          className={s.scrim}
+          onClick={() => setTicketOpen(false)}
+        />
+      )}
+      <aside aria-label={t("pos.ticket")} className={s.ticket} data-ticket>
         {ticketHead}
         <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
           {ticketLines}
@@ -1245,14 +1315,7 @@ export default function PosScreen({
             </span>
             <span className={`${s.v} ${s.num}`}>{formatCents(total)}</span>
           </div>
-          {error && (
-            <p role="alert" className={s.alert}>
-              {error}
-            </p>
-          )}
-          {!error && lines.length > 0 && missing.length > 0 && (
-            <p className={s.alert}>{missing.map((k) => t(k)).join(" · ")}</p>
-          )}
+          {missingNote && <p className={s.alert}>{missingNote}</p>}
           <button
             type="button"
             onClick={submit}
@@ -1260,10 +1323,61 @@ export default function PosScreen({
             data-action="print"
             className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.print}`}
           >
-            {printLabel}
+            {sendLabel}
           </button>
         </div>
       </aside>
+
+      {/* ------------------------------------- the bar (portrait) -- */}
+      <div className={s.bar} data-ticket-bar>
+        <button
+          type="button"
+          data-action="open-ticket"
+          aria-expanded={ticketOpen}
+          aria-label={ticketOpen ? t("pos.closeTicket") : t("pos.openTicket")}
+          onClick={() => setTicketOpen((o) => !o)}
+          className={s.barMain}
+        >
+          <span className={s.barWho}>
+            <span className={s.key}>{t(`channel.${channel}`)}</span>
+            <span className={`${s.barName} ${s.one}`}>
+              {customerSummary || (
+                <span className={s.soft}>
+                  <span lang="zh-Hant">{t("pos.addCustomerZh")}</span>
+                </span>
+              )}
+            </span>
+          </span>
+          {lines.length === 0 && sentStatus ? (
+            sentStatus
+          ) : (
+            <span className={s.barSum}>
+              <span className={`${s.barCount} ${s.num}`} data-item-count>
+                {t("pos.items", { n: itemCount })}
+              </span>
+              <span className={`${s.barTotal} ${s.num}`}>{formatCents(total)}</span>
+            </span>
+          )}
+          <Icon name="chevronDown" size={24} className={s.barChevron} />
+        </button>
+        {lines.length === 0 && justNow ? (
+          <button type="button" onClick={() => reprint(justNow)} className={`${btn("secondary")} ${s.barSend}`}>
+            <Icon name="printer" size={22} />
+            {t("pos.reprint")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            data-action="send"
+            title={missingNote ?? undefined}
+            className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.barSend}`}
+          >
+            {sendLabel}
+          </button>
+        )}
+      </div>
 
       {/* --------------------------------------- customer details + notes -- */}
       {detailsOpen && (

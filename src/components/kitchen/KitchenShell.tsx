@@ -133,8 +133,11 @@ function ShellFrame({
   return (
     <>
       <div ref={topRef} className="sticky top-0 z-30">
-        <header className="border-b border-staff-line bg-staff-panel">
-          <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6">
+        <header className="border-b border-staff-line bg-staff-panel portrait:h-16">
+          {/* 64px, one row. Upright on an iPad there is no room to wrap, so
+              the healthy printer chips and the live dot step aside (a
+              printer that needs a person still says so, in the line below). */}
+          <div className="mx-auto flex min-h-16 w-full max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6 portrait:flex-nowrap portrait:py-0 portrait:h-full portrait:min-h-0">
             {/* eslint-disable-next-line @next/next/no-img-element -- a 40px vector seal, no optimisation to gain */}
             <img src="/brand/fu-yuan-seal.svg" alt="" width={20} height={34} className="h-9 w-auto" />
 
@@ -152,7 +155,10 @@ function ShellFrame({
               ))}
             </nav>
 
-            <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2 portrait:flex-nowrap">
+              {/* The screen's own controls (the POS's search and lunch hours). */}
+              <div data-header-slot className="flex items-center gap-2" />
+              {sound === "ask" && <SoundChip onEnable={enableSound} onDecline={declineSound} />}
               <PrinterStatusStrip />
               <span
                 role="status"
@@ -189,7 +195,6 @@ function ShellFrame({
           </div>
         </header>
         <PrinterAlerts />
-        {sound === "ask" && <SoundPrompt onEnable={enableSound} onDecline={declineSound} />}
       </div>
       {children}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
@@ -198,36 +203,40 @@ function ShellFrame({
 }
 
 /**
- * ONE TIME, on the first staff page this device opens: ask to turn the
- * arrival chime on. It has to be a tap, because iPad Safari plays nothing
- * until the page has had one; the tap on "Enable sound" is that gesture, and
- * it unlocks audio inside the handler. The answer is kept on the device, so
- * it is never asked again; the bell and the ⋯ menu change it later.
+ * ONE TIME, on the first staff page this device opens: a small chip in the
+ * header to turn the arrival chime on, and an × to say no. It has to be a
+ * tap, because iPad Safari plays nothing until the page has had one; the tap
+ * on the chip is that gesture, and it unlocks audio inside the handler. The
+ * answer is kept on the device, so it is never asked again; the bell and the
+ * ⋯ menu change it later.
  */
-function SoundPrompt({ onEnable, onDecline }: { onEnable: () => void; onDecline: () => void }) {
+function SoundChip({ onEnable, onDecline }: { onEnable: () => void; onDecline: () => void }) {
   const { t } = useKitchenI18n();
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 pt-3 sm:px-6">
-      <div
-        role="region"
-        aria-label={t("sound.prompt.title")}
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-staff-card bg-staff-gold-tint px-5 py-3 text-staff-body text-staff-ink"
+    <span
+      role="region"
+      aria-label={t("sound.prompt.title")}
+      data-sound-chip
+      className="flex h-11 shrink-0 items-center rounded-full bg-staff-gold-tint text-staff-caption font-semibold text-staff-ink"
+    >
+      <button
+        type="button"
+        onClick={onEnable}
+        title={t("sound.prompt.body")}
+        className="flex h-11 items-center gap-1.5 rounded-full pr-1 pl-3 whitespace-nowrap"
       >
-        <Icon name="bell" size={22} />
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold">{t("sound.prompt.title")}</p>
-          <p className="text-staff-caption">{t("sound.prompt.body")}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="quiet" size="sm" onClick={onDecline}>
-            {t("sound.notNow")}
-          </Button>
-          <Button variant="primary" size="sm" icon="bell" onClick={onEnable}>
-            {t("sound.enable")}
-          </Button>
-        </div>
-      </div>
-    </div>
+        <Icon name="bell" size={18} />
+        {t("sound.enable")}
+      </button>
+      <button
+        type="button"
+        onClick={onDecline}
+        aria-label={t("sound.notNow")}
+        className="flex h-11 w-11 items-center justify-center rounded-full"
+      >
+        <Icon name="x" size={16} />
+      </button>
+    </span>
   );
 }
 

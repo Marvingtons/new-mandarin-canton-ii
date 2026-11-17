@@ -22,6 +22,9 @@ export const EXCLUDE = [
   "src/app/api",
   "src/components/kitchen",
   "src/lib/kitchen",
+  // The POS's 常點 list: staff-only config, kept in src/config so the owner
+  // finds it next to the other settings.
+  "src/config/posPopular.ts",
   "src/lib/ticket",
   "src/lib/print",
   "src/lib/otp",

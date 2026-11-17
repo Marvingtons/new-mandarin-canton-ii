@@ -52,7 +52,7 @@ test("a Lunch Special opens its sheet, cannot be added unchosen, and prints entr
   const add = sheet.getByRole("button", { name: /加入單據/ });
   await expect(add).toBeDisabled();
 
-  // Rice is required too, and the strip's default fills it: its section is
+  // Rice is required too, and starts at 白飯, the default: its section is
   // closed and shows 白飯. Add must still refuse, because the entrée is not.
   const rice = sheet.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Rice" }) });
   await expect(rice.locator("legend button[aria-expanded]")).toHaveAttribute("aria-expanded", "false");

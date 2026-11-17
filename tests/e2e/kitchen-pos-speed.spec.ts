@@ -3,20 +3,23 @@ import { E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
 
 /**
- * The POS speed redesign: one tap per dish in the common case.
+ * The POS: one tap per dish in the common case.
  *
- *   TOP    sticky rice and size, applied to every tile tap
- *   LEFT   every category on the rail
- *   GRID   the tile body adds at once; the 改 corner opens the sheet
- *   RIGHT  the ticket: tap a line to change it, − / + on the line
+ *   TABS   nine, every dish in one scroll
+ *   GRID   a card adds; a dish with rice opens the rice picker on the card,
+ *          and a second tap takes 白飯; the 餐盤 pill adds the tray
+ *   TICKET tap a line for its quick notes and 改; − / + on the line
  *
- * Every test starts on a fresh tablet (a new context: no stored defaults, so
- * 白飯 and 單點), signed in to the throwaway e2e server.
+ * Every test starts on a fresh tablet, signed in to the throwaway e2e
+ * server. 常點 Popular comes first, so a dish can be on screen twice:
+ * `.first()` is the Popular card.
  */
 
 /** A rice dish sold 單點 and 餐盤 with no other required choice. */
-const ORANGE = 'button[data-item]:not([data-asks])[aria-label*="Orange Flavored Chicken"]';
-const MONGOLIAN = 'button[data-item]:not([data-asks])[aria-label*="Mongolian Beef"]';
+const ORANGE = 'button[data-item="orange-flavored-chicken-special"]';
+const MONGOLIAN = 'button[data-item="mongolian-beef-special"]';
+/** No rice, one size: one tap adds. */
+const EGG_ROLLS = 'button[data-item="egg-rolls"]';
 /** "Black Pepper Beef or Chicken": the pick is the dish, never defaulted. */
 const OR_DISH = 'button[data-item="black-pepper-beef-or-chicken"]';
 
@@ -28,74 +31,72 @@ async function openPos(browser: Browser, viewport = { width: 1024, height: 768 }
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");
-  await expect(page.locator('[data-action="print"]')).toBeVisible();
+  // Landscape shows the side ticket's Send; upright, the bar's.
+  await expect(page.locator('[data-action="print"], [data-action="send"]').filter({ visible: true })).toHaveCount(1);
   return page;
 }
 
 const ticketOf = (page: Page) => page.getByRole("complementary", { name: "單據" });
 const linesOf = (page: Page) => ticketOf(page).locator("[data-line]");
-const rice = (page: Page, value: string) => page.locator(`[data-defaults="rice"] button[data-value="${value}"]`);
-const size = (page: Page, value: string) => page.locator(`[data-defaults="size"] button[data-value="${value}"]`);
+const ricePop = (page: Page) => page.locator("[data-rice-pop]");
+const riceBtn = (page: Page, value: string) => ricePop(page).locator(`button[data-rice="${value}"]`);
 
-test("one tap adds with the sticky defaults, no sheet", async ({ browser }) => {
+/** Tap a card the way staff do: once, and take 白飯 if it asks for rice. */
+async function add(page: Page, card: ReturnType<Page["locator"]>): Promise<void> {
+  await card.click();
+  if (await ricePop(page).isVisible()) await card.click();
+}
+
+test("a dish with no rice adds in one tap; a rice dish asks on the card", async ({ browser }) => {
   const page = await openPos(browser);
-  // A fresh tablet: 白飯 and 單點.
-  await expect(rice(page, "steamed")).toHaveAttribute("aria-pressed", "true");
-  await expect(size(page, "individual")).toHaveAttribute("aria-pressed", "true");
-
-  await rice(page, "fried").click();
-  await page.locator(ORANGE).first().click();
+  await page.locator(EGG_ROLLS).first().click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(ricePop(page)).toHaveCount(0);
   await expect(linesOf(page)).toHaveCount(1);
-  await expect(linesOf(page).first()).toContainText("炒飯");
-  await expect(linesOf(page).first()).toContainText("單點");
 
-  // 餐盤: a tray is the dish alone, so the same tap adds no rice.
-  await size(page, "tray").click();
-  await page.locator(MONGOLIAN).first().click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // Rice: the picker on the card, four choices offered as the dish allows,
+  // 白飯 first. 炒飯 adds it.
+  await page.locator(ORANGE).first().click();
+  await expect(ricePop(page)).toBeVisible();
+  await expect(ricePop(page).locator("button").first()).toHaveAttribute("data-rice", "steamed");
+  await expect(linesOf(page)).toHaveCount(1);
+  await riceBtn(page, "fried").click();
+  await expect(ricePop(page)).toHaveCount(0);
   await expect(linesOf(page)).toHaveCount(2);
-  await expect(linesOf(page).nth(1)).toContainText("餐盤");
-  await expect(linesOf(page).nth(1)).not.toContainText("飯 /");
-
-  // Per tablet: the choice survives a reload.
-  await page.reload();
-  await expect(rice(page, "fried")).toHaveAttribute("aria-pressed", "true");
-  await expect(size(page, "tray")).toHaveAttribute("aria-pressed", "true");
+  await expect(linesOf(page).nth(1)).toContainText("炒飯");
+  await expect(linesOf(page).nth(1)).toContainText("單點");
+  // The card shows how many are on the ticket.
+  await expect(page.locator('[data-tile-key="popular:orange-flavored-chicken-special"] [data-qty-badge]')).toHaveText("1");
   await page.context().close();
 });
 
-test("changing rice at the top changes the next add, not the lines already on the ticket", async ({ browser }) => {
+test("tapping a rice card twice adds it with 白飯; a tap elsewhere or Esc closes the picker", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(ORANGE).first().click();
+  await page.locator(MONGOLIAN).first().click();
+  await page.locator(MONGOLIAN).first().click();
+  await expect(ricePop(page)).toHaveCount(0);
+  await expect(linesOf(page)).toHaveCount(1);
   await expect(linesOf(page).first()).toContainText("白飯");
 
-  await rice(page, "fried").click();
-  await page.locator(MONGOLIAN).first().click();
+  await page.locator(ORANGE).first().click();
+  await expect(ricePop(page)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(ricePop(page)).toHaveCount(0);
+  await page.locator(ORANGE).first().click();
+  await page.locator(EGG_ROLLS).first().click();
+  await expect(ricePop(page)).toHaveCount(0);
   await expect(linesOf(page)).toHaveCount(2);
-  await expect(linesOf(page).nth(0)).toContainText("白飯");
-  await expect(linesOf(page).nth(0)).not.toContainText("炒飯");
-  await expect(linesOf(page).nth(1)).toContainText("炒飯");
   await page.context().close();
 });
 
-test("Apply to all changes the rice on every line, and Undo puts it back", async ({ browser }) => {
+test("the 餐盤 pill adds the tray, with no rice", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(ORANGE).first().click();
-  await page.locator(MONGOLIAN).first().click();
-  await expect(linesOf(page)).toHaveCount(2);
-
-  await rice(page, "fried").click();
-  await page.locator('[data-action="apply-rice-all"]').click();
-  for (const i of [0, 1]) await expect(linesOf(page).nth(i)).toContainText("炒飯");
-  const toast = page.getByRole("status").filter({ hasText: "已更新 2 項 · Updated 2 lines" });
-  await expect(toast).toBeVisible();
-
-  await toast.locator('[data-action="toast-action"]').click();
-  for (const i of [0, 1]) {
-    await expect(linesOf(page).nth(i)).toContainText("白飯");
-    await expect(linesOf(page).nth(i)).not.toContainText("炒飯");
-  }
+  await page.locator('[data-tile-key="popular:mongolian-beef-special"] button[data-tray]').click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(ricePop(page)).toHaveCount(0);
+  await expect(linesOf(page)).toHaveCount(1);
+  await expect(linesOf(page).first()).toContainText("餐盤");
+  await expect(linesOf(page).first()).not.toContainText("飯 /");
   await page.context().close();
 });
 
@@ -109,7 +110,7 @@ test("a required-choice dish opens on that choice and cannot be added without it
   await expect(sheet).toBeVisible();
   await expect(linesOf(page)).toHaveCount(0);
 
-  // Only the beef-or-chicken section is open; the rice is the strip's 白飯.
+  // Only the beef-or-chicken section is open; the rice starts at 白飯.
   await expect(sheet.locator('button[aria-expanded="true"]')).toHaveCount(1);
   const choice = sheet.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Beef or chicken" }) });
   await expect(choice.locator("legend button")).toHaveAttribute("aria-expanded", "true");
@@ -144,24 +145,23 @@ test("a required-choice dish opens on that choice and cannot be added without it
   await page.context().close();
 });
 
-test("tapping a tile twice bumps its line's quantity", async ({ browser }) => {
+test("the same dish again bumps its line's quantity; another rice is another line", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(ORANGE).first().click();
-  await page.locator(ORANGE).first().click();
+  await add(page, page.locator(ORANGE).first());
+  await add(page, page.locator(ORANGE).first());
   await expect(linesOf(page)).toHaveCount(1);
   await expect(linesOf(page).first().locator("[data-qty]")).toHaveText("2");
 
-  // A different default is a different line, not a bump.
-  await rice(page, "fried").click();
   await page.locator(ORANGE).first().click();
+  await riceBtn(page, "fried").click();
   await expect(linesOf(page)).toHaveCount(2);
   await page.context().close();
 });
 
 test("minus at 1 removes the line with no confirm, and Undo restores it", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(ORANGE).first().click();
-  await page.locator(MONGOLIAN).first().click();
+  await add(page, page.locator(ORANGE).first());
+  await add(page, page.locator(MONGOLIAN).first());
   await expect(linesOf(page)).toHaveCount(2);
   const first = await linesOf(page).first().textContent();
 
@@ -177,11 +177,17 @@ test("minus at 1 removes the line with no confirm, and Undo restores it", async 
   await page.context().close();
 });
 
-test("tapping a line opens its sheet and Update changes it in place", async ({ browser }) => {
+test("tapping a line shows its quick notes; 改 opens the sheet and Update changes it in place", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(ORANGE).first().click();
-  await page.locator(MONGOLIAN).first().click();
-  await linesOf(page).first().locator("button[aria-haspopup]").click();
+  await add(page, page.locator(ORANGE).first());
+  await add(page, page.locator(MONGOLIAN).first());
+  const first = linesOf(page).first();
+  await first.locator("button[aria-expanded]").click();
+  await first.locator('[data-note="走辣 No spicy"]').click();
+  await expect(first.locator('[data-note="走辣 No spicy"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(first).toContainText("走辣 No spicy");
+
+  await first.locator('[data-action="edit-line"]').click();
   const sheet = page.getByRole("dialog");
   const riceGroup = sheet.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Rice" }) });
   await expect(riceGroup.locator('button[aria-pressed="true"]')).toContainText("白飯");
@@ -190,8 +196,15 @@ test("tapping a line opens its sheet and Update changes it in place", async ({ b
   await expect(linesOf(page)).toHaveCount(2);
   await expect(linesOf(page).first()).toContainText("炒飯");
   await expect(linesOf(page).first()).toContainText("Orange");
+  await expect(linesOf(page).first()).toContainText("走辣");
   await page.context().close();
 });
+
+/** Upright, the ticket is a sheet behind the bar: open it. */
+async function showTicket(page: Page): Promise<void> {
+  const bar = page.locator('[data-action="open-ticket"]');
+  if (await bar.isVisible()) await bar.click();
+}
 
 for (const viewport of [
   { width: 768, height: 1024 },
@@ -202,10 +215,13 @@ for (const viewport of [
     const page = await openPos(browser, viewport);
     // Long names, every option on the line, and a long note.
     const tiles = page.locator("button[data-item]:not([disabled]):not([data-asks])");
-    for (const i of [0, 1, 2, 4, 6, 8]) await tiles.nth(i).click();
-    await rice(page, "none").click();
-    await page.locator('[data-action="apply-rice-all"]').click();
-    await linesOf(page).first().locator("button[aria-haspopup]").click();
+    for (const i of [0, 1, 2, 4, 6, 8]) {
+      await tiles.nth(i).click();
+      if (await ricePop(page).isVisible()) await riceBtn(page, "none").click();
+    }
+    await showTicket(page);
+    await linesOf(page).first().locator("button[aria-expanded]").click();
+    await linesOf(page).first().locator('[data-action="edit-line"]').click();
     const sheet = page.getByRole("dialog");
     const notesHead = sheet.locator('[data-section="instructions"] button[aria-expanded]');
     if ((await notesHead.getAttribute("aria-expanded")) !== "true") await notesHead.click();
@@ -241,8 +257,10 @@ for (const viewport of [
 test("no touch target on the POS is under 44px", async ({ browser }) => {
   const page = await openPos(browser);
   const tiles = page.locator("button[data-item]:not([disabled]):not([data-asks])");
-  for (const i of [0, 1, 2, 4, 6, 8]) await tiles.nth(i).click();
+  for (const i of [0, 1, 2, 4, 6, 8]) await add(page, tiles.nth(i));
   await linesOf(page).first().locator('[data-step="plus"]').click();
+  // A line open on its quick notes.
+  await linesOf(page).first().locator("button[aria-expanded]").click();
 
   const small = async () =>
     page.evaluate(() => {
@@ -264,8 +282,13 @@ test("no touch target on the POS is under 44px", async ({ browser }) => {
     });
 
   expect(await small()).toEqual([]);
+  // The rice picker open on a card.
+  await page.locator(ORANGE).first().click();
+  await expect(ricePop(page)).toBeVisible();
+  expect(await small()).toEqual([]);
+  await page.keyboard.press("Escape");
   // With the sheet open, every section expanded.
-  await page.locator('button[data-modify]').first().click();
+  await linesOf(page).first().locator('[data-action="edit-line"]').click();
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
   for (const head of await sheet.locator('button[aria-expanded="false"]').all()) await head.click();
@@ -289,7 +312,9 @@ test("keyboard: / searches, Enter then 2 adds the second result, Esc clears; typ
   const second = (await results.nth(1).getAttribute("aria-label")) ?? "";
   await search.press("Enter");
   await expect(search).not.toBeFocused();
+  // 2 taps the second result; a rice dish asks, and 2 again takes 白飯.
   await page.keyboard.press("2");
+  if (await ricePop(page).isVisible()) await page.keyboard.press("2");
   await expect(linesOf(page)).toHaveCount(1);
   await expect(linesOf(page).first()).toContainText(second.split(" ")[0]);
   await expect(linesOf(page).first()).toContainText("白飯");
