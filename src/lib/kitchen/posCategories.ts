@@ -70,6 +70,57 @@ export function categoryLook(category: { id: string; nameZh: string | null; name
   };
 }
 
+/**
+ * THE POS TABS: nine, in one row on an upright iPad. Each groups one or more
+ * menu categories into one section of the dish scroll; 常點 Popular is the
+ * owner's list (config/posPopular.ts) rather than a menu category.
+ */
+export type PosTabIcon = "star" | "flame" | "layers" | "drumstick" | "steak" | "fish" | "leaf" | "bowl" | "soup";
+
+export interface PosTab {
+  id: string;
+  zh: string;
+  /** Short enough for a 90px tab at 13px. */
+  en: string;
+  /** The full name, for assistive tech and the section heading. */
+  enFull: string;
+  icon: PosTabIcon;
+  tint: CategoryTint;
+  /** Menu category ids, in order; empty for Popular. */
+  categories: readonly string[];
+}
+
+export const POPULAR_TAB_ID = "popular";
+
+export const POS_TABS: readonly PosTab[] = [
+  { id: POPULAR_TAB_ID, zh: "常點", en: "Popular", enFull: "Popular", icon: "star", tint: "lunch", categories: [] },
+  { id: "specials", zh: "招牌", en: "Specials", enFull: "Specials & Sizzling", icon: "flame", tint: "specials", categories: ["specials", "sizzling-hot-pot"] },
+  { id: "sets", zh: "套餐", en: "Sets", enFull: "Lunch & Family Sets", icon: "layers", tint: "family", categories: ["lunch-specials", "family-dinners", "big-family-dinner"] },
+  { id: "chicken", zh: "雞", en: "Chicken", enFull: "Chicken", icon: "drumstick", tint: "chicken", categories: ["chicken"] },
+  { id: "beef-pork", zh: "牛·豬", en: "Beef·Pork", enFull: "Beef & Pork", icon: "steak", tint: "beef", categories: ["beef", "pork"] },
+  { id: "seafood", zh: "海鮮", en: "Seafood", enFull: "Seafood", icon: "fish", tint: "seafood", categories: ["seafood"] },
+  { id: "veg", zh: "菜·豆腐", en: "Veg·Tofu", enFull: "Vegetables & Tofu", icon: "leaf", tint: "vegetables", categories: ["vegetables"] },
+  { id: "rice-noodles", zh: "飯·麵", en: "Rice·Noodle", enFull: "Fried Rice & Noodles", icon: "bowl", tint: "rice", categories: ["fried-rice", "noodles"] },
+  { id: "starters", zh: "前·湯", en: "Starters", enFull: "Starters, Soup & Sides", icon: "soup", tint: "appetizers", categories: ["appetizers", "soup", "sides"] },
+];
+
+/**
+ * A POS name where the menu's own does not tell two cards apart. The two
+ * lunch tiers are both "午市套餐 Lunch Special" on the menu; staff need to
+ * see which one they are tapping.
+ */
+const POS_NAMES: Record<string, { zh: string; en: string }> = {
+  "combo-lunch-15-75": { zh: "午市套餐 A", en: "Lunch A · with egg roll + wing" },
+  "combo-lunch-16-25": { zh: "午市套餐 B", en: "Lunch B · kung pao, wings, chow fun…" },
+  // Same 中文 on the menu too; the head count is what tells them apart.
+  "combo-big-family-128": { zh: "大家庭 4–6位", en: "Big Family Dinner · 4 to 6 people" },
+  "combo-big-family-178": { zh: "大家庭 6–8位", en: "Big Family Dinner · 6 to 8 people" },
+};
+
+export function posName(item: { id: string; nameZh: string | null; nameEn: string }): { zh: string | null; en: string } {
+  return POS_NAMES[item.id] ?? { zh: item.nameZh, en: item.nameEn };
+}
+
 /** The CSS custom property a tinted element reads its colour from. */
 export function tintStyle(tint: CategoryTint): React.CSSProperties {
   return { "--c": `var(--cat-${tint})` } as React.CSSProperties;

@@ -49,19 +49,18 @@
   --edge: color-mix(in srgb, var(--color-staff-ink) 8%, transparent);
 
   /* ---- zones ---- */
-  --z-top: calc(64 * var(--staff-u));
   --z-rail: calc(176 * var(--staff-u));
   --z-ticket: calc(420 * var(--staff-u));
+  --z-bar: calc(88 * var(--staff-u));
 
   height: calc(100svh - var(--staff-header-h));
   overflow: hidden;
   display: grid;
-  /* The strip of sticky defaults sits over the dishes only: the rail keeps
-     the full height (every category at 44px on a 768px screen) and the
-     ticket never moves down. */
-  grid-template-areas: "rail top ticket" "rail dishes ticket";
+  /* Landscape: the tab rail, the dishes, the side ticket. A status line and
+     the search field sit over the dishes only when they exist. */
+  grid-template-areas: "rail status ticket" "rail search ticket" "rail dishes ticket";
   grid-template-columns: var(--z-rail) minmax(0, 1fr) var(--z-ticket);
-  grid-template-rows: var(--z-top) minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   font-family: var(--font-staff);
   font-size: var(--text-staff-body);
   line-height: 1.3;
@@ -110,22 +109,7 @@
 /* Buttons and segmented controls are the staff app's shared ones:
    components/kitchen/ui/ui.module.css. */
 
-/* ---- the strip: sticky rice and size, Apply to all, lunch hours, search -- */
-.top {
-  grid-area: top;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: calc(var(--spacing) * 1);
-  padding: 0 calc(var(--spacing) * 2);
-  background: var(--color-staff-bg);
-}
-.topRight {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: calc(var(--spacing) * 1);
-}
+/* ---- the POS's controls in the shell header: lunch hours, search ------- */
 /* Lunch hours, smaller: the clock over 午餐, the same 44px floor. */
 .lunchBtn {
   flex: none;
@@ -139,6 +123,7 @@
   line-height: 1.05;
   border-radius: var(--radius-staff-control);
   background: var(--color-staff-sunken);
+  color: var(--color-staff-ink);
   font-size: calc(12 * var(--staff-u));
   font-weight: 600;
   transition: background var(--staff-motion);
@@ -151,53 +136,35 @@
   background: var(--color-staff-brand);
   color: var(--color-staff-on-brand);
 }
-/* A compact segmented control: 中文 over English, the 44px floor, no wider
-   than its words, so rice and size share one row at 1024. */
-.defSeg {
-  flex: none;
-  padding: calc(2 * var(--staff-u));
-  gap: calc(2 * var(--staff-u));
+
+/* ---- one slim status line, only when something needs attention --------- */
+.statusArea {
+  grid-area: status;
+  min-width: 0;
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3) 0;
 }
-.defSeg > button {
-  min-height: calc(var(--spacing) * 11);
-  min-width: calc(var(--spacing) * 11);
-  padding: 0 calc(var(--spacing) * 1);
-  flex-direction: column;
-  justify-content: center;
-  gap: 0;
-  line-height: 1.05;
-}
-.defSeg .zh {
-  font-size: var(--text-staff-caption);
-  font-weight: 700;
-}
-.defSeg .en {
-  font-size: calc(12 * var(--staff-u));
-  font-weight: 500;
-}
-.applyAll {
-  flex: none;
-  min-height: calc(var(--spacing) * 11);
-  min-width: calc(var(--spacing) * 11);
-  padding: 0 calc(var(--spacing) * 1);
+.statusLine {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  line-height: 1.05;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  min-height: calc(var(--spacing) * 10);
+  padding: 0 calc(var(--spacing) * 3);
   border-radius: var(--radius-staff-control);
-  font-size: calc(13 * var(--staff-u));
-  font-weight: 700;
-  color: var(--color-staff-brand);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
+  background: var(--color-staff-gold-tint);
+  font-size: var(--text-staff-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.applyAll .en {
-  font-size: calc(12 * var(--staff-u));
-  font-weight: 500;
+.statusUrgent {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
 }
-.applyAll:active {
-  background: var(--color-staff-sunken);
+.searchArea {
+  grid-area: search;
+  min-width: 0;
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3) 0;
 }
 .searchField {
   position: relative;
@@ -221,50 +188,46 @@
   right: 0;
 }
 
-/* ---- rail: every category, a swatch, 中文 and English on one line -------
-   44px rows with no gap: all fifteen fit a 768px-tall screen. If they still
-   do not (大字), the rail scrolls on its own. */
-.rail {
+/* ---- tabs: nine, icon over 中文 over English ----------------------------
+   Landscape: a column on the left, every tab at least 44px. Portrait: one
+   row across the top (see the portrait block). */
+.tabs {
   grid-area: rail;
   min-height: 0;
   padding: calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 3);
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: calc(var(--spacing) * 1);
+  overflow-y: auto;
+  scrollbar-width: none;
 }
-.rail button {
+.tabs button {
   --c-ink: color-mix(in oklab, var(--c), var(--color-staff-ink) 30%);
-  /* 44px when the screen is tight, up to 56 when there is room. */
   flex: 1 0 calc(var(--spacing) * 11);
   min-height: calc(var(--spacing) * 11);
-  max-height: calc(var(--spacing) * 14);
+  max-height: calc(var(--spacing) * 16);
   padding: 0 calc(var(--spacing) * 2);
   border-radius: var(--radius-staff-control);
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
-  gap: calc(var(--spacing) * 2);
+  column-gap: calc(var(--spacing) * 2);
   text-align: left;
   white-space: nowrap;
   color: var(--color-staff-ink);
   transition: background var(--staff-motion);
 }
-.rail button:active {
+.tabs button svg {
+  color: var(--c-ink);
+}
+.tabs button:active {
   background: var(--color-staff-sunken);
 }
-.sw {
-  flex: none;
-  align-self: stretch;
-  width: calc(var(--spacing) * 1);
-  margin: calc(var(--spacing) * 2) 0;
-  border-radius: calc(4 * var(--staff-u));
-  background: var(--c-ink);
-}
-.rail .zh {
-  flex: none;
-  font-size: var(--text-staff-body);
+.tabs .zh {
+  font-size: calc(20 * var(--staff-u));
   line-height: 1.15;
 }
-.rail .en {
+.tabs .en {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -272,15 +235,13 @@
   line-height: 1.2;
   color: var(--color-staff-soft);
 }
-.rail button[aria-current="true"] {
+.tabs button[aria-current="true"] {
   background: var(--color-staff-brand);
   color: var(--color-staff-on-brand);
 }
-.rail button[aria-current="true"] .en {
+.tabs button[aria-current="true"] .en,
+.tabs button[aria-current="true"] svg {
   color: var(--color-staff-on-brand);
-}
-.rail button[aria-current="true"] .sw {
-  background: var(--c);
 }
 
 /* ---- dishes: tinted name tiles ------------------------------------------ */
@@ -307,6 +268,21 @@
 }
 .sectionH .en {
   font-size: var(--text-staff-body);
+  color: var(--color-staff-soft);
+}
+/* A menu category inside a tab (招牌 then 鐵板, 午餐 then 家庭餐). */
+.subH {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--spacing) * 2);
+  padding: calc(var(--spacing) * 4) 0 calc(var(--spacing) * 2);
+}
+.subH .zh {
+  font-size: var(--text-staff-body);
+  font-weight: 700;
+}
+.subH .en {
+  font-size: var(--text-staff-caption);
   color: var(--color-staff-soft);
 }
 .banner {
@@ -376,12 +352,9 @@
 .tile.hasQ .en {
   padding-right: calc(var(--spacing) * 8);
 }
-/* Room for the 改 corner under the names. */
-.tile.hasMod .en {
-  padding-right: calc(var(--spacing) * 11);
-}
-.tile.hasMod.long .zh {
-  padding-right: calc(var(--spacing) * 6);
+/* Room for the 餐盤 pill under the names. */
+.tile.hasTray .en {
+  padding-right: calc(var(--spacing) * 16);
 }
 .tile.off {
   background: var(--color-staff-sunken);
@@ -394,25 +367,82 @@
 .off .tileMain {
   cursor: not-allowed;
 }
-/* 改: the full sheet. A 44px corner, quiet until pressed. */
-.mod {
+/* 餐盤 Tray: a pill in the corner that adds the tray size. 44px tall. */
+.trayPill {
   position: absolute;
   right: calc(var(--spacing) * 1);
   bottom: calc(var(--spacing) * 1);
-  width: calc(var(--spacing) * 11);
+  min-width: calc(var(--spacing) * 14);
   height: calc(var(--spacing) * 11);
-  border-radius: var(--radius-staff-control);
-  background: color-mix(in srgb, var(--color-staff-panel) 70%, transparent);
+  padding: 0 calc(var(--spacing) * 3);
+  border-radius: calc(22 * var(--staff-u));
+  background: color-mix(in srgb, var(--color-staff-panel) 80%, transparent);
   box-shadow: inset 0 0 0 1px var(--edge);
-  font-size: var(--text-staff-body);
+  font-size: var(--text-staff-caption);
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background var(--staff-motion);
 }
-.mod:active {
+.trayPill:active {
   background: var(--color-staff-sunken);
+}
+/* The rice picker: a quick popover under the card, over its neighbours. */
+.tile.riceOpen {
+  z-index: 5;
+  box-shadow: inset 0 0 0 3px var(--color-staff-brand);
+}
+.ricePop {
+  position: absolute;
+  top: calc(100% + 4 * var(--staff-u));
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: calc(var(--spacing) * 1);
+  padding: calc(var(--spacing) * 1);
+  border-radius: var(--radius-staff-card);
+  background: var(--color-staff-panel);
+  box-shadow: var(--shadow-staff-raised);
+  animation: popIn 140ms ease-out;
+}
+/* Fade and slide, never scale: a target is full size from its first frame. */
+@keyframes popIn {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+.ricePop button {
+  min-height: calc(var(--spacing) * 14);
+  border-radius: var(--radius-staff-control);
+  background: var(--color-staff-sunken);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+}
+.ricePop button:active {
+  background: var(--color-staff-line);
+}
+.ricePop .zh {
+  font-size: var(--text-staff-body);
+  font-weight: 700;
+}
+.ricePop .en {
+  font-size: calc(12 * var(--staff-u));
+  color: var(--color-staff-soft);
+}
+.ricePop .riceDefault {
+  background: var(--color-staff-brand);
+  color: var(--color-staff-on-brand);
+}
+.ricePop .riceDefault .en {
+  color: var(--color-staff-on-brand);
 }
 /* A tap on this dish will ask (a required choice no default covers). */
 .asks {
@@ -818,47 +848,274 @@ button.print:disabled .zh {
   font-size: var(--text-staff-body);
 }
 
-/* A wide landscape screen: room for every category's English in full. */
+/* ---- a ticket line's quick notes and 改 (tap the line to show them) ---- */
+.line {
+  grid-template-areas: "hit step" "more more";
+}
+.lineHit {
+  grid-area: hit;
+}
+.stepper {
+  grid-area: step;
+}
+.lineOpen {
+  background: var(--color-staff-bg);
+}
+.lineMore {
+  grid-area: more;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--spacing) * 2);
+  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 2) calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+}
+.chip {
+  min-height: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 3);
+  border-radius: calc(22 * var(--staff-u));
+  background: var(--color-staff-panel);
+  box-shadow: inset 0 0 0 1px var(--color-staff-line);
+  font-size: var(--text-staff-caption);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chip[aria-pressed="true"] {
+  background: var(--color-staff-ink);
+  color: var(--color-staff-on-brand);
+  box-shadow: none;
+}
+.chipEdit {
+  background: var(--color-staff-brand-tint);
+  color: var(--color-staff-brand);
+  box-shadow: none;
+}
+
+/* Send: 送廚房 over Send. */
+button.print,
+.barSend {
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.1;
+}
+button.print {
+  justify-content: center;
+}
+button.print .zh,
+.barSend .zh {
+  font-size: var(--text-staff-heading);
+  font-weight: 700;
+}
+button.print .en,
+.barSend .en {
+  font-size: var(--text-staff-caption);
+  font-weight: 600;
+}
+
+/* Portrait-only pieces, hidden in landscape. */
+.bar,
+.scrim,
+.sheetOnly {
+  display: none;
+}
+
+/* A wide landscape screen: room for every tab's English in full. */
 @media (orientation: landscape) and (min-width: 1280px) {
   .root {
     --z-rail: calc(212 * var(--staff-u));
   }
 }
 
-/* A 10" landscape tablet (1024 wide): rail and ticket a step narrower so the
-   strip stays one row. */
+/* A 10" landscape tablet (1024 wide): rail and ticket a step narrower. */
 @media (orientation: landscape) and (max-width: 1100px) {
   .root {
-    --z-rail: calc(150 * var(--staff-u));
+    --z-rail: calc(156 * var(--staff-u));
     --z-ticket: calc(348 * var(--staff-u));
   }
 }
 
-/* Portrait: the same three columns; the ticket narrows and dishes go to two. */
+/* ---- PORTRAIT: an upright iPad (13" 1032 wide, 11" 834 wide) -------------
+   Tabs in one row under the header, the dishes in one scroll, three cards
+   a row, and the ticket as an 88px bar at the bottom that opens a sheet. */
 @media (orientation: portrait) {
   .root {
-    --z-ticket: calc(400 * var(--staff-u));
+    grid-template-areas: "status" "search" "tabs" "dishes" "bar";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) var(--z-bar);
+  }
+  .tabs {
+    grid-area: tabs;
+    flex-direction: row;
+    gap: calc(var(--spacing) * 1);
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    overflow: hidden;
+    box-shadow: 0 1px 0 var(--color-staff-sunken);
+  }
+  .tabs button {
+    flex: 1 1 0;
+    min-width: 0;
+    max-height: none;
+    height: calc(76 * var(--staff-u));
+    padding: 0 calc(var(--spacing) * 1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: calc(2 * var(--staff-u));
+    text-align: center;
+  }
+  .tabs .zh {
+    line-height: 1.1;
+  }
+  .tabs .en {
+    max-width: 100%;
+    line-height: 1.1;
+  }
+  .dishes {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3) calc(var(--spacing) * 6);
   }
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(calc(176 * var(--staff-u)), 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: calc(var(--spacing) * 2);
   }
-}
-/* An 11" tablet upright (820px) is not in the mockups: the same zones, each a
-   step narrower, so the dishes still get two columns. */
-@media (orientation: portrait) and (max-width: 900px) {
-  .root {
-    --z-rail: calc(152 * var(--staff-u));
-    --z-ticket: calc(320 * var(--staff-u));
-    grid-template-rows: auto minmax(0, 1fr);
+  .tile {
+    height: calc(112 * var(--staff-u));
+    padding: calc(var(--spacing) * 3);
   }
-  /* The strip is narrower than its controls here: it takes two rows. */
-  .top {
-    flex-wrap: wrap;
-    row-gap: calc(var(--spacing) * 1);
-    padding-block: calc(var(--spacing) * 2);
+  .tile .zh {
+    font-size: calc(22 * var(--staff-u));
   }
-  .grid {
-    grid-template-columns: repeat(auto-fill, minmax(calc(150 * var(--staff-u)), 1fr));
+  .tile .en {
+    font-size: calc(14 * var(--staff-u));
+  }
+
+  /* The bar: who, how many, the total, and Send. Tap it for the sheet. */
+  .bar {
+    grid-area: bar;
+    z-index: 21;
+    display: flex;
+    align-items: stretch;
+    gap: calc(var(--spacing) * 2);
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    background: var(--color-staff-panel);
+    box-shadow: 0 -1px 0 var(--color-staff-sunken);
+  }
+  .barMain {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 3);
+    padding: 0 calc(var(--spacing) * 3);
+    border-radius: var(--radius-staff-control);
+    background: var(--color-staff-bg);
+    text-align: left;
+  }
+  .barMain:active {
+    background: var(--color-staff-sunken);
+  }
+  .barWho {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+  .barWho .key {
+    font-size: var(--text-staff-caption);
+    font-weight: 600;
+    color: var(--color-staff-soft);
+  }
+  .barName {
+    font-size: var(--text-staff-title);
+    font-weight: 700;
+  }
+  .soft {
+    color: var(--color-staff-soft);
+    font-weight: 600;
+  }
+  .barSum {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.15;
+  }
+  .barCount {
+    font-size: var(--text-staff-caption);
+    color: var(--color-staff-soft);
+    font-weight: 600;
+  }
+  .barTotal {
+    font-size: var(--text-staff-heading);
+    font-weight: 700;
+  }
+  .barChevron {
+    flex: none;
+    transform: rotate(180deg);
+    transition: transform var(--staff-motion);
+  }
+  .ticketIsOpen .barChevron {
+    transform: none;
+  }
+  .barSend {
+    flex: none;
+    min-width: calc(176 * var(--staff-u));
+    height: 100%;
+  }
+  .sent {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 2);
+    font-size: var(--text-staff-body);
+    font-weight: 600;
+  }
+  .sent .big {
+    font-size: var(--text-staff-heading);
+    font-weight: 700;
+  }
+
+  /* The sheet: over the dishes, above the bar, at most 70% of the screen
+     with the bar included. */
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    background: var(--color-staff-scrim);
+  }
+  .ticket {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--z-bar);
+    z-index: 20;
+    max-height: calc(70svh - var(--z-bar));
+    border-radius: var(--radius-staff-card) var(--radius-staff-card) 0 0;
+    box-shadow: var(--shadow-staff-raised);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    transform: translateY(calc(100% + var(--z-bar)));
+    visibility: hidden;
+    transition:
+      transform 220ms cubic-bezier(0.2, 0, 0, 1),
+      visibility 0s linear 220ms;
+  }
+  .ticketIsOpen .ticket {
+    transform: none;
+    visibility: visible;
+    transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .sheetOnly {
+    display: inline-flex;
+  }
+  /* The bar has Send; the sheet keeps the sums and the total. */
+  .ticket button.print {
+    display: none;
+  }
+  .lines {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 4);
+  }
+  .empty {
+    min-height: calc(var(--spacing) * 24);
   }
 }
 
@@ -871,5 +1128,11 @@ button.print:disabled .zh {
   .tapFlash,
   .lineFlash {
     display: none;
+  }
+  .ricePop {
+    animation: none;
+  }
+  .ticket {
+    transition: none !important;
   }
 }
