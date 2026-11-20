@@ -28,11 +28,18 @@ async function openPos(browser: Browser, viewport = { width: 1024, height: 768 }
   await page.goto("/kitchen/pos");
   await page.locator('input[type="password"]').fill(E2E_KITCHEN_PASSWORD);
   await page.locator('input[type="password"]').press("Enter");
-  await expect(page.locator('[data-action="print"]')).toBeVisible();
+  // Landscape prints from the ticket column, portrait from the bottom bar.
+  await expect(page.locator('[data-action="print"]:visible, [data-action="bar-print"]:visible')).toBeVisible();
   return page;
 }
 
-const ticketOf = (page: Page) => page.getByRole("complementary", { name: "單據" });
+/** Portrait keeps the ticket in a sheet: open it when the bar is showing. */
+async function showTicket(page: Page): Promise<void> {
+  const open = page.locator('[data-action="open-ticket"]');
+  if (await open.isVisible()) await open.click();
+}
+
+const ticketOf = (page: Page) => page.locator("[data-ticket]");
 const linesOf = (page: Page) => ticketOf(page).locator("[data-line]");
 const rice = (page: Page, value: string) => page.locator(`[data-defaults="rice"] button[data-value="${value}"]`);
 const size = (page: Page, value: string) => page.locator(`[data-defaults="size"] button[data-value="${value}"]`);
@@ -205,8 +212,9 @@ for (const viewport of [
     for (const i of [0, 1, 2, 4, 6, 8]) await tiles.nth(i).click();
     await rice(page, "none").click();
     await page.locator('[data-action="apply-rice-all"]').click();
+    await showTicket(page);
     await linesOf(page).first().locator("button[aria-haspopup]").click();
-    const sheet = page.getByRole("dialog");
+    const sheet = page.locator('[role="dialog"]:not([data-ticket])');
     const notesHead = sheet.locator('[data-section="instructions"] button[aria-expanded]');
     if ((await notesHead.getAttribute("aria-expanded")) !== "true") await notesHead.click();
     await sheet.getByRole("textbox", { name: "特別要求" }).fill("Extra spicy, no onions, sauce on the side, cut in small pieces please");

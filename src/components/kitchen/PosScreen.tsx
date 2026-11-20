@@ -279,7 +279,7 @@ function DishTile({
 function CustomTile({ labels, onTap }: { labels: { zh: string; en: string; all: string }; onTap: () => void }) {
   return (
     <div data-tile={CUSTOM_ITEM_ID} className={`${s.tile} ${s.customTile}`}>
-      <button type="button" data-item={CUSTOM_ITEM_ID} onClick={onTap} aria-label={labels.all} className={s.tileMain} />
+      <button type="button" data-custom-tile onClick={onTap} aria-label={labels.all} className={s.tileMain} />
       <span lang="zh-Hant" className={s.zh}>
         <Icon name="plus" size={20} className={s.customPlus} />
         {labels.zh}
