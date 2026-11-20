@@ -378,6 +378,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Room for the needs-a-choice dot at the top right. */
+.tile.hasAsk .zh {
+  padding-right: calc(var(--spacing) * 4);
+}
 .tile.hasQ .zh,
 .tile.hasQ .en {
   padding-right: calc(var(--spacing) * 8);

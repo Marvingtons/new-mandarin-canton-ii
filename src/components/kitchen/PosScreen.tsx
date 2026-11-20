@@ -216,8 +216,10 @@ function DishTile({
     const check = () =>
       tile.classList.toggle(s.long, zh.offsetHeight > parseFloat(getComputedStyle(zh).lineHeight) * 1.5);
     check();
+    // The 中文 too: a count badge can wrap it without resizing the tile.
     const observer = new ResizeObserver(check);
     observer.observe(tile);
+    observer.observe(zh);
     return () => observer.disconnect();
   }, []);
   const zhName = item.nameZh ?? item.nameEn;
@@ -227,7 +229,9 @@ function DishTile({
       ref={ref}
       style={tintStyle(tint)}
       data-tile={item.id}
-      className={[s.tile, count > 0 && s.hasQ, !disabledLabel && s.hasMod, disabledLabel && s.off].filter(Boolean).join(" ")}
+      className={[s.tile, count > 0 && s.hasQ, !disabledLabel && s.hasMod, asks && !disabledLabel && s.hasAsk, disabledLabel && s.off]
+        .filter(Boolean)
+        .join(" ")}
     >
       <button
         type="button"
@@ -954,7 +958,7 @@ export default function PosScreen({
   const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines]);
 
   const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
-  const customLabels = { zh: t("pos.custom.zh"), en: t("pos.custom.en"), all: t("pos.custom.title") };
+  const customLabels = { zh: t("pos.custom.zh"), en: t("pos.custom.tileEn"), all: t("pos.custom.title") };
   const tile = (item: MenuItem, hint: number | null = null) => {
     const disabledLabel = !isAvailable(item)
       ? t("pos.86d")
