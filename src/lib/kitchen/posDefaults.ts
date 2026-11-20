@@ -15,8 +15,8 @@ import { resolveLinePrice } from "@/lib/cart/pricing";
  * in the strip above the dishes and kept per tablet.
  *
  * A DEFAULT COVERS A CHOICE ONLY WHEN THE DISH OFFERS IT. 各一半 Half exists
- * only on the family sets, so with Half chosen a single entrée asks; 單點 and
- * 餐盤 only mean something on a dish sold both ways. A required choice no
+ * only on the family sets, so with Half chosen a single entrée asks; 單點,
+ * 半盤 and 餐盤 only mean something on a dish sold by the tray. A required choice no
  * default covers (beef or chicken, the lunch entrée, a family dinner's head
  * count) is never picked here: the tap opens the sheet on that choice.
  *
@@ -24,10 +24,10 @@ import { resolveLinePrice } from "@/lib/cart/pricing";
  */
 
 export type RiceDefault = "steamed" | "fried" | "half" | "none";
-export type SizeDefault = "individual" | "tray";
+export type SizeDefault = "individual" | "half" | "tray";
 
 export const RICE_DEFAULTS: readonly RiceDefault[] = ["steamed", "fried", "half", "none"];
-export const SIZE_DEFAULTS: readonly SizeDefault[] = ["individual", "tray"];
+export const SIZE_DEFAULTS: readonly SizeDefault[] = ["individual", "half", "tray"];
 
 export interface PosDefaults {
   rice: RiceDefault;
@@ -49,6 +49,7 @@ export const RICE_DEFAULT_MODIFIER: Record<RiceDefault, string> = {
 
 const SIZE_DEFAULT_ID: Record<SizeDefault, string> = {
   individual: "individual",
+  half: "half-tray",
   tray: "party-tray",
 };
 
@@ -64,7 +65,8 @@ export function isSizeDefault(value: unknown): value is SizeDefault {
  * The size a tap uses, or null when the size is itself the decision.
  *
  *   one size                 that one
- *   單點 and 餐盤             the strip's size
+ *   a dish sold by the tray  the strip's size (單點 / 半盤 / 餐盤); null if
+ *                            the dish lacks that tier, so the sheet asks
  *   any other two sizes      the first, the menu's regular one (cup before
  *                            bowl), as the tile has always done
  *   more than two            null: a family dinner's head count is asked
@@ -72,17 +74,16 @@ export function isSizeDefault(value: unknown): value is SizeDefault {
 export function defaultSizeId(item: MenuItem, size: SizeDefault): string | null {
   const sizes = itemSizes(item);
   if (sizes.length === 1) return sizes[0].id;
-  if (sizes.length === 2) {
-    const ids = new Set(sizes.map((s) => s.id));
+  if (sellsTrays(item)) {
     const wanted = SIZE_DEFAULT_ID[size];
-    if (ids.has(SIZE_DEFAULT_ID.individual) && ids.has(SIZE_DEFAULT_ID.tray)) return wanted;
-    return sizes[0].id;
+    return sizes.some((s) => s.id === wanted) ? wanted : null;
   }
+  if (sizes.length === 2) return sizes[0].id;
   return null;
 }
 
-/** Does this dish sell both 單點 and 餐盤, so the size default applies? */
-export function hasBothSizes(item: MenuItem): boolean {
+/** Does this dish sell 單點 and a 餐盤, so the size default applies? */
+export function sellsTrays(item: MenuItem): boolean {
   const ids = new Set(itemSizes(item).map((s) => s.id));
   return ids.has(SIZE_DEFAULT_ID.individual) && ids.has(SIZE_DEFAULT_ID.tray);
 }

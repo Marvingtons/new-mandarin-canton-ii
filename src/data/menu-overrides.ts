@@ -126,6 +126,9 @@ const RAW_SIZE_ZH: Record<string, string> = {
   Individual: "單點",
   // 餐盤, not the older 大盤: 餐盤 is what the ticket's tray chip prints.
   "Party Tray": "餐盤",
+  // The handwritten "small" tray. 半盤 as the POS strip and the ticket chip
+  // say it; the kitchen's own word, not a translation of "small".
+  "Half Tray": "半盤",
   Small: "小",
   Large: "大",
   // 杯裝 is the document's own wording for the Egg Drop Soup cup.

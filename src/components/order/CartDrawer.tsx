@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useEffectEvent } from "react";
 import { useCart } from "@/lib/cart/CartContext";
+import { isTraySize } from "@/lib/menu/types";
 import { useT } from "@/lib/i18n/LocaleContext";
 import { formatCents, taxCents } from "@/lib/money";
 
@@ -41,7 +42,7 @@ export default function CartDrawer({
   // Matches the server's rule in api/orders: a tray or a family dinner
   // anywhere in the cart moves the whole order to 20–30 minutes.
   const hasLongPrep = detailedLines.some(
-    (line) => line.item.longPrep === true || line.size.id === "party-tray",
+    (line) => line.item.longPrep === true || isTraySize(line.size.id),
   );
   const total = tax != null ? subtotalCents + tax : subtotalCents;
 

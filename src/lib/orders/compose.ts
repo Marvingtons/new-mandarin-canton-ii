@@ -1,4 +1,4 @@
-import { indexItems, isAvailable, itemSizes, type Menu } from "@/lib/menu/types";
+import { indexItems, isAvailable, isTraySize, itemSizes, type Menu } from "@/lib/menu/types";
 import { taxCents } from "@/lib/money";
 import { isLunchService, lunchClosedMessage } from "@/lib/order/gates";
 import type { PickupOptions } from "@/lib/order/pickup";
@@ -120,6 +120,11 @@ export function composeOrder(
     }
     const size = itemSizes(item).find((s) => s.id === line.sizeId);
     if (!size) return { ok: false, error: `A size is no longer available for "${item.nameEn}".` };
+    /* STAFF-ONLY SIZES (the half tray) stay on the POS, like staff-only
+       modifiers below: the customer sheet never lists them. */
+    if (size.staffOnly && !options.allowStaffOnly) {
+      return { ok: false, error: `A size is no longer available for "${item.nameEn}".` };
+    }
 
     /* RICE IS NOT ALWAYS OFFERED. A party tray is the dish alone, and a
        noodle or rice dish is the starch itself; neither includes a rice
@@ -206,8 +211,8 @@ export function composeOrder(
     const item = index.get(line.itemId);
     return (
       item?.longPrep === true ||
-      (line.sizeId === "party-tray" &&
-        itemSizes(item!).some((s) => s.id === "party-tray"))
+      (isTraySize(line.sizeId) &&
+        itemSizes(item!).some((s) => s.id === line.sizeId))
     );
   });
 
