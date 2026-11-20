@@ -3,7 +3,7 @@ import "server-only";
 import { menu as catalog } from "@/data/menu";
 import type { MenuItem as CatalogItem } from "@/data/menu";
 import { comboCategories } from "@/data/combo-items";
-import { PARTY_TRAY_SERVES } from "@/data/party-trays";
+import { HALF_TRAY_SERVES, PARTY_TRAY_SERVES } from "@/data/party-trays";
 import {
   categoryZhByName,
   overrideKey,
@@ -48,7 +48,9 @@ import type {
  *    is why no tray option renders for them.
  *  - explicit sizes (Roasted Duck half/whole, Egg Drop Soup cup/bowl) -> those
  *    tiers, in printed order.
- *  - a tray price -> the individual tier plus a "Party Tray" tier.
+ *  - a tray price -> the individual tier, then "Half Tray" where the catalogue
+ *    carries one, then "Party Tray". Ascending price, smallest first, which is
+ *    also the order the POS strip reads in.
  */
 function sizesFor(item: CatalogItem): MenuSize[] | undefined {
   const base: MenuSize[] =
@@ -60,18 +62,28 @@ function sizesFor(item: CatalogItem): MenuSize[] | undefined {
 
   if (item.trayCents === undefined) return item.sizes ? base : undefined;
 
-  return [
-    ...base,
-    {
-      id: "party-tray",
-      label: "Party Tray",
-      priceCents: item.trayCents,
-      // One constant, never an inline string — the capacity is an
-      // owner-provided claim the printed menu does not make, so it has to be
-      // correctable in a single edit. See PARTY_TRAY_SERVES.
-      servesNote: PARTY_TRAY_SERVES.short,
-    },
-  ];
+  const trays: MenuSize[] = [];
+  if (item.halfTrayCents !== undefined) {
+    trays.push({
+      id: "half-tray",
+      label: "Half Tray",
+      priceCents: item.halfTrayCents,
+      servesNote: HALF_TRAY_SERVES.short,
+      // POS only until the owner says the website may sell it. Remove this
+      // one line to list it online; everything else already handles it.
+      staffOnly: true,
+    });
+  }
+  trays.push({
+    id: "party-tray",
+    label: "Party Tray",
+    priceCents: item.trayCents,
+    // One constant, never an inline string — the capacity is an
+    // owner-provided claim the printed menu does not make, so it has to be
+    // correctable in a single edit. See PARTY_TRAY_SERVES.
+    servesNote: PARTY_TRAY_SERVES.short,
+  });
+  return [...base, ...trays];
 }
 
 /**

@@ -826,11 +826,20 @@ button.print:disabled .zh {
 }
 
 /* A 10" landscape tablet (1024 wide): rail and ticket a step narrower so the
-   strip stays one row. */
+   strip stays one row. With three sizes (單點 / 半盤 / 餐盤) the strip's
+   English captions no longer fit beside lunch and search, so the defaults go
+   中文-only here, as the rail already truncates its English at this width.
+   The full trilingual label stays on every segment's title and aria-label. */
 @media (orientation: landscape) and (max-width: 1100px) {
   .root {
     --z-rail: calc(150 * var(--staff-u));
     --z-ticket: calc(348 * var(--staff-u));
+  }
+  .defSeg .en {
+    display: none;
+  }
+  .top {
+    padding-inline: calc(var(--spacing) * 1);
   }
 }
 

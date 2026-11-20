@@ -28,6 +28,18 @@ export const PARTY_TRAY_SERVES = {
   short: "feeds 15–20",
 } as const;
 
+/**
+ * How many people a HALF tray feeds.
+ *
+ * ⚠️ TODO(confirm): a guess scaled from PARTY_TRAY_SERVES; the handwritten
+ * "small" column carries a price and nothing else. One constant, same reason.
+ */
+export const HALF_TRAY_SERVES = {
+  en: "feeds 8–10 people",
+  zh: "半盤 · 8–10人份",
+  short: "feeds 8–10",
+} as const;
+
 /* The prep-time warning that used to live here as PARTY_TRAY_PREP_NOTE is now
    `cart.longPrep` in lib/i18n/dictionary.ts.
    Two reasons it had to move. It was English on the Spanish cart; and it named

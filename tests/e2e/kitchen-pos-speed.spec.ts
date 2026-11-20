@@ -65,6 +65,35 @@ test("one tap adds with the sticky defaults, no sheet", async ({ browser }) => {
   await page.context().close();
 });
 
+test("半盤: the half tray is one tap, no rice, priced from the catalogue, and the strip fits at 1024", async ({ browser }) => {
+  const page = await openPos(browser);
+  // Three sizes on the strip, and the strip still holds every control on one
+  // row at 1024: nothing scrolls or clips (the toolbar is overflow-visible, so
+  // a too-wide child would have pushed search off the dishes column).
+  await expect(page.locator('[data-defaults="size"] button')).toHaveCount(3);
+  const fits = await page.locator('[role="toolbar"]').evaluate((el) => el.scrollWidth <= el.clientWidth);
+  expect(fits, "the defaults strip fits its column at 1024").toBe(true);
+  await expect(page.locator('[role="toolbar"] button[aria-label="搜尋菜名或編號"]')).toBeInViewport({ ratio: 1 });
+
+  await size(page, "half").click();
+  await page.locator(MONGOLIAN).first().click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(linesOf(page)).toHaveCount(1);
+  await expect(linesOf(page).first()).toContainText("半盤");
+  await expect(linesOf(page).first()).not.toContainText("飯 /");
+  // Mongolian Beef's handwritten small-tray price.
+  await expect(linesOf(page).first()).toContainText("$45.00");
+
+  // The sheet lists all three, half in the middle, and the strip's choice is preselected.
+  await page.locator('[data-modify="mongolian-beef-special"]').click();
+  const sheet = page.getByRole("dialog");
+  const sizeOptions = sheet.locator('[data-section="size"] button[aria-pressed]');
+  await expect(sizeOptions).toHaveCount(3);
+  await expect(sizeOptions.nth(1)).toContainText("半盤");
+  await expect(sizeOptions.nth(1)).toHaveAttribute("aria-pressed", "true");
+  await page.context().close();
+});
+
 test("changing rice at the top changes the next add, not the lines already on the ticket", async ({ browser }) => {
   const page = await openPos(browser);
   await page.locator(ORANGE).first().click();
