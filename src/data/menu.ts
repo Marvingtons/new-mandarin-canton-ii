@@ -14,7 +14,9 @@
  *   enters the data, so one can never enter a price calculation.
  * - `trayCents` is set only where the printed menu prints a party-tray price.
  *   Appetizers and soups have no tray column, so they carry none and the UI
- *   shows no tray option for them.
+ *   shows no tray option for them. `halfTrayCents` sits beside every
+ *   `trayCents`: the handwritten "small" column (Nov 2026) next to the
+ *   printed one, which the restaurant now calls "medium".
  * - `chineseName` is Traditional, Cantonese-leaning restaurant vocabulary,
  *   transcribed from the same document as the prices. It is set on EVERY item;
  *   an unset one is a bug, not a fallback, because the kitchen ticket prints it
@@ -88,6 +90,17 @@ export interface MenuItem {
   /** Integer cents. The printed menu's PARTY TRAY price, where it prints one. */
   trayCents?: number;
   /**
+   * Integer cents. The HALF TRAY price: the "small" column the restaurant
+   * wrote by hand beside every printed tray price (the printed column is the
+   * "medium"). Set wherever `trayCents` is; never without it.
+   *
+   * ⚠️ TODO(confirm) #17 Salted Pepper Chicken Wings: the chicken-section
+   * handwriting reads 50 while the Specials copy of the same dish reads 45,
+   * and every other 75.00 tray is 45. Both entries carry 45 until the owner
+   * confirms.
+   */
+  halfTrayCents?: number;
+  /**
    * Explicit tiers, when the printed menu prices one dish two ways (Roasted
    * Duck half/whole, Egg Drop Soup cup/bowl). Replaces the single individual
    * tier; a party tray, if any, is still appended after these.
@@ -152,6 +165,7 @@ export const menu: MenuCategory[] = [
           "Duck, shrimp, chicken, roast pork, broccoli, mushroom, water chestnuts, snow peas, chef's special sauce.",
         priceCents: 2495,
         trayCents: 9200,
+        halfTrayCents: 5200,
       },
       {
         id: "oceania",
@@ -162,6 +176,7 @@ export const menu: MenuCategory[] = [
           "Shrimp, scallops, squid, fish fillet, mushrooms, snow peas, vegetables.",
         priceCents: 2650,
         trayCents: 10000,
+        halfTrayCents: 5700,
       },
       {
         id: "orange-flavored-chicken-special",
@@ -170,6 +185,7 @@ export const menu: MenuCategory[] = [
         description: "Chef's special tangerine sauce.",
         priceCents: 1995,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
       {
@@ -179,6 +195,7 @@ export const menu: MenuCategory[] = [
         description: "Crispy fried, sautéed with hot pepper.",
         priceCents: 1995,
         trayCents: 7500,
+        halfTrayCents: 4500,
         spicy: true,
       },
       {
@@ -190,6 +207,7 @@ export const menu: MenuCategory[] = [
           "Shrimp, chicken, beef, green onion, peanuts, spicy sauce.",
         priceCents: 2295,
         trayCents: 9000,
+        halfTrayCents: 5200,
         spicy: true,
       },
       {
@@ -199,6 +217,7 @@ export const menu: MenuCategory[] = [
         description: "Sliced tenderloin, jade green scallions, natural sauce.",
         priceCents: 2150,
         trayCents: 7500,
+        halfTrayCents: 4500,
       },
       {
         id: "upside-down-pan-fried-noodles",
@@ -208,6 +227,7 @@ export const menu: MenuCategory[] = [
         description: "Beef, chicken, shrimp, vegetables.",
         priceCents: 2095,
         trayCents: 7400,
+        halfTrayCents: 4400,
         // A NOODLE dish in the Specials section. The category would give it
         // the included-rice side every other Special gets; it is the starch
         // itself, so it opts out. See MenuItem.includesRice.
@@ -220,6 +240,7 @@ export const menu: MenuCategory[] = [
         description: "Special mayonnaise dressing, honey walnut.",
         priceCents: 2550,
         trayCents: 9500,
+        halfTrayCents: 5500,
       },
       {
         id: "black-pepper-beef-or-chicken",
@@ -227,6 +248,7 @@ export const menu: MenuCategory[] = [
         chineseName: "黑椒牛肉或雞肉",
         priceCents: 2150,
         trayCents: 7500,
+        halfTrayCents: 4500,
         eitherOr: {
           label: "Beef or chicken",
           labelZh: "牛肉或雞肉",
@@ -244,6 +266,7 @@ export const menu: MenuCategory[] = [
         chineseName: "清蒸魚片",
         priceCents: 2450,
         trayCents: 9200,
+        halfTrayCents: 5300,
       },
       {
         id: "salted-pepper-squid-special",
@@ -251,6 +274,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽鮮魷",
         priceCents: 2450,
         trayCents: 9200,
+        halfTrayCents: 5300,
         spicy: true,
       },
     ],
@@ -367,6 +391,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽雞翼",
         priceCents: 1995,
         trayCents: 7500,
+        halfTrayCents: 4500,
         spicy: true,
       },
       {
@@ -375,6 +400,7 @@ export const menu: MenuCategory[] = [
         chineseName: "陳皮雞",
         priceCents: 1995,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
       {
@@ -383,6 +409,7 @@ export const menu: MenuCategory[] = [
         chineseName: "宮保雞丁",
         priceCents: 2250,
         trayCents: 9000,
+        halfTrayCents: 5200,
         spicy: true,
       },
       {
@@ -391,6 +418,7 @@ export const menu: MenuCategory[] = [
         chineseName: "咖喱雞",
         priceCents: 1950,
         trayCents: 7000,
+        halfTrayCents: 4200,
         spicy: true,
       },
       {
@@ -399,6 +427,7 @@ export const menu: MenuCategory[] = [
         chineseName: "豉椒雞",
         priceCents: 1950,
         trayCents: 7000,
+        halfTrayCents: 4200,
         spicy: true,
       },
       {
@@ -407,6 +436,7 @@ export const menu: MenuCategory[] = [
         chineseName: "腰果雞丁",
         priceCents: 2250,
         trayCents: 9000,
+        halfTrayCents: 5200,
       },
       {
         id: "chicken-broccoli",
@@ -414,6 +444,7 @@ export const menu: MenuCategory[] = [
         chineseName: "西蘭花雞",
         priceCents: 1950,
         trayCents: 7000,
+        halfTrayCents: 4200,
       },
       {
         id: "chicken-snow-peas",
@@ -421,9 +452,10 @@ export const menu: MenuCategory[] = [
         chineseName: "雪豆雞片",
         priceCents: 2095,
         trayCents: 8000,
+        halfTrayCents: 4700,
       },
-      { id: "almond-chicken", name: "Almond Chicken", chineseName: "杏仁雞", priceCents: 1950, trayCents: 7000 },
-      { id: "sesame-chicken", name: "Sesame Chicken", chineseName: "芝麻雞", priceCents: 1995, trayCents: 7000 },
+      { id: "almond-chicken", name: "Almond Chicken", chineseName: "杏仁雞", priceCents: 1950, trayCents: 7000, halfTrayCents: 4200 },
+      { id: "sesame-chicken", name: "Sesame Chicken", chineseName: "芝麻雞", priceCents: 1995, trayCents: 7000, halfTrayCents: 4200 },
       {
         id: "mandarin-chicken",
         name: "Mandarin Chicken",
@@ -431,6 +463,7 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌辣雞",
         priceCents: 1995,
         trayCents: 7000,
+        halfTrayCents: 4200,
         spicy: true,
       },
       {
@@ -439,6 +472,7 @@ export const menu: MenuCategory[] = [
         chineseName: "魚香雞",
         priceCents: 1995,
         trayCents: 7000,
+        halfTrayCents: 4200,
         spicy: true,
       },
       {
@@ -447,6 +481,7 @@ export const menu: MenuCategory[] = [
         chineseName: "檸檬雞",
         priceCents: 1995,
         trayCents: 7000,
+        halfTrayCents: 4200,
       },
       {
         id: "sweet-sour-chicken",
@@ -454,14 +489,16 @@ export const menu: MenuCategory[] = [
         chineseName: "咕嚕雞",
         priceCents: 1950,
         trayCents: 7000,
+        halfTrayCents: 4200,
       },
-      { id: "moo-goo-gai-pan", name: "Moo Goo Gai Pan", chineseName: "蘑菇雞片", priceCents: 1995, trayCents: 7200 },
+      { id: "moo-goo-gai-pan", name: "Moo Goo Gai Pan", chineseName: "蘑菇雞片", priceCents: 1995, trayCents: 7200, halfTrayCents: 4300 },
       {
         id: "chicken-chop-suey",
         name: "Chicken Chop Suey",
         chineseName: "雜碎雞",
         priceCents: 1950,
         trayCents: 6500,
+        halfTrayCents: 4000,
       },
       {
         id: "chicken-egg-foo-young",
@@ -469,6 +506,7 @@ export const menu: MenuCategory[] = [
         chineseName: "雞肉芙蓉蛋",
         priceCents: 2095,
         trayCents: 7500,
+        halfTrayCents: 4500,
       },
       {
         id: "chicken-cantonese",
@@ -476,6 +514,7 @@ export const menu: MenuCategory[] = [
         chineseName: "廣東雞",
         priceCents: 1950,
         trayCents: 7000,
+        halfTrayCents: 4200,
       },
       {
         id: "chicken-vegetable",
@@ -483,6 +522,7 @@ export const menu: MenuCategory[] = [
         chineseName: "雜菜雞",
         priceCents: 1995,
         trayCents: 7200,
+        halfTrayCents: 4300,
       },
       {
         id: "chicken-bac-choy",
@@ -490,6 +530,7 @@ export const menu: MenuCategory[] = [
         chineseName: "白菜雞",
         priceCents: 1995,
         trayCents: 7200,
+        halfTrayCents: 4300,
       },
     ],
   },
@@ -503,6 +544,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽有殼蝦",
         priceCents: 2350,
         trayCents: 9500,
+        halfTrayCents: 5500,
         spicy: true,
       },
       {
@@ -513,6 +555,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽蝦球",
         priceCents: 2550,
         trayCents: 9800,
+        halfTrayCents: 5600,
         spicy: true,
       },
       {
@@ -521,6 +564,7 @@ export const menu: MenuCategory[] = [
         chineseName: "四川蝦",
         priceCents: 2550,
         trayCents: 9500,
+        halfTrayCents: 5500,
         spicy: true,
       },
       {
@@ -529,6 +573,7 @@ export const menu: MenuCategory[] = [
         chineseName: "豉椒蝦",
         priceCents: 2150,
         trayCents: 8200,
+        halfTrayCents: 4800,
         spicy: true,
       },
       {
@@ -537,6 +582,7 @@ export const menu: MenuCategory[] = [
         chineseName: "宮保蝦",
         priceCents: 2550,
         trayCents: 10000,
+        halfTrayCents: 5700,
         spicy: true,
       },
       {
@@ -545,6 +591,7 @@ export const menu: MenuCategory[] = [
         chineseName: "廣東蝦",
         priceCents: 2195,
         trayCents: 8000,
+        halfTrayCents: 4700,
       },
       {
         id: "shrimp-chop-suey",
@@ -552,6 +599,7 @@ export const menu: MenuCategory[] = [
         chineseName: "雜碎蝦",
         priceCents: 2195,
         trayCents: 7800,
+        halfTrayCents: 4600,
       },
       {
         id: "shrimp-lobster-sauce",
@@ -559,6 +607,7 @@ export const menu: MenuCategory[] = [
         chineseName: "蝦龍糊",
         priceCents: 2195,
         trayCents: 8200,
+        halfTrayCents: 4800,
       },
       {
         id: "shrimp-broccoli",
@@ -566,6 +615,7 @@ export const menu: MenuCategory[] = [
         chineseName: "西蘭花蝦",
         priceCents: 2195,
         trayCents: 8200,
+        halfTrayCents: 4800,
       },
       {
         id: "shrimp-snow-peas",
@@ -573,6 +623,7 @@ export const menu: MenuCategory[] = [
         chineseName: "雪豆蝦",
         priceCents: 2450,
         trayCents: 9200,
+        halfTrayCents: 5300,
       },
       {
         id: "curry-shrimp",
@@ -580,6 +631,7 @@ export const menu: MenuCategory[] = [
         chineseName: "咖喱蝦",
         priceCents: 2195,
         trayCents: 8200,
+        halfTrayCents: 4800,
         spicy: true,
       },
       {
@@ -588,14 +640,16 @@ export const menu: MenuCategory[] = [
         chineseName: "咕嚕蝦",
         priceCents: 2250,
         trayCents: 8200,
+        halfTrayCents: 4800,
       },
-      { id: "almond-shrimp", name: "Almond Shrimp", chineseName: "杏仁蝦", priceCents: 2250, trayCents: 8200 },
+      { id: "almond-shrimp", name: "Almond Shrimp", chineseName: "杏仁蝦", priceCents: 2250, trayCents: 8200, halfTrayCents: 4800 },
       {
         id: "shrimp-egg-foo-young",
         name: "Shrimp Egg Foo Young",
         chineseName: "蝦仁芙蓉蛋",
         priceCents: 2350,
         trayCents: 9000,
+        halfTrayCents: 5200,
       },
       {
         id: "house-egg-foo-young",
@@ -604,6 +658,7 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌芙蓉蛋",
         priceCents: 2350,
         trayCents: 9000,
+        halfTrayCents: 5200,
       },
       {
         id: "chow-san-shein",
@@ -612,6 +667,7 @@ export const menu: MenuCategory[] = [
         chineseName: "炒三鮮",
         priceCents: 2195,
         trayCents: 8500,
+        halfTrayCents: 5000,
       },
       {
         id: "house-chop-suey",
@@ -620,6 +676,7 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌雜碎",
         priceCents: 2195,
         trayCents: 7800,
+        halfTrayCents: 4600,
       },
       {
         id: "shrimp-vegetable",
@@ -627,6 +684,7 @@ export const menu: MenuCategory[] = [
         chineseName: "雜菜蝦",
         priceCents: 2250,
         trayCents: 8500,
+        halfTrayCents: 5000,
       },
       {
         id: "sweet-sour-fish-fillet",
@@ -634,6 +692,7 @@ export const menu: MenuCategory[] = [
         chineseName: "咕嚕魚片",
         priceCents: 2250,
         trayCents: 8200,
+        halfTrayCents: 4800,
       },
       {
         id: "fish-fillet-black-bean-sauce",
@@ -642,6 +701,7 @@ export const menu: MenuCategory[] = [
         priceCents: 2250,
         // TODO(confirm): price partially obscured on menu photo — owner to confirm
         trayCents: 8200,
+        halfTrayCents: 4800,
         spicy: true,
       },
       {
@@ -650,6 +710,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽魚片",
         priceCents: 2450,
         trayCents: 9000,
+        halfTrayCents: 5200,
         spicy: true,
       },
       {
@@ -658,6 +719,7 @@ export const menu: MenuCategory[] = [
         chineseName: "豉椒帶子",
         priceCents: 2550,
         trayCents: 10000,
+        halfTrayCents: 5700,
         spicy: true,
       },
       {
@@ -666,6 +728,7 @@ export const menu: MenuCategory[] = [
         chineseName: "宮保帶子",
         priceCents: 2650,
         trayCents: 11000,
+        halfTrayCents: 6200,
         spicy: true,
       },
       {
@@ -674,6 +737,7 @@ export const menu: MenuCategory[] = [
         chineseName: "魚香帶子",
         priceCents: 2550,
         trayCents: 10000,
+        halfTrayCents: 5700,
         spicy: true,
       },
       {
@@ -682,6 +746,7 @@ export const menu: MenuCategory[] = [
         chineseName: "宮保鮮魷",
         priceCents: 2450,
         trayCents: 9000,
+        halfTrayCents: 5200,
         spicy: true,
       },
       {
@@ -690,6 +755,7 @@ export const menu: MenuCategory[] = [
         chineseName: "豉椒鮮魷",
         priceCents: 2395,
         trayCents: 9000,
+        halfTrayCents: 5200,
         spicy: true,
       },
       {
@@ -698,17 +764,18 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽鮮魷",
         priceCents: 2450,
         trayCents: 9200,
+        halfTrayCents: 5300,
         spicy: true,
       },
-      { id: "sauteed-scallops", name: "Sauteed Scallops", chineseName: "清炒帶子", priceCents: 2550, trayCents: 10000 },
+      { id: "sauteed-scallops", name: "Sauteed Scallops", chineseName: "清炒帶子", priceCents: 2550, trayCents: 10000, halfTrayCents: 5700 },
     ],
   },
   {
     id: "beef",
     name: "Beef",
     items: [
-      { id: "mongolian-beef", name: "Mongolian Beef", chineseName: "蒙古牛肉", priceCents: 2150, trayCents: 7500 },
-      { id: "beef-broccoli", name: "Beef with Broccoli", chineseName: "西蘭花牛肉", priceCents: 2050, trayCents: 7200 },
+      { id: "mongolian-beef", name: "Mongolian Beef", chineseName: "蒙古牛肉", priceCents: 2150, trayCents: 7500, halfTrayCents: 4500 },
+      { id: "beef-broccoli", name: "Beef with Broccoli", chineseName: "西蘭花牛肉", priceCents: 2050, trayCents: 7200, halfTrayCents: 4300 },
       {
         id: "beef-snow-peas",
         name: "Beef with Snow Peas",
@@ -716,6 +783,7 @@ export const menu: MenuCategory[] = [
         priceCents: 2150,
         // TODO(confirm): price partially obscured on menu photo — owner to confirm
         trayCents: 8200,
+        halfTrayCents: 4800,
       },
       {
         id: "beef-oyster-sauce",
@@ -724,14 +792,16 @@ export const menu: MenuCategory[] = [
         priceCents: 2250,
         // TODO(confirm): price partially obscured on menu photo — owner to confirm
         trayCents: 8300,
+        halfTrayCents: 4900,
       },
-      { id: "green-pepper-beef", name: "Green Pepper Beef", chineseName: "青椒牛肉", priceCents: 2050, trayCents: 7200 },
+      { id: "green-pepper-beef", name: "Green Pepper Beef", chineseName: "青椒牛肉", priceCents: 2050, trayCents: 7200, halfTrayCents: 4300 },
       {
         id: "black-mushroom-beef",
         name: "Black Mushroom Beef",
         chineseName: "冬菇牛肉",
         priceCents: 2450,
         trayCents: 9200,
+        halfTrayCents: 5300,
       },
       {
         id: "szechuan-style-beef",
@@ -740,6 +810,7 @@ export const menu: MenuCategory[] = [
         // TODO(confirm): price partially obscured on menu photo — owner to confirm
         priceCents: 2150,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
       {
@@ -748,6 +819,7 @@ export const menu: MenuCategory[] = [
         chineseName: "陳皮牛肉",
         priceCents: 2250,
         trayCents: 7500,
+        halfTrayCents: 4500,
         spicy: true,
       },
       {
@@ -756,6 +828,7 @@ export const menu: MenuCategory[] = [
         chineseName: "宮保牛肉",
         priceCents: 2350,
         trayCents: 9000,
+        halfTrayCents: 5200,
         spicy: true,
       },
       {
@@ -764,6 +837,7 @@ export const menu: MenuCategory[] = [
         chineseName: "豉椒牛肉",
         priceCents: 2050,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
       {
@@ -772,6 +846,7 @@ export const menu: MenuCategory[] = [
         chineseName: "香辣脆牛肉",
         priceCents: 2250,
         trayCents: 7500,
+        halfTrayCents: 4500,
         spicy: true,
       },
       {
@@ -780,31 +855,34 @@ export const menu: MenuCategory[] = [
         chineseName: "咖喱牛肉",
         priceCents: 2050,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
-      { id: "beef-chop-suey", name: "Beef Chop Suey", chineseName: "雜碎牛肉", priceCents: 2050, trayCents: 6800 },
+      { id: "beef-chop-suey", name: "Beef Chop Suey", chineseName: "雜碎牛肉", priceCents: 2050, trayCents: 6800, halfTrayCents: 4100 },
       {
         id: "beef-egg-foo-young",
         name: "Beef Egg Foo Young",
         chineseName: "牛肉芙蓉蛋",
         priceCents: 2150,
         trayCents: 7500,
+        halfTrayCents: 4500,
       },
-      { id: "beef-vegetable", name: "Beef with Vegetable", chineseName: "雜菜牛肉", priceCents: 2150, trayCents: 7500 },
-      { id: "beef-bac-choy", name: "Beef with Bac Choy", chineseName: "白菜牛肉", priceCents: 2150, trayCents: 7500 },
+      { id: "beef-vegetable", name: "Beef with Vegetable", chineseName: "雜菜牛肉", priceCents: 2150, trayCents: 7500, halfTrayCents: 4500 },
+      { id: "beef-bac-choy", name: "Beef with Bac Choy", chineseName: "白菜牛肉", priceCents: 2150, trayCents: 7500, halfTrayCents: 4500 },
     ],
   },
   {
     id: "pork",
     name: "Pork",
     items: [
-      { id: "pork-chop-peking", name: "Pork Chop Peking", chineseName: "京都肉排", priceCents: 2295, trayCents: 8500 },
+      { id: "pork-chop-peking", name: "Pork Chop Peking", chineseName: "京都肉排", priceCents: 2295, trayCents: 8500, halfTrayCents: 5000 },
       {
         id: "salted-pepper-pork-chop",
         name: "Salted Pepper Pork Chop",
         chineseName: "椒鹽豬扒",
         priceCents: 2295,
         trayCents: 8500,
+        halfTrayCents: 5000,
         spicy: true,
       },
       {
@@ -814,17 +892,19 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌辣豬肉",
         priceCents: 1995,
         trayCents: 7000,
+        halfTrayCents: 4200,
         spicy: true,
       },
-      { id: "sweet-sour-pork", name: "Sweet & Sour Pork", chineseName: "咕嚕肉", priceCents: 1950, trayCents: 7000 },
-      { id: "sesame-pork", name: "Sesame Pork", chineseName: "芝麻豬肉", priceCents: 1995, trayCents: 7000 },
-      { id: "pork-chop-suey", name: "Pork Chop Suey", chineseName: "雜碎豬肉", priceCents: 1950, trayCents: 6500 },
+      { id: "sweet-sour-pork", name: "Sweet & Sour Pork", chineseName: "咕嚕肉", priceCents: 1950, trayCents: 7000, halfTrayCents: 4200 },
+      { id: "sesame-pork", name: "Sesame Pork", chineseName: "芝麻豬肉", priceCents: 1995, trayCents: 7000, halfTrayCents: 4200 },
+      { id: "pork-chop-suey", name: "Pork Chop Suey", chineseName: "雜碎豬肉", priceCents: 1950, trayCents: 6500, halfTrayCents: 4000 },
       {
         id: "bbq-pork-egg-foo-young",
         name: "B.B.Q. Pork Egg Foo Young",
         chineseName: "叉燒芙蓉蛋",
         priceCents: 2150,
         trayCents: 7500,
+        halfTrayCents: 4500,
       },
       {
         id: "mapo-tofu",
@@ -832,6 +912,7 @@ export const menu: MenuCategory[] = [
         chineseName: "麻婆豆腐",
         priceCents: 1950,
         trayCents: 6800,
+        halfTrayCents: 4100,
         spicy: true,
       },
     ],
@@ -846,6 +927,7 @@ export const menu: MenuCategory[] = [
         chineseName: "海鮮煲",
         priceCents: 2395,
         trayCents: 8800,
+        halfTrayCents: 5100,
       },
       {
         id: "house-special-combination-hot-pot",
@@ -854,6 +936,7 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌什錦煲",
         priceCents: 2395,
         trayCents: 8800,
+        halfTrayCents: 5100,
       },
       {
         id: "sizzling-san-shein",
@@ -861,6 +944,7 @@ export const menu: MenuCategory[] = [
         chineseName: "鐵板三鮮",
         priceCents: 2295,
         trayCents: 8500,
+        halfTrayCents: 5000,
         spicy: true,
       },
       {
@@ -869,6 +953,7 @@ export const menu: MenuCategory[] = [
         chineseName: "鐵板蝦",
         priceCents: 2295,
         trayCents: 8500,
+        halfTrayCents: 5000,
         spicy: true,
       },
       {
@@ -878,6 +963,7 @@ export const menu: MenuCategory[] = [
         chineseName: "鐵板雙喜",
         priceCents: 2550,
         trayCents: 9500,
+        halfTrayCents: 5500,
         spicy: true,
       },
       {
@@ -886,6 +972,7 @@ export const menu: MenuCategory[] = [
         chineseName: "鐵板魚片",
         priceCents: 2295,
         trayCents: 8500,
+        halfTrayCents: 5000,
         spicy: true,
       },
       {
@@ -894,6 +981,7 @@ export const menu: MenuCategory[] = [
         chineseName: "鐵板雞",
         priceCents: 2050,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
       {
@@ -902,6 +990,7 @@ export const menu: MenuCategory[] = [
         chineseName: "鐵板牛肉",
         priceCents: 2095,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
       },
     ],
@@ -910,13 +999,14 @@ export const menu: MenuCategory[] = [
     id: "vegetables",
     name: "Vegetables",
     items: [
-      { id: "mixed-vegetable", name: "Mixed Vegetable", chineseName: "炒雜菜", priceCents: 1895, trayCents: 7000 },
+      { id: "mixed-vegetable", name: "Mixed Vegetable", chineseName: "炒雜菜", priceCents: 1895, trayCents: 7000, halfTrayCents: 4200 },
       {
         id: "black-mushrooms-oyster-sauce",
         name: "Black Mushrooms with Oyster Sauce",
         chineseName: "蠔油冬菇",
         priceCents: 2095,
         trayCents: 8000,
+        halfTrayCents: 4700,
       },
       {
         id: "broccoli-oyster-sauce",
@@ -924,14 +1014,16 @@ export const menu: MenuCategory[] = [
         chineseName: "蠔油西蘭花",
         priceCents: 1795,
         trayCents: 5800,
+        halfTrayCents: 3600,
       },
-      { id: "sauteed-snow-peas", name: "Sauteed Snow Peas", chineseName: "清炒雪豆", priceCents: 1995, trayCents: 8000 },
+      { id: "sauteed-snow-peas", name: "Sauteed Snow Peas", chineseName: "清炒雪豆", priceCents: 1995, trayCents: 8000, halfTrayCents: 4700 },
       {
         id: "spicy-hot-egg-plant",
         name: "Spicy Hot Egg Plant",
         chineseName: "魚香茄子",
         priceCents: 1995,
         trayCents: 7800,
+        halfTrayCents: 4600,
         spicy: true,
       },
       {
@@ -940,15 +1032,17 @@ export const menu: MenuCategory[] = [
         chineseName: "素芙蓉蛋",
         priceCents: 2095,
         trayCents: 7500,
+        halfTrayCents: 4500,
       },
-      { id: "bean-sprout-saute", name: "Bean Sprout Saute", chineseName: "清炒芽菜", priceCents: 1695, trayCents: 5200 },
-      { id: "tofu-vegetable", name: "Tofu with Vegetable", chineseName: "雜菜豆腐", priceCents: 1895, trayCents: 6800 },
+      { id: "bean-sprout-saute", name: "Bean Sprout Saute", chineseName: "清炒芽菜", priceCents: 1695, trayCents: 5200, halfTrayCents: 3300 },
+      { id: "tofu-vegetable", name: "Tofu with Vegetable", chineseName: "雜菜豆腐", priceCents: 1895, trayCents: 6800, halfTrayCents: 4100 },
       {
         id: "sauteed-bac-choy-garlic",
         name: "Sauteed Bac Choy with Garlic",
         chineseName: "蒜蓉炒白菜",
         priceCents: 1895,
         trayCents: 7000,
+        halfTrayCents: 4200,
       },
       {
         id: "salted-pepper-tofu",
@@ -956,6 +1050,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽豆腐",
         priceCents: 1995,
         trayCents: 6800,
+        halfTrayCents: 4100,
         spicy: true,
       },
       {
@@ -964,6 +1059,7 @@ export const menu: MenuCategory[] = [
         chineseName: "宮保豆腐",
         priceCents: 1995,
         trayCents: 6800,
+        halfTrayCents: 4100,
         spicy: true,
       },
       {
@@ -972,6 +1068,7 @@ export const menu: MenuCategory[] = [
         chineseName: "魚香茄子豆腐",
         priceCents: 2050,
         trayCents: 7500,
+        halfTrayCents: 4500,
         spicy: true,
       },
     ],
@@ -987,16 +1084,18 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌炒飯",
         priceCents: 1950,
         trayCents: 6500,
+        halfTrayCents: 4000,
       },
-      { id: "shrimp-fried-rice", name: "Shrimp Fried Rice", chineseName: "蝦仁炒飯", priceCents: 1950, trayCents: 6500 },
-      { id: "chicken-fried-rice", name: "Chicken Fried Rice", chineseName: "雞肉炒飯", priceCents: 1850, trayCents: 6200 },
-      { id: "beef-fried-rice", name: "Beef Fried Rice", chineseName: "牛肉炒飯", priceCents: 1850, trayCents: 6200 },
+      { id: "shrimp-fried-rice", name: "Shrimp Fried Rice", chineseName: "蝦仁炒飯", priceCents: 1950, trayCents: 6500, halfTrayCents: 4000 },
+      { id: "chicken-fried-rice", name: "Chicken Fried Rice", chineseName: "雞肉炒飯", priceCents: 1850, trayCents: 6200, halfTrayCents: 3800 },
+      { id: "beef-fried-rice", name: "Beef Fried Rice", chineseName: "牛肉炒飯", priceCents: 1850, trayCents: 6200, halfTrayCents: 3800 },
       {
         id: "vegetarian-fried-rice",
         name: "Vegetarian Fried Rice",
         chineseName: "素炒飯",
         priceCents: 1750,
         trayCents: 5800,
+        halfTrayCents: 3600,
       },
       {
         id: "bbq-pork-fried-rice",
@@ -1004,6 +1103,7 @@ export const menu: MenuCategory[] = [
         chineseName: "叉燒炒飯",
         priceCents: 1850,
         trayCents: 6200,
+        halfTrayCents: 3800,
       },
     ],
   },
@@ -1018,6 +1118,7 @@ export const menu: MenuCategory[] = [
         chineseName: "招牌炒麵",
         priceCents: 1995,
         trayCents: 6800,
+        halfTrayCents: 4100,
       },
       {
         id: "seafood-soft-noodle",
@@ -1025,15 +1126,17 @@ export const menu: MenuCategory[] = [
         chineseName: "海鮮炒麵",
         priceCents: 1995,
         trayCents: 7000,
+        halfTrayCents: 4200,
       },
-      { id: "shrimp-soft-noodle", name: "Shrimp Soft Noodle", chineseName: "蝦仁炒麵", priceCents: 1995, trayCents: 7000 },
-      { id: "beef-soft-noodle", name: "Beef Soft Noodle", chineseName: "牛肉炒麵", priceCents: 1895, trayCents: 6500 },
+      { id: "shrimp-soft-noodle", name: "Shrimp Soft Noodle", chineseName: "蝦仁炒麵", priceCents: 1995, trayCents: 7000, halfTrayCents: 4200 },
+      { id: "beef-soft-noodle", name: "Beef Soft Noodle", chineseName: "牛肉炒麵", priceCents: 1895, trayCents: 6500, halfTrayCents: 4000 },
       {
         id: "chicken-soft-noodle",
         name: "Chicken Soft Noodle",
         chineseName: "雞肉炒麵",
         priceCents: 1895,
         trayCents: 6500,
+        halfTrayCents: 4000,
       },
       {
         id: "bbq-pork-soft-noodle",
@@ -1041,6 +1144,7 @@ export const menu: MenuCategory[] = [
         chineseName: "叉燒炒麵",
         priceCents: 1895,
         trayCents: 6500,
+        halfTrayCents: 4000,
       },
       {
         // The price document lists this as "Vegetarian Noodle"; the site's
@@ -1050,6 +1154,7 @@ export const menu: MenuCategory[] = [
         chineseName: "素炒麵",
         priceCents: 1795,
         trayCents: 6000,
+        halfTrayCents: 3700,
       },
       {
         id: "chow-fun-chicken-or-beef",
@@ -1057,6 +1162,7 @@ export const menu: MenuCategory[] = [
         chineseName: "乾炒雞肉或牛肉河粉",
         priceCents: 1995,
         trayCents: 7000,
+        halfTrayCents: 4200,
         eitherOr: {
           label: "Chicken or beef",
           labelZh: "雞肉或牛肉",
@@ -1073,6 +1179,7 @@ export const menu: MenuCategory[] = [
         chineseName: "乾炒海鮮河粉",
         priceCents: 2050,
         trayCents: 7200,
+        halfTrayCents: 4300,
       },
       {
         id: "singapore-style-rice-noodle",
@@ -1080,6 +1187,7 @@ export const menu: MenuCategory[] = [
         chineseName: "星洲炒米粉",
         priceCents: 2050,
         trayCents: 7200,
+        halfTrayCents: 4300,
         spicy: true,
         modifiers: [
           { id: "skinny-egg-noodle", name: "Skinny Egg Noodle", priceCents: 300 },
@@ -1106,6 +1214,7 @@ export const menu: MenuCategory[] = [
         chineseName: "炒飯／白飯",
         priceCents: 300,
         trayCents: 3800,
+        halfTrayCents: 2600,
         // The steamed-vs-fried pick is the dish's OWN preparation — a required
         // choice that prints on the item line — not the entrée rice side. See
         // src/lib/menu/preparation.ts.

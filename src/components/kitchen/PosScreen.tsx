@@ -114,6 +114,7 @@ const RICE_LABEL: Record<RiceDefault, { zh: KitchenKey; en: KitchenKey; all: Kit
 };
 const SIZE_LABEL: Record<SizeDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
   individual: { zh: "pos.sizeIndividualZh", en: "pos.sizeIndividualEn", all: "pos.sizeIndividualAll" },
+  half: { zh: "pos.sizeHalfZh", en: "pos.sizeHalfEn", all: "pos.sizeHalfAll" },
   tray: { zh: "pos.sizeTrayZh", en: "pos.sizeTrayEn", all: "pos.sizeTrayAll" },
 };
 

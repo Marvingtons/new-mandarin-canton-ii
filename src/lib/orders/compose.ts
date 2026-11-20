@@ -1,4 +1,4 @@
-import { indexItems, isAvailable, itemSizes, type Menu } from "@/lib/menu/types";
+import { indexItems, isAvailable, isTraySize, itemSizes, type Menu } from "@/lib/menu/types";
 import { taxCents } from "@/lib/money";
 import { isLunchService, lunchClosedMessage } from "@/lib/order/gates";
 import type { PickupOptions } from "@/lib/order/pickup";
@@ -173,8 +173,8 @@ export function composeOrder(
     const item = index.get(line.itemId);
     return (
       item?.longPrep === true ||
-      (line.sizeId === "party-tray" &&
-        itemSizes(item!).some((s) => s.id === "party-tray"))
+      (isTraySize(line.sizeId) &&
+        itemSizes(item!).some((s) => s.id === line.sizeId))
     );
   });
 
