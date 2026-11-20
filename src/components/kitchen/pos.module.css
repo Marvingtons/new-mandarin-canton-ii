@@ -48,20 +48,22 @@
   --cat-bigfamily: var(--tint-c);
   --edge: color-mix(in srgb, var(--color-staff-ink) 8%, transparent);
 
-  /* ---- zones ---- */
-  --z-top: calc(64 * var(--staff-u));
-  --z-rail: calc(176 * var(--staff-u));
-  --z-ticket: calc(420 * var(--staff-u));
+  /* ---- zones ----
+     TWO LAYOUTS, BY WIDTH. Landscape (1000px and wider) is the primary
+     one: the strip, a row of category chips and the dishes, with the
+     ticket a fixed 340px column on the right. Portrait (narrower) keeps a
+     slim vertical rail beside two columns of dishes. The base rules below
+     are portrait; the landscape block near the end rearranges them. */
+  --z-top: calc(56 * var(--staff-u));
+  --z-rail: calc(104 * var(--staff-u));
+  --z-ticket: calc(340 * var(--staff-u));
 
   height: calc(100svh - var(--staff-header-h));
   overflow: hidden;
   display: grid;
-  /* The strip of sticky defaults sits over the dishes only: the rail keeps
-     the full height (every category at 44px on a 768px screen) and the
-     ticket never moves down. */
-  grid-template-areas: "rail top ticket" "rail dishes ticket";
+  grid-template-areas: "top top ticket" "rail dishes ticket";
   grid-template-columns: var(--z-rail) minmax(0, 1fr) var(--z-ticket);
-  grid-template-rows: var(--z-top) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   font-family: var(--font-staff);
   font-size: var(--text-staff-body);
   line-height: 1.3;
@@ -114,10 +116,11 @@
 .top {
   grid-area: top;
   min-width: 0;
+  min-height: var(--z-top);
   display: flex;
   align-items: center;
-  gap: calc(var(--spacing) * 1);
-  padding: 0 calc(var(--spacing) * 2);
+  gap: calc(var(--spacing) * 2);
+  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
   background: var(--color-staff-bg);
 }
 .topRight {
@@ -221,13 +224,16 @@
   right: 0;
 }
 
-/* ---- rail: every category, a swatch, 中文 and English on one line -------
-   44px rows with no gap: all fifteen fit a 768px-tall screen. If they still
-   do not (大字), the rail scrolls on its own. */
+/* ---- categories ---------------------------------------------------------
+   Portrait: a slim vertical rail, each row its colour swatch (the icon) and
+   the 中文 alone, 44px or more. Landscape: one row of chips above the
+   dishes (see the landscape block). Either way it scrolls on its own and
+   follows the dishes as they scroll. */
 .rail {
   grid-area: rail;
   min-height: 0;
-  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  min-width: 0;
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 1) calc(var(--spacing) * 2) calc(var(--spacing) * 2);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -322,11 +328,12 @@
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(208 * var(--staff-u)), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: calc(var(--spacing) * 3);
 }
 .tile {
   position: relative;
+  min-width: 0;
   height: calc(112 * var(--staff-u));
   border-radius: var(--radius-staff-card);
   background: var(--c);
@@ -358,19 +365,15 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* English: one line under the 中文, an ellipsis only when it must. */
 .tile .en {
   font-size: var(--text-staff-caption);
   line-height: 1.3;
   color: var(--color-staff-ink);
   margin-top: calc(var(--spacing) * 1);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
-}
-/* A Chinese name on two lines drops the English to one: every tile one size. */
-.tile.long .en {
-  -webkit-line-clamp: 1;
+  text-overflow: ellipsis;
 }
 .tile.hasQ .zh,
 .tile.hasQ .en {
@@ -834,47 +837,75 @@ button.print:disabled .zh {
   font-size: var(--text-staff-body);
 }
 
-/* A wide landscape screen: room for every category's English in full. */
-@media (orientation: landscape) and (min-width: 1280px) {
+/* ---- LANDSCAPE: 1000px and wider, the primary layout --------------------
+   The strip, one row of category chips, the dishes four across at 1024 and
+   five at 1280 and wider, and the ticket a fixed 340px column. */
+@media (min-width: 1000px) {
   .root {
-    --z-rail: calc(212 * var(--staff-u));
+    grid-template-areas: "top ticket" "rail ticket" "dishes ticket";
+    grid-template-columns: minmax(0, 1fr) var(--z-ticket);
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
-}
-
-/* A 10" landscape tablet (1024 wide): rail and ticket a step narrower so the
-   strip stays one row. */
-@media (orientation: landscape) and (max-width: 1100px) {
-  .root {
-    --z-rail: calc(150 * var(--staff-u));
-    --z-ticket: calc(348 * var(--staff-u));
+  /* One row of chips, scrolled sideways, never wrapped. */
+  .rail {
+    flex-direction: row;
+    gap: calc(var(--spacing) * 2);
+    padding: 0 calc(var(--spacing) * 3) calc(var(--spacing) * 2);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
   }
-}
-
-/* Portrait: the same three columns; the ticket narrows and dishes go to two. */
-@media (orientation: portrait) {
-  .root {
-    --z-ticket: calc(400 * var(--staff-u));
+  .rail button {
+    flex: none;
+    min-height: calc(var(--spacing) * 11);
+    max-height: none;
+    padding: 0 calc(var(--spacing) * 3) 0 calc(var(--spacing) * 2);
+    border-radius: 999px;
+    background: var(--color-staff-panel);
+    box-shadow: inset 0 0 0 1px var(--edge);
+  }
+  .rail .sw {
+    width: calc(var(--spacing) * 3);
+    height: calc(var(--spacing) * 3);
+    align-self: center;
+    margin: 0;
+    border-radius: 50%;
+  }
+  .rail .en {
+    display: inline;
+    font-size: var(--text-staff-caption);
+  }
+  .rail button[aria-current="true"] {
+    box-shadow: none;
+  }
+  .dishes {
+    padding: 0 calc(var(--spacing) * 3) calc(var(--spacing) * 6);
+  }
+  .sectionH {
+    padding: calc(var(--spacing) * 1) 0 calc(var(--spacing) * 2);
   }
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(calc(176 * var(--staff-u)), 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  /* The tile is tall enough that a one-line 中文 leaves the English clear
+     of the 改 corner: only a two-line name needs the room. */
+  .tile.hasMod .en {
+    padding-right: 0;
+  }
+  .tile.hasMod.long .en {
+    padding-right: calc(var(--spacing) * 11);
+  }
+  /* Square-ish: a little wider than tall, so two rows and more show. */
+  .tile {
+    height: auto;
+    aspect-ratio: 6 / 5;
+    min-height: calc(112 * var(--staff-u));
+    padding: calc(var(--spacing) * 3);
   }
 }
-/* An 11" tablet upright (820px) is not in the mockups: the same zones, each a
-   step narrower, so the dishes still get two columns. */
-@media (orientation: portrait) and (max-width: 900px) {
-  .root {
-    --z-rail: calc(152 * var(--staff-u));
-    --z-ticket: calc(320 * var(--staff-u));
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  /* The strip is narrower than its controls here: it takes two rows. */
-  .top {
-    flex-wrap: wrap;
-    row-gap: calc(var(--spacing) * 1);
-    padding-block: calc(var(--spacing) * 2);
-  }
+@media (min-width: 1280px) {
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(calc(150 * var(--staff-u)), 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 

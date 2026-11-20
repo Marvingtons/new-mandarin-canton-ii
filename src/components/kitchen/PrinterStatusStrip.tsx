@@ -125,9 +125,9 @@ export function PrinterStatusStrip() {
 }
 
 /**
- * The printer empty state: a banner per printer that needs a person, under
- * the header on every staff page, with the next step in words. Gold for "do
- * something soon", lacquer for "nothing is printing on this station".
+ * The printer empty state: one slim line under the header on every staff
+ * page, naming each printer that needs a person and the next step in words.
+ * Gold for "do something soon", a lacquer tint for "nothing is printing".
  */
 export function PrinterAlerts() {
   const t = useKT();
@@ -140,42 +140,53 @@ export function PrinterAlerts() {
   const needs = printers.filter((p) => p.printedBy === p.station && helpKey(p) !== null);
   if (needs.length === 0) return null;
 
+  /* ONE LINE, however many printers need a person: each is a chip (the
+     station and its state, in the strip's colours) and the next step in
+     words, cut with an ellipsis when it must be. The full text is the
+     line's title, and the chip in the header says the same. A tall banner
+     here pushed the POS's dishes below the fold at 1024x768. */
+  const urgentAny = needs.some((p) => {
+    const look = lookOf(p);
+    return look === "offline" || look === "blocked";
+  });
+  const words = needs
+    .map((p) => {
+      const station = t(`station.${p.station}`);
+      const look = lookOf(p);
+      const urgent = look === "offline" || look === "blocked";
+      const tail = urgent
+        ? p.failoverTo
+          ? t("printer.failoverTo", { station: t(`station.${p.failoverTo}`) })
+          : t("printer.help.reprintHint")
+        : "";
+      return [t(helpKey(p)!, { station }), tail].filter(Boolean).join(" ");
+    })
+    .join(" · ");
+
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-2 px-4 pt-3 sm:px-6">
-      {needs.map((p) => {
-        const look = lookOf(p);
-        const urgent = look === "offline" || look === "blocked";
-        const station = t(`station.${p.station}`);
-        return (
-          <div
-            key={p.station}
-            role={urgent ? "alert" : "status"}
-            className={`flex flex-wrap items-start gap-x-4 gap-y-1 rounded-staff-card px-5 py-3 text-staff-body ${
-              look === "offline"
-                ? "bg-staff-brand text-staff-on-brand"
-                : look === "blocked"
-                  ? "bg-staff-gold text-staff-ink"
-                  : "bg-staff-gold-tint text-staff-ink"
-            }`}
-          >
-            <Icon name="printer" size={22} className="mt-0.5" />
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">{t(helpKey(p)!, { station })}</p>
-              {urgent && (
-                <p className="mt-1 text-staff-caption opacity-90">
-                  {p.queued > 0 && <>{t("printer.queued", { n: p.queued })} · </>}
-                  {p.failoverTo
-                    ? t("printer.failoverTo", { station: t(`station.${p.failoverTo}`) })
-                    : t("printer.help.reprintHint")}
-                </p>
-              )}
-            </div>
-            {p.statusCode && urgent && (
-              <span className="text-staff-caption opacity-80">{t("printer.reported", { code: p.statusCode })}</span>
-            )}
-          </div>
-        );
-      })}
+    <div className="mx-auto w-full max-w-[1600px] px-4 pt-2 sm:px-6" data-printer-alerts>
+      <div
+        role={urgentAny ? "alert" : "status"}
+        title={words}
+        className={`flex min-h-11 items-center gap-3 overflow-hidden rounded-staff-control px-3 text-staff-caption ${
+          urgentAny ? "bg-staff-brand-tint text-staff-ink" : "bg-staff-gold-tint text-staff-ink"
+        }`}
+      >
+        <Icon name="printer" size={20} className="shrink-0" />
+        {needs.map((p) => {
+          const look = CHIP[lookOf(p)];
+          return (
+            <span key={p.station} className={`${ui.pill} shrink-0 gap-1.5 px-2.5 ${look.className}`}>
+              <Icon name={look.icon} size={14} />
+              <span className="font-semibold">{t(`station.${p.station}`)}</span>
+              <span aria-hidden="true" className="opacity-60">·</span>
+              <span>{t(shortKey(p))}</span>
+              {p.queued > 0 && <span className={`${ui.count} ml-1`}>{p.queued}</span>}
+            </span>
+          );
+        })}
+        <span className="min-w-0 flex-1 truncate">{words}</span>
+      </div>
     </div>
   );
 }

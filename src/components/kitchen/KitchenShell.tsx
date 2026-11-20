@@ -207,25 +207,25 @@ function ShellFrame({
 function SoundPrompt({ onEnable, onDecline }: { onEnable: () => void; onDecline: () => void }) {
   const { t } = useKitchenI18n();
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 pt-3 sm:px-6">
+    <div className="mx-auto w-full max-w-[1600px] px-4 pt-2 sm:px-6">
+      {/* One line: asked once per tablet, then only the bell in the header. */}
       <div
         role="region"
         aria-label={t("sound.prompt.title")}
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-staff-card bg-staff-gold-tint px-5 py-3 text-staff-body text-staff-ink"
+        title={t("sound.prompt.body")}
+        className="flex min-h-11 items-center gap-3 overflow-hidden rounded-staff-control bg-staff-gold-tint py-1 pr-1 pl-3 text-staff-caption text-staff-ink"
       >
-        <Icon name="bell" size={22} />
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold">{t("sound.prompt.title")}</p>
-          <p className="text-staff-caption">{t("sound.prompt.body")}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="quiet" size="sm" onClick={onDecline}>
-            {t("sound.notNow")}
-          </Button>
-          <Button variant="primary" size="sm" icon="bell" onClick={onEnable}>
-            {t("sound.enable")}
-          </Button>
-        </div>
+        <Icon name="bell" size={20} className="shrink-0" />
+        <p className="min-w-0 flex-1 truncate">
+          <span className="font-semibold">{t("sound.prompt.title")}</span>{" "}
+          <span className="text-staff-soft">{t("sound.prompt.body")}</span>
+        </p>
+        <Button variant="quiet" size="sm" onClick={onDecline}>
+          {t("sound.notNow")}
+        </Button>
+        <Button variant="primary" size="sm" icon="bell" onClick={onEnable}>
+          {t("sound.enable")}
+        </Button>
       </div>
     </div>
   );

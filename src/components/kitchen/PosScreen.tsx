@@ -920,6 +920,21 @@ export default function PosScreen({
   }, [lines]);
 
   const railRef = useRef<HTMLElement>(null);
+  /* The category row follows the dishes: whichever category is current is
+     scrolled into view on the rail, sideways on the landscape chip row and
+     up or down on the portrait rail. */
+  useEffect(() => {
+    const rail = railRef.current;
+    const chip = rail?.querySelector<HTMLElement>(`[data-cat-link="${activeCategory}"]`);
+    if (!rail || !chip) return;
+    if (rail.scrollWidth > rail.clientWidth) {
+      const left = chip.offsetLeft - (rail.clientWidth - chip.offsetWidth) / 2;
+      rail.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+    } else if (rail.scrollHeight > rail.clientHeight) {
+      const top = chip.offsetTop - (rail.clientHeight - chip.offsetHeight) / 2;
+      rail.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
+  }, [activeCategory]);
   const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines]);
 
   const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
@@ -1207,19 +1222,6 @@ export default function PosScreen({
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              data-action="apply-rice-all"
-              onClick={applyRiceToAll}
-              aria-label={t("pos.applyAll")}
-              title={t("pos.applyAllHint")}
-              className={s.applyAll}
-            >
-              <span lang="zh-Hant">{t("pos.applyAllZh")}</span>
-              <span lang="en" className={s.en}>
-                {t("pos.applyAllEn")}
-              </span>
-            </button>
             <div role="group" aria-label={t("pos.sizeGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="size">
               {SIZE_DEFAULTS.map((z) => (
                 <button
@@ -1240,6 +1242,19 @@ export default function PosScreen({
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              data-action="apply-rice-all"
+              onClick={applyRiceToAll}
+              aria-label={t("pos.applyAll")}
+              title={t("pos.applyAllHint")}
+              className={s.applyAll}
+            >
+              <span lang="zh-Hant">{t("pos.applyAllZh")}</span>
+              <span lang="en" className={s.en}>
+                {t("pos.applyAllEn")}
+              </span>
+            </button>
           </>
         )}
         <div className={s.topRight}>
@@ -1347,7 +1362,7 @@ export default function PosScreen({
       </section>
 
       {/* -------------------------------------------------- ticket -- */}
-      <aside aria-label={t("pos.ticket")} className={s.ticket}>
+      <aside aria-label={t("pos.ticket")} className={s.ticket} data-ticket>
         {ticketHead}
         <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
           {ticketLines}
