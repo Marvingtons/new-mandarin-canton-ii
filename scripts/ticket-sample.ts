@@ -64,7 +64,7 @@ import {
 
 const TIMEZONE = "America/Los_Angeles";
 
-/** Production's TICKET_COPIES: 廚房 KITCHEN and 收銀 REGISTER, no bag copy. */
+/** Production's TICKET_COPIES: the kitchen copy and the register copy, no bag copy. */
 const COPIES = 2;
 
 /** Ticket padding, so the assertion can work in page coordinates. */

@@ -576,3 +576,31 @@ export function phoneTakeoutOrder(): Order {
   };
 }
 
+
+/**
+ * The owner's ticket: a two-line phone order with a note on both lines, the
+ * order the 2026-11-20 type change was judged on. 陳皮雞 with fried rice and
+ * 加辣, and two Beef with Broccoli with 一辣.
+ */
+export async function notesOrder(): Promise<Order> {
+  const all = await catalogueItems();
+  const byId = new Map(all.map((i) => [i.id, i]));
+  const line = (id: string, qty: number, mods: string[], note: string) => {
+    const item = byId.get(id);
+    if (!item) throw new Error(`notes fixture: catalogue has no item "${id}"`);
+    return resolveOrderLine(item, item.sizes?.[0]?.id ?? "regular", mods, qty, note);
+  };
+  const lines = [
+    line("orange-flavored-chicken-special", 1, [RICE_FRIED_ID], "加辣"),
+    line("beef-broccoli", 2, [], "一辣"),
+  ];
+  return {
+    ...fixtureOrder(),
+    orderNumber: "B-001",
+    channel: "phone",
+    station: "store",
+    items: lines,
+    totals: totalsFor(lines),
+    customer: { name: "", phone: "+16195550101" },
+  };
+}

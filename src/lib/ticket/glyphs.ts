@@ -78,9 +78,6 @@ export const TICKET_LABELS = {
    */
   phoneOrder: "電話訂單",
   walkIn: "到店",
-  /** The copy bar at the top of each ticket. */
-  copyKitchen: "廚房",
-  copyRegister: "收銀",
 } as const;
 
 /**

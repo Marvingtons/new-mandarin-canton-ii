@@ -12,6 +12,10 @@
  * ASAP order (no time box), an online order for a chosen slot (PICKUP 5:30
  * PM), a phone order with no name and no time, and a phone order scheduled
  * for 5:30 PM (預訂 SCHEDULED). All four use the everyday four-dish order.
+ *
+ * A fifth, "phone-notes", is the owner's two-line phone order with a note on
+ * both lines (陳皮雞 加辣, Beef with Broccoli 一辣): the order the dish-name and
+ * note sizes were judged on.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -19,7 +23,7 @@ import { join } from "node:path";
 import { renderTicket } from "../src/lib/ticket/render";
 import { defaultCopyRoles } from "../src/lib/ticket/copies";
 import type { Order } from "../src/lib/orders/types";
-import { typicalOrder } from "./fixtures/orders";
+import { notesOrder, typicalOrder } from "./fixtures/orders";
 
 const TIMEZONE = "America/Los_Angeles";
 
@@ -68,6 +72,10 @@ async function scenarios(): Promise<{ name: string; order: Order }[]> {
         orderNumber: "B-005",
         customer: { name: "", phone: "+16195550101", scheduledFor: SLOT },
       },
+    },
+    {
+      name: "phone-notes",
+      order: { ...(await notesOrder()), ...at, ...asap },
     },
   ] as { name: string; order: Order }[];
 }

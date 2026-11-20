@@ -52,11 +52,9 @@ function chromeSources(): Source[] {
   for (const [key, zh] of Object.entries(TICKET_LABELS)) {
     out.push({ where: `TICKET_LABELS.${key}`, text: zh });
   }
-  for (const profile of Object.values(TICKET_COPY_PROFILES)) {
-    out.push({
-      where: `copy bar (${profile.role})`,
-      text: `${profile.labelZh} ${profile.labelEn}`,
-    });
+  // The register copy's only marker is a "$" badge; no copy prints a label.
+  if (Object.values(TICKET_COPY_PROFILES).some((profile) => profile.paidBadge)) {
+    out.push({ where: "register badge", text: "$" });
   }
   out.push(
     { where: "header", text: "PICKUP SCHEDULED REPRINT NOTE PHONE ORDER WALK-IN" },

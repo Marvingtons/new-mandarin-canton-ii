@@ -379,7 +379,7 @@ export interface RenderTicketOptions {
    *
    * On the starprnt path this is NOT a stacking instruction — each copy is
    * rendered separately and cut from the last (see renderCutCopies). It is
-   * still used here to pick the footer label, which needs to know the total.
+   * still used here to pick each copy's profile, which needs to know the total.
    */
   copies?: number;
   /**
@@ -410,6 +410,10 @@ export interface TicketMoney {
 
 /** The takeout order number: bold, but a clear step under the phone. */
 export const TAKEOUT_NUMBER_SIZE = 60;
+/** The register copy's "$" square: the order number's line box, 60 x 1.1. */
+const PAID_BADGE_SIZE = Math.round(TAKEOUT_NUMBER_SIZE * 1.1);
+/** The "$" inside it. */
+const PAID_BADGE_GLYPH = 48;
 /** The phone's ceiling; a NANP number lands at 72, the most 536px holds. */
 const PHONE_MAX_SIZE = 96;
 /** Never at or below the number: a long foreign number wraps instead. */
@@ -480,7 +484,7 @@ export async function composeTicketSvg(
    * This loop still stacks when asked to, which is what the PNG path and the
    * preview do: a browser cannot act on a cut command, so a tear line remains
    * the honest thing to draw there. `copyIndex` is how renderCutCopies asks
-   * for exactly one copy, labelled as the Nth.
+   * for exactly one copy, drawn as the Nth.
    */
   const copies = Math.max(1, options.copies ?? 1);
   const only = options.copyIndex;
@@ -494,10 +498,6 @@ export async function composeTicketSvg(
      * renderer for the kitchen copy. See lib/ticket/copies.ts.
      */
     const profile: TicketCopyProfile = copyProfile(copy, copies, options.copyRoles);
-    const copyLabelZh = zhIfPrintable(profile.labelZh, coverage);
-    const copyLabel = copyLabelZh
-      ? `${copyLabelZh} ${profile.labelEn}`
-      : profile.labelEn;
 
     // The tear line, only when this composer is actually stacking. A single
     // requested copy is its own piece of paper and needs no tear mark; drawing
@@ -512,21 +512,14 @@ export async function composeTicketSvg(
       c.space(26);
     }
 
-  /* ---------------- copy bar ---------------- */
-  /* THE FIRST THING VISIBLE, above everything else. Two loose tickets land
-     in the same tray, and until now the only thing telling them apart was a
-     20px line at the very bottom — under the totals, under the payment banner,
-     on the part that gets folded. A full-width inverted bar at the top is
-     readable on a ticket lying face up in a pile. A small repeat stays at the
-     bottom as a tear check: if the bottom label is missing, paper is missing. */
-  if (profile.labelEn) {
-    c.banner(copyLabel, { size: 30, padY: 8 });
-    c.space(10);
-  }
+  /* NO COPY BAR. The 廚房 KITCHEN and 收銀 REGISTER bars, top and bottom,
+     came off both copies at the owner's request (2026-11-20): the register
+     copy is told apart by its "$" badge beside the number and by its money,
+     and the kitchen copy carries no marker at all. */
 
   /* ---------------- rerouted (timed failover) ---------------- */
-  /* ONE LINE, boxed rather than inverted so it cannot be read as the copy
-     bar above it, and before the header so it is seen first: this ticket
+  /* ONE LINE, boxed rather than inverted so it cannot be read as the
+     channel band below it, and before the header so it is seen first: this ticket
      came out of the other printer because its own had gone silent, and it
      still belongs to the station it names (a web order rerouted to the
      counter still goes in a takeout bag). */
@@ -551,23 +544,36 @@ export async function composeTicketSvg(
      for. (There used to be a second, inverted dine-in header for a table;
      dine-in is retired, and a historical dine_in row prints this header like
      any other store order.) */
-  const reprintChip = (top: number) => {
+  const reprintChip = (top: number, right: number) => {
     // Right-aligned inverted chip, overlaid on a row that is already drawn.
     const label = `${L.reprint} REPRINT`;
     const w = metrics.measure(label, 24, 700) + 20;
-    c.rect(CONTENT_WIDTH - w, top, w, 24 * 1.2 + 6);
-    c.place(CONTENT_WIDTH - w, top + 3, w, (chip) => {
+    c.rect(right - w, top, w, 24 * 1.2 + 6);
+    c.place(right - w, top + 3, w, (chip) => {
       chip.text(label, { size: 24, weight: 700, color: WHITE, align: "center" });
     });
   };
 
-  // No 外賣 TAKEOUT line: the copy bar above and the channel line below
-  // already say what this ticket is, and the pass reads the number first.
-  // One step down from the old 96: the phone below is the largest type on
-  // the ticket, and the number must not compete with it.
+  // No 外賣 TAKEOUT line: the channel line below already says what this
+  // ticket is, and the pass reads the number first. One step down from the
+  // old 96: the phone below is the largest type on the ticket, and the
+  // number must not compete with it.
   const numberTop = c.height;
   c.text(order.orderNumber, { size: TAKEOUT_NUMBER_SIZE, weight: 700, lineHeight: 1.1 });
-  if (options.reprint) reprintChip(numberTop);
+  /* THE REGISTER COPY'S BADGE: a filled square with a white "$", the height
+     of the order number, in the top-right corner of the number's row. No
+     words with it. The kitchen copy has nothing here. A reprint chip, when
+     there is one, sits to its left. */
+  let chipRight = CONTENT_WIDTH;
+  if (profile.paidBadge) {
+    const side = PAID_BADGE_SIZE;
+    c.rect(CONTENT_WIDTH - side, numberTop, side, side);
+    c.place(CONTENT_WIDTH - side, numberTop + (side - PAID_BADGE_GLYPH * 1.2) / 2, side, (badge) => {
+      badge.text("$", { size: PAID_BADGE_GLYPH, weight: 700, color: WHITE, align: "center" });
+    });
+    chipRight = CONTENT_WIDTH - side - 12;
+  }
+  if (options.reprint) reprintChip(numberTop, chipRight);
 
   /* A staff-entered order says so, inverted, under the number: there is no
      customer refreshing a confirmation page for it, and the person at the
@@ -664,18 +670,6 @@ export async function composeTicketSvg(
        would have had staff hand over food without taking money. */
     c.banner(`${L.payAtCounter} · COLLECT PAYMENT`, { size: 30, marginTop: 12 });
   }
-
-    /* The tear check: the same label as the top bar, small, at the very end of
-       the paper. Its job is not identification — the bar at the top does that
-       — but to prove the ticket came out whole. */
-    if (profile.labelEn) {
-      c.text(copyLabel, {
-        size: 20,
-        weight: 700,
-        align: "center",
-        marginTop: profile.priceBlock ? 8 : 14,
-      });
-    }
 
     printed.push({
       role: profile.role,

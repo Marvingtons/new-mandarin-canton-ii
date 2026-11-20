@@ -1,5 +1,3 @@
-import { TICKET_LABELS as L } from "@/lib/ticket/glyphs";
-
 /**
  * WHICH COPIES A JOB PRINTS, AND WHAT EACH ONE SHOWS.
  *
@@ -26,9 +24,14 @@ export type TicketCopyRole = "kitchen" | "register" | "all";
 
 export interface TicketCopyProfile {
   role: TicketCopyRole;
-  /** Copy bar text. Empty English means "this ticket carries no copy bar". */
-  labelZh: string;
-  labelEn: string;
+  /**
+   * The small filled "$" square at the top right, on the order number's row.
+   * The ONLY thing that marks a copy: the owner had the 廚房 KITCHEN and 收銀
+   * REGISTER bars taken off both copies (2026-11-20). The kitchen copy carries
+   * no marker at all; the register copy is the one with the badge and the
+   * money, which is how the two are told apart in a pile.
+   */
+  paidBadge: boolean;
   /** Print the money column beside each item. */
   linePrices: boolean;
   /** Print the subtotal / tax / total block and the COLLECT PAYMENT bar. */
@@ -47,27 +50,24 @@ export interface TicketCopyProfile {
 export const TICKET_COPY_PROFILES: Record<TicketCopyRole, TicketCopyProfile> = {
   kitchen: {
     role: "kitchen",
-    labelZh: L.copyKitchen,
-    labelEn: "KITCHEN",
+    paidBadge: false,
     linePrices: false,
     priceBlock: false,
   },
   register: {
     role: "register",
-    labelZh: L.copyRegister,
-    labelEn: "REGISTER",
+    paidBadge: true,
     linePrices: true,
     priceBlock: true,
   },
   /**
    * A job of exactly one ticket. There is nothing to tell it apart FROM, so it
-   * carries no copy bar and everything else — it has to serve as both.
+   * carries no badge and everything else, since it has to serve as both.
    * This is what the /kitchen browser view and the dev preview render.
    */
   all: {
     role: "all",
-    labelZh: "",
-    labelEn: "",
+    paidBadge: false,
     linePrices: true,
     priceBlock: true,
   },
@@ -76,10 +76,10 @@ export const TICKET_COPY_PROFILES: Record<TicketCopyRole, TicketCopyProfile> = {
 /**
  * Which roles a job of `total` copies prints, in order.
  *
- * N=2 is the configured case and its order is fixed by the kitchen: 廚房 then
- * 收銀. Anything larger degrades around it — kitchen first, every further copy
- * a register copy — so a change to TICKET_COPIES never produces an unlabelled
- * or misordered stack.
+ * N=2 is the configured case and its order is fixed by the kitchen: kitchen
+ * then register. Anything larger degrades around it (kitchen first, every
+ * further copy a register copy) so a change to TICKET_COPIES never produces a
+ * misordered stack.
  */
 export function defaultCopyRoles(total: number): TicketCopyRole[] {
   if (total <= 1) return ["all"];
