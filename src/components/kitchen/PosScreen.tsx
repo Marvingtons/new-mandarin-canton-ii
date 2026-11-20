@@ -36,6 +36,7 @@ import s from "@/components/kitchen/pos.module.css";
 import ui from "@/components/kitchen/ui/ui.module.css";
 import { useToast } from "@/components/kitchen/ui/Toasts";
 import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
+import { useSheetFocus } from "@/components/kitchen/ui/useSheetFocus";
 import {
   INITIAL_DEFAULTS,
   isRiceDefault,
@@ -441,6 +442,20 @@ export default function PosScreen({
   const [lineFlash, setLineFlash] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** Portrait: the ticket sheet is open over the dishes. */
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const ticketRef = useRef<HTMLElement>(null);
+  // The sheet keeps the keyboard while it is open, like every other sheet.
+  useSheetFocus(ticketRef, () => setTicketOpen(false), (panel) => panel.querySelector<HTMLElement>("[data-action=close-ticket]"), ticketOpen);
+  // Turned to landscape with the sheet open: the ticket is a column again.
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 1000px)");
+    const onChange = () => {
+      if (wide.matches) setTicketOpen(false);
+    };
+    wide.addEventListener("change", onChange);
+    return () => wide.removeEventListener("change", onChange);
+  }, []);
   const detailsRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -892,6 +907,7 @@ export default function PosScreen({
       setQuery("");
       setSearchOpen(false);
       setDetailsOpen(false);
+      setTicketOpen(false);
     } catch {
       setError(t("pos.error.network"));
     } finally {
@@ -963,6 +979,7 @@ export default function PosScreen({
   };
 
   const customerSummary = [name.trim(), phone.trim()].filter(Boolean).join(" · ");
+  const itemCount = lines.reduce((n, l) => n + l.quantity, 0);
 
   const searchField = searchOpen ? (
     <div className={s.searchField}>
@@ -1077,6 +1094,15 @@ export default function PosScreen({
             <Icon name="trash" size={24} />
           </button>
         )}
+        <button
+          type="button"
+          data-action="close-ticket"
+          aria-label={t("pos.closeTicket")}
+          onClick={() => setTicketOpen(false)}
+          className={`${btn("quiet")} ${ui.icon} ${s.sheetOnly}`}
+        >
+          <Icon name="chevronDown" size={24} />
+        </button>
       </div>
     </div>
   );
@@ -1196,7 +1222,7 @@ export default function PosScreen({
   );
 
   return (
-    <main className={s.root} data-pos-screen>
+    <main className={`${s.root} ${ticketOpen ? s.ticketIsOpen : ""}`} data-pos-screen>
       {/* The POS's own controls, under the shared staff header: search, plus
           lunch hours when the clock has not opened lunch. */}
       <div className={s.top} role="toolbar" aria-label={t("pos.defaults")}>
@@ -1361,8 +1387,19 @@ export default function PosScreen({
         )}
       </section>
 
-      {/* -------------------------------------------------- ticket -- */}
-      <aside aria-label={t("pos.ticket")} className={s.ticket} data-ticket>
+      {/* -------------------------------------------------- ticket --
+          Landscape: the 340px column. Portrait: a sheet from the bottom,
+          opened from the bar below. */}
+      {ticketOpen && (
+        <button type="button" aria-hidden="true" tabIndex={-1} className={s.scrim} onClick={() => setTicketOpen(false)} />
+      )}
+      <aside
+        ref={ticketRef}
+        aria-label={t("pos.ticket")}
+        className={s.ticket}
+        data-ticket
+        {...(ticketOpen ? { role: "dialog", "aria-modal": true } : {})}
+      >
         {ticketHead}
         <div ref={linesRef} className={`${s.lines} ${s.scroll}`}>
           {ticketLines}
@@ -1421,6 +1458,55 @@ export default function PosScreen({
           </button>
         </div>
       </aside>
+
+      {/* ----------------------------------------- the bar (portrait) --
+          Always on screen: who it is for, the item count and the running
+          total, and Print. A tap opens the ticket sheet. */}
+      <div className={s.bar} data-ticket-bar>
+        <button
+          type="button"
+          data-action="open-ticket"
+          aria-expanded={ticketOpen}
+          aria-label={t("pos.openTicket", { n: itemCount, total: formatCents(total) })}
+          onClick={() => setTicketOpen(true)}
+          className={s.barMain}
+        >
+          <Icon name="chevronDown" size={24} className={s.barChevron} />
+          <span className={s.barWho}>
+            <span className={s.key}>{t(`channel.${channel}`)}</span>
+            <span className={`${s.soft} ${s.one}`}>
+              {placed ? `${placed.orderNumber} · ${t("pos.sent")}` : customerSummary || t("pos.addCustomerEn")}
+            </span>
+          </span>
+          <span className={`${s.barTotal} ${s.num}`}>
+            <span className={s.v} data-bar-total>
+              {formatCents(total)}
+            </span>
+            <span className={s.n} data-item-count>
+              {t("pos.items", { n: itemCount })}
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!canSubmit}
+          data-action="bar-print"
+          title={!error && lines.length > 0 && missing.length > 0 ? missing.map((k) => t(k)).join(" · ") : undefined}
+          className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.barPrint}`}
+        >
+          {submitting ? (
+            t("pos.printing")
+          ) : (
+            <>
+              <span lang="zh-Hant" className={s.zh}>
+                {t("pos.printZh")}
+              </span>{" "}
+              {t("pos.printEn")}
+            </>
+          )}
+        </button>
+      </div>
 
       {/* --------------------------------------- customer details + notes -- */}
       {detailsOpen && (

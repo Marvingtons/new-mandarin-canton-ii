@@ -8,12 +8,15 @@ import { useEffect, useRef } from "react";
  * whatever opened it. Shared by every sheet the POS draws (the dish sheet,
  * the custom charge), so a sheet cannot ship without the trap.
  *
- * Runs once per opening: a sheet is keyed by what it opened on.
+ * Runs once per opening: a sheet is keyed by what it opened on, or, for one
+ * that stays mounted, `active` turns it on and off.
  */
 export function useSheetFocus(
   panelRef: React.RefObject<HTMLElement | null>,
   onClose: () => void,
   start: (panel: HTMLElement) => HTMLElement | null | undefined,
+  /** For a panel that is always mounted (the portrait ticket): trap only while true. */
+  active = true,
 ): void {
   const onCloseRef = useRef(onClose);
   const startRef = useRef(start);
@@ -22,6 +25,7 @@ export function useSheetFocus(
     startRef.current = start;
   });
   useEffect(() => {
+    if (!active) return;
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const panel = panelRef.current;
     if (panel) startRef.current(panel)?.focus();
@@ -54,5 +58,5 @@ export function useSheetFocus(
       document.removeEventListener("keydown", onKey);
       if (returnTo?.isConnected) returnTo.focus();
     };
-  }, [panelRef]);
+  }, [panelRef, active]);
 }

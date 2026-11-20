@@ -52,18 +52,20 @@
      TWO LAYOUTS, BY WIDTH. Landscape (1000px and wider) is the primary
      one: the strip, a row of category chips and the dishes, with the
      ticket a fixed 340px column on the right. Portrait (narrower) keeps a
-     slim vertical rail beside two columns of dishes. The base rules below
-     are portrait; the landscape block near the end rearranges them. */
+     slim vertical rail beside two columns of dishes, and the ticket is a
+     bar at the bottom that opens into a sheet. The base rules below are
+     portrait; the landscape block near the end rearranges them. */
   --z-top: calc(56 * var(--staff-u));
   --z-rail: calc(104 * var(--staff-u));
   --z-ticket: calc(340 * var(--staff-u));
+  --z-bar: calc(76 * var(--staff-u));
 
   height: calc(100svh - var(--staff-header-h));
   overflow: hidden;
   display: grid;
-  grid-template-areas: "top top ticket" "rail dishes ticket";
-  grid-template-columns: var(--z-rail) minmax(0, 1fr) var(--z-ticket);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "top top" "rail dishes" "bar bar";
+  grid-template-columns: var(--z-rail) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) var(--z-bar);
   font-family: var(--font-staff);
   font-size: var(--text-staff-body);
   line-height: 1.3;
@@ -271,6 +273,7 @@
   line-height: 1.15;
 }
 .rail .en {
+  display: none;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -837,6 +840,108 @@ button.print:disabled .zh {
   font-size: var(--text-staff-body);
 }
 
+/* ---- the ticket in portrait: a bar, and a sheet over the dishes --------
+   The bar is always there with the item count and the running total, and
+   Print. A tap on it opens the full ticket as a sheet from the bottom; the
+   sheet's own foot keeps the total and Print in view. */
+.bar {
+  grid-area: bar;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 3);
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  padding-bottom: calc(var(--spacing) * 2 + env(safe-area-inset-bottom));
+  background: var(--color-staff-panel);
+  box-shadow: 0 -1px 0 var(--color-staff-sunken);
+}
+button.barMain {
+  flex: 1;
+  min-width: 0;
+  min-height: calc(var(--spacing) * 14);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 3);
+  padding: 0 calc(var(--spacing) * 3);
+  border-radius: var(--radius-staff-control);
+  text-align: left;
+  transition: background var(--staff-motion);
+}
+button.barMain:active {
+  background: var(--color-staff-bg);
+}
+.barWho {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.barWho .key {
+  font-size: var(--text-staff-title);
+  font-weight: 700;
+}
+.barWho .soft {
+  font-size: var(--text-staff-caption);
+  color: var(--color-staff-soft);
+}
+.barTotal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.barTotal .v {
+  font-size: var(--text-staff-heading);
+  font-weight: 700;
+}
+.barTotal .n {
+  font-size: var(--text-staff-caption);
+  color: var(--color-staff-soft);
+}
+.barChevron {
+  flex: none;
+  transform: rotate(180deg);
+}
+button.barPrint {
+  flex: none;
+  min-height: calc(var(--spacing) * 14);
+  min-width: calc(150 * var(--staff-u));
+  font-size: var(--text-staff-title);
+}
+.sheetOnly {
+  display: inline-flex;
+}
+.ticket {
+  display: none;
+}
+.ticketIsOpen .ticket {
+  display: grid;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  height: min(86svh, calc(100svh - var(--staff-header-h) - var(--spacing) * 6));
+  border-radius: calc(24 * var(--staff-u)) calc(24 * var(--staff-u)) 0 0;
+  box-shadow: var(--shadow-staff-raised);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: sheetUp 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes sheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+}
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: var(--color-staff-scrim);
+}
+
 /* ---- LANDSCAPE: 1000px and wider, the primary layout --------------------
    The strip, one row of category chips, the dishes four across at 1024 and
    five at 1280 and wider, and the ticket a fixed 340px column. */
@@ -845,6 +950,20 @@ button.print:disabled .zh {
     grid-template-areas: "top ticket" "rail ticket" "dishes ticket";
     grid-template-columns: minmax(0, 1fr) var(--z-ticket);
     grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .bar,
+  .scrim,
+  .sheetOnly {
+    display: none;
+  }
+  .ticket,
+  .ticketIsOpen .ticket {
+    display: grid;
+    position: static;
+    height: auto;
+    border-radius: 0;
+    box-shadow: -1px 0 0 var(--color-staff-sunken);
+    animation: none;
   }
   /* One row of chips, scrolled sideways, never wrapped. */
   .rail {
@@ -912,7 +1031,8 @@ button.print:disabled .zh {
 @media (prefers-reduced-motion: reduce) {
   .qtyBadge,
   .tapFlash,
-  .lineFlash {
+  .lineFlash,
+  .ticketIsOpen .ticket {
     animation: none;
   }
   .tapFlash,
