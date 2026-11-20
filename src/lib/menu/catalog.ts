@@ -3,7 +3,7 @@ import "server-only";
 import { menu as catalog } from "@/data/menu";
 import type { MenuItem as CatalogItem } from "@/data/menu";
 import { comboCategories } from "@/data/combo-items";
-import { HALF_TRAY_SERVES, PARTY_TRAY_SERVES } from "@/data/party-trays";
+import { PARTY_TRAY_SERVES } from "@/data/party-trays";
 import {
   categoryZhByName,
   overrideKey,
@@ -68,10 +68,9 @@ function sizesFor(item: CatalogItem): MenuSize[] | undefined {
       id: "half-tray",
       label: "Half Tray",
       priceCents: item.halfTrayCents,
-      servesNote: HALF_TRAY_SERVES.short,
-      // POS only until the owner says the website may sell it. Remove this
-      // one line to list it online; everything else already handles it.
-      staffOnly: true,
+      // No servesNote on purpose: the owner has not said how many a half
+      // tray feeds, and a guessed capacity on the website is a promise. Add
+      // a HALF_TRAY_SERVES constant beside PARTY_TRAY_SERVES once they do.
     });
   }
   trays.push({

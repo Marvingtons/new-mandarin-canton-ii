@@ -62,12 +62,6 @@ export interface MenuSize {
   priceCents: number;
   /** e.g. "feeds 8–10". Optional, display-only. */
   servesNote?: string;
-  /**
-   * Offered on the staff POS only (the half tray, for now): the customer
-   * sheet never lists it and POST /api/orders refuses it. Same contract as
-   * MenuModifier.staffOnly. Drop the flag to put the size on the website.
-   */
-  staffOnly?: boolean;
 }
 
 /**
@@ -160,11 +154,6 @@ export function indexItems(menu: Menu): Map<string, MenuItem> {
 export function itemSizes(item: MenuItem): MenuSize[] {
   if (item.sizes && item.sizes.length > 0) return item.sizes;
   return [{ id: "regular", label: "Regular", priceCents: item.priceCents }];
-}
-
-/** The sizes the WEBSITE may show and accept: itemSizes() without staff-only tiers. */
-export function customerSizes(item: MenuItem): MenuSize[] {
-  return itemSizes(item).filter((s) => !s.staffOnly);
 }
 
 /** True unless the item is explicitly marked unavailable. */

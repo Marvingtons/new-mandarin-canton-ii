@@ -3,8 +3,8 @@
  *
  * The restaurant wrote a "small" tray price by hand beside every printed
  * party-tray price (Nov 2026). It ships as a third size, `half-tray`, between
- * Individual and Party Tray, on the staff POS only. This script holds the
- * contract:
+ * Individual and Party Tray, on the POS and the website alike. This script
+ * holds the contract:
  *
  *   1. shape      every dish sold by the tray has exactly individual /
  *                 half-tray / party-tray, in that order, strictly ascending,
@@ -12,15 +12,15 @@
  *   2. rice       a half tray is the dish alone, like the full tray
  *   3. POS        the strip's 半盤 default lands a half tray with one tap on a
  *                 tray dish, and leaves every other dish exactly as before
- *   4. server     POST /api/orders (the website) refuses a half-tray line;
- *                 the staff route accepts it, prices it from the catalogue,
- *                 and moves the order to the long prep window
+ *   4. server     the website's order route and the staff route both accept
+ *                 a half-tray line, price it from the catalogue, and move the
+ *                 order to the long prep window
  *   5. ticket     the chip reads 【半盤 HALF TRAY】, never a bare HALF that
  *                 could be read as half a duck
  */
 
 import { catalogMenu } from "@/lib/menu/catalog";
-import { customerSizes, isTraySize, itemSizes, type MenuItem } from "@/lib/menu/types";
+import { isTraySize, itemSizes, type MenuItem } from "@/lib/menu/types";
 import { groupsForSize, RICE_GROUP_ID } from "@/lib/menu/rice";
 import { composeOrder } from "@/lib/orders/compose";
 import { defaultSizeId, quickAdd, INITIAL_DEFAULTS, sellsTrays } from "@/lib/kitchen/posDefaults";
@@ -80,11 +80,6 @@ check(
   "no dish has a half tray without a full tray",
   items.every((it) => !itemSizes(it).some((s) => s.id === "half-tray") || sellsTrays(it)),
 );
-check(
-  "the half tray is staff-only: the website's size list never has it",
-  items.every((it) => !customerSizes(it).some((s) => s.id === "half-tray")) &&
-    trayDishes.every((it) => customerSizes(it).map((s) => s.id).join(",") === "individual,party-tray"),
-);
 check("isTraySize knows both trays and nothing else", isTraySize("half-tray") && isTraySize("party-tray") && !isTraySize("individual") && !isTraySize("half"));
 
 /* -------------------------------------------------------- 2. rice ---- */
@@ -124,7 +119,7 @@ check(
 
 const line = { itemId: "kung-pao-chicken", sizeId: "half-tray", modifierIds: [], quantity: 2 };
 const web = composeOrder(menu, [line], { taxRateBps: 875, lunchAllowed: true });
-check("the website's order route refuses a half-tray line", !web.ok, JSON.stringify(web));
+check("the website's order route accepts a half-tray line", web.ok, JSON.stringify(web));
 const staff = composeOrder(menu, [line], { taxRateBps: 875, lunchAllowed: true, allowStaffOnly: true });
 check("the staff route accepts it", staff.ok, JSON.stringify(staff));
 if (staff.ok) {

@@ -55,9 +55,6 @@ function ItemSheetInner({
     unmetGroups,
     groupsValid,
   } = useItemChoice(item);
-  // The website lists customer sizes only; a staff-only tier (the half tray)
-  // is the POS's. Same filter the modifier list applies below.
-  const customerSizes = sizes.filter((s) => !s.staffOnly);
 
   // Escape closes (event subscription — no state reset here).
   useEffect(() => {
@@ -128,13 +125,13 @@ function ItemSheetInner({
 
         <div className="flex-1 overflow-y-auto px-5 py-4" data-lenis-prevent>
           {/* Size */}
-          {customerSizes.length > 1 && (
+          {sizes.length > 1 && (
             <fieldset className="mb-5">
               <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-ink/55">
                 {t("sheet.size")}
               </legend>
               <div className="grid gap-2">
-                {customerSizes.map((s) => (
+                {sizes.map((s) => (
                   <label
                     key={s.id}
                     className={`flex cursor-pointer items-center justify-between rounded-md border px-4 py-3 ${
