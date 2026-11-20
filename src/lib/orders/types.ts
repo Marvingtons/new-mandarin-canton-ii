@@ -132,6 +132,13 @@ export interface OrderLine {
   unitCents: number;
   lineCents: number;
   specialInstructions?: string;
+  /**
+   * A POS custom charge (自訂 Custom): named and priced by staff, not from the
+   * menu. itemId is "custom". Absent on every other line. Stored in the same
+   * `items` jsonb as any line, so it needed no migration; see
+   * lib/kitchen/customCharge.ts.
+   */
+  custom?: true;
 }
 
 /** Every amount an order carries. Integers, cents. */

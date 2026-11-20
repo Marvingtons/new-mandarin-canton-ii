@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { MenuItem } from "@/lib/menu/types";
 import { useItemChoice } from "@/lib/cart/useItemChoice";
 import { resolveSizeZh } from "@/data/menu-overrides";
@@ -8,6 +8,10 @@ import { formatCents } from "@/lib/money";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import DishName from "@/components/kitchen/DishName";
 import Icon from "@/components/kitchen/Icon";
+import AmountPad from "@/components/kitchen/AmountPad";
+import { chipClass } from "@/components/kitchen/CustomChargeSheet";
+import { useSheetFocus } from "@/components/kitchen/ui/useSheetFocus";
+import { CHARGE_PRESETS, MAX_CHARGE_NAME, presetLabel, type Surcharge } from "@/lib/kitchen/customCharge";
 
 export interface PosLineDraft {
   itemId: string;
@@ -15,6 +19,10 @@ export interface PosLineDraft {
   modifierIds: string[];
   quantity: number;
   specialInstructions?: string;
+  /** 加價: a typed per-unit charge on this dish line (lib/kitchen/customCharge). */
+  surcharge?: Surcharge;
+  /** 自訂: a custom line, named and priced by staff. itemId is "custom". */
+  custom?: { name: string; amountCents: number };
 }
 
 const MAX_INSTRUCTIONS = 200;
@@ -116,7 +124,7 @@ export default function PosItemSheet({
   /** Open on this size (the strip's default, or the line being edited). */
   initialSizeId?: string;
   /** Open on these choices, quantity and note (a line on the ticket being edited). */
-  initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string };
+  initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string; surcharge?: Surcharge };
   /** Changing a line already on the ticket: the button says Update. */
   editing?: boolean;
   /**
@@ -171,66 +179,43 @@ export default function PosItemSheet({
   }
 
   /**
+   * 加價 Add charge: an amount and what it is for, per unit, kept on this
+   * line. Open when the line already has one.
+   */
+  const [chargeCents, setChargeCents] = useState(initial?.surcharge?.amountCents ?? 0);
+  const [chargeLabel, setChargeLabel] = useState(initial?.surcharge?.label ?? "");
+  const chargeOn = chargeCents > 0 && chargeLabel.trim().length > 0;
+  const chargeHalf = (chargeCents > 0) !== (chargeLabel.trim().length > 0);
+  const [chargeOpen, setChargeOpen] = useState(initial?.surcharge !== undefined);
+
+  /**
    * A modal that keeps the keyboard: focus starts on the choice the sheet was
    * opened for (else Add, else the first option), Tab and Shift+Tab cycle
    * inside the sheet, Escape closes it, and focus goes back to the tile or
    * line that opened it.
    */
   const panelRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  });
-  useEffect(() => {
-    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const panel = panelRef.current;
-    const start =
-      (focus ? panel?.querySelector<HTMLElement>(`[data-section="${focus}"] [aria-pressed]`) : null) ??
-      panel?.querySelector<HTMLElement>('[data-action="sheet-add"]:not(:disabled)') ??
-      panel?.querySelector<HTMLElement>("[aria-pressed]");
-    start?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== "Tab" || !panel) return;
-      const stops = [
-        ...panel.querySelectorAll<HTMLElement>(
-          "button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex='-1'])",
-        ),
-      ].filter((el) => el.offsetParent !== null);
-      if (stops.length === 0) return;
-      const first = stops[0];
-      const last = stops[stops.length - 1];
-      const inside = panel.contains(document.activeElement);
-      if (e.shiftKey && (!inside || document.activeElement === first)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (!inside || document.activeElement === last)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      if (returnTo?.isConnected) returnTo.focus();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opening: the sheet is keyed by what it opened on
-  }, []);
+  useSheetFocus(
+    panelRef,
+    onClose,
+    (panel) =>
+      (focus ? panel.querySelector<HTMLElement>(`[data-section="${focus}"] [aria-pressed]`) : null) ??
+      panel.querySelector<HTMLElement>('[data-action="sheet-add"]:not(:disabled)') ??
+      panel.querySelector<HTMLElement>("[aria-pressed]"),
+  );
 
   function add() {
-    if (!groupsValid) return;
+    if (!groupsValid || chargeHalf) return;
     onAdd({
       itemId: item.id,
       sizeId,
       modifierIds,
       quantity,
       specialInstructions: instructions.trim() || undefined,
+      ...(chargeOn ? { surcharge: { amountCents: chargeCents, label: chargeLabel.trim() } } : {}),
     });
   }
+  const lineCents = priceCents + (chargeOn ? chargeCents * quantity : 0);
 
   return (
     <div
@@ -381,8 +366,60 @@ export default function PosItemSheet({
               />
             </label>
           )}
+
+          <div data-section="charge" className="mt-4">
+            <SectionHead
+              open={chargeOpen}
+              onToggle={() => setChargeOpen((o) => !o)}
+              name={t("pos.charge.zh")}
+              nameEn={t("pos.charge.en")}
+              required={false}
+              requiredLabel={t("sheet.required")}
+              summary={chargeOn ? `+${formatCents(chargeCents)} ${chargeLabel.trim()}` : ""}
+              unmet={false}
+            />
+          </div>
+          {chargeOpen && (
+            <div className="mt-2 flex flex-col gap-3" data-charge>
+              <div className="flex flex-wrap gap-2" role="group" aria-label={t("pos.custom.quick")}>
+                {CHARGE_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    data-preset={p.id}
+                    aria-pressed={chargeLabel.trim() === presetLabel(p)}
+                    onClick={() => setChargeLabel(presetLabel(p))}
+                    className={chipClass(chargeLabel.trim() === presetLabel(p))}
+                  >
+                    <span lang="zh-Hant">{p.zh}</span>
+                    <span lang="en" className="font-normal text-staff-soft">
+                      {p.en}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <label className="block">
+                <span className="mb-2 block text-base font-semibold">{t("pos.charge.label")}</span>
+                <input
+                  value={chargeLabel}
+                  onChange={(e) => setChargeLabel(e.target.value)}
+                  maxLength={MAX_CHARGE_NAME}
+                  autoComplete="off"
+                  data-field="charge-label"
+                  placeholder={t("pos.custom.namePlaceholder")}
+                  className="min-h-14 w-full rounded-staff-control bg-staff-panel px-4 text-base text-staff-ink shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus-visible:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
+                />
+              </label>
+              <AmountPad cents={chargeCents} onChange={setChargeCents} label={t("pos.charge.amount")} />
+            </div>
+          )}
         </div>
 
+        {chargeHalf && groupsValid && (
+          <p role="status" className="bg-staff-gold-tint px-6 py-2.5 text-base font-medium">
+            {t("pos.charge.incomplete")}
+          </p>
+        )}
         {!groupsValid && (
           <p role="status" className="bg-staff-gold-tint px-6 py-2.5 text-base font-medium">
             {t("sheet.unmet", {
@@ -415,12 +452,12 @@ export default function PosItemSheet({
           <button
             type="button"
             onClick={add}
-            disabled={!groupsValid}
+            disabled={!groupsValid || chargeHalf}
             data-action="sheet-add"
             className="flex h-[4rem] flex-1 items-center justify-between gap-3 rounded-pos bg-staff-brand px-6 text-[1.182rem] font-bold whitespace-nowrap text-staff-on-brand transition-colors hover:bg-staff-brand-hover disabled:cursor-not-allowed disabled:bg-staff-sunken disabled:text-staff-soft"
           >
             <span>{editing ? t("sheet.update") : t("sheet.add")}</span>
-            <span className="tabular-nums">{formatCents(priceCents)}</span>
+            <span className="tabular-nums">{formatCents(lineCents)}</span>
           </button>
         </div>
       </div>

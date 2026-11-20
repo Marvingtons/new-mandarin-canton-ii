@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_CHARGE_CENTS, MAX_CHARGE_NAME } from "@/lib/kitchen/customCharge";
 
 /**
  * The wire shape of a submitted order — and, just as importantly, the shape it
@@ -39,9 +40,41 @@ export const OrderRequestSchema = z.strictObject({
 
 export type OrderRequest = z.infer<typeof OrderRequestSchema>;
 
+/**
+ * THE POS'S TWO TYPED PRICES, and the only money any request may carry
+ * (lib/kitchen/customCharge.ts). Staff-only: the web's OrderLineSchema above
+ * has neither, so a web body with one is still a hard 400.
+ *
+ *   a surcharge on a dish line ("加價 Add charge": +$3 Extra shrimp), per unit
+ *   a custom line (自訂 Custom): a name, an amount (0.00 allowed), a quantity
+ *
+ * The server still multiplies, sums and taxes; nothing here is a total.
+ */
+const SurchargeSchema = z.strictObject({
+  amountCents: z.number().int().min(1).max(MAX_CHARGE_CENTS),
+  label: z.string().trim().min(1).max(MAX_CHARGE_NAME),
+});
+
+export const StaffItemLineSchema = z.strictObject({
+  ...OrderLineSchema.shape,
+  surcharge: SurchargeSchema.optional(),
+});
+
+export const StaffCustomLineSchema = z.strictObject({
+  lineId: z.string().optional(),
+  custom: z.literal(true),
+  name: z.string().trim().min(1).max(MAX_CHARGE_NAME),
+  amountCents: z.number().int().min(0).max(MAX_CHARGE_CENTS),
+  quantity: z.number().int().min(1).max(50),
+  specialInstructions: z.string().max(200).optional(),
+});
+
+export const StaffLineSchema = z.union([StaffCustomLineSchema, StaffItemLineSchema]);
+export type StaffLine = z.infer<typeof StaffLineSchema>;
+
 /** Fields every staff order carries. */
 const staffCommon = {
-  lines: z.array(OrderLineSchema).min(1).max(60),
+  lines: z.array(StaffLineSchema).min(1).max(60),
   /** Free text such as "paid by phone, card ending 4417". Never a card field. */
   paymentNote: z.string().max(200).optional(),
   /** Internal, never printed. */
@@ -52,8 +85,9 @@ const staffCommon = {
 };
 
 /**
- * The staff POS's takeout order. Same lines, same strictness, same absence of
- * any money field: a POS is not a place where a price can be typed in.
+ * The staff POS's takeout order. Same lines and the same strictness: no
+ * total, tax or line price. The one exception is the custom charge and the
+ * surcharge above, which staff type on purpose.
  *
  * What differs is who the customer is. There is no OTP: staff on the phone or
  * at the counter are the verification. A walk-in may give no number at all,

@@ -7,7 +7,8 @@ import { checkModifierGroups } from "@/lib/orders/modifierRules";
 import { stripRice } from "@/lib/menu/rice";
 import { applyPreparationDefault } from "@/lib/menu/preparation";
 import type { OrderLine, OrderTotals } from "@/lib/orders/types";
-import type { OrderRequest } from "@/lib/orders/requestSchema";
+import type { OrderRequest, StaffLine } from "@/lib/orders/requestSchema";
+import { customOrderLine, surchargeModifier } from "@/lib/kitchen/customCharge";
 
 /**
  * Turn a submitted cart into priced, stored lines. THE recompute.
@@ -70,7 +71,7 @@ export function staffLunchAllowed(input: {
 
 export function composeOrder(
   menu: Menu,
-  requestLines: OrderRequest["lines"],
+  requestLines: readonly (OrderRequest["lines"][number] | StaffLine)[],
   options: ComposeOptions,
 ): ComposeResult {
   const index = indexItems(menu);
@@ -78,6 +79,21 @@ export function composeOrder(
   const lines: OrderLine[] = [];
   let subtotalCents = 0;
   for (const line of requestLines) {
+    /* A POS CUSTOM CHARGE (自訂): staff named it and typed its price, so
+       there is no menu item to look up. Taxed like any line. Only the staff
+       schema can produce one; allowStaffOnly is the belt to that brace. */
+    if ("custom" in line) {
+      if (!options.allowStaffOnly) return { ok: false, error: "A custom charge is staff only." };
+      const custom = customOrderLine({
+        name: line.name,
+        amountCents: line.amountCents,
+        quantity: line.quantity,
+        specialInstructions: line.specialInstructions,
+      });
+      subtotalCents += custom.lineCents;
+      lines.push(custom);
+      continue;
+    }
     const item = index.get(line.itemId);
     // A hidden item (86'd, or removed like Roasted Duck 2026-08) is filtered
     // out of the catalogue before it is indexed, so a stale cart holding its
@@ -163,6 +179,22 @@ export function composeOrder(
       return { ok: false, error: `An option is no longer available for "${item.nameEn}".` };
     }
 
+    /* 加價: a surcharge typed on the POS rides the line as one more
+       modifier, per unit, so the dish stays one line on every copy. */
+    const surcharge = "surcharge" in line ? line.surcharge : undefined;
+    if (surcharge) {
+      if (!options.allowStaffOnly) {
+        return { ok: false, error: `An option is no longer available for "${item.nameEn}".` };
+      }
+      const unitCents = resolved.unitCents + surcharge.amountCents;
+      resolved = {
+        ...resolved,
+        modifiers: [...resolved.modifiers, surchargeModifier(surcharge)],
+        unitCents,
+        lineCents: unitCents * resolved.quantity,
+      };
+    }
+
     subtotalCents += resolved.lineCents;
     lines.push(resolved);
   }
@@ -170,6 +202,7 @@ export function composeOrder(
   // Prep time: a party tray, family dinner, or big family dinner in the cart
   // moves the whole order to the longer window. One slow item sets the pace.
   const hasLongPrep = requestLines.some((line) => {
+    if ("custom" in line) return false;
     const item = index.get(line.itemId);
     return (
       item?.longPrep === true ||

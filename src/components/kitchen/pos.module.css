@@ -383,6 +383,22 @@
 .tile.hasMod.long .zh {
   padding-right: calc(var(--spacing) * 6);
 }
+/* 自訂 Custom: the panel colour and a dashed lacquer edge, never a dish. */
+.customTile {
+  background: var(--color-staff-panel);
+  box-shadow: none;
+  outline: 2px dashed color-mix(in srgb, var(--color-staff-brand) 55%, transparent);
+  outline-offset: -2px;
+}
+.customTile .zh {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 1);
+  color: var(--color-staff-brand);
+}
+.customPlus {
+  flex: none;
+}
 .tile.off {
   background: var(--color-staff-sunken);
   box-shadow: none;

@@ -257,6 +257,59 @@ async function s1_pricing(m: Mods): Promise<void> {
     slotTicket.includes("取餐時間 PICKUP") && slotTicket.includes("5:30 PM") && !slotTicket.some((t) => t.includes("–")),
   );
   check("the 86'd item is refused for staff too", (await staffPost(m, staffBody([{ itemId: "roasted-duck", sizeId: "half", modifierIds: [], quantity: 1 }]))).body.code === "item_unavailable");
+
+  /* 自訂 CUSTOM and 加價 SURCHARGE: the two prices staff type, and only
+     staff. Stored in the same items jsonb, taxed like a dish, printed on
+     both copies (the kitchen copy without the money). */
+  const customLine = { custom: true, name: "加蝦 Extra shrimp", amountCents: 300, quantity: 2, specialInstructions: "另上" };
+  const withCharge = { ...cart[0], quantity: 2, surcharge: { amountCents: 250, label: "加肉 Extra meat" } };
+  const charged = await staffPost(
+    m,
+    staffBody([withCharge, customLine, { custom: true, name: "Free sauce", amountCents: 0, quantity: 1 }] as unknown as CartLine[]),
+  );
+  check("custom lines and a surcharge are accepted from the POS", charged.status === 200 && charged.body.ok === true, JSON.stringify(charged.body).slice(0, 200));
+  const chargedOrder = await m.repo.getOrderById(TENANT, Number((charged.body.order as { id: number }).id));
+  const [dish, custom, free] = chargedOrder?.items ?? [];
+  const dishBase = staffOrder!.items[0].unitCents;
+  check(
+    "the surcharge stays on its line, per unit",
+    chargedOrder?.items.length === 3 &&
+      dish.modifiers.some((x) => x.id === "surcharge" && x.priceCents === 250 && x.nameZh === "加肉") &&
+      dish.unitCents === dishBase + 250 &&
+      dish.lineCents === (dishBase + 250) * 2,
+    JSON.stringify(dish),
+  );
+  check(
+    "a custom line is stored flagged, named from the preset, amount x quantity",
+    custom?.custom === true && custom.itemId === "custom" && custom.nameZh === "加蝦" && custom.nameEn === "Extra shrimp" && custom.lineCents === 600,
+    JSON.stringify(custom),
+  );
+  check("a $0.00 custom line is allowed", free?.custom === true && free.lineCents === 0 && free.nameEn === "Free sauce");
+  const chargedSubtotal = dish.lineCents + 600;
+  check(
+    "custom charges are taxed like dishes",
+    chargedOrder?.totals.subtotalCents === chargedSubtotal &&
+      chargedOrder?.totals.taxCents === Math.round((chargedSubtotal * 875) / 10_000),
+    JSON.stringify(chargedOrder?.totals),
+  );
+  const copies = { timezone: TIMEZONE, copies: 2, copyRoles: ["kitchen", "register"] as ("kitchen" | "register")[] };
+  const kitchenCopy = await m.render.composeTicketSvg(chargedOrder!, { ...copies, copyIndex: 0 });
+  const registerCopy = await m.render.composeTicketSvg(chargedOrder!, { ...copies, copyIndex: 1 });
+  const kitchenText = kitchenCopy.lines.map((l) => l.text);
+  const registerText = registerCopy.lines.map((l) => l.text);
+  check(
+    "the custom line prints on both copies; the kitchen copy carries no price",
+    kitchenText.includes("Extra shrimp") && registerText.includes("Extra shrimp") &&
+      kitchenCopy.money[0].lineCents.length === 0 && registerCopy.money[0].lineCents.includes(600),
+  );
+  check(
+    "the surcharge prints as one side line, with +$2.50 on the register copy only",
+    registerText.some((x) => x.includes("Extra meat +$2.50")) &&
+      kitchenText.some((x) => x.includes("Extra meat")) &&
+      !kitchenText.some((x) => x.includes("+$2.50")),
+  );
+  const webCustom = await webPost(m, [customLine as unknown as CartLine], "6195550199");
+  check("the web checkout refuses a custom line", webCustom.status === 400, `status=${webCustom.status}`);
 }
 
 async function s2_phoneOrderPrints(m: Mods): Promise<void> {

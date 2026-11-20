@@ -17,6 +17,15 @@ import type { Station } from "@/config/stations";
 import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/posCategories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import PosItemSheet, { type PosLineDraft } from "@/components/kitchen/PosItemSheet";
+import CustomChargeSheet, { type CustomChargeDraft } from "@/components/kitchen/CustomChargeSheet";
+import {
+  chargeNames,
+  CUSTOM_ITEM_ID,
+  CUSTOM_NAME_STORAGE_KEY,
+  isCustomLine,
+  SURCHARGE_MODIFIER_ID,
+  type Surcharge,
+} from "@/lib/kitchen/customCharge";
 import Icon from "@/components/kitchen/Icon";
 import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import ReprintDialog from "@/components/kitchen/ReprintDialog";
@@ -261,6 +270,26 @@ function DishTile({
   );
 }
 
+/**
+ * 自訂 Custom: the tile that opens the custom charge sheet. Pinned first in
+ * 招牌菜 Specials and found by searching "custom". Drawn like a dish tile, on
+ * the panel colour with a dashed lacquer edge, so it never reads as a dish.
+ */
+function CustomTile({ labels, onTap }: { labels: { zh: string; en: string; all: string }; onTap: () => void }) {
+  return (
+    <div data-tile={CUSTOM_ITEM_ID} className={`${s.tile} ${s.customTile}`}>
+      <button type="button" data-item={CUSTOM_ITEM_ID} onClick={onTap} aria-label={labels.all} className={s.tileMain} />
+      <span lang="zh-Hant" className={s.zh}>
+        <Icon name="plus" size={20} className={s.customPlus} />
+        {labels.zh}
+      </span>
+      <span lang="en" className={s.en}>
+        {labels.en}
+      </span>
+    </div>
+  );
+}
+
 export default function PosScreen({
   menu,
   taxRateBps,
@@ -361,6 +390,9 @@ export default function PosScreen({
   const priced = useMemo(
     () =>
       lines.map((line) => {
+        // A custom line is its own typed price; a dish is the menu's, plus
+        // any 加價 per unit. The server does the same sum.
+        if (line.custom) return { line, item: undefined, lineCents: line.custom.amountCents * line.quantity };
         const item = index.get(line.itemId);
         let lineCents = 0;
         try {
@@ -368,6 +400,7 @@ export default function PosScreen({
         } catch {
           lineCents = 0;
         }
+        if (item && line.surcharge) lineCents += line.surcharge.amountCents * line.quantity;
         return { line, item, lineCents };
       }),
     [lines, index],
@@ -398,8 +431,10 @@ export default function PosScreen({
     sizeId?: string;
     focus?: string;
     replace?: string;
-    initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string };
+    initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string; surcharge?: Surcharge };
   } | null>(null);
+  /** 自訂 Custom: the sheet's starting values, and the line it replaces. */
+  const [customSheet, setCustomSheet] = useState<{ initial: CustomChargeDraft; replace?: string } | null>(null);
   /** The tile just tapped, and a counter that replays its highlight. */
   const [tileFlash, setTileFlash] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   /** The ticket line just added or bumped, likewise. */
@@ -429,6 +464,12 @@ export default function PosScreen({
     return [...pinned, ...rest];
   }, [menu, lunchOpen]);
   const [activeCategory, setActiveCategory] = useState<string>(railCategories[0]?.id ?? "");
+
+  /** The custom tile answers a search for it, in either language. */
+  const customMatch = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q.length >= 2 && ("custom".startsWith(q) || q.includes("custom") || t("pos.custom.zh").includes(q));
+  }, [query, t]);
 
   const results = useMemo(() => {
     const q = query.trim();
@@ -576,6 +617,10 @@ export default function PosScreen({
       (l) =>
         !l.specialInstructions &&
         !draft.specialInstructions &&
+        !l.custom &&
+        !draft.custom &&
+        !l.surcharge &&
+        !draft.surcharge &&
         l.itemId === draft.itemId &&
         l.sizeId === draft.sizeId &&
         [...l.modifierIds].sort().join() === [...draft.modifierIds].sort().join(),
@@ -614,7 +659,8 @@ export default function PosScreen({
     const removed = lines[at];
     setLines(lines.filter((l) => l.lineId !== lineId));
     const item = index.get(removed.itemId);
-    toast(t("pos.removedLine", { name: item?.nameZh ?? item?.nameEn ?? "" }), "info", {
+    const removedName = removed.custom ? removed.custom.name : (item?.nameZh ?? item?.nameEn ?? "");
+    toast(t("pos.removedLine", { name: removedName }), "info", {
       label: t("card.undo"),
       onAction: () =>
         setLines((prev) => (prev.some((l) => l.lineId === lineId) ? prev : [...prev.slice(0, at), removed, ...prev.slice(at)])),
@@ -623,14 +669,62 @@ export default function PosScreen({
 
   /** Tap a line: the sheet, on that line's own choices, to change it in place. */
   function editLine(line: TicketLine) {
+    if (line.custom) {
+      setCustomSheet({
+        replace: line.lineId,
+        initial: {
+          name: line.custom.name,
+          amountCents: line.custom.amountCents,
+          quantity: line.quantity,
+          specialInstructions: line.specialInstructions,
+        },
+      });
+      return;
+    }
     const item = index.get(line.itemId);
     if (!item) return;
     setSheetItem({
       item,
       sizeId: line.sizeId,
       replace: line.lineId,
-      initial: { modifierIds: line.modifierIds, quantity: line.quantity, instructions: line.specialInstructions },
+      initial: {
+        modifierIds: line.modifierIds,
+        quantity: line.quantity,
+        instructions: line.specialInstructions,
+        surcharge: line.surcharge,
+      },
     });
+  }
+
+  /** 自訂 Custom: the sheet, on the last name this tablet used. */
+  function openCustom() {
+    let name = "";
+    try {
+      name = localStorage.getItem(CUSTOM_NAME_STORAGE_KEY) ?? "";
+    } catch {
+      /* storage blocked: start blank */
+    }
+    setCustomSheet({ initial: { name, amountCents: 0, quantity: 1 } });
+  }
+
+  function addCustom(draft: CustomChargeDraft, replace?: string) {
+    try {
+      localStorage.setItem(CUSTOM_NAME_STORAGE_KEY, draft.name);
+    } catch {
+      /* the name is a convenience */
+    }
+    setCustomSheet(null);
+    addLine(
+      {
+        itemId: CUSTOM_ITEM_ID,
+        sizeId: "regular",
+        modifierIds: [],
+        quantity: draft.quantity,
+        specialInstructions: draft.specialInstructions,
+        custom: { name: draft.name, amountCents: draft.amountCents },
+      },
+      replace,
+    );
   }
 
   /* --------------------------------------------------- repeat customers -- */
@@ -662,8 +756,24 @@ export default function PosScreen({
     let skipped = 0;
     const drafts: TicketLine[] = [];
     for (const line of order.items) {
+      if (isCustomLine(line)) {
+        drafts.push({
+          lineId: newKey(),
+          itemId: CUSTOM_ITEM_ID,
+          sizeId: "regular",
+          modifierIds: [],
+          quantity: line.quantity,
+          specialInstructions: line.specialInstructions,
+          custom: {
+            name: line.nameZh ? `${line.nameZh} ${line.nameEn}` : line.nameEn,
+            amountCents: line.unitCents,
+          },
+        });
+        continue;
+      }
       const item = index.get(line.itemId);
-      const modifierIds = line.modifiers.map((m) => m.id);
+      const charge = line.modifiers.find((m) => m.id === SURCHARGE_MODIFIER_ID);
+      const modifierIds = line.modifiers.filter((m) => m.id !== SURCHARGE_MODIFIER_ID).map((m) => m.id);
       let ok = !!item && orderable(item) && itemSizes(item).some((x) => x.id === line.sizeId);
       if (ok && item) {
         try {
@@ -683,6 +793,14 @@ export default function PosScreen({
         modifierIds,
         quantity: line.quantity,
         specialInstructions: line.specialInstructions,
+        ...(charge
+          ? {
+              surcharge: {
+                amountCents: charge.priceCents,
+                label: charge.nameZh ? `${charge.nameZh} ${charge.nameEn}` : charge.nameEn,
+              },
+            }
+          : {}),
       });
     }
     setLines((prev) => [...prev, ...drafts]);
@@ -716,13 +834,24 @@ export default function PosScreen({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          lines: lines.map((l) => ({
-            itemId: l.itemId,
-            sizeId: l.sizeId,
-            modifierIds: l.modifierIds,
-            quantity: l.quantity,
-            ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
-          })),
+          lines: lines.map((l) =>
+            l.custom
+              ? {
+                  custom: true,
+                  name: l.custom.name,
+                  amountCents: l.custom.amountCents,
+                  quantity: l.quantity,
+                  ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
+                }
+              : {
+                  itemId: l.itemId,
+                  sizeId: l.sizeId,
+                  modifierIds: l.modifierIds,
+                  quantity: l.quantity,
+                  ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
+                  ...(l.surcharge ? { surcharge: l.surcharge } : {}),
+                },
+          ),
           channel,
           customer: {
             ...(name.trim() ? { name: name.trim() } : {}),
@@ -794,6 +923,7 @@ export default function PosScreen({
   const linesBelow = useLinesBelow(linesRef, `.${s.line}`, [lines]);
 
   const tileLabels = { modify: t("pos.modify"), modifyShort: t("pos.modifyShort"), asks: t("pos.asks") };
+  const customLabels = { zh: t("pos.custom.zh"), en: t("pos.custom.en"), all: t("pos.custom.title") };
   const tile = (item: MenuItem, hint: number | null = null) => {
     const disabledLabel = !isAvailable(item)
       ? t("pos.86d")
@@ -960,13 +1090,19 @@ export default function PosScreen({
           if (g.id === RICE_GROUP_ID) continue;
           for (const m of g.modifiers) if (chosen.has(m.id)) summary.push(m.nameZh ?? m.nameEn);
         }
-        const zhName = item?.nameZh ?? item?.nameEn ?? line.itemId;
+        if (line.surcharge) summary.push(`+${formatCents(line.surcharge.amountCents)} ${line.surcharge.label}`);
+        const custom = line.custom ? chargeNames(line.custom.name) : null;
+        const shown = custom
+          ? { zh: custom.nameZh, en: custom.nameEn }
+          : { zh: item?.nameZh ?? null, en: item?.nameEn ?? line.itemId };
+        const zhName = shown.zh ?? shown.en;
         return (
           <div
             key={line.lineId}
             className={s.line}
             style={tintStyle(tintOf.get(line.itemId) ?? "sides")}
             data-line={line.lineId}
+            data-custom={line.custom ? true : undefined}
           >
             {lineFlash.id === line.lineId && lineFlash.n > 0 && (
               <span key={`flash-${lineFlash.n}`} aria-hidden="true" className={s.lineFlash} />
@@ -974,14 +1110,14 @@ export default function PosScreen({
             <button
               type="button"
               aria-haspopup="dialog"
-              aria-label={`${t("pos.editLine")} ${line.quantity} ${item?.nameZh ?? ""} ${item?.nameEn ?? ""} ${summary.join(" ")}`}
+              aria-label={`${t("pos.editLine")} ${line.quantity} ${shown.zh ?? ""} ${shown.en} ${summary.join(" ")}`}
               onClick={() => editLine(line)}
               className={s.lineHit}
             >
               <span className={s.st} />
               <span className={s.lineText}>
                 <span className={s.lineTop}>
-                  <span lang={item?.nameZh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
+                  <span lang={shown.zh ? "zh-Hant" : "en"} className={`${s.zh} ${s.one}`}>
                     <ZhName name={zhName} />
                   </span>
                   <span className={`${s.lp} ${s.num}`}>{formatCents(lineCents)}</span>
@@ -992,7 +1128,7 @@ export default function PosScreen({
                       {summary.join(" / ")}
                     </span>
                   )}
-                  {item?.nameZh && <span lang="en">{item.nameEn}</span>}
+                  {shown.zh && <span lang="en">{shown.en}</span>}
                 </span>
                 {line.specialInstructions && <span className={`${s.note} ${s.one}`}>{line.specialInstructions}</span>}
               </span>
@@ -1173,10 +1309,13 @@ export default function PosScreen({
             <h2 className={s.sectionH}>
               <span className={s.zh}>{t("pos.results")}</span>
             </h2>
-            {results.length === 0 ? (
+            {results.length === 0 && !customMatch ? (
               <p className={s.emptyNote}>{t("pos.noResults", { q: query.trim() })}</p>
             ) : (
-              <div className={s.grid}>{results.map((item, i) => tile(item, i < 9 ? i + 1 : null))}</div>
+              <div className={s.grid}>
+                {customMatch && <CustomTile labels={customLabels} onTap={openCustom} />}
+                {results.map((item, i) => tile(item, i < 9 ? i + 1 : null))}
+              </div>
             )}
           </>
         ) : (
@@ -1197,7 +1336,10 @@ export default function PosScreen({
                     <span className={s.en}>· {t("pos.lunchWindow", lunchLabel)}</span>
                   )}
                 </h2>
-                <div className={s.grid}>{category.items.map((item) => tile(item))}</div>
+                <div className={s.grid}>
+                  {category.id === "specials" && <CustomTile labels={customLabels} onTap={openCustom} />}
+                  {category.items.map((item) => tile(item))}
+                </div>
               </section>
             );
           })
@@ -1443,6 +1585,14 @@ export default function PosScreen({
           menuNumber={menuNumber(sheetItem.item.id)}
           onAdd={(draft) => addLine(draft, sheetItem.replace)}
           onClose={() => setSheetItem(null)}
+        />
+      )}
+      {customSheet && (
+        <CustomChargeSheet
+          initial={customSheet.initial}
+          editing={customSheet.replace !== undefined}
+          onAdd={(draft) => addCustom(draft, customSheet.replace)}
+          onClose={() => setCustomSheet(null)}
         />
       )}
       {confirmClear && (

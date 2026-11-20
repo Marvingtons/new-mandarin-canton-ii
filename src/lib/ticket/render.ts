@@ -17,6 +17,7 @@ import { formatPhoneNational } from "@/lib/phone";
 import { stationForChannel } from "@/config/stations";
 import { isPreparationModifierId } from "@/lib/menu/preparation";
 import type { Order, OrderLine } from "@/lib/orders/types";
+import { SURCHARGE_MODIFIER_ID } from "@/lib/kitchen/customCharge";
 
 /**
  * Kitchen ticket renderer: order -> 80mm PNG.
@@ -360,7 +361,13 @@ function drawLine(
 
   for (const [i, mod] of sideModifiers.entries()) {
     const zh = zhIfPrintable(mod.nameZh, coverage);
-    c.text(zh ? `● ${zh} / ${mod.nameEn}` : `● ${mod.nameEn}`, {
+    // A POS surcharge (加價) says what it added, on the copy that shows money;
+    // the line total above already includes it.
+    const added =
+      showPrice && mod.id === SURCHARGE_MODIFIER_ID && mod.priceCents > 0
+        ? ` +${formatCents(mod.priceCents)}`
+        : "";
+    c.text(zh ? `● ${zh} / ${mod.nameEn}${added}` : `● ${mod.nameEn}${added}`, {
       size: 26,
       lineHeight: 1.35,
       x: INDENT,
