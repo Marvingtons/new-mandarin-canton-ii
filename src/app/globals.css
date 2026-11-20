@@ -296,6 +296,14 @@ html:has([data-kitchen-surface]) {
 html:has([data-kitchen-surface][data-large-text]) {
   font-size: 171.875%;
 }
+/* The site chrome is still in the DOM under the staff surface, at the staff
+   font size, and at 768px its header is wider than the screen: the page
+   itself scrolled sideways behind the POS. The surface scrolls on its own,
+   so the page under it does not scroll at all. */
+html:has([data-kitchen-surface]),
+html:has([data-kitchen-surface]) body {
+  overflow: hidden;
+}
 
 @theme inline {
   --color-lacquer: var(--lacquer);

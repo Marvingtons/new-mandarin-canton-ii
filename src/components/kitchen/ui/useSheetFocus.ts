@@ -30,6 +30,10 @@ export function useSheetFocus(
     const panel = panelRef.current;
     if (panel) startRef.current(panel)?.focus();
     const onKey = (e: KeyboardEvent) => {
+      // A sheet opened from this one (a line's sheet over the portrait
+      // ticket, a confirm) has the keyboard until it closes.
+      const top = (document.activeElement as HTMLElement | null)?.closest?.('[role="dialog"], dialog');
+      if (panel && top && !top.contains(panel) && !panel.contains(top)) return;
       if (e.key === "Escape") {
         e.preventDefault();
         onCloseRef.current();
