@@ -46,7 +46,7 @@ import type { Order, OrderLine } from "@/lib/orders/types";
  * missing — which, with a quarter of the menu translated, was most of the
  * ticket. The catalogue now carries 中文 on every dish, so the marker has no
  * job left and is gone: the English is the primary line, the 中文 sits directly
- * under it in the same size class, and a dish with no 中文 simply prints one
+ * under it, bold and a step larger, and a dish with no 中文 simply prints one
  * line. Missing glyphs are still reported — to the server log, never to paper.
  */
 
@@ -63,9 +63,20 @@ const QTY_GAP = 14;
 const QTY_HEIGHT = 48;
 const INDENT = QTY_WIDTH + QTY_GAP;
 
-/** Item name type. English leads; the 中文 under it is one step down, regular. */
+/**
+ * Item name type. English leads; the 中文 under it is bold and a step LARGER
+ * (owner, 2026-11-20): at the same pixel size a CJK line reads about half as
+ * heavy as bold Latin, and the 中文 is what the wok reads.
+ */
 const NAME_SIZE = 34;
-const NAME_ZH_SIZE = 30;
+const NAME_ZH_SIZE = 38;
+
+/**
+ * The 備註 NOTE box: a small label, and the note itself at dish-name size in
+ * bold, because the kitchen reads 加辣 from arm's length.
+ */
+const NOTE_LABEL_SIZE = 18;
+const NOTE_SIZE = 34;
 
 /**
  * The money column on an item row.
@@ -263,8 +274,8 @@ function sizeChip(line: OrderLine, coverage: Set<number>): string | null {
  *       ┌ 備註 NOTE ─────────────────┐
  *
  * The English name is the primary line and the line total rides its first row,
- * right-aligned in a fixed money column. The 中文 sits directly beneath in the
- * same size class — the kitchen reads that line, so it is not a footnote.
+ * right-aligned in a fixed money column. The 中文 sits directly beneath, bold
+ * and a step larger: the kitchen reads that line, so it is not a footnote.
  *
  * `showPrice` is false on the kitchen copy, which takes the money column back
  * and gives the whole width to the name.
@@ -321,7 +332,7 @@ function drawLine(
       firstLineMaxWidth: firstLine,
     });
     if (nameZh) {
-      col.text(nameZh, { size: NAME_ZH_SIZE, lineHeight: 1.2, marginTop: 2 });
+      col.text(nameZh, { size: NAME_ZH_SIZE, weight: 700, lineHeight: 1.2, marginTop: 2 });
     }
   });
   if (nameHeight < QTY_HEIGHT) c.space(QTY_HEIGHT - nameHeight);
@@ -362,8 +373,8 @@ function drawLine(
     c.box(
       { x: INDENT, width: column, border: 3, padding: 8, marginTop: 8 },
       (note) => {
-        note.text(`${L.note} NOTE`, { size: 22, weight: 700 });
-        note.text(line.specialInstructions as string, { size: 27, lineHeight: 1.35 });
+        note.text(`${L.note} NOTE`, { size: NOTE_LABEL_SIZE, weight: 700 });
+        note.text(line.specialInstructions as string, { size: NOTE_SIZE, weight: 700, lineHeight: 1.25 });
       },
     );
   }
