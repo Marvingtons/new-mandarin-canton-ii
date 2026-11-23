@@ -48,7 +48,9 @@ import type {
  *    is why no tray option renders for them.
  *  - explicit sizes (Roasted Duck half/whole, Egg Drop Soup cup/bowl) -> those
  *    tiers, in printed order.
- *  - a tray price -> the individual tier plus a "Party Tray" tier.
+ *  - a tray price -> the individual tier, then "Half Tray" where the catalogue
+ *    carries one, then "Party Tray". Ascending price, smallest first, which is
+ *    also the order the POS strip reads in.
  */
 function sizesFor(item: CatalogItem): MenuSize[] | undefined {
   const base: MenuSize[] =
@@ -60,18 +62,27 @@ function sizesFor(item: CatalogItem): MenuSize[] | undefined {
 
   if (item.trayCents === undefined) return item.sizes ? base : undefined;
 
-  return [
-    ...base,
-    {
-      id: "party-tray",
-      label: "Party Tray",
-      priceCents: item.trayCents,
-      // One constant, never an inline string — the capacity is an
-      // owner-provided claim the printed menu does not make, so it has to be
-      // correctable in a single edit. See PARTY_TRAY_SERVES.
-      servesNote: PARTY_TRAY_SERVES.short,
-    },
-  ];
+  const trays: MenuSize[] = [];
+  if (item.halfTrayCents !== undefined) {
+    trays.push({
+      id: "half-tray",
+      label: "Half Tray",
+      priceCents: item.halfTrayCents,
+      // No servesNote on purpose: the owner has not said how many a half
+      // tray feeds, and a guessed capacity on the website is a promise. Add
+      // a HALF_TRAY_SERVES constant beside PARTY_TRAY_SERVES once they do.
+    });
+  }
+  trays.push({
+    id: "party-tray",
+    label: "Party Tray",
+    priceCents: item.trayCents,
+    // One constant, never an inline string — the capacity is an
+    // owner-provided claim the printed menu does not make, so it has to be
+    // correctable in a single edit. See PARTY_TRAY_SERVES.
+    servesNote: PARTY_TRAY_SERVES.short,
+  });
+  return [...base, ...trays];
 }
 
 /**

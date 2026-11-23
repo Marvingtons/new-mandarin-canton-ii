@@ -64,6 +64,18 @@ export interface MenuSize {
   servesNote?: string;
 }
 
+/**
+ * THE TRAY FAMILY. Every size id that is a party tray of some capacity: no
+ * rice side, the longer prep window, the 餐盤 strip on the POS. One set, so a
+ * new tray capacity is one id here instead of a condition to find in four
+ * files.
+ */
+export const TRAY_SIZE_IDS: ReadonlySet<string> = new Set(["half-tray", "party-tray"]);
+
+export function isTraySize(sizeId: string): boolean {
+  return TRAY_SIZE_IDS.has(sizeId);
+}
+
 export interface MenuItem {
   id: string;
   nameEn: string;

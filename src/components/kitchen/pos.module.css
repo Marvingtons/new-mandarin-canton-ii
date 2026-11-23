@@ -176,7 +176,12 @@
   font-size: var(--text-staff-caption);
   font-weight: 700;
 }
+/* Portrait shows the defaults 中文-only, as the rail does: with three sizes
+   (單點 / 半盤 / 餐盤) the English captions pushed the strip past 768. The
+   trilingual label stays on every segment's title and aria-label; landscape
+   shows the captions again. */
 .defSeg .en {
+  display: none;
   font-size: calc(12 * var(--staff-u));
   font-weight: 500;
 }
@@ -997,6 +1002,9 @@ button.barPrint {
   .rail .en {
     display: inline;
     font-size: var(--text-staff-caption);
+  }
+  .defSeg .en {
+    display: block;
   }
   .rail button[aria-current="true"] {
     box-shadow: none;

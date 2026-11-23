@@ -42,6 +42,14 @@ const MAX_INSTRUCTIONS = 200;
  * and first, and Add stays disabled until staff pick it.
  */
 /** One choice in the sheet (a size, a rice, an extra): selected is ringed in lacquer. */
+/**
+ * Three choices sit in one row (單點 · 半盤 · 餐盤, 白飯 · 炒飯 · 走飯): a scale
+ * reads left to right. In a two-column grid the third was orphaned under
+ * the others, as if it were an afterthought. Any other count keeps two
+ * columns.
+ */
+const optionGrid = (count: number) => `grid gap-2 ${count === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`;
+
 const option = (selected: boolean) =>
   `staff-press relative flex min-h-[2.909rem] items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-left text-staff-ink transition-colors ${
     selected
@@ -267,7 +275,7 @@ export default function PosItemSheet({
                 />
               </legend>
               {open.has("size") && (
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className={optionGrid(sizes.length)}>
                   {sizes.map((s) => {
                     const zh = resolveSizeZh(s.label);
                     const on = sizeId === s.id;
@@ -311,7 +319,7 @@ export default function PosItemSheet({
                   />
                 </legend>
                 {open.has(g.id) && (
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className={optionGrid(g.modifiers.length)}>
                     {g.modifiers.map((m) => {
                       const selected = isSelected(g.id, m.id);
                       return (

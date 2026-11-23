@@ -108,6 +108,8 @@ const DEFAULT_SIZE_LABELS = new Set(["individual", "regular", ""]);
  */
 const SIZE_CHIP_EN: Record<string, string> = {
   "party tray": "TRAY",
+  // Not "HALF": Roasted Duck's half bird already prints 【半隻 HALF】.
+  "half tray": "HALF TRAY",
 };
 
 /* ------------------------------------------------------ shape normalizer -- */

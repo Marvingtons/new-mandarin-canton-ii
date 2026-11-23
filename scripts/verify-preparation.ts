@@ -296,13 +296,13 @@ async function orDishChecks(): Promise<void> {
     for (const size of itemSizes(it)) {
       const rice = groupsForSize(it, size.id).find((x) => x.id === RICE_GROUP_ID);
       const base = rice ? [RICE_STEAMED_ID] : [];
-      const without = composeOrder(menu, [{ itemId: it.id, sizeId: size.id, modifierIds: base, quantity: 1 }], { taxRateBps: 875, lunchAllowed: true });
+      const without = composeOrder(menu, [{ itemId: it.id, sizeId: size.id, modifierIds: base, quantity: 1 }], { taxRateBps: 875, lunchAllowed: true, allowStaffOnly: true });
       check(
         `${d.id} @ ${size.id}: the server refuses a line with no choice`,
         !without.ok && /choose/i.test(without.error) && without.error.toLowerCase().includes(d.label.toLowerCase()),
         without.ok ? "accepted" : without.error,
       );
-      const withPick = composeOrder(menu, [{ itemId: it.id, sizeId: size.id, modifierIds: [...base, d.pick], quantity: 1 }], { taxRateBps: 875, lunchAllowed: true });
+      const withPick = composeOrder(menu, [{ itemId: it.id, sizeId: size.id, modifierIds: [...base, d.pick], quantity: 1 }], { taxRateBps: 875, lunchAllowed: true, allowStaffOnly: true });
       check(`${d.id} @ ${size.id}: the server accepts the chosen line`, withPick.ok, withPick.ok ? "" : withPick.error);
       if (withPick.ok) {
         const stored = withPick.lines[0].modifiers.find((m) => m.id === d.pick);

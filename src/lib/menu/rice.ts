@@ -1,4 +1,5 @@
 import type { MenuItem, MenuModifierGroup } from "@/lib/menu/types";
+import { TRAY_SIZE_IDS } from "@/lib/menu/types";
 
 /**
  * The included rice side, as a required $0 choice.
@@ -92,14 +93,13 @@ export const RICE_SPLIT_CATEGORY_IDS: ReadonlySet<string> = new Set([
  * the combo sets, which are a table's whole dinner and do include rice
  * (Family Dinners keep their three-way 各一半 choice untouched).
  *
- * A set rather than `sizeId === "party-tray"` so the next non-rice tier is
- * one line here instead of a condition to find in four files.
+ * The tray family (half-tray, party-tray) from lib/menu/types: a half tray
+ * is the dish alone exactly as the full one is. A new tray capacity joins
+ * TRAY_SIZE_IDS once and is rice-free here for free.
  */
-export const SIZE_IDS_WITHOUT_RICE: ReadonlySet<string> = new Set([
-  "party-tray",
-]);
+export const SIZE_IDS_WITHOUT_RICE: ReadonlySet<string> = TRAY_SIZE_IDS;
 
-/** False for a party tray, true for every other tier. */
+/** False for a tray of any size, true for every other tier. */
 export function sizeIncludesRice(sizeId: string): boolean {
   return !SIZE_IDS_WITHOUT_RICE.has(sizeId);
 }

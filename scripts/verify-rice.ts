@@ -360,17 +360,17 @@ check(
   }
   const riceBearing = [...sizeIds].filter(([, v]) => v).map(([k]) => k).sort();
   check(
-    "the rice-bearing size ids are the expected seven",
+    "the rice-bearing size ids are the expected eight",
     riceBearing.join(",") ===
-      "individual,party-tray,people-2,people-3,people-4,people-5,people-6,regular"
+      "half-tray,individual,party-tray,people-2,people-3,people-4,people-5,people-6,regular"
         .split(",")
         .sort()
         .join(","),
     `saw: ${riceBearing.join(",")}`,
   );
   check(
-    "party-tray is the only size excluded from rice",
-    [...SIZE_IDS_WITHOUT_RICE].join(",") === "party-tray",
+    "the tray family (half-tray, party-tray) is all that is excluded from rice",
+    [...SIZE_IDS_WITHOUT_RICE].sort().join(",") === "half-tray,party-tray",
     `SIZE_IDS_WITHOUT_RICE = ${[...SIZE_IDS_WITHOUT_RICE].join(",")}`,
   );
 
