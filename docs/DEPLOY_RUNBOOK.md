@@ -79,7 +79,6 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `ORDER_NUMBER_PREFIX` | `A` | → `A-017` |
 | `PICKUP_LEAD_MINUTES` | `20` | prep time before the earliest slot |
 | `PICKUP_SLOT_INTERVAL_MINUTES` | `15` | slot granularity |
-| `ONLINE_ORDERING_CUTOFF_MINUTES` | `30` | ⚠️ confirm with the owner |
 | `ONLINE_ORDERING_HOURS` | derived from dine-in hours | JSON, all seven days if set |
 | `MAX_ORDERS_PER_PHONE_PER_DAY` | `5` | ⚠️ a guess; it is the abuse ceiling |
 | `MAX_PICKUP_HOURS` | `48` | how far ahead an order may be placed |

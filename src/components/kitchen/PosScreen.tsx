@@ -404,7 +404,6 @@ export default function PosScreen({
   // and the lunch window.
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
