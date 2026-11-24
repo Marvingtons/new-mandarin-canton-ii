@@ -362,7 +362,9 @@ export function summarizeDay(rows: readonly ReportOrderRow[], opts: SummarizeOpt
       (a, b) =>
         b.quantity - a.quantity ||
         b.salesCents - a.salesCents ||
-        a.itemId.localeCompare(b.itemId),
+        // Code-point order, not localeCompare: the SQL aggregate sorts the
+        // same tie with `collate "C"`, and the two must agree on every host.
+        (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0),
     )
     .slice(0, TOP_ITEMS);
 
@@ -420,6 +422,52 @@ export function formatBusinessDate(date: string): string {
   const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(at);
   const month = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(at);
   return `${weekday} ${d} ${month} ${y}`;
+}
+
+/* ------------------------------------------------------------ the day -- */
+
+/**
+ * Before this local hour, the print sheet opens on YESTERDAY. The restaurant
+ * closes at 9pm; someone printing the day's report at 12:30am means the day
+ * that just ended, not the one that has not started. This only picks the
+ * sheet's starting date: which day an ORDER belongs to is orders.business_date,
+ * written once at insert (lib/orders/businessDate.ts), and never re-derived.
+ */
+export const REPORT_DAY_ROLLOVER_HOUR = 4;
+
+/** YYYY-MM-DD plus or minus whole days, calendar arithmetic only. */
+export function shiftDate(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map((n) => Number.parseInt(n, 10));
+  const at = new Date(Date.UTC(y, m - 1, d + days, 12));
+  return at.toISOString().slice(0, 10);
+}
+
+/** The restaurant-local calendar date and hour of an instant. */
+function localDateAndHour(timezone: string, at: Date): { date: string; hour: number } {
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+  return { date, hour: localHour(at.toISOString(), timezone) };
+}
+
+/** The latest day a report may be asked for: today, local. Nothing in the future. */
+export function todayFor(timezone: string, at: Date = new Date()): string {
+  return localDateAndHour(timezone, at).date;
+}
+
+/** The day the print sheet opens on: today, or yesterday before 4am. */
+export function defaultReportDate(timezone: string, at: Date = new Date()): string {
+  const { date, hour } = localDateAndHour(timezone, at);
+  return hour < REPORT_DAY_ROLLOVER_HOUR ? shiftDate(date, -1) : date;
+}
+
+/** A well-formed YYYY-MM-DD that is a real calendar date. */
+export function isReportDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return shiftDate(value, 0) === value;
 }
 
 /* ------------------------------------------------------------- invariants -- */

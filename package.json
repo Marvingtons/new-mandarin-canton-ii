@@ -42,6 +42,7 @@
     "verify:tray-sizes": "tsx --conditions=react-server scripts/verify-tray-sizes.ts",
     "verify:preparation": "tsx --conditions=react-server scripts/verify-preparation.ts",
     "verify:print-split": "tsx --conditions=react-server scripts/verify-print-split.ts",
+    "verify:daily-report": "tsx --conditions=react-server scripts/verify-daily-report.ts",
     "verify:staff-orders": "tsx --conditions=react-server scripts/verify-staff-orders.ts",
     "verify:kitchen-i18n": "tsx scripts/verify-kitchen-i18n.ts",
     "verify:print-stale-reads": "tsx --conditions=react-server scripts/verify-print-stale-reads.ts",
