@@ -22,6 +22,11 @@
  *      tax + tip = the stored total, the hours sum to All.
  *   4. THE DAY THE SHEET OPENS ON. Today, or yesterday before 4am; nothing in
  *      the future.
+ *   5. THE ROUTES. /api/kitchen/reports/daily (JSON), /preview (PNG) and
+ *      /print, called as the tablet calls them: staff session required, the
+ *      JSON is the aggregate's numbers, the preview is a PNG of them, a print
+ *      is idempotent on (tenant, date, #N), a future day is refused, and a
+ *      printer out of paper refuses the print with its reason.
  *
  * ⚠️ WINDOWS: PostgreSQL refuses to start under an administrative token; run
  * from a NON-ELEVATED shell (see verify:print-recurrence for the runas note).
@@ -35,7 +40,7 @@ import { Client } from "pg";
 import type { OrderLine } from "../src/lib/orders/types";
 import type { DailyReport, ReportOrderRow } from "../src/lib/reports/dailyModel";
 
-const PORT = 55441;
+const PORT = 55449;
 const DB_NAME = "nmc_daily_report_test";
 const TENANT = "report-test";
 const OTHER_TENANT = "someone-else";
@@ -62,6 +67,10 @@ interface Mods {
   daily: typeof import("../src/lib/reports/daily");
   model: typeof import("../src/lib/reports/dailyModel");
   biz: typeof import("../src/lib/orders/businessDate");
+  session: typeof import("../src/lib/auth/kitchenSession");
+  sheet: { GET: (r: Request) => Promise<Response> };
+  preview: { GET: (r: Request) => Promise<Response> };
+  print: { POST: (r: Request) => Promise<Response> };
 }
 
 let seq = 0;
@@ -301,6 +310,87 @@ function s4_sheetDay(m: Mods): void {
   check("isReportDate takes 2026-11-21", m.model.isReportDate(SAT));
 }
 
+/* ------------------------------------------------------------ 5. routes -- */
+
+const PASSWORD = "verify-daily-report-password";
+const MAC_STORE = "00:11:62:00:00:42";
+
+async function s5_routes(m: Mods): Promise<void> {
+  console.log("\n5. the sheet's routes");
+  const cookie = `nmc_kitchen=${m.session.login(PASSWORD)}`;
+  const req = (path: string, init: RequestInit = {}, auth = true) => {
+    const headers = new Headers(init.headers);
+    if (auth) headers.set("cookie", cookie);
+    if (init.body) headers.set("content-type", "application/json");
+    return new Request(`http://localhost${path}`, { ...init, headers });
+  };
+
+  check("GET without a staff session is 401", (await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}`, {}, false))).status === 401);
+  check("print without a staff session is 401",
+    (await m.print.POST(req("/api/kitchen/reports/daily/print", { method: "POST", body: "{}" }, false))).status === 401);
+
+  const res = await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}`));
+  const body = (await res.json()) as {
+    ok: boolean; date: string; report: DailyReport; nextSequence: number; printable: boolean;
+    printers: Array<{ station: string; health: string }>;
+  };
+  check("GET answers the day", res.status === 200 && body.ok && body.date === SAT);
+  eq("GET's numbers are the aggregate's", body.report.columns.all, {
+    count: 5, subtotalCents: 27300, chargesCents: 500, taxCents: 2434, tipCents: 0, totalCents: 30234,
+  });
+  check("GET says #1 is next and printing is set up", body.nextSequence === 1 && body.printable);
+  check("GET refuses a future day", (await m.sheet.GET(req("/api/kitchen/reports/daily?date=2099-01-01"))).status === 400);
+  check("GET refuses a malformed day", (await m.sheet.GET(req("/api/kitchen/reports/daily?date=2026-02-30"))).status === 400);
+
+  const png = await m.preview.GET(req(`/api/kitchen/reports/daily/preview?date=${SAT}&station=store&blocks=trays,top&sequence=1`));
+  const bytes = new Uint8Array(await png.arrayBuffer());
+  check(
+    "the preview is a PNG, and carries the report's code",
+    png.status === 200 && png.headers.get("content-type") === "image/png" &&
+      bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+      png.headers.get("x-report-code") === body.report.code,
+    `status=${png.status} code=${png.headers.get("x-report-code")}`,
+  );
+
+  const press = (sequence: number, requestKey: string, extra: Record<string, unknown> = {}) =>
+    m.print.POST(req("/api/kitchen/reports/daily/print", {
+      method: "POST",
+      body: JSON.stringify({
+        date: SAT, station: "store", blocks: { trays: true, top: true, hours: false }, sequence, requestKey, ...extra,
+      }),
+    }));
+  const first = await press(1, "sheet-press-0001");
+  const firstBody = (await first.json()) as { ok: boolean; replay: boolean; print: { sequence: number; code: string } };
+  check("print queues #1 with the day's code", first.status === 200 && firstBody.ok && !firstBody.replay &&
+    firstBody.print.sequence === 1 && firstBody.print.code === body.report.code, JSON.stringify(firstBody));
+  const again = (await (await press(1, "sheet-press-0001")).json()) as { ok: boolean; replay: boolean };
+  check("the same press again is a replay, not a second print", again.ok && again.replay);
+  const clash = await press(1, "other-tablet-0001");
+  const clashBody = (await clash.json()) as { nextSequence: number };
+  check("another tablet's #1 is a 409 naming #2", clash.status === 409 && clashBody.nextSequence === 2);
+  check("a future day cannot be printed", (await press(1, "future-press-01", { date: "2099-01-01" })).status === 400);
+  const { rows } = await m.pool.ordersPool().query(
+    `select count(*)::int as n, min(status) as status from report_prints where tenant_id = $1 and business_date = $2::date`,
+    [TENANT, SAT],
+  );
+  check("one row in report_prints, QUEUED for the printer", rows[0].n === 1 && rows[0].status === "QUEUED", JSON.stringify(rows[0]));
+  const after = (await (await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}`))).json()) as {
+    nextSequence: number; prints: Array<{ sequence: number }>;
+  };
+  check("the sheet now offers #2 and lists #1", after.nextSequence === 2 && after.prints[0]?.sequence === 1);
+
+  // The store printer reports paper out.
+  await m.pool.ordersPool().query(
+    `insert into printer_station_status (tenant_id, station, last_seen_at, online, paper_out, printer_mac)
+     values ($1, 'store', now(), true, true, $2)`,
+    [TENANT, MAC_STORE.replace(/:/g, "").toLowerCase()],
+  );
+  const out = await press(2, "paper-out-press1");
+  const outBody = (await out.json()) as { error: string; reason: string };
+  check("a printer out of paper refuses the print, saying why", out.status === 409 && outBody.reason === "paper-out",
+    JSON.stringify(outBody));
+}
+
 /* ----------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -326,6 +416,8 @@ async function main(): Promise<void> {
   process.env.DATABASE_URL = `postgresql://postgres:postgres@localhost:${PORT}/${DB_NAME}`;
   process.env.TENANT_ID = TENANT;
   process.env.RESTAURANT_TIMEZONE = TIMEZONE;
+  process.env.ADMIN_DASH_PASSWORD = PASSWORD;
+  process.env.CLOUDPRNT_PRINTER_MAC_STORE = MAC_STORE;
 
   const pool = await import("../src/lib/db/postgres");
   await pool.ordersPool().query(await readFile(join(process.cwd(), "src", "lib", "db", "schema.sql"), "utf8"));
@@ -335,12 +427,17 @@ async function main(): Promise<void> {
     daily: await import("../src/lib/reports/daily"),
     model: await import("../src/lib/reports/dailyModel"),
     biz: await import("../src/lib/orders/businessDate"),
+    session: await import("../src/lib/auth/kitchenSession"),
+    sheet: (await import("../src/app/api/kitchen/reports/daily/route")) as unknown as Mods["sheet"],
+    preview: (await import("../src/app/api/kitchen/reports/daily/preview/route")) as unknown as Mods["preview"],
+    print: (await import("../src/app/api/kitchen/reports/daily/print/route")) as unknown as Mods["print"],
   };
 
   try {
     await s1_handWorkedDay(m);
     await s2_fixtureDays(m);
     s4_sheetDay(m);
+    await s5_routes(m);
   } finally {
     await pool.closeOrdersPool();
     console.log("\nstopping postgres…");
