@@ -1,6 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
+import { tapDish } from "./posSheet";
 
 /**
  * The 2026-11-20 POS and ticket changes:
@@ -121,9 +122,47 @@ test("a custom charge is reachable by searching for it", async ({ browser }) => 
   await page.context().close();
 });
 
+/**
+ * The custom charge on an iPad: the whole keypad and Add on screen, with no
+ * system keyboard. The sheet used to focus the name field when no name was
+ * remembered, the iPad raised its keyboard over the 00 / 0 / back row, and
+ * staff typing $3.00 got $0.03. Now the amount has focus (it takes no text,
+ * so no keyboard) and the note is tap-to-edit.
+ */
+for (const viewport of [LANDSCAPE, PORTRAIT, { width: 1180, height: 820 }, { width: 820, height: 1180 }]) {
+  test(`custom charge at ${viewport.width}x${viewport.height}: 0, 00, back and Add fully on screen, no keyboard`, async ({ browser }) => {
+    const page = await openPos(browser, viewport);
+    await page.locator("button[data-custom-tile]:visible").first().click();
+    const sheet = page.locator('[data-sheet="custom"]');
+    await expect(sheet).toBeVisible();
+
+    // Nothing that raises a keyboard has focus: the amount does.
+    await expect(sheet.locator("[data-amount-pad] output")).toBeFocused();
+    await expect(sheet.locator("textarea")).toHaveCount(0);
+
+    for (const key of ["0", "00", "back"]) {
+      await expect(sheet.locator(`button[data-key="${key}"]`)).toBeInViewport({ ratio: 1 });
+    }
+    await expect(sheet.locator('[data-action="sheet-add"]')).toBeInViewport({ ratio: 1 });
+
+    for (const k of ["3", "0", "0"]) await sheet.locator(`[data-key="${k}"]`).click();
+    await expect(sheet.locator("[data-amount-pad] output")).toHaveText("$3.00");
+
+    // Typing a name is a choice, and Done on its keyboard goes back to the pad.
+    await sheet.locator('[data-field="custom-name"]').fill("加蝦 Extra shrimp");
+    await sheet.locator('[data-field="custom-name"]').press("Enter");
+    await expect(sheet.locator("[data-amount-pad] output")).toBeFocused();
+    await sheet.locator('[data-action="custom-note-open"]').click();
+    await expect(sheet.locator('[data-field="custom-note"]')).toBeFocused();
+    await expect(sheet.locator('[data-action="sheet-add"]')).toBeInViewport({ ratio: 1 });
+    await expect(sheet.locator('[data-action="sheet-add"]')).toContainText("$3.00");
+    await page.context().close();
+  });
+}
+
 test("a surcharge on a dish keeps it one line, on the ticket and on paper", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(MONGOLIAN).first().click();
+  await tapDish(page, page.locator(MONGOLIAN).first());
   await expect(linesOf(page)).toHaveCount(1);
   await linesOf(page).first().locator("button[aria-haspopup]").click();
 
@@ -156,7 +195,7 @@ test("a surcharge on a dish keeps it one line, on the ticket and on paper", asyn
 
 test("the $ badge is on the register copy only, and neither copy has a role band", async ({ browser }) => {
   const page = await openPos(browser);
-  await page.locator(MONGOLIAN).first().click();
+  await tapDish(page, page.locator(MONGOLIAN).first());
   await walkIn(page);
   const order = await printAndFetch(page);
   const kitchen = await copyText(page, order.id, "kitchen");
@@ -234,7 +273,7 @@ test("portrait: the ticket is a bar that opens into a sheet and closes again", a
   const columns = await page.locator("[data-cat] > div").first().evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length);
   expect(columns).toBe(2);
 
-  await page.locator(MONGOLIAN).first().click();
+  await tapDish(page, page.locator(MONGOLIAN).first());
   await expect(bar.locator("[data-bar-total]")).not.toHaveText("$0.00");
   const total = await bar.locator("[data-bar-total]").textContent();
 
@@ -266,7 +305,7 @@ test("portrait: the ticket is a bar that opens into a sheet and closes again", a
 for (const viewport of [PORTRAIT, { width: 820, height: 1180 }, LANDSCAPE, { width: 1180, height: 820 }, WIDE]) {
   test(`no sideways page scroll and no target under 44px at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
     const page = await openPos(browser, viewport);
-    await page.locator(MONGOLIAN).first().click();
+    await tapDish(page, page.locator(MONGOLIAN).first());
     const sideways = await page.evaluate(() => {
       const surface = document.querySelector<HTMLElement>("[data-kitchen-surface]")!;
       const doc = document.scrollingElement as HTMLElement;
@@ -280,7 +319,7 @@ for (const viewport of [PORTRAIT, { width: 820, height: 1180 }, LANDSCAPE, { wid
     });
     expect(sideways).toEqual({ page: 0, surface: 0, scrolled: 0 });
 
-    const small = await page.evaluate(() => {
+    const smallTargets = () => page.evaluate(() => {
       const out: string[] = [];
       for (const el of document.querySelectorAll<HTMLElement>(
         "[data-kitchen-surface] :is(button, input, select, textarea, a[href], output[tabindex])",
@@ -295,7 +334,16 @@ for (const viewport of [PORTRAIT, { width: 820, height: 1180 }, LANDSCAPE, { wid
       }
       return out;
     });
-    expect(small).toEqual([]);
+    expect(await smallTargets()).toEqual([]);
+
+    // The portion sheet over the grid: its buttons too, and nothing sideways.
+    await page.locator(MONGOLIAN).first().click();
+    await expect(page.locator('[data-sheet="portion"] [data-portion]')).toHaveCount(3);
+    for (const portion of await page.locator('[data-sheet="portion"] [data-portion]').all()) {
+      await expect(portion).toBeInViewport({ ratio: 1 });
+    }
+    expect(await smallTargets()).toEqual([]);
+    expect(await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth)).toBe(0);
     await page.context().close();
   });
 }

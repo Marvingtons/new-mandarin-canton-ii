@@ -28,10 +28,8 @@ import type { MenuItem, MenuModifierGroup } from "@/lib/menu/types";
  * anyway (a Sides rice is not an entrée), and a distinct id keeps the ticket's
  * "is this the preparation?" test (isPreparationModifierId) unambiguous.
  */
-export const PREP_GROUP_ID = "prep";
-
-export const PREP_STEAMED_ID = "prep-steamed";
-export const PREP_FRIED_ID = "prep-fried";
+export { PREP_GROUP_ID, PREP_STEAMED_ID, PREP_FRIED_ID } from "@/lib/menu/prepIds";
+import { PREP_GROUP_ID, PREP_STEAMED_ID, PREP_FRIED_ID } from "@/lib/menu/prepIds";
 
 /**
  * An "X or Y" dish's either/or ("Black Pepper Beef or Chicken"): the same

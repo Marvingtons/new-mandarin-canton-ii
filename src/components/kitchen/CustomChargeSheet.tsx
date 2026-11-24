@@ -49,13 +49,27 @@ export default function CustomChargeSheet({
   const [amountCents, setAmountCents] = useState(initial.amountCents);
   const [quantity, setQuantity] = useState(initial.quantity);
   const [note, setNote] = useState(initial.specialInstructions ?? "");
+  // The note is tap-to-edit: open only when there is one already.
+  const [noteOpen, setNoteOpen] = useState(note.length > 0);
   const nameRef = useRef<HTMLInputElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  useSheetFocus(panelRef, onClose, (panel) =>
-    initial.name
-      ? panel.querySelector<HTMLElement>("[data-amount-pad] output")
-      : nameRef.current,
-  );
+  /**
+   * THE AMOUNT HAS FOCUS ON OPEN, ALWAYS. Focusing the name field when there
+   * was no remembered name raised the iPad's keyboard over the bottom of the
+   * sheet: the 00 / 0 / back row and Add went under it, and taps meant for 0
+   * landed on the rows above (a $3.00 typed as $0.03). The output takes no
+   * text, so no keyboard; the name and the note raise it only when tapped.
+   */
+  const amountOf = (panel: HTMLElement | null) =>
+    panel?.querySelector<HTMLElement>("[data-amount-pad] output") ?? null;
+  useSheetFocus(panelRef, onClose, amountOf);
+  /** Done on the keyboard: back to the pad, which puts the keyboard away. */
+  const backToPad = (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    amountOf(panelRef.current)?.focus();
+  };
 
   const ok = name.trim().length > 0;
   function add() {
@@ -105,8 +119,10 @@ export default function CustomChargeSheet({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-x-6 gap-y-4 overflow-y-auto px-6 pt-1 pb-5 sm:grid-cols-2">
-          <div className="flex min-w-0 flex-col gap-4">
+        {/* Two columns on a tablet: only the left one (name, chips, note)
+            scrolls, so the pad and the footer's Add can never scroll away. */}
+        <div className="grid min-h-0 flex-1 gap-x-6 gap-y-4 overflow-y-auto px-6 pt-1 pb-5 sm:grid-cols-2 sm:overflow-visible">
+          <div className="flex min-w-0 flex-col gap-4 sm:-mx-1 sm:min-h-0 sm:overflow-y-auto sm:px-1 sm:pb-1">
             <label className="block">
               <span className="mb-2 block text-base font-semibold">
                 {t("pos.custom.name")}
@@ -117,6 +133,8 @@ export default function CustomChargeSheet({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={MAX_CHARGE_NAME}
                 autoComplete="off"
+                enterKeyHint="done"
+                onKeyDown={backToPad}
                 data-field="custom-name"
                 placeholder={t("pos.custom.namePlaceholder")}
                 className="min-h-14 w-full rounded-staff-control bg-staff-panel px-4 text-staff-title text-staff-ink shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus-visible:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
@@ -158,19 +176,37 @@ export default function CustomChargeSheet({
               </button>
             </div>
 
-            <label className="block">
-              <span className="mb-2 block text-base font-semibold">
-                {t("sheet.instructions")}
-              </span>
-              <textarea
-                value={note}
-                maxLength={200}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                placeholder={t("sheet.instructionsPlaceholder")}
-                className="w-full resize-none rounded-xl bg-staff-panel px-4 py-3 text-base shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
-              />
-            </label>
+            {noteOpen ? (
+              <label className="block">
+                <span className="mb-2 block text-base font-semibold">
+                  {t("sheet.instructions")}
+                </span>
+                <textarea
+                  ref={noteRef}
+                  value={note}
+                  maxLength={200}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  enterKeyHint="done"
+                  onKeyDown={backToPad}
+                  data-field="custom-note"
+                  placeholder={t("sheet.instructionsPlaceholder")}
+                  className="w-full resize-none rounded-xl bg-staff-panel px-4 py-3 text-base shadow-[inset_0_0_0_2px_var(--color-staff-sunken)] outline-none placeholder:text-staff-soft focus:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
+                />
+              </label>
+            ) : (
+              <button
+                type="button"
+                data-action="custom-note-open"
+                onClick={() => {
+                  setNoteOpen(true);
+                  requestAnimationFrame(() => noteRef.current?.focus());
+                }}
+                className="staff-press flex min-h-11 items-center self-start rounded-xl px-3 text-base font-semibold text-staff-soft hover:bg-staff-sunken hover:text-staff-ink"
+              >
+                {t("pos.custom.noteAdd")}
+              </button>
+            )}
           </div>
 
           <div className="min-w-0">
