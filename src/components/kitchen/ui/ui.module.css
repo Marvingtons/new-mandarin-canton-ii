@@ -249,6 +249,11 @@
   box-shadow: var(--shadow-staff-raised);
   overflow: auto;
 }
+/* The 日結 sheet: controls and a receipt preview side by side on a landscape
+   iPad, stacked below 900px. Same surface and radius as every dialog. */
+.dialogWide {
+  width: min(calc(1040 * var(--staff-u)), calc(100vw - var(--spacing) * 8));
+}
 .dialog::backdrop {
   background: var(--color-staff-scrim);
 }
