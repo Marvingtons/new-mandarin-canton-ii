@@ -298,6 +298,91 @@ async function guardHasTeeth(h: Handlers, repo: Repo, businessDate: string): Pro
   };
 }
 
+/**
+ * 日結 REPORT: NO RECURRENCE PATH AT ALL.
+ *
+ * The same "true death" a ticket gets (polled every 3s, fetched, never
+ * confirmed), run past the report's window. A ticket is re-offered after its
+ * window; a report must not be: it is FAILED and a person prints it again.
+ * Run twice: at the shipped window, and at the shrunk 2s window that makes
+ * guardHasTeeth reproduce three-plus copy-sets for a ticket.
+ *
+ * PASS = exactly one hand-over, and the report ends FAILED.
+ */
+async function reportNeverRecurs(
+  h: Handlers,
+  deps: ReportDeps,
+  windowSeconds: number,
+  shrunk: boolean,
+): Promise<Result> {
+  if (shrunk) {
+    process.env.PRINT_CONFIRM_FLOOR_SECONDS = "2";
+    process.env.PRINT_SECONDS_PER_COPY = "0";
+  }
+  const businessDate = "2026-08-31";
+  const { rows: seqRows } = await deps.ordersPool().query(
+    `select coalesce(max(sequence), 0) + 1 as n from report_prints where tenant_id = $1 and business_date = $2::date`,
+    [TENANT, businessDate],
+  );
+  await deps.prints.requestReportPrint({
+    tenantId: TENANT,
+    businessDate,
+    station: "store",
+    blocks: deps.model.DEFAULT_BLOCKS,
+    report: deps.model.summarizeDay([], {
+      tenantId: TENANT,
+      businessDate,
+      timezone: "America/Los_Angeles",
+      familyItemIds: new Set(),
+    }),
+    sequence: Number(seqRows[0].n),
+    requestKey: `recurrence-${shrunk ? "shrunk" : "shipped"}`,
+  });
+
+  const runForMs = (shrunk ? 20 : windowSeconds + 15) * 1000;
+  console.log(
+    `\n── 日結 report, no DELETE ever, ${shrunk ? "window shrunk to 2s" : `${windowSeconds}s window`}`,
+  );
+  const t0 = Date.now();
+  let handovers = 0;
+  try {
+    while (Date.now() - t0 < runForMs) {
+      const answer = await poll(h);
+      if (answer.jobReady) {
+        handovers++;
+        const bytes = await fetchJob(h);
+        console.log(`   ${elapsed(t0)}  POST -> jobReady:true   GET -> ${bytes} bytes   HAND-OVER #${handovers}`);
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
+  } finally {
+    delete process.env.PRINT_CONFIRM_FLOOR_SECONDS;
+    delete process.env.PRINT_SECONDS_PER_COPY;
+  }
+  const { rows } = await deps.ordersPool().query(
+    `select r.status, count(d.id)::int as deliveries
+       from report_prints r left join print_deliveries d on d.report_print_id = r.id
+      where r.tenant_id = $1 and r.request_key = $2
+      group by r.status`,
+    [TENANT, `recurrence-${shrunk ? "shrunk" : "shipped"}`],
+  );
+  const status = rows[0]?.status;
+  const deliveries = rows[0]?.deliveries;
+  return {
+    name: `日結 report never recurs (${shrunk ? "2s window" : `${windowSeconds}s window`})`,
+    passed: handovers === 1 && deliveries === 1 && status === "FAILED",
+    detail:
+      `${handovers} hand-over(s), ${deliveries} delivery row(s), status ${status} — expected ` +
+      "1, 1, FAILED: a report is offered once and reprinted by a person",
+  };
+}
+
+interface ReportDeps {
+  ordersPool: typeof import("../src/lib/db/postgres").ordersPool;
+  prints: typeof import("../src/lib/reports/prints");
+  model: typeof import("../src/lib/reports/dailyModel");
+}
+
 /* --------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -382,7 +467,19 @@ async function main(): Promise<void> {
   // order behind that would otherwise be the one guardHasTeeth polled.
   const reset = async () => {
     await ordersPool().query("delete from orders where tenant_id = $1", [TENANT]);
+    await ordersPool().query("delete from report_prints where tenant_id = $1", [TENANT]);
   };
+  const reportDeps: ReportDeps = {
+    ordersPool,
+    prints: await import("../src/lib/reports/prints"),
+    model: await import("../src/lib/reports/dailyModel"),
+  };
+  // One piece of paper: the window the route gives a report.
+  const reportWindowSeconds = confirmationWindowSeconds(
+    1,
+    config.printConfirmFloorSeconds(),
+    config.printSecondsPerCopy(),
+  );
 
   try {
     await reset();
@@ -391,6 +488,10 @@ async function main(): Promise<void> {
     results.push(await trueDeath(route, repo, businessDate, windowSeconds));
     await reset();
     results.push(await guardHasTeeth(route, repo, businessDate));
+    await reset();
+    results.push(await reportNeverRecurs(route, reportDeps, reportWindowSeconds, false));
+    await reset();
+    results.push(await reportNeverRecurs(route, reportDeps, reportWindowSeconds, true));
   } finally {
     console.log("\nstopping postgres…");
     await pg.stop();
@@ -408,7 +509,7 @@ async function main(): Promise<void> {
     console.error(`\n${failed} scenario(s) FAILED`);
     process.exit(1);
   }
-  console.log("\none order, one copy-set ✓");
+  console.log("\none order, one copy-set; one report press, one hand-over ✓");
 }
 
 main().catch((err: unknown) => {

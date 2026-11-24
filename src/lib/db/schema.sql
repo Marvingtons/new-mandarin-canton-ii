@@ -233,6 +233,74 @@ comment on table order_counters is
   'One row per tenant per business day per station (online = A-, store = B-). Incremented by a single atomic UPSERT so 50 concurrent submissions get 50 distinct numbers.';
 
 -- ---------------------------------------------------------------------------
+-- 日結 DAILY REPORT prints (migration 016). A report is not an order but goes
+-- to the same printers through the same hand-over, so print_deliveries below
+-- names one or the other. Offered ONCE, never retried: see
+-- src/lib/reports/prints.ts.
+-- ---------------------------------------------------------------------------
+create table if not exists report_prints (
+  -- App-generated, like print_deliveries.id.
+  id                   uuid        primary key,
+  tenant_id            text        not null,
+  -- Which report. Only the daily one exists; the column is so a weekly view
+  -- (out of scope today) is a new value, not a new table.
+  kind                 text        not null default 'daily',
+  -- The restaurant-local business day reported on (orders.business_date).
+  business_date        date        not null,
+  -- #1, #2 … per (tenant, business_date): which print of that day this is.
+  -- The header prints it; a reprint after orders changed is visible by it.
+  sequence             int         not null,
+  -- The printer it was sent to.
+  station              text        not null,
+  -- The optional blocks (trays, top, hours) as the sheet had them.
+  blocks               jsonb       not null,
+  -- The DailyReport exactly as it was summed when Print was pressed. The job
+  -- is rendered from THIS, never re-summed at hand-over, so the paper carries
+  -- the numbers and code the person asked for.
+  report               jsonb       not null,
+  -- Its fingerprint (DailyReport.code), kept as a column for a human query.
+  code                 text        not null,
+  -- The client's key for the Print press: a retried request with the same key
+  -- is the same print, never a second one.
+  request_key          text        not null,
+  -- QUEUED → OFFERED → PRINTED, or FAILED. No path leads back to QUEUED.
+  status               text        not null default 'QUEUED',
+  -- The hand-over, as on orders: the delivery in flight and when its
+  -- confirmation window closes. Kept after FAILED so a late confirmation can
+  -- still be matched to it.
+  delivery_id          uuid,
+  delivery_expires_at  timestamptz,
+  -- The R2 object holding the job body, deleted on confirmation.
+  job_key              text,
+  printed_at           timestamptz,
+  last_error           text,
+  requested_at         timestamptz not null default now(),
+  updated_at           timestamptz not null default now(),
+
+  constraint report_prints_kind_check    check (kind in ('daily')),
+  constraint report_prints_station_check check (station in ('online', 'store')),
+  constraint report_prints_status_check  check (status in ('QUEUED', 'OFFERED', 'PRINTED', 'FAILED')),
+  constraint report_prints_sequence_check check (sequence >= 1)
+);
+
+comment on table report_prints is
+  'One row per 日結 report print request. Offered to its printer once, never retried; a failure is reprinted by a person as the next #sequence.';
+
+-- #N is unique per day; the print route is idempotent on it.
+create unique index if not exists report_prints_sequence_uniq
+  on report_prints (tenant_id, kind, business_date, sequence);
+
+-- A retried Print press with the same key is the same print.
+create unique index if not exists report_prints_request_uniq
+  on report_prints (tenant_id, request_key);
+
+-- Each printer's waiting or in-flight report. Tiny: rows leave it as soon as
+-- they print or fail.
+create index if not exists report_prints_queue_idx
+  on report_prints (tenant_id, station, requested_at)
+  where status in ('QUEUED', 'OFFERED');
+
+-- ---------------------------------------------------------------------------
 -- One row per HAND-OVER of a job body to the printer.
 --
 -- The record the database could not previously produce. An order printed its
@@ -255,7 +323,9 @@ create table if not exists print_deliveries (
   id           uuid        primary key,
   -- Cascade so deleting an order takes its deliveries with it rather than
   -- leaving orphans behind an FK error.
-  order_id     bigint      not null references orders (id) on delete cascade,
+  -- The order this hand-over printed, or NULL for a 日結 report hand-over
+  -- (report_print_id below, migration 016). Exactly one of the two is set.
+  order_id     bigint      references orders (id) on delete cascade,
   tenant_id    text        not null,
   -- When this hand-over went out, and when its confirmation window closes.
   offered_at   timestamptz not null default now(),
@@ -286,10 +356,19 @@ create table if not exists print_deliveries (
   created_at   timestamptz not null default now(),
 
   constraint print_deliveries_reason_check
-    check (reason in ('first-offer', 'retry', 'manual_reprint')),
+    check (reason in ('first-offer', 'retry', 'manual_reprint', 'report')),
   constraint print_deliveries_station_check
     check (station is null or station in ('online', 'store'))
 );
+
+-- 016: a hand-over of a report instead of an order. Added here rather than
+-- in the create above so this file and the migration agree on column order.
+alter table print_deliveries
+  add column if not exists report_print_id uuid references report_prints (id) on delete cascade;
+alter table print_deliveries drop constraint if exists print_deliveries_subject_check;
+alter table print_deliveries
+  add constraint print_deliveries_subject_check
+  check ((order_id is null) <> (report_print_id is null));
 
 comment on table print_deliveries is
   'One row per hand-over of a job body to the printer. The audit trail behind duplicate-ticket diagnosis: offered/fetched/confirmed timestamps, a fetch count, and the reason. orders.print_delivery_id points at the in-flight row.';
@@ -366,6 +445,7 @@ alter table orders            enable row level security;
 alter table order_counters    enable row level security;
 alter table printer_station_status enable row level security;
 alter table print_deliveries  enable row level security;
+alter table report_prints     enable row level security;
 
 -- Run after 011, 012 and 013, before deploying the Recently done board.
 -- Prepared only; not applied to any live database.

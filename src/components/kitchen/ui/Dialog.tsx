@@ -15,11 +15,14 @@ export function Dialog({
   onClose,
   children,
   labelledBy,
+  wide = false,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   labelledBy?: string;
+  /** A sheet with a preview beside its controls (the 日結 print sheet). */
+  wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -39,7 +42,7 @@ export function Dialog({
     <dialog
       ref={ref}
       aria-labelledby={labelledBy ?? titleId}
-      className={ui.dialog}
+      className={wide ? `${ui.dialog} ${ui.dialogWide}` : ui.dialog}
       onCancel={(e) => {
         e.preventDefault();
         onClose();

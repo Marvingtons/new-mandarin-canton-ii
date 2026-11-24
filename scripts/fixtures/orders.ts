@@ -17,7 +17,11 @@ import { resolveOrderLine } from "../../src/lib/orders/lines";
 import { RICE_FRIED_ID } from "../../src/lib/menu/rice";
 import { PREP_STEAMED_ID } from "../../src/lib/menu/preparation";
 import type { MenuItem } from "../../src/lib/menu/types";
-import type { Order, OrderLine } from "../../src/lib/orders/types";
+import type { Order, OrderChannel, OrderLine, OrderStatus } from "../../src/lib/orders/types";
+import type { ReportBlocks, ReportOrderRow } from "../../src/lib/reports/dailyModel";
+import type { Station } from "../../src/config/stations";
+import { zonedWallClockToUtc } from "../../src/lib/orders/businessDate";
+import { customOrderLine, surchargeModifier } from "../../src/lib/kitchen/customCharge";
 
 /** Minimal MenuItem builder — mirrors the seed menu's shape. */
 export function fixtureItem(
@@ -603,4 +607,273 @@ export async function notesOrder(): Promise<Order> {
     totals: totalsFor(lines),
     customer: { name: "", phone: "+16195550101" },
   };
+}
+
+/* ===================================================== 日結 DAILY REPORT === */
+
+/**
+ * Whole business days of orders for `npm run report:sample`.
+ *
+ * Built the same way as the ticket fixtures: every dish line through the real
+ * `resolveOrderLine` against the real catalogue, every total through the real
+ * `taxCents`, custom charges through the POS's own customOrderLine and
+ * surcharge builders. A seeded PRNG keeps each day identical run to run, so
+ * the PNGs only change when the layout does.
+ */
+
+const REPORT_TZ = "America/Los_Angeles";
+
+/** mulberry32: small, seeded, good enough to shuffle a fixture. */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Best sellers lead the pick, so a TOP 10 looks like a real day's. */
+const POPULAR: readonly [string, number][] = [
+  ["honey-walnut-shrimp", 9],
+  ["orange-flavored-chicken", 8],
+  ["mongolian-beef", 7],
+  ["kung-pao-chicken", 6],
+  ["house-special-fried-rice", 6],
+  ["beef-broccoli", 5],
+  ["egg-rolls", 5],
+  ["sweet-sour-pork", 4],
+  ["house-soft-noodle", 4],
+  ["salted-pepper-pork-chop", 3],
+  ["mandarin-special", 3],
+  ["hot-sour-soup", 3],
+  ["fried-steamed-rice", 3],
+  ["combo-lunch-15-75", 3],
+];
+
+export interface ReportFixtureDay {
+  /** File name stem for the PNG. */
+  slug: string;
+  title: string;
+  businessDate: string;
+  rows: ReportOrderRow[];
+  print: { printedAt: string; station: Station; sequence: number; blocks: ReportBlocks };
+}
+
+interface DaySpec {
+  slug: string;
+  title: string;
+  businessDate: string;
+  seed: number;
+  orders: number;
+  /** Probability a counted order is web / phone (the rest walk-in). */
+  web: number;
+  phone: number;
+  trays: boolean;
+  /** How many orders end CANCELLED, and how many are still QUEUED / PRINT_FAILED at print time. */
+  cancelled: number;
+  queued: number;
+  failed: number;
+  /** Local wall clock of the first and last order, "HH:MM". */
+  open: string;
+  close: string;
+  /** Local wall clock of the print, on `printDate` (defaults to the business date). */
+  printAt: string;
+  printDate?: string;
+  station: Station;
+  sequence: number;
+}
+
+function at(date: string, hhmm: string): Date {
+  const [y, m, d] = date.split("-").map(Number);
+  const [h, min] = hhmm.split(":").map(Number);
+  return zonedWallClockToUtc(REPORT_TZ, y, m, d, h, min);
+}
+
+async function buildDay(spec: DaySpec): Promise<ReportFixtureDay> {
+  const rand = seeded(spec.seed);
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)];
+  const all = await catalogueItems();
+  const byId = new Map(all.map((i) => [i.id, i]));
+  const family = all.filter((i) => i.id.startsWith("combo-family-") || i.id.startsWith("combo-big-family-"));
+  const weighted = POPULAR.flatMap(([id, w]) => Array.from({ length: w }, () => id));
+
+  const line = (itemId: string, sizeId: string, qty: number): OrderLine => {
+    const item = byId.get(itemId);
+    if (!item) throw new Error(`report fixture: catalogue has no item "${itemId}"`);
+    const required = item.modifierGroups
+      .filter((g) => g.minRequired > 0)
+      .map((g) => g.modifiers[0].id);
+    try {
+      return resolveOrderLine(item, sizeId, required, qty);
+    } catch {
+      // A tray takes no rice: the size refuses the rice group.
+      return resolveOrderLine(item, sizeId, [], qty);
+    }
+  };
+
+  // Spread the orders over the day with a lunch and a dinner rush.
+  const open = at(spec.businessDate, spec.open).getTime();
+  const close = at(spec.businessDate, spec.close).getTime();
+  const times: number[] = [];
+  for (let i = 0; i < spec.orders; i++) {
+    const r = rand();
+    const peak = r < 0.35 ? 0.15 : r < 0.85 ? 0.68 : rand();
+    const jitter = r < 0.85 ? (rand() - 0.5) * 0.22 : 0;
+    const f = Math.min(1, Math.max(0, peak + jitter));
+    times.push(open + f * (close - open));
+  }
+  times.sort((a, b) => a - b);
+  if (times.length > 0) {
+    times[0] = open;
+    times[times.length - 1] = close;
+  }
+
+  // Which orders end cancelled / still unprinted: spread through the day for
+  // cancellations, the very last ones for anything still unprinted.
+  const status = (i: number): OrderStatus => {
+    const n = spec.orders;
+    if (i >= n - spec.queued) return "QUEUED";
+    if (i >= n - spec.queued - spec.failed) return "PRINT_FAILED";
+    const step = Math.floor(n / (spec.cancelled + 1));
+    for (let k = 1; k <= spec.cancelled; k++) if (i === k * step) return "CANCELLED";
+    return rand() < 0.7 ? "COMPLETED" : rand() < 0.5 ? "ACCEPTED" : "PRINTED";
+  };
+
+  const rows: ReportOrderRow[] = times.map((t, i) => {
+    const r = rand();
+    const channel: OrderChannel = r < spec.web ? "web" : r < spec.web + spec.phone ? "phone" : "walk_in";
+    const lines: OrderLine[] = [];
+    const count = 1 + Math.floor(rand() * rand() * 4);
+    for (let k = 0; k < count; k++) {
+      const roll = rand();
+      if (spec.trays && roll < 0.05 && family.length > 0) {
+        const item = pick(family);
+        lines.push(line(item.id, item.sizes?.[Math.floor(rand() * 3)]?.id ?? "regular", 1));
+        continue;
+      }
+      const itemId = rand() < 0.75 ? pick(weighted) : pick(all.filter((x) => !x.id.startsWith("combo-"))).id;
+      const item = byId.get(itemId)!;
+      const sizes = (item.sizes ?? []).map((s) => s.id);
+      let sizeId = sizes[0] ?? "regular";
+      if (spec.trays && sizes.includes("party-tray") && rand() < 0.07) sizeId = "party-tray";
+      else if (spec.trays && sizes.includes("half-tray") && rand() < 0.06) sizeId = "half-tray";
+      const qty = rand() < 0.75 ? 1 : rand() < 0.8 ? 2 : 3;
+      lines.push(line(itemId, sizeId, qty));
+    }
+    // The POS's own money: a surcharge on a dish line, now and then a custom line.
+    if (channel !== "web" && rand() < 0.1) {
+      const target = lines[0];
+      const mod = surchargeModifier({ amountCents: 300, label: "加蝦 Extra shrimp" });
+      target.modifiers = [...target.modifiers, mod];
+      target.unitCents += mod.priceCents;
+      target.lineCents = target.unitCents * target.quantity;
+    }
+    if (channel !== "web" && rand() < 0.06) {
+      lines.push(customOrderLine({ name: "加飯 Extra rice", amountCents: 200, quantity: 1 }));
+    }
+    return {
+      channel,
+      status: status(i),
+      isAddon: false,
+      items: lines,
+      totals: totalsFor(lines),
+      createdAt: new Date(Math.round(t / 60_000) * 60_000).toISOString(),
+    };
+  });
+
+  return {
+    slug: spec.slug,
+    title: spec.title,
+    businessDate: spec.businessDate,
+    rows,
+    print: {
+      printedAt: at(spec.printDate ?? spec.businessDate, spec.printAt).toISOString(),
+      station: spec.station,
+      sequence: spec.sequence,
+      blocks: { trays: true, top: true, hours: true },
+    },
+  };
+}
+
+/** The four days the design is reviewed on. */
+export async function reportFixtureDays(): Promise<ReportFixtureDay[]> {
+  return Promise.all([
+    buildDay({
+      slug: "1-saturday",
+      title: "Normal Saturday, ~110 orders",
+      businessDate: "2026-11-21",
+      seed: 2126,
+      orders: 116,
+      web: 0.36,
+      phone: 0.5,
+      trays: true,
+      cancelled: 0,
+      queued: 1,
+      failed: 0,
+      open: "11:00",
+      close: "21:01",
+      printAt: "21:02",
+      station: "store",
+      sequence: 3,
+    }),
+    buildDay({
+      slug: "2-slow-monday",
+      title: "Slow Monday, 12 orders, no trays",
+      businessDate: "2026-11-16",
+      seed: 1116,
+      orders: 12,
+      web: 0.4,
+      phone: 0.45,
+      trays: false,
+      cancelled: 0,
+      queued: 0,
+      failed: 0,
+      open: "11:24",
+      close: "20:24",
+      printAt: "20:41",
+      station: "store",
+      sequence: 1,
+    }),
+    buildDay({
+      slug: "3-cancellations",
+      title: "Thursday with 3 cancellations, printed next morning",
+      businessDate: "2026-11-19",
+      seed: 1119,
+      orders: 52,
+      web: 0.35,
+      phone: 0.5,
+      trays: true,
+      cancelled: 3,
+      queued: 0,
+      failed: 1,
+      open: "11:03",
+      close: "20:52",
+      printAt: "10:15",
+      printDate: "2026-11-20",
+      station: "online",
+      sequence: 2,
+    }),
+    buildDay({
+      slug: "4-empty-day",
+      title: "Empty day, looked up the following week",
+      businessDate: "2026-11-11",
+      seed: 1126,
+      orders: 0,
+      web: 0,
+      phone: 0,
+      trays: false,
+      cancelled: 0,
+      queued: 0,
+      failed: 0,
+      open: "11:00",
+      close: "11:00",
+      printAt: "09:30",
+      printDate: "2026-11-23",
+      station: "store",
+      sequence: 1,
+    }),
+  ]);
 }

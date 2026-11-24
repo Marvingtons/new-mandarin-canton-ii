@@ -20,6 +20,7 @@ import {
 import { STATIONS, type Station } from "@/config/stations";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import Icon from "@/components/kitchen/Icon";
+import DailyReportSheet from "@/components/kitchen/DailyReportSheet";
 import OrderList from "@/components/kitchen/OrderList";
 import Button from "@/components/kitchen/ui/Button";
 import { buttonClass } from "@/components/kitchen/ui/buttonClass";
@@ -71,6 +72,7 @@ export default function OrderHistory({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
 
   // The search box is debounced into `q`, so typing a phone number is one
   // request, not ten.
@@ -140,11 +142,17 @@ export default function OrderHistory({
     <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-16 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-staff-heading font-bold tracking-tight">{t("history.title")}</h1>
-        <a href={`/api/kitchen/history/csv?${csvParams}`} download className={buttonClass({ variant: "secondary" })}>
-          <Icon name="download" size={20} />
-          {t("history.export")}
-        </a>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={`/api/kitchen/history/csv?${csvParams}`} download className={buttonClass({ variant: "secondary" })}>
+            <Icon name="download" size={20} />
+            {t("history.export")}
+          </a>
+          <Button variant="secondary" icon="receipt" onClick={() => setReportOpen(true)} data-testid="day-report-open">
+            {t("report.button")}
+          </Button>
+        </div>
       </div>
+      {reportOpen && <DailyReportSheet onClose={() => setReportOpen(false)} />}
 
       {/* ------------------------------------------------ range + filters -- */}
       <div className="mt-4 flex flex-col gap-3">

@@ -426,6 +426,8 @@ async function main(): Promise<void> {
   const m012 = await readFile(join(process.cwd(), "src/lib/db/migrations/012_printer_status_per_station.sql"), "utf8");
   const m015 = await readFile(join(process.cwd(), "src/lib/db/migrations/015_order_counters_per_station.sql"), "utf8");
   const d015 = await readFile(join(process.cwd(), "src/lib/db/migrations/down_015_to_014.sql"), "utf8");
+  const m016 = await readFile(join(process.cwd(), "src/lib/db/migrations/016_report_prints.sql"), "utf8");
+  const d016 = await readFile(join(process.cwd(), "src/lib/db/migrations/down_016_to_015.sql"), "utf8");
 
   const work = await mkdtemp(join(tmpdir(), "nmc-station-migrations-"));
   const dataDir = join(work, "pg");
@@ -594,6 +596,56 @@ async function main(): Promise<void> {
     check("down_015_to_014 restores the (tenant_id, business_date) key and keeps the online count",
       (await db.query(`select array_length(conkey, 1) as n from pg_constraint where conname = 'order_counters_pkey'`)).rows[0]?.n === 2);
     oldCodeWorks("rolled back after the deploy (down_015_to_014, then the Worker)", runOldCode(mainDir, "rollback"));
+
+    /* ---- 016: the 日結 report print kind, safe in either order ---- */
+    console.log("\n016 (日結 report prints): either order with the deploy, and back");
+    await db.query(m016);
+    await db.query(m016);
+    const nullable = await db.query(
+      `select is_nullable from information_schema.columns where table_name = 'print_deliveries' and column_name = 'order_id'`,
+    );
+    check("016 is repeatable: report_prints exists and print_deliveries.order_id is now nullable",
+      (await db.query(`select to_regclass('report_prints') is not null as ok`)).rows[0].ok === true &&
+        nullable.rows[0]?.is_nullable === "YES");
+    oldCodeWorks("016 applied before the deploy (the old code never reads report_prints)", runOldCode(mainDir, "016"));
+    await db.query(m015);
+    await bothPrintersPrint(code, db, "011-016");
+    // Clear whatever tickets the store printer still owes, so the next thing
+    // it is handed can only be the report.
+    for (let i = 0; i < 5; i++) {
+      const t = await newPoll(code, MAC_STORE);
+      if (!t) break;
+      await newConfirm(code, MAC_STORE, t);
+    }
+    const prints = await import("../src/lib/reports/prints");
+    const model = await import("../src/lib/reports/dailyModel");
+    const day = "2026-11-21";
+    const queued = await prints.requestReportPrint({
+      tenantId: TENANT,
+      businessDate: day,
+      station: "store",
+      blocks: model.DEFAULT_BLOCKS,
+      report: model.summarizeDay([], { tenantId: TENANT, businessDate: day, timezone: "America/Los_Angeles", familyItemIds: new Set() }),
+      sequence: await prints.nextReportSequence(TENANT, day),
+      requestKey: "migrations-016",
+    });
+    const reportToken = await newPoll(code, MAC_STORE);
+    if (reportToken) await newConfirm(code, MAC_STORE, reportToken);
+    const printedReport = await db.query(`select status from report_prints where request_key = 'migrations-016'`);
+    check("[new code, 011-016] a 日結 report queued for Store prints on the store printer",
+      queued.kind === "queued" && reportToken !== null && printedReport.rows[0]?.status === "PRINTED",
+      JSON.stringify({ kind: queued.kind, reportToken, status: printedReport.rows[0]?.status }));
+    await db.query(d016);
+    await db.query(d016);
+    const notNull = await db.query(
+      `select is_nullable from information_schema.columns where table_name = 'print_deliveries' and column_name = 'order_id'`,
+    );
+    check("down_016_to_015 is repeatable, drops report_prints and its deliveries, and order_id is NOT NULL again",
+      (await db.query(`select to_regclass('report_prints') is null as gone`)).rows[0].gone === true &&
+        notNull.rows[0]?.is_nullable === "NO" &&
+        (await db.query(`select count(*)::int as n from print_deliveries where order_id is null`)).rows[0].n === 0);
+    await bothPrintersPrint(code, db, "016 rolled back, new code still deployed");
+    await db.query(d015);
     await db.query(`update orders set print_station = 'online' where idempotency_key = 'seed-A-002'`);
     await db.query(m011);
     await db.query(m012);
