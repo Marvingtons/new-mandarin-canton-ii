@@ -81,6 +81,37 @@ export const TICKET_LABELS = {
 } as const;
 
 /**
+ * Every fixed 中文 string the 日結 DAILY REPORT prints (lib/ticket/report.ts).
+ * Same rule as TICKET_LABELS: report.ts may print no 中文 that is not here, and
+ * this object feeds the subset, so a label here is a glyph in the font.
+ */
+export const REPORT_LABELS = {
+  dailyReport: "日結",
+  orders: "訂單",
+  online: "網上",
+  phone: "電話",
+  walkIn: "自取",
+  /** Retired channel; a row only on a day from before 2026-11-14 that has one. */
+  dineIn: "堂食",
+  all: "合計",
+  totals: "金額",
+  subtotal: "小計",
+  charges: "加價",
+  tax: "稅",
+  tip: "小費",
+  notIncluded: "未計入",
+  cancelled: "取消",
+  unprinted: "未列印",
+  trays: "餐盤",
+  halfTray: "半盤",
+  partyTray: "餐盤",
+  familyDinners: "家庭餐",
+  top: "熱賣",
+  byHour: "時段",
+  none: "無",
+} as const;
+
+/**
  * Latin, digits, punctuation and symbols the layout uses. Kept separate from
  * the 中文 so it is obvious which half is which.
  */
@@ -95,7 +126,9 @@ const LATIN_AND_SYMBOLS =
 
 /** Fixed chrome: the labels above plus the Latin/symbol set. */
 export const TICKET_UI_GLYPHS =
-  Object.values(TICKET_LABELS).join("") + LATIN_AND_SYMBOLS;
+  Object.values(TICKET_LABELS).join("") +
+  Object.values(REPORT_LABELS).join("") +
+  LATIN_AND_SYMBOLS;
 
 /**
  * Every codepoint the ticket could need.

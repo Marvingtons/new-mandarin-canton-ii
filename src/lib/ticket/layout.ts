@@ -146,6 +146,16 @@ export class Canvas {
   }
 
   /**
+   * Pre-built vector markup at (x, y), WITHOUT moving the cursor. The caller
+   * owns the row's height, as with place(). Used by the 日結 report for the
+   * 富源 seal; the caller is responsible for keeping it black-on-white and its
+   * strokes at or above MIN_RULE_PX once scaled. No ticket uses it.
+   */
+  graphic(x: number, y: number, markup: string): void {
+    this.ops.push(`<g transform="translate(${r(x)},${r(y)})">${markup}</g>`);
+  }
+
+  /**
    * Wrap and draw text, advancing the cursor by the full block height.
    * Returns the height consumed so callers can align siblings against it.
    */
