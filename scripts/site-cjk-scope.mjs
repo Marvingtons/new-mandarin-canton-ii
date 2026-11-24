@@ -26,6 +26,8 @@ export const EXCLUDE = [
   "src/lib/print",
   "src/lib/otp",
   "src/lib/orders",
+  // The 日結 report: printed in the ticket font, shown only in the staff app.
+  "src/lib/reports",
   "src/lib/notify",
 ];
 

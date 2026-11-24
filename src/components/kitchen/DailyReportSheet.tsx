@@ -253,7 +253,7 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
           )}
 
           {error && <p role="alert" className="text-staff-body">{error}</p>}
-          {notice && <p role="status" className="text-staff-body font-semibold">{notice}</p>}
+          {notice && <p role="status" className="text-staff-body font-semibold" data-testid="report-notice">{notice}</p>}
           {blockedReason && <p role="note" className="text-staff-body">{blockedReason}</p>}
 
           <div className={`${ui.dialogActions} mt-auto`}>
