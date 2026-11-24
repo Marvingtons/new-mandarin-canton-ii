@@ -21,6 +21,10 @@
  * race is the whole point of making the confirm atomic.
  *
  * The eight scenarios are the fix prompt's STEP 5, verbatim in intent.
+ * Scenarios 13-16 are the 日結 report print kind on the same tables: one
+ * press is one hand-over and one piece of paper, a ticket always goes first,
+ * the request is idempotent, and a database without migration 016 still
+ * prints tickets.
  *
  * ⚠️ WINDOWS: PostgreSQL refuses to start under an administrative token; run
  * from a NON-ELEVATED shell (see verify:print-recurrence for the runas note).
@@ -113,6 +117,8 @@ interface Deps {
   reofferPrintDelivery: typeof import("../src/lib/orders/repository").reofferPrintDelivery;
   listActiveOrders: typeof import("../src/lib/orders/repository").listActiveOrders;
   ordersPool: typeof import("../src/lib/db/postgres").ordersPool;
+  prints: typeof import("../src/lib/reports/prints");
+  model: typeof import("../src/lib/reports/dailyModel");
 }
 
 /** GET a full advertised jobGetUrl the way a printer honouring it would. */
@@ -159,6 +165,7 @@ async function seedOrder(deps: Deps): Promise<{ id: number; orderNumber: string 
 /** Delete this tenant's orders (deliveries cascade) so each scenario is clean. */
 async function reset(deps: Deps): Promise<void> {
   await deps.ordersPool().query("delete from orders where tenant_id = $1", [TENANT]);
+  await deps.ordersPool().query("delete from report_prints where tenant_id = $1", [TENANT]);
 }
 
 interface DeliveryRow {
@@ -456,6 +463,152 @@ async function s12_fetchViaAdvertisedUrl(h: Handlers, deps: Deps): Promise<void>
   check("a fetch after confirmation is 410 Gone", g3.status === 410, `status=${g3.status}`);
 }
 
+/* ------------------------------------------------- 日結 report print kind -- */
+
+const REPORT_DATE = "2026-08-31";
+let reportKey = 0;
+
+/** Queue a report print the way the sheet's Print does. */
+async function queueReport(deps: Deps, sequence = 1, key = `press-${++reportKey}`) {
+  const report = deps.model.summarizeDay([], {
+    tenantId: TENANT,
+    businessDate: REPORT_DATE,
+    timezone: "America/Los_Angeles",
+    familyItemIds: new Set(),
+  });
+  return deps.prints.requestReportPrint({
+    tenantId: TENANT,
+    businessDate: REPORT_DATE,
+    station: "store",
+    blocks: deps.model.DEFAULT_BLOCKS,
+    report,
+    sequence,
+    requestKey: key,
+  });
+}
+
+interface ReportDeliveryRow {
+  id: string;
+  order_id: number | null;
+  reason: string;
+  fetch_count: number;
+  confirmed_at: Date | null;
+}
+async function reportDeliveries(deps: Deps): Promise<ReportDeliveryRow[]> {
+  const { rows } = await deps.ordersPool().query(
+    `select id, order_id, reason, fetch_count, confirmed_at from print_deliveries
+      where tenant_id = $1 and report_print_id is not null order by offered_at`,
+    [TENANT],
+  );
+  return rows as ReportDeliveryRow[];
+}
+async function reportStatus(deps: Deps): Promise<string[]> {
+  const { rows } = await deps.ordersPool().query(
+    `select status from report_prints where tenant_id = $1 order by sequence`,
+    [TENANT],
+  );
+  return rows.map((r) => String(r.status));
+}
+
+// 13. One Print press: one hand-over, fetched, confirmed, never again.
+async function s13_reportPrintsOnce(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n13. 日結: one Print press is ONE hand-over and one piece of paper");
+  await reset(deps);
+  const queued = await queueReport(deps);
+  check("the request queues #1", queued.kind === "queued" && queued.print.sequence === 1, `kind=${queued.kind}`);
+  const p1 = await poll(h);
+  check("the next poll offers it", p1.jobReady && !!p1.token);
+  const d = await reportDeliveries(deps);
+  check(
+    "one print_deliveries row: reason 'report', no order",
+    d.length === 1 && d[0].reason === "report" && d[0].order_id === null && d[0].id === p1.token,
+    `rows=${d.length} reason=${d[0]?.reason} order_id=${d[0]?.order_id}`,
+  );
+  const p2 = await poll(h);
+  check("a second poll inside the window is HELD", !p2.jobReady);
+  const g1 = await getByToken(h, p1.token!);
+  check("the body is served as StarPRNT", g1.status === 200 && g1.bytes > 10_000, `status=${g1.status} bytes=${g1.bytes}`);
+  check("the fetch is counted", (await reportDeliveries(deps))[0].fetch_count === 1);
+  await confirm(h, p1.token!);
+  check("the confirmation marks it PRINTED", (await reportStatus(deps))[0] === "PRINTED", (await reportStatus(deps)).join());
+  check("the delivery is confirmed", (await reportDeliveries(deps))[0].confirmed_at !== null);
+  const g2 = await getByToken(h, p1.token!);
+  check("a fetch after confirmation is 410 Gone", g2.status === 410, `status=${g2.status}`);
+  await confirm(h, p1.token!);
+  const p3 = await poll(h);
+  check("a replayed DELETE changes nothing and nothing is re-offered", !p3.jobReady && (await reportDeliveries(deps)).length === 1);
+}
+
+// 14. A ticket always goes first, and nothing is handed out while a report is in flight.
+async function s14_ticketsFirst(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n14. 日結: a waiting ticket prints BEFORE a report; none is handed out mid-report");
+  await reset(deps);
+  await queueReport(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h);
+  check("the first poll offers the TICKET", p1.jobReady && (await deliveriesFor(deps, order.id))[0]?.id === p1.token);
+  await getByToken(h, p1.token!);
+  await confirm(h, p1.token!);
+  const p2 = await poll(h);
+  check("then the report", p2.jobReady && (await reportDeliveries(deps))[0]?.id === p2.token);
+  const late = await seedOrder(deps);
+  const p3 = await poll(h);
+  check("a ticket arriving mid-report waits for the report's confirmation", !p3.jobReady);
+  await getByToken(h, p2.token!);
+  await confirm(h, p2.token!);
+  const p4 = await poll(h);
+  check("and prints on the very next poll", p4.jobReady && (await deliveriesFor(deps, late.id))[0]?.id === p4.token);
+}
+
+// 15. Idempotent on (tenant, date, sequence).
+async function s15_requestIdempotent(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n15. 日結: the request is idempotent on (tenant, date, #sequence)");
+  await reset(deps);
+  const a = await queueReport(deps, 1, "same-press");
+  const again = await queueReport(deps, 1, "same-press");
+  check("the same press twice is a replay of the same print", again.kind === "replay" && again.print.id === (a.kind === "queued" ? a.print.id : ""));
+  const other = await queueReport(deps, 1, "another-tablet");
+  check(
+    "another tablet asking for #1 gets a conflict and the next #",
+    other.kind === "conflict" && other.nextSequence === 2,
+    `kind=${other.kind}`,
+  );
+  const skip = await queueReport(deps, 5, "made-up");
+  check("a #N that is not next is refused", skip.kind === "conflict");
+  const two = await queueReport(deps, 2, "second-print");
+  check("#2 queues", two.kind === "queued" && two.print.sequence === 2);
+  const { rows } = await deps.ordersPool().query(
+    `select count(*)::int as n from report_prints where tenant_id = $1`,
+    [TENANT],
+  );
+  check("two rows, not five", rows[0].n === 2, `rows=${rows[0].n}`);
+  const both = await Promise.all([queueReport(deps, 3, "race-a"), queueReport(deps, 3, "race-b")]);
+  check(
+    "two presses at once: one #3, one conflict",
+    both.filter((r) => r.kind === "queued").length === 1 && both.filter((r) => r.kind === "conflict").length === 1,
+    both.map((r) => r.kind).join(),
+  );
+}
+
+// 16. Without migration 016 a ticket still prints.
+async function s16_noTableStillPrints(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n16. 日結: on a database without migration 016, tickets print as before");
+  await reset(deps);
+  await deps.ordersPool().query(`alter table report_prints rename to report_prints_hidden`);
+  try {
+    const order = await seedOrder(deps);
+    const p1 = await poll(h);
+    check("the ticket is offered", p1.jobReady && (await deliveriesFor(deps, order.id))[0]?.id === p1.token);
+    const g = await getByToken(h, p1.token!);
+    check("fetched", g.status === 200, `status=${g.status}`);
+    await confirm(h, p1.token!);
+    const after = await deps.getOrderById(TENANT, order.id);
+    check("and PRINTED", after?.status === "PRINTED", `status=${after?.status}`);
+  } finally {
+    await deps.ordersPool().query(`alter table report_prints_hidden rename to report_prints`);
+  }
+}
+
 /* --------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -517,6 +670,8 @@ async function main(): Promise<void> {
     reofferPrintDelivery: repo.reofferPrintDelivery,
     listActiveOrders: repo.listActiveOrders,
     ordersPool,
+    prints: await import("../src/lib/reports/prints"),
+    model: await import("../src/lib/reports/dailyModel"),
   };
 
   try {
@@ -532,6 +687,10 @@ async function main(): Promise<void> {
     await s10_pointerCleared(route, deps);
     await s11_reofferStatusGuard(route, deps);
     await s12_fetchViaAdvertisedUrl(route, deps);
+    await s13_reportPrintsOnce(route, deps);
+    await s14_ticketsFirst(route, deps);
+    await s15_requestIdempotent(route, deps);
+    await s16_noTableStillPrints(route, deps);
   } finally {
     await closeOrdersPool();
     console.log("\nstopping postgres…");

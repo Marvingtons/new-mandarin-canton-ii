@@ -8,6 +8,7 @@ import { BLACK, Canvas, MIN_RULE_PX, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { REPORT_LABELS as R } from "@/lib/ticket/glyphs";
 import { TICKET_WIDTH_PX } from "@/lib/ticket/render";
+import { encodeStarPrntCopies, maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { FRAME_D, FU_DS, VIEWBOX_FULL, YUAN_DS } from "@/lib/brand/seal";
 import { restaurant } from "@/data/restaurant";
 import { businessDateFor } from "@/lib/orders/businessDate";
@@ -307,16 +308,24 @@ export async function composeReportSvg(
 }
 
 /**
- * Render the report to the printer's 1-bit PNG. Same rasterizer, same
- * threshold and same encoder as renderTicket, so it prints exactly as the
- * preview shows. (Phase 2 adds the StarPRNT job path and the `report` kind.)
+ * Compose and rasterize, stopping short of encoding. Same fonts, same resvg
+ * and the same threshold downstream as a kitchen ticket (render.ts
+ * rasterizeTicket), so the preview PNG and the printed StarPRNT job are the
+ * same pixels. `free()` must be called in a finally: wasm-side memory.
  */
-export async function renderReportPng(
+async function rasterizeReport(
   report: DailyReport,
   options: ComposeReportOptions,
-): Promise<{ png: Buffer; height: number; missing: number[] }> {
+): Promise<{ pixels: Uint8Array; width: number; height: number; missing: number[]; free: () => void }> {
   const fonts = await loadTicketFonts();
-  const { svg, height, missing } = await composeReportSvg(report, options);
+  const { svg, missing } = await composeReportSvg(report, options);
+  if (missing.length > 0) {
+    // The same loud warning a ticket gets: a 中文 label drawn as an empty box.
+    console.warn(
+      `[report] ${report.businessDate} #${options.sequence}: ${missing.length} codepoint(s) ` +
+        `absent from the subset font. Re-run \`npm run build:ticket-font\`.`,
+    );
+  }
   await ensureResvg();
   const rendered = new Resvg(svg, {
     fitTo: { mode: "width", value: TICKET_WIDTH_PX },
@@ -327,12 +336,57 @@ export async function renderReportPng(
       loadSystemFonts: false,
     },
   }).render();
+  return {
+    pixels: rendered.pixels,
+    width: rendered.width,
+    height: rendered.height,
+    missing,
+    free: () => rendered.free(),
+  };
+}
+
+/** The report as the printer's 1-bit PNG: the preview, and report:sample. */
+export async function renderReportPng(
+  report: DailyReport,
+  options: ComposeReportOptions,
+): Promise<{ png: Buffer; height: number; missing: number[] }> {
+  const r = await rasterizeReport(report, options);
   try {
-    const png = Buffer.from(
-      await encodeMonochromePng(rendered.pixels, rendered.width, rendered.height),
-    );
-    return { png, height, missing };
+    const png = Buffer.from(await encodeMonochromePng(r.pixels, r.width, r.height));
+    return { png, height: r.height, missing: r.missing };
   } finally {
-    rendered.free();
+    r.free();
+  }
+}
+
+/**
+ * The report as a print job, for the `report` print kind (lib/reports/prints.ts).
+ *
+ * ONE piece, never split: a report is about 1,750 rows on the busiest fixture
+ * day and Star's 512KB job cap is about 7,000 rows at this width. Rather than
+ * route a report through the ticket splitter for a case that cannot happen,
+ * a report over the cap is refused here, and a refused report is FAILED and
+ * reprinted by a person, like every report failure.
+ */
+export async function renderReportJob(
+  report: DailyReport,
+  options: ComposeReportOptions,
+  format: "starprnt" | "png" = "starprnt",
+): Promise<{ body: Buffer; height: number }> {
+  const r = await rasterizeReport(report, options);
+  try {
+    if (format === "png") {
+      return { body: Buffer.from(await encodeMonochromePng(r.pixels, r.width, r.height)), height: r.height };
+    }
+    const ceiling = maxStarPrntRows(TICKET_WIDTH_PX);
+    if (r.height > ceiling) {
+      throw new Error(`report is ${r.height} rows, over the ${ceiling}-row single-job limit`);
+    }
+    const body = Buffer.from(
+      encodeStarPrntCopies([{ pixels: r.pixels, width: r.width, height: r.height }]),
+    );
+    return { body, height: r.height };
+  } finally {
+    r.free();
   }
 }

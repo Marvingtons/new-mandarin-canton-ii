@@ -66,6 +66,18 @@ import { maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { clientIp } from "@/lib/http/clientIp";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
+import {
+  claimNextReportPrint,
+  confirmReportDelivery,
+  failReportPrint,
+  isMissingReportTable,
+  recordReportJobKey,
+  reportPrintForDelivery,
+  settleReportsInFlight,
+  type ReportPrint,
+} from "@/lib/reports/prints";
+import { renderReportJob } from "@/lib/ticket/report";
+import type { Station } from "@/config/stations";
 
 /**
  * Star CloudPRNT endpoint — /api/print/<CLOUDPRNT_SECRET>.
@@ -302,6 +314,17 @@ export async function POST(
     const perCopy = printSecondsPerCopy();
     const cap = printOfferCap();
     const freshWindow = confirmationWindowSeconds(copies, floor, perCopy, 1);
+    // A 日結 report is one piece of paper whatever TICKET_COPIES says.
+    const reportWindow = confirmationWindowSeconds(1, floor, perCopy, 1);
+
+    // 日結 REPORT IN FLIGHT? One job at a time per printer, so while this
+    // printer holds a report it is handed no ticket. A report whose window ran
+    // out is FAILED here and NEVER re-offered (lib/reports/prints.ts): a person
+    // reprints it. A report is only ever offered when no ticket is in flight
+    // or waiting (below), so this cannot hold a ticket that is mid-print.
+    if (await reportHolds(tenant.tenantId, printer.serves, tag)) {
+      return Response.json(NO_JOB);
+    }
 
     // A job already handed over and not yet confirmed wins: re-offering the
     // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
@@ -386,7 +409,9 @@ export async function POST(
       job = await claimNextPrintJob(tenant.tenantId, freshWindow, scope);
     }
 
-    if (!job) return Response.json(NO_JOB);
+    // No ticket in flight and none waiting: this printer's turn for a 日結
+    // report, if one is queued for it.
+    if (!job) return offerReport(request, tenant, printer, reportWindow, tag);
 
     // Every offer path above stamps a delivery id in the same statement. If it
     // is somehow absent, refuse rather than hand over an unidentifiable job.
@@ -480,6 +505,198 @@ function logJobResponse(orderNumber: string, response: Response): Response {
     .join(" | ");
   console.info(`[cloudprnt] ${orderNumber} response headers -> ${headers}`);
   return response;
+}
+
+/* ------------------------------------------------- 日結 report print kind -- */
+
+/**
+ * Settle this printer's in-flight report (expired → FAILED, never re-offered)
+ * and say whether one is still being held. Never throws: before migration 016
+ * the table is missing, and a ticket must not wait on a report feature.
+ */
+async function reportHolds(tenantId: string, serves: readonly Station[], tag: string): Promise<boolean> {
+  try {
+    const { holding, failed } = await settleReportsInFlight(tenantId, serves);
+    for (const f of failed) {
+      console.warn(
+        `${tag} verdict=report-failed ${f.businessDate} #${f.sequence} delivery=${f.deliveryId} ` +
+          "— no confirmation inside its window. NOT re-offered: a report is reprinted by a person.",
+      );
+    }
+    if (holding) {
+      console.info(
+        `${tag} verdict=hold report ${holding.businessDate} #${holding.sequence} ` +
+          `delivery=${holding.deliveryId} — waiting for its confirmation`,
+      );
+      return true;
+    }
+  } catch (err) {
+    if (!isMissingReportTable(err)) {
+      console.error(`${tag} report check failed, printing tickets anyway:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return false;
+}
+
+/** Render options for a stored report print: its own time, station and #N. */
+function reportRenderOptions(print: ReportPrint, timezone: string) {
+  return {
+    printedAt: print.requestedAt,
+    station: print.station,
+    sequence: print.sequence,
+    blocks: print.blocks,
+    timezone,
+  };
+}
+
+/** Human label for logs: "report 2026-11-21 #3". */
+const reportLabel = (p: ReportPrint) => `report ${p.businessDate} #${p.sequence}`;
+
+/**
+ * Hand this printer its oldest queued report, ONCE. Same answer shape as a
+ * ticket (delivery id as the token, R2 body via jobGetUrl, DELETE to confirm)
+ * so the printer cannot tell them apart; what differs is only that no path
+ * ever offers it again.
+ */
+async function offerReport(
+  request: Request,
+  tenant: { tenantId: string; timezone: string },
+  printer: { station: Station; serves: readonly Station[] },
+  windowSeconds: number,
+  tag: string,
+): Promise<Response> {
+  // Its OWN served stations, never a failover's: a report for a silent
+  // printer waits (the sheet says that printer is offline) rather than coming
+  // out of the other one unannounced.
+  let print: ReportPrint | null;
+  try {
+    print = await claimNextReportPrint(tenant.tenantId, printer.serves, printer.station, windowSeconds);
+  } catch (err) {
+    if (!isMissingReportTable(err)) {
+      console.error(`${tag} report claim failed:`, err instanceof Error ? err.message : err);
+    }
+    return Response.json(NO_JOB);
+  }
+  if (!print || !print.deliveryId) return Response.json(NO_JOB);
+  const deliveryId = print.deliveryId;
+
+  let jobUrl: string | null = null;
+  if (printJobStoreReady()) {
+    try {
+      const { body, height } = await renderReportJob(
+        print.report,
+        reportRenderOptions(print, tenant.timezone),
+        "starprnt",
+      );
+      const sha256 = await payloadHash(body);
+      const key = printJobKeyFor(`report-${print.businessDate}-${print.sequence}`, deliveryId, sha256);
+      if (await putPrintJob(key, body)) {
+        await recordReportJobKey(tenant.tenantId, print.id, key);
+        jobUrl = printJobUrl(key);
+        console.info(
+          `${tag} ${reportLabel(print)} delivery=${deliveryId} -> R2 ${key} ` +
+            `(${body.length} bytes, ${height}px) sha256=${sha256}`,
+        );
+      }
+    } catch (err) {
+      // Not retried: FAILED, and the sheet says so. The printer is told nothing.
+      const message = err instanceof Error ? err.message : "report render failed";
+      await failReportPrint(tenant.tenantId, print.id, message);
+      console.error(`${tag} ${reportLabel(print)} render failed, FAILED (not retried): ${message}`);
+      return Response.json(NO_JOB);
+    }
+  }
+
+  const pollUrl = new URL(request.url);
+  const selfGetUrl = `${pollUrl.origin}${pollUrl.pathname}?token=${encodeURIComponent(deliveryId)}`;
+  const advertisedGetUrl = printFetchViaWorker() ? selfGetUrl : (jobUrl ?? selfGetUrl);
+  const body: CloudPrntStatusResponse = {
+    jobReady: true,
+    mediaTypes: jobUrl ? [JOB_MEDIA_TYPE_STARPRNT] : OFFERED_MEDIA_TYPES,
+    jobToken: deliveryId,
+    deleteMethod: "DELETE",
+    jobGetUrl: advertisedGetUrl,
+  };
+  console.info(
+    `${tag} ${reportLabel(print)} delivery=${deliveryId} handed to ${printer.station} printer ` +
+      `at ${advertisedGetUrl} (offered once, never retried)`,
+  );
+  return Response.json(body);
+}
+
+/**
+ * The job GET for a report delivery. 410 once confirmed, or once it is no
+ * longer OFFERED (an expired report is FAILED and is not printed late: a
+ * person decides whether to print it again). No buzzer: that is for tickets.
+ */
+async function serveReport(
+  url: URL,
+  tenant: { tenantId: string; timezone: string },
+  print: ReportPrint,
+  deliveryId: string,
+  confirmedAt: string | null,
+): Promise<Response> {
+  if (confirmedAt !== null || print.deliveryId !== deliveryId || print.status !== "OFFERED") {
+    console.warn(
+      `[cloudprnt] GET ${reportLabel(print)} delivery=${deliveryId} — ` +
+        `${confirmedAt !== null ? "already confirmed" : `status ${print.status}`}; 410 Gone`,
+    );
+    return new Response("", { status: 410 });
+  }
+
+  const r2Url = print.jobKey ? printJobUrl(print.jobKey) : null;
+  if (printFetchViaWorker() && printJobStoreReady() && r2Url) {
+    const fetchCount = await recordDeliveryFetch(tenant.tenantId, deliveryId);
+    console.info(
+      `[cloudprnt] ${reportLabel(print)} delivery=${deliveryId} fetch -> 302 R2 ${print.jobKey} ` +
+        `fetch_count=${fetchCount ?? "?"}`,
+    );
+    return new Response(null, { status: 302, headers: { location: r2Url } });
+  }
+
+  const mediaType = matchOfferedMediaType(url.searchParams.get("type"));
+  if (mediaType === null) return new Response("", { status: 404 });
+  const format = mediaType === JOB_MEDIA_TYPE_STARPRNT ? "starprnt" : "png";
+
+  try {
+    let body: Uint8Array | null = null;
+    if (print.jobKey && format === "starprnt") body = await getPrintJob(print.jobKey);
+    if (!body) {
+      body = (await renderReportJob(print.report, reportRenderOptions(print, tenant.timezone), format)).body;
+    }
+    const fetchCount = await recordDeliveryFetch(tenant.tenantId, deliveryId);
+    console.info(
+      `[cloudprnt] serving ${reportLabel(print)} delivery=${deliveryId} as ${mediaType} ` +
+        `(${body.byteLength} bytes) fetch_count=${fetchCount ?? "?"}`,
+    );
+    return logJobResponse(reportLabel(print), jobResponse(body, mediaType, {}));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "report render failed";
+    await failReportPrint(tenant.tenantId, print.id, message);
+    console.error(`[cloudprnt] ${reportLabel(print)} render failed, FAILED (not retried): ${message}`);
+    return new Response("", { status: 500 });
+  }
+}
+
+/** This printer's OFFERED report, for the bare tokenless GET. */
+async function reportInFlight(tenantId: string, serves: readonly Station[]): Promise<ReportPrint | null> {
+  try {
+    return (await settleReportsInFlight(tenantId, serves)).holding;
+  } catch {
+    return null;
+  }
+}
+
+/** The report a token names, or null (not a report's, or no 016 table yet). */
+async function reportByToken(tenantId: string, token: string) {
+  try {
+    return await reportPrintForDelivery(tenantId, token);
+  } catch (err) {
+    if (!isMissingReportTable(err)) {
+      console.error("[cloudprnt] report lookup failed:", err instanceof Error ? err.message : err);
+    }
+    return null;
+  }
 }
 
 /**
@@ -593,6 +810,10 @@ export async function GET(
   let deliveryId: string | null;
 
   if (token) {
+    // A 日結 report's delivery? Served on its own path, never as an order.
+    const report = await reportByToken(tenant.tenantId, token);
+    if (report) return serveReport(url, tenant, report.print, token, report.confirmedAt);
+
     const delivery = await getPrintDelivery(tenant.tenantId, token);
     if (!delivery) {
       console.warn(`[cloudprnt] GET token=${token} — no such delivery; 404`);
@@ -626,6 +847,11 @@ export async function GET(
     const printer = printerIdentity(url.searchParams.get("mac"));
     if (!printer) return notFound();
     job = await currentPrintJob(tenant.tenantId, printer.serves);
+    if (!job) {
+      // No ticket: maybe this printer's 日結 report is the job in flight.
+      const held = await reportInFlight(tenant.tenantId, printer.serves);
+      if (held?.deliveryId) return serveReport(url, tenant, held, held.deliveryId, null);
+    }
     // Nothing in flight. 404 is the honest answer; the printer re-polls.
     if (!job) return new Response("", { status: 404 });
     deliveryId = job.printDeliveryId;
@@ -845,6 +1071,25 @@ async function confirmPrinted(url: URL): Promise<Response> {
     console.warn(
       `[cloudprnt] stale-confirm token=(absent) ${described} — no delivery to close, nothing recorded`,
     );
+    return acknowledged();
+  }
+
+  // A 日結 report's delivery: closed on its own path. PRINTED on success,
+  // FAILED on a failure code, and in neither case offered again.
+  const report = await reportByToken(tenant.tenantId, token);
+  if (report) {
+    const done = await confirmReportDelivery(tenant.tenantId, token, {
+      code: confirmation.code,
+      outcome: confirmation.verdict === "failure" ? "failure" : "success",
+    });
+    if ((done.kind === "printed" || done.kind === "failed") && done.jobKey) {
+      await deletePrintJob(done.jobKey);
+    }
+    const line =
+      `[cloudprnt] verdict=report-${done.kind} ${reportLabel(report.print)} delivery=${token} ` +
+      `${described} fetch_count=${report.fetchCount}`;
+    if (done.kind === "printed") console.info(line);
+    else console.warn(line);
     return acknowledged();
   }
 
