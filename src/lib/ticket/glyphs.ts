@@ -78,6 +78,24 @@ export const TICKET_LABELS = {
    */
   phoneOrder: "電話訂單",
   walkIn: "到店",
+  /**
+   * 改單 EDIT ORDER (docs/edit-order.md). The change ticket's top band reads
+   * 改單 CHANGE · A-002 with 第2次 REVISION 2 under it, then three blocks:
+   * + 加 ADDED, - 減 REMOVED, 改 CHANGED, and the footer
+   * 其餘不變 OTHER N ITEMS UNCHANGED; the register copy adds
+   * 新合計 NEW TOTAL ... 原 WAS. A full ticket of an edited order (the
+   * Receipt view, a 重印) carries 已改 REVISED 第2次 beside the number.
+   */
+  change: "改單",
+  added: "加",
+  removed: "減",
+  changed: "改",
+  unchanged: "其餘不變",
+  revisionBefore: "第",
+  revisionAfter: "次",
+  newTotal: "新合計",
+  was: "原",
+  revised: "已改",
 } as const;
 
 /**
