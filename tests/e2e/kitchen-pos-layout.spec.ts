@@ -121,6 +121,44 @@ test("a custom charge is reachable by searching for it", async ({ browser }) => 
   await page.context().close();
 });
 
+/**
+ * The custom charge on an iPad: the whole keypad and Add on screen, with no
+ * system keyboard. The sheet used to focus the name field when no name was
+ * remembered, the iPad raised its keyboard over the 00 / 0 / back row, and
+ * staff typing $3.00 got $0.03. Now the amount has focus (it takes no text,
+ * so no keyboard) and the note is tap-to-edit.
+ */
+for (const viewport of [LANDSCAPE, PORTRAIT, { width: 1180, height: 820 }, { width: 820, height: 1180 }]) {
+  test(`custom charge at ${viewport.width}x${viewport.height}: 0, 00, back and Add fully on screen, no keyboard`, async ({ browser }) => {
+    const page = await openPos(browser, viewport);
+    await page.locator("button[data-custom-tile]:visible").first().click();
+    const sheet = page.locator('[data-sheet="custom"]');
+    await expect(sheet).toBeVisible();
+
+    // Nothing that raises a keyboard has focus: the amount does.
+    await expect(sheet.locator("[data-amount-pad] output")).toBeFocused();
+    await expect(sheet.locator("textarea")).toHaveCount(0);
+
+    for (const key of ["0", "00", "back"]) {
+      await expect(sheet.locator(`button[data-key="${key}"]`)).toBeInViewport({ ratio: 1 });
+    }
+    await expect(sheet.locator('[data-action="sheet-add"]')).toBeInViewport({ ratio: 1 });
+
+    for (const k of ["3", "0", "0"]) await sheet.locator(`[data-key="${k}"]`).click();
+    await expect(sheet.locator("[data-amount-pad] output")).toHaveText("$3.00");
+
+    // Typing a name is a choice, and Done on its keyboard goes back to the pad.
+    await sheet.locator('[data-field="custom-name"]').fill("加蝦 Extra shrimp");
+    await sheet.locator('[data-field="custom-name"]').press("Enter");
+    await expect(sheet.locator("[data-amount-pad] output")).toBeFocused();
+    await sheet.locator('[data-action="custom-note-open"]').click();
+    await expect(sheet.locator('[data-field="custom-note"]')).toBeFocused();
+    await expect(sheet.locator('[data-action="sheet-add"]')).toBeInViewport({ ratio: 1 });
+    await expect(sheet.locator('[data-action="sheet-add"]')).toContainText("$3.00");
+    await page.context().close();
+  });
+}
+
 test("a surcharge on a dish keeps it one line, on the ticket and on paper", async ({ browser }) => {
   const page = await openPos(browser);
   await page.locator(MONGOLIAN).first().click();
