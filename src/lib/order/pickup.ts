@@ -118,18 +118,6 @@ export function hoursForDay(
   return todaysWindow(day);
 }
 
-/**
- * The last minute an online order may be placed today, or null when the
- * restaurant is closed. The one reader for every surface that quotes it.
- */
-export function lastOrderMinutes(
-  now: Date,
-  opts: PickupOptions,
-): number | null {
-  const { day } = localNow(opts.timezone, now);
-  return todaysWindow(day)?.lastOrder ?? null;
-}
-
 /** Is the DINING ROOM open right now? (Ignores the ordering cutoff.) */
 export function isOpenNow(now: Date, opts: PickupOptions): boolean {
   const { day, minutes } = localNow(opts.timezone, now);
@@ -152,14 +140,6 @@ export function isAcceptingOrders(now: Date, opts: PickupOptions): boolean {
   const w = todaysWindow(day);
   if (!w) return false;
   return minutes >= w.open && minutes < w.lastOrder;
-}
-
-/** Today's hours as a 12-hour label, e.g. "11:00 AM – 9:00 PM". Null if closed. */
-export function todaysHoursLabel(now: Date, opts: PickupOptions): string | null {
-  const { day } = localNow(opts.timezone, now);
-  const w = todaysWindow(day);
-  if (!w) return null;
-  return `${label12h(w.open)} – ${label12h(w.close)}`;
 }
 
 /** Restaurant-local minutes past midnight, exported for the order gates. */

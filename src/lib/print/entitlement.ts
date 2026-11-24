@@ -295,8 +295,3 @@ export function decideOffer(input: EntitlementInput): EntitlementDecision {
     elapsedSeconds,
   };
 }
-
-/** True when the verdict means "send the printer a job now". */
-export function entitledToOffer(decision: EntitlementDecision): boolean {
-  return decision.verdict === "first-offer" || decision.verdict === "retry";
-}

@@ -33,11 +33,6 @@ export type EditPricingResult =
   | { ok: true; lines: OrderLine[]; totals: OrderTotals }
   | { ok: false; error: string; reason?: ComposeRejection };
 
-/** The lineId the POS stamps on a line loaded from the order: `orig:<index>`. */
-export function originalLineId(index: number): string {
-  return `orig:${index}`;
-}
-
 function originalIndex(lineId: string | undefined, count: number): number | null {
   const match = /^orig:(\d+)$/.exec(lineId ?? "");
   if (!match) return null;

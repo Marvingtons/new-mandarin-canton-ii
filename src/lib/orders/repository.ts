@@ -1535,31 +1535,6 @@ export async function getOrderByIdempotencyKey(
   return rows.length > 0 ? readBack(mapOrder(rows[0]), "getOrderByIdempotencyKey") : null;
 }
 
-/**
- * Find an order by its number alone, newest first.
- *
- * Order numbers restart each business date, so a number is not unique across
- * the table and `getOrderByNumber` rightly demands a date. A print
- * confirmation does not carry one — it echoes the token we handed out, which
- * is the bare number — and it is always about a job offered minutes ago. So
- * "the most recent order wearing this number" is the correct reading, and the
- * ambiguity it could suffer from needs two orders of the same number within
- * one poll cycle across a business-date rollover.
- */
-export async function findRecentOrderByNumber(
-  tenantId: string,
-  orderNumber: string,
-): Promise<Order | null> {
-  const { rows } = await ordersPool().query(
-    `select ${ORDER_COLUMNS} from orders
-      where tenant_id = $1 and order_number = $2
-      order by created_at desc
-      limit 1`,
-    [tenantId, orderNumber],
-  );
-  return rows.length > 0 ? readBack(mapOrder(rows[0]), "findRecentOrderByNumber") : null;
-}
-
 export async function getOrderByNumber(
   tenantId: string,
   businessDate: string,

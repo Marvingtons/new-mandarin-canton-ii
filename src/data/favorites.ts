@@ -62,8 +62,6 @@ export const favoriteItemIds = [
   "house-soft-noodle",
 ] as const;
 
-export type FavoriteItemId = (typeof favoriteItemIds)[number];
-
 /** A favourite, joined to the menu category it lives in. */
 export interface FavoriteEntry {
   item: (typeof menu)[number]["items"][number];

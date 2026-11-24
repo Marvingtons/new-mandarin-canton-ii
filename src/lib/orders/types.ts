@@ -386,12 +386,6 @@ export function formatOrderNumber(prefix: string, seq: number): string {
  */
 export type PrintDeliveryReason = "first-offer" | "retry" | "manual_reprint";
 
-export const PRINT_DELIVERY_REASONS: readonly PrintDeliveryReason[] = [
-  "first-offer",
-  "retry",
-  "manual_reprint",
-] as const;
-
 /** One hand-over of a job body to the printer, as the repository returns it. */
 export interface PrintDelivery {
   id: string;

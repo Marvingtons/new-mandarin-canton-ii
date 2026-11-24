@@ -214,17 +214,6 @@ export async function setVerifiedCookie(e164: string): Promise<void> {
   });
 }
 
-export async function clearVerifiedCookie(): Promise<void> {
-  const store = await cookies();
-  store.delete(COOKIE_NAME);
-}
-
-/** The verified phone for the current request, or null. */
-export async function readVerifiedPhone(): Promise<VerifiedPhone | null> {
-  const store = await cookies();
-  return readToken(store.get(COOKIE_NAME)?.value);
-}
-
 /**
  * Same, for route handlers reading the raw Request.
  *

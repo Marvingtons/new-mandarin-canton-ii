@@ -249,14 +249,6 @@ export function orderCaps(): OrderCaps {
  * into the page.
  */
 
-/** Shared password for the /kitchen board. */
-export function requireAdminPassword(): string {
-  return required(
-    "ADMIN_DASH_PASSWORD",
-    "It gates the /kitchen staff board.",
-  );
-}
-
 /**
  * HMAC key for the phone-verification cookie.
  *

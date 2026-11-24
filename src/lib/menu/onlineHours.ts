@@ -56,13 +56,3 @@ export function tenantNow(timezone: string, at: Date = new Date()): TenantNow {
   };
 }
 
-export interface OrderingStatus {
-  open: boolean;
-  /** Bilingual reason, ready to render. */
-  reasonEn: string;
-  reasonZh: string;
-  /** Today's window in local time, when there is one. */
-  opensAt: string | null;
-  closesAt: string | null;
-}
-
