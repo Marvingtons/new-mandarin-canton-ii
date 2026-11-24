@@ -117,12 +117,16 @@ async function loadWasm(): Promise<WebAssembly.Module | BufferSource> {
   // and try to instantiate it at build time, which fails on wasm-bindgen's
   // "wbg" imports. Keeping the filename out of the specifier keeps the bundler
   // out of it entirely.
+  //
+  // Resolved from the project root, not with require.resolve: inside a
+  // `next build` server bundle (`next start`, the Playwright server)
+  // require.resolve returns the bundler's numeric module id instead of a path,
+  // so readFile threw 'The "path" argument must be of type string. Received
+  // type number' and every Node-side render under Next failed. Scripts and
+  // `next start` both run from the project root.
   const { readFile } = await import("node:fs/promises");
-  const { createRequire } = await import("node:module");
-  const { dirname, join } = await import("node:path");
-  const require = createRequire(import.meta.url);
-  const packageEntry = require.resolve("@resvg/resvg-wasm");
-  return await readFile(join(dirname(packageEntry), "index_bg.wasm"));
+  const { join } = await import("node:path");
+  return await readFile(join(process.cwd(), "node_modules", "@resvg", "resvg-wasm", "index_bg.wasm"));
 }
 
 /** Await before constructing a Resvg. Safe to call on every render. */

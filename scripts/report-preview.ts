@@ -5,10 +5,10 @@
  *   DATABASE_URL=… npx tsx --conditions=react-server scripts/report-preview.ts <date> <sequence> <pngPath>
  *
  * Prints {"code", "count", "totalCents", "height", "width", "missing"} as JSON
- * and writes the PNG. Exists because under `next start` the preview route
- * cannot load resvg (the Node-build gap kitchen-pos-required.spec.ts notes for
- * the ticket route; the Worker does not have it), so a spec renders here, the
- * same renderReportPng, against the same database.
+ * and writes the PNG. Written when the preview route could not load resvg
+ * under `next start` (fixed in src/lib/ticket/resvg.ts); kept because it hands
+ * the spec the drawn numbers as JSON, from the same renderReportPng and the
+ * same database.
  */
 import { writeFile } from "node:fs/promises";
 

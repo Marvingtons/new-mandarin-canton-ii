@@ -58,8 +58,14 @@ async function login(browser: Browser, viewport?: { width: number; height: numbe
   await expect(page.locator('[data-testid="day-report-open"]')).toBeVisible();
   // A touch iPad is asked once whether to turn sound on; answer it, as staff
   // would, so it is not lying over the header.
+  // The prompt can re-render or leave between isVisible() and the click (seen
+  // on WebKit), and a bare click() then waits out the test on a detached
+  // button. Retry briefly until it is gone, however it went.
   const notNow = page.getByRole("button", { name: "暫時不用" });
-  if (await notNow.isVisible()) await notNow.click();
+  await expect(async () => {
+    if (await notNow.isVisible()) await notNow.click({ timeout: 1_000 });
+    await expect(notNow).toBeHidden({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
   return page;
 }
 
@@ -163,9 +169,9 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   expect(src.searchParams.get("sequence")).toBe(String(seeded.nextSequence));
   expect(src.searchParams.get("station")).toBe("store");
 
-  // And that render, from the same database: under `next start` the route
-  // itself cannot load resvg (see scripts/report-preview.ts), so it is drawn
-  // here by the same renderReportPng and attached.
+  // And that render, from the same database, drawn here by the same
+  // renderReportPng (scripts/report-preview.ts) so its numbers can be read
+  // back and the PNG attached to the report.
   const pngPath = info.outputPath("day-report-preview.png");
   const { stdout } = await promisify(execFile)(
     "npx",

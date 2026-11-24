@@ -14,8 +14,8 @@ import { enableTestMode } from "./testMode";
  * The printed ticket is read with scripts/ticket-text.ts against the order
  * this spec just placed: its text from composeTicketSvg and its PNG from
  * renderTicket, the same render the printer gets. (Not through
- * /api/kitchen/orders/[id]/ticket: under `next start` that route fails to load
- * resvg, a Node-build problem the Worker does not have.)
+ * /api/kitchen/orders/[id]/ticket, which until resvg.ts resolved its wasm from
+ * the project root could not load resvg under `next start`.)
  */
 
 const ENTREE_3 = { en: "Sweet & Sour Pork", zh: "咕嚕肉" };
