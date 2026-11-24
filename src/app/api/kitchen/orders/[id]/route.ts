@@ -32,6 +32,8 @@ const BodySchema = z.strictObject({
    * which is what the picker preselects.
    */
   station: z.enum(STATIONS).optional(),
+  /** 改單: reprint this stored change ticket rather than the full ticket. */
+  changeTicketId: z.string().uuid().optional(),
 });
 
 export async function POST(
@@ -86,6 +88,7 @@ export async function POST(
       orderId,
       "kitchen",
       body.station,
+      body.changeTicketId ?? null,
     );
     // requestReprint refuses a CANCELLED order (never offered again) and an
     // order the printer is printing right now (one live delivery at a time).

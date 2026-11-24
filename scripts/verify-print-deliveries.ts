@@ -116,6 +116,7 @@ interface Deps {
   requestReprint: typeof import("../src/lib/orders/repository").requestReprint;
   reofferPrintDelivery: typeof import("../src/lib/orders/repository").reofferPrintDelivery;
   listActiveOrders: typeof import("../src/lib/orders/repository").listActiveOrders;
+  saveOrderEdit: typeof import("../src/lib/orders/repository").saveOrderEdit;
   ordersPool: typeof import("../src/lib/db/postgres").ordersPool;
   prints: typeof import("../src/lib/reports/prints");
   model: typeof import("../src/lib/reports/dailyModel");
@@ -205,6 +206,58 @@ async function expireInFlight(deps: Deps, orderId: number): Promise<void> {
 }
 
 /* --------------------------------------------------------- scenarios -- */
+
+// 17. 改單: a change ticket travels the same delivery machinery, and every
+// hand-over of it says which change ticket it carried.
+async function s17_changeTicketDelivery(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n17. a 改單 change ticket: labeled deliveries, held in-window, new identity on expiry, status untouched");
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h);
+  await getByToken(h, p1.token!);
+  await confirm(h, p1.token!);
+  const printed = (await deps.getOrderById(TENANT, order.id))!;
+
+  const saved = await deps.saveOrderEdit(TENANT, {
+    orderId: order.id,
+    baseRevision: 0,
+    editToken: `delivery-edit-${Date.now()}`,
+    items: [...printed.items, { ...printed.items[0], itemId: "egg-rolls", nameEn: "Egg Rolls", nameZh: "春卷", unitCents: 350, lineCents: 350 }],
+    totals: { subtotalCents: 2600, taxCents: 228, tipCents: 0, totalCents: 2828 },
+    actor: "kitchen",
+    printChange: false,
+    staffNoteLine: null,
+  });
+  const changeId = saved.kind === "saved" ? saved.changeTicketId : null;
+  check("the edit queues a change ticket", !!changeId, saved.kind);
+
+  const c1 = await poll(h);
+  const held = await poll(h);
+  check("the change ticket is offered", c1.jobReady && !!c1.token);
+  check("a second poll inside its window is HELD", !held.jobReady);
+  await expireInFlight(deps, order.id);
+  const c2 = await poll(h);
+  check("on expiry it is re-offered under a NEW identity", c2.jobReady && c2.token !== c1.token);
+  check("the superseded handle is 410", (await getByToken(h, c1.token!)).status === 410);
+  const { rows } = await deps.ordersPool().query(
+    `select id, change_ticket_id from print_deliveries where tenant_id = $1 and order_id = $2 and reason <> 'manual_reprint' order by offered_at asc, created_at asc`,
+    [TENANT, order.id],
+  );
+  check(
+    "both change hand-overs name the change ticket; the first ticket's does not",
+    rows.length === 3 && rows[0].change_ticket_id === null && rows[1].change_ticket_id === changeId && rows[2].change_ticket_id === changeId,
+    rows.map((r) => r.change_ticket_id ?? "ticket").join(", "),
+  );
+  check("the live body downloads", (await getByToken(h, c2.token!)).status === 200);
+  await confirm(h, c2.token!);
+  const after = (await deps.getOrderById(TENANT, order.id))!;
+  check("confirmed: the change pointer clears, status stays PRINTED, printed_at untouched", !after.changePending && after.status === "PRINTED" && after.printedAt === printed.printedAt);
+  check("nothing further is offered", !(await poll(h)).jobReady);
+  const board = await deps.listActiveOrders(TENANT, "2026-08-31", { includeCompleted: true });
+  const card = board.find((o) => o.id === order.id);
+  check("the card counts 改 ×1", card?.changeCount === 1);
+  check("change hand-overs do not raise the 'more than one ticket' warning", card?.deliveryCount === 1, `deliveryCount=${card?.deliveryCount}`);
+}
 
 // 1. Poll -> offer (D1) -> GET -> poll again within the window, no DELETE -> held.
 async function s1_holdWithinWindow(h: Handlers, deps: Deps): Promise<void> {
@@ -669,6 +722,7 @@ async function main(): Promise<void> {
     requestReprint: repo.requestReprint,
     reofferPrintDelivery: repo.reofferPrintDelivery,
     listActiveOrders: repo.listActiveOrders,
+    saveOrderEdit: repo.saveOrderEdit,
     ordersPool,
     prints: await import("../src/lib/reports/prints"),
     model: await import("../src/lib/reports/dailyModel"),
@@ -691,6 +745,7 @@ async function main(): Promise<void> {
     await s14_ticketsFirst(route, deps);
     await s15_requestIdempotent(route, deps);
     await s16_noTableStillPrints(route, deps);
+    await s17_changeTicketDelivery(route, deps);
   } finally {
     await closeOrdersPool();
     console.log("\nstopping postgres…");

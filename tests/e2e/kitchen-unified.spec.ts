@@ -80,6 +80,7 @@ const card = (number: string) => page.locator("article").filter({ has: page.getB
 
 let web: { id: number; number: string };
 let cooking: { id: number; number: string };
+let walkIn: { id: number; number: string };
 
 test.beforeAll(async ({ browser }) => {
   db = new Client({ host: "localhost", port: E2E_DB_PORT, user: "postgres", password: "postgres", database: "nmc_e2e" });
@@ -89,7 +90,7 @@ test.beforeAll(async ({ browser }) => {
   cooking = await seed({ channel: "web", status: "ACCEPTED", name: "Online Cooking" });
   await seed({ channel: "phone", status: "PRINTED", name: "Phone Printed" });
   await seed({ channel: "dine_in", status: "PRINTED", name: "Table 7", table: "7" });
-  await seed({ channel: "walk_in", status: "PRINT_FAILED", name: "Walk-in Failed" });
+  walkIn = await seed({ channel: "walk_in", status: "PRINT_FAILED", name: "Walk-in Failed" });
   await seed({ channel: "web", status: "COMPLETED", name: "Online Done" });
 
   // Online printer healthy; store printer out of paper for a minute.
@@ -245,13 +246,16 @@ test("keyboard: J selects an order, A accepts it", async () => {
   await page.mouse.click(5, 300);
   await page.keyboard.press("j");
   // J moves on from whatever is selected (the reprint above left its card
-  // selected, and a reprint no longer moves that card), so walk back to the
-  // top: the first card is the walk-in that did not print.
-  for (let i = 0; i < 12; i++) await page.keyboard.press("k");
+  // selected, and a reprint no longer moves that card), so walk up with K to
+  // the walk-in that did not print: not yet accepted. Walk until it is the
+  // selection rather than a fixed number of presses: other specs share this
+  // database, and how many of their cards sit above it varies.
   const selected = page.locator("article.ring-3");
   await expect(selected).toHaveCount(1);
-  const number = (await selected.locator("h3").textContent())!.trim();
-  // The first card is the walk-in that did not print: not yet accepted.
+  const selectedNumber = async () => (await selected.locator("h3").textContent())!.trim();
+  for (let i = 0; i < 60 && (await selectedNumber()) !== walkIn.number; i++) await page.keyboard.press("k");
+  const number = await selectedNumber();
+  expect(number).toBe(walkIn.number);
   await page.keyboard.press("a");
   await expect(card(number)).toContainText("製作中");
   await expect(page.getByRole("status").filter({ hasText: `${number} 已接單` })).toBeVisible();

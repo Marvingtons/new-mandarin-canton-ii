@@ -5,7 +5,8 @@ import { orderReadyLabel } from "@/lib/order/readyWindow";
 import { formatCents } from "@/lib/money";
 import { formatPhoneNational } from "@/lib/phone";
 import { formatPickupTime } from "@/lib/orders/businessDate";
-import type { Order } from "@/lib/orders/types";
+import { isEditable, type Order } from "@/lib/orders/types";
+import RevisionPanel from "@/components/kitchen/RevisionPanel";
 import Icon from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import Button from "@/components/kitchen/ui/Button";
@@ -27,7 +28,7 @@ import ui from "@/components/kitchen/ui/ui.module.css";
  * the keyboard all go through the same path.
  */
 
-export type CardRequest = "accept" | "complete" | "reprint" | "cancel" | "undo";
+export type CardRequest = "accept" | "complete" | "reprint" | "cancel" | "undo" | "edit";
 
 function OrderCard({
   order,
@@ -53,6 +54,12 @@ function OrderCard({
 }) {
   const t = useKT();
   const [showTicket, setShowTicket] = useState(false);
+  // 改單 is offered by the same rule the server enforces (lib/orders/types
+  // isEditable); the clock is read once per mount, and the server has the
+  // last word on a card left open past the 30 minutes.
+  const [mountedAt] = useState(() => Date.now());
+  const editable = isEditable(order, mountedAt);
+  const changeCount = order.changeCount ?? 0;
 
   const failed = order.status === "PRINT_FAILED";
   // A QUEUED order under an unavailable printer is WAITING, not stuck: the
@@ -130,6 +137,17 @@ function OrderCard({
                 {t("card.reprinted", { n: reprintCount })}
               </span>
             )}
+            {changeCount > 0 && (
+              <span className={`${ui.pill} bg-staff-sunken text-staff-ink`} data-change-count={changeCount}>
+                <Icon name="pencil" size={16} />
+                {t("card.changes", { n: changeCount })}
+              </span>
+            )}
+            {order.revision > 0 && !onBoard && (
+              <span className={`${ui.pill} bg-staff-ink text-staff-panel`} data-revision={order.revision}>
+                {t("card.edited", { n: order.revision })}
+              </span>
+            )}
             {multiTicket && (
               <span className={`${ui.pill} bg-staff-brand-tint text-staff-brand`}>
                 {t("card.multiDelivery", { d: deliveryCount, f: fetchCount })}
@@ -188,12 +206,21 @@ function OrderCard({
           <span>{t("card.unconfirmed", { n: order.printAttempts })}</span>
         </p>
       )}
+      {order.changeFailed && (
+        <p data-change-failed className="mx-5 mb-3 flex items-start gap-2 rounded-staff-control bg-staff-brand px-3 py-2.5 text-staff-body font-semibold text-staff-on-brand">
+          <Icon name="alert" size={20} className="mt-0.5" />
+          <span>{t("card.changeFailed")}</span>
+        </p>
+      )}
       {waiting && (
         <p className="mx-5 mb-3 flex items-start gap-2 rounded-staff-control bg-staff-gold-tint px-3 py-2.5 text-staff-body font-medium text-staff-ink">
           <Icon name="clock" size={20} className="mt-0.5" />
           <span>{t("card.waiting")}</span>
         </p>
       )}
+
+      {/* ---- 改單 history (History only, an edited order) ---- */}
+      {!onBoard && order.revision > 0 && <RevisionPanel orderId={order.id} revision={order.revision} timezone={timezone} />}
 
       {/* ---- items ---- */}
       <ul className="flex-1 divide-y divide-staff-line border-t border-staff-line px-5">
@@ -283,6 +310,11 @@ function OrderCard({
             {t("card.reprint")}
           </Button>
         )}
+        {editable && (
+          <Button variant="secondary" icon="pencil" shortcut="E" data-action="edit-order" disabled={pending} onClick={() => onRequest(order, "edit")}>
+            {t("card.edit")}
+          </Button>
+        )}
         <Button variant="secondary" icon="receipt" aria-expanded={showTicket} onClick={() => setShowTicket((v) => !v)}>
           {showTicket ? t("card.hideReceipt") : t("card.receipt")}
         </Button>
@@ -298,7 +330,7 @@ function OrderCard({
         <div className="border-t border-staff-line bg-staff-sunken p-4">
           {/* eslint-disable-next-line @next/next/no-img-element -- server-rendered PNG of unknown height, not a static asset */}
           <img
-            src={`/api/kitchen/orders/${order.id}/ticket`}
+            src={`/api/kitchen/orders/${order.id}/ticket?rev=${order.revision}`}
             alt={t("card.ticketAlt", { number: order.orderNumber })}
             className="mx-auto w-full max-w-[576px] rounded-staff-tag bg-staff-panel shadow-staff-card"
           />

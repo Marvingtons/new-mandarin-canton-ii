@@ -93,6 +93,7 @@ async function confirm(h: Handlers, token: string): Promise<number> {
 interface Repo {
   createOrder: typeof import("../src/lib/orders/repository").createOrder;
   getOrderByNumber: typeof import("../src/lib/orders/repository").getOrderByNumber;
+  saveOrderEdit: typeof import("../src/lib/orders/repository").saveOrderEdit;
 }
 
 let seq = 0;
@@ -383,6 +384,63 @@ interface ReportDeps {
   model: typeof import("../src/lib/reports/dailyModel");
 }
 
+/**
+ * 改單 CHANGE TICKET, SLOW CONFIRM. A change ticket rides the same hand-over
+ * machinery as a kitchen ticket, so it must be held through a slow print the
+ * same way: the order prints, staff add a dish, and the printer takes 45s to
+ * print and confirm the change ticket while polling every three seconds.
+ *
+ * PASS = the change ticket is handed over EXACTLY ONCE, and the order's status
+ * (PRINTED) does not move.
+ */
+async function slowConfirmChange(h: Handlers, repo: Repo, businessDate: string): Promise<Result> {
+  const order = await seedOrder(repo, businessDate);
+  console.log(`\n── 改單 change ticket: printed order edited, change DELETE after 45s (${order.orderNumber})`);
+  const first = await poll(h);
+  await fetchJob(h);
+  await confirm(h, first.token!);
+  const saved = await repo.saveOrderEdit(TENANT, {
+    orderId: order.id,
+    baseRevision: 0,
+    editToken: `recurrence-edit-${Date.now()}`,
+    items: [...order.items, { ...order.items[0], itemId: "egg-rolls", nameEn: "Egg Rolls", nameZh: "春卷", quantity: 1, unitCents: 350, lineCents: 350 }],
+    totals: { subtotalCents: 4850, taxCents: 424, tipCents: 0, totalCents: 5274 },
+    actor: "kitchen",
+    printChange: false,
+    staffNoteLine: null,
+  });
+  if (saved.kind !== "saved" || !saved.changeTicket) {
+    return { name: "改單 change ticket slow confirm", passed: false, detail: `edit: ${saved.kind}` };
+  }
+
+  const t0 = Date.now();
+  const CONFIRM_AFTER_MS = 45_000;
+  let handovers = 0;
+  let token: string | null = null;
+  let confirmed = false;
+  while (Date.now() - t0 < CONFIRM_AFTER_MS + 12_000) {
+    const answer = await poll(h);
+    if (answer.jobReady) {
+      handovers++;
+      const bytes = await fetchJob(h);
+      token = answer.token ?? token;
+      console.log(`   ${elapsed(t0)}  POST -> jobReady:true   GET -> ${bytes} bytes   CHANGE HAND-OVER #${handovers}`);
+    }
+    if (!confirmed && token && Date.now() - t0 >= CONFIRM_AFTER_MS) {
+      const status = await confirm(h, token);
+      confirmed = true;
+      console.log(`   ${elapsed(t0)}  DELETE code=OK token=${token} -> ${status}`);
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+  const final = await repo.getOrderByNumber(TENANT, businessDate, order.orderNumber);
+  return {
+    name: "改單 change ticket slow confirm (2 copies, DELETE at 45s)",
+    passed: handovers === 1 && final?.status === "PRINTED" && final.changePending === false,
+    detail: `${handovers} hand-over(s), final status ${final?.status ?? "?"}, change pending ${final?.changePending} — expected 1, PRINTED, false`,
+  };
+}
+
 /* --------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -486,6 +544,8 @@ async function main(): Promise<void> {
     results.push(await slowConfirm(route, repo, businessDate));
     await reset();
     results.push(await trueDeath(route, repo, businessDate, windowSeconds));
+    await reset();
+    results.push(await slowConfirmChange(route, repo, businessDate));
     await reset();
     results.push(await guardHasTeeth(route, repo, businessDate));
     await reset();

@@ -1050,3 +1050,97 @@ button.barPrint {
     display: none;
   }
 }
+
+/* ------------------------------------------------ 改單 EDIT MODE --
+   docs/edit-order.md. The ticket head is tinted and underlined in brand red
+   so an edit can never be mistaken for a new ticket; Cancel editing is the
+   largest control in it. */
+.editHead {
+  margin: calc(var(--spacing) * -3) calc(var(--spacing) * -4) 0;
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 3);
+  min-width: 0;
+  background: var(--color-staff-brand-tint);
+  box-shadow: inset 0 -3px 0 var(--color-staff-brand);
+}
+.editTitle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.editTitle .zh {
+  font-size: var(--text-staff-heading);
+  font-weight: 700;
+  color: var(--color-staff-brand);
+  white-space: nowrap;
+}
+.editTitle .en {
+  font-size: var(--text-staff-caption);
+  color: var(--color-staff-soft);
+  white-space: nowrap;
+}
+.editCancel {
+  flex: none;
+  flex-direction: column;
+  gap: 0;
+  min-height: calc(var(--spacing) * 12);
+  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
+  line-height: 1.15;
+  color: var(--color-staff-brand);
+  box-shadow: inset 0 0 0 2px var(--color-staff-brand);
+}
+.editCancel .zh {
+  font-weight: 700;
+}
+.editCancel .en {
+  font-size: var(--text-staff-caption);
+}
+span.who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 calc(var(--spacing) * 1);
+  font-size: var(--text-staff-body);
+  font-weight: 600;
+  overflow: hidden;
+}
+/* What moved on a line, on its second row: + 新 in gold, 原 2 → 3 / 改 in ink. */
+.editTag {
+  display: inline-block;
+  margin-right: calc(var(--spacing) * 2);
+  padding: 0 calc(var(--spacing) * 2);
+  border-radius: 999px;
+  font-weight: 800;
+  background: var(--color-staff-ink);
+  color: var(--color-staff-panel);
+}
+.editTagNew {
+  background: var(--color-staff-gold);
+  color: var(--color-staff-ink);
+}
+.was {
+  margin-top: calc(var(--spacing) * -1);
+  text-align: right;
+  font-size: var(--text-staff-caption);
+  color: var(--color-staff-soft);
+}
+.editSave {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  min-width: 0;
+}
+.editSave .en {
+  font-size: var(--text-staff-caption);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}

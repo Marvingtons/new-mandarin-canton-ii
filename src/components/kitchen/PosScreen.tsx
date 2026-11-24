@@ -6,13 +6,16 @@ import { indexItems, isAvailable, itemSizes } from "@/lib/menu/types";
 import { resolveLinePrice } from "@/lib/cart/pricing";
 import { itemMatches, queryTerms } from "@/lib/menu/search";
 import { formatCents, taxCents } from "@/lib/money";
-import { formatPhoneAsTyped, normalizePhone } from "@/lib/phone";
+import { formatPhoneAsTyped, formatPhoneNational, normalizePhone } from "@/lib/phone";
 import { staffPickupSlots, clockLabel, type PickupOptions } from "@/lib/order/pickup";
 import { isLunchService, LUNCH_END_MINUTES, LUNCH_START_MINUTES } from "@/lib/order/gates";
 import { resolveSizeZh } from "@/data/menu-overrides";
 import { RICE_GROUP_ID } from "@/lib/menu/rice";
 import { menuNumber } from "@/data/menu-presentation";
-import type { OrderLine, StaffChannel } from "@/lib/orders/types";
+import type { Order, OrderChannel, OrderLine, StaffChannel } from "@/lib/orders/types";
+import { usePathname, useRouter } from "next/navigation";
+import { diffOrderLines, isEmptyDiff, type OrderLinesDiff } from "@/lib/orders/revisionDiff";
+import EditConfirmSheet, { type EditPreview } from "@/components/kitchen/EditConfirmSheet";
 import type { Station } from "@/config/stations";
 import { categoryLook, tintStyle, type CategoryTint } from "@/lib/kitchen/posCategories";
 import { useKT } from "@/components/kitchen/KitchenI18n";
@@ -276,19 +279,114 @@ function CustomTile({ labels, onTap }: { labels: { zh: string; en: string; all: 
   );
 }
 
+/**
+ * 改單: a stored order as POS lines. Every line keeps its place and is tagged
+ * `orig:<index>`, which is how the server knows to keep its stored price
+ * (lib/orders/editPricing.ts); a custom charge and a 加價 come back as the
+ * POS drew them.
+ */
+function draftsFromOrder(order: Order): TicketLine[] {
+  return order.items.map((line, i) => {
+    const lineId = `orig:${i}`;
+    if (isCustomLine(line)) {
+      return {
+        lineId,
+        itemId: CUSTOM_ITEM_ID,
+        sizeId: "regular",
+        modifierIds: [],
+        quantity: line.quantity,
+        specialInstructions: line.specialInstructions,
+        custom: { name: line.nameZh ? `${line.nameZh} ${line.nameEn}` : line.nameEn, amountCents: line.unitCents },
+      };
+    }
+    const charge = line.modifiers.find((m) => m.id === SURCHARGE_MODIFIER_ID);
+    return {
+      lineId,
+      itemId: line.itemId,
+      sizeId: line.sizeId,
+      modifierIds: line.modifiers.filter((m) => m.id !== SURCHARGE_MODIFIER_ID).map((m) => m.id),
+      quantity: line.quantity,
+      specialInstructions: line.specialInstructions,
+      ...(charge
+        ? { surcharge: { amountCents: charge.priceCents, label: charge.nameZh ? `${charge.nameZh} ${charge.nameEn}` : charge.nameEn } }
+        : {}),
+    };
+  });
+}
+
+/** Enough of an OrderLine for the diff: the identity of each POS line, no prices. */
+function diffShape(lines: readonly TicketLine[]): OrderLine[] {
+  return lines.map((l) => ({
+    itemId: l.custom ? CUSTOM_ITEM_ID : l.itemId,
+    nameEn: l.custom ? l.custom.name : l.itemId,
+    nameZh: null,
+    sizeId: l.sizeId,
+    sizeLabel: "",
+    sizeLabelZh: null,
+    modifiers: [...l.modifierIds, ...(l.surcharge ? [`${SURCHARGE_MODIFIER_ID}:${l.surcharge.amountCents}`] : [])].map((id) => ({
+      id,
+      nameEn: id,
+      nameZh: null,
+      priceCents: 0,
+    })),
+    quantity: l.quantity,
+    unitCents: l.custom ? l.custom.amountCents : 0,
+    lineCents: 0,
+    specialInstructions: l.specialInstructions,
+    ...(l.custom ? { custom: true as const } : {}),
+  }));
+}
+
+/** The request lines, as both a new order and an edit send them (never a price). */
+function requestLines(lines: readonly TicketLine[], withIds: boolean) {
+  return lines.map((l) => ({
+    ...(withIds && l.lineId.startsWith("orig:") ? { lineId: l.lineId } : {}),
+    ...(l.custom
+      ? {
+          custom: true as const,
+          name: l.custom.name,
+          amountCents: l.custom.amountCents,
+          quantity: l.quantity,
+          ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
+        }
+      : {
+          itemId: l.itemId,
+          sizeId: l.sizeId,
+          modifierIds: l.modifierIds,
+          quantity: l.quantity,
+          ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
+          ...(l.surcharge ? { surcharge: l.surcharge } : {}),
+        }),
+  }));
+}
+
 export default function PosScreen({
   menu,
   taxRateBps,
   pickupOptions,
   asIfOpen,
+  editOrder = null,
+  editRefused = false,
 }: {
   menu: Menu;
   taxRateBps: number | null;
   pickupOptions: PickupOptions;
   /** Test-mode session: show pickup times as if the store were open. */
   asIfOpen: boolean;
+  /**
+   * 改單 EDIT MODE (docs/edit-order.md): the order being edited, loaded by the
+   * page. The ticket starts as its lines; customer, channel and pickup are
+   * shown and cannot change; Print becomes Save & print changes.
+   */
+  editOrder?: Order | null;
+  /** ?edit= named an order that cannot be edited (cancelled, done too long ago, gone). */
+  editRefused?: boolean;
 }) {
   const t = useKT();
+  const router = useRouter();
+  const pathname = usePathname();
+  /** Where the board is: this screen is `<board>/pos`. */
+  const boardPath = pathname.replace(/\/pos\/?$/, "") || "/";
   const index = useMemo(() => indexItems(menu), [menu]);
   /** Each dish's category tint, for its tile and its ticket line. */
   const tintOf = useMemo(() => {
@@ -322,10 +420,22 @@ export default function PosScreen({
   );
 
   /* ---------------------------------------------------------- the ticket -- */
-  const [lines, setLines] = useState<TicketLine[]>([]);
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [channel, setChannel] = useState<StaffChannel>("phone");
+  const editing = editOrder;
+  const original = useMemo(() => (editing ? draftsFromOrder(editing) : []), [editing]);
+  const [lines, setLines] = useState<TicketLine[]>(original);
+  const [name, setName] = useState(editing?.customer.name ?? "");
+  // An edited order's phone is shown, never sent: as staff read it, not E.164.
+  const [phone, setPhone] = useState(editing?.customer.phone ? formatPhoneNational(editing.customer.phone) : "");
+  const [channel, setChannel] = useState<StaffChannel>(
+    editing && (editing.channel === "phone" || editing.channel === "walk_in") ? editing.channel : "phone",
+  );
+  /** The channel the header names: an edited web order stays a web order. */
+  // (A retired dine_in row reads as the store order it now is.)
+  const shownChannel: Exclude<OrderChannel, "dine_in"> = editing
+    ? editing.channel === "dine_in"
+      ? "walk_in"
+      : editing.channel
+    : channel;
   /** "Scheduled for": a staff-chosen "HH:MM", or "" for none (ASAP, no time printed). */
   const [scheduled, setScheduled] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
@@ -390,10 +500,35 @@ export default function PosScreen({
   const phoneBad = phoneCheck !== null && !phoneCheck.ok;
 
   const missing: KitchenKey[] = [];
-  if (lines.length === 0) missing.push("pos.missing.lines");
-  if (channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
-  if (now && !scheduledOk) missing.push("pos.missing.scheduled");
-  const canSubmit = missing.length === 0 && !submitting && taxRateBps != null && !phoneBad && now !== null;
+  if (lines.length === 0) missing.push(editing ? "edit.emptyLines" : "pos.missing.lines");
+  if (!editing && channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
+  if (!editing && now && !scheduledOk) missing.push("pos.missing.scheduled");
+  /* 改單: what moved, against the order as loaded. Same diff the server
+     prints from, on the lines' identities (the server re-prices). */
+  const editDiff: OrderLinesDiff | null = useMemo(
+    () => (editing ? diffOrderLines(diffShape(original), diffShape(lines)) : null),
+    [editing, original, lines],
+  );
+  const dirty = editDiff !== null && !isEmptyDiff(editDiff);
+  if (editing && lines.length > 0 && !dirty) missing.push("edit.noChanges");
+  const canSubmit = editing
+    ? lines.length > 0 && dirty && !submitting && taxRateBps != null
+    : missing.length === 0 && !submitting && taxRateBps != null && !phoneBad && now !== null;
+  /** How each line differs from the order being edited, for its tag. */
+  const lineTags = useMemo(() => {
+    const tags = new Map<string, KitchenKey | { qty: [number, number] }>();
+    if (!editing) return tags;
+    const byId = new Map(original.map((l) => [l.lineId, l]));
+    const same = (a: TicketLine, b: TicketLine) =>
+      JSON.stringify(diffShape([{ ...a, quantity: 1 }])) === JSON.stringify(diffShape([{ ...b, quantity: 1 }]));
+    for (const line of lines) {
+      const was = byId.get(line.lineId);
+      if (!was) tags.set(line.lineId, "edit.tagNew");
+      else if (!same(was, line)) tags.set(line.lineId, "edit.tagChanged");
+      else if (was.quantity !== line.quantity) tags.set(line.lineId, { qty: [was.quantity, line.quantity] });
+    }
+    return tags;
+  }, [editing, original, lines]);
 
   /* ------------------------------------------------------ menu selection -- */
   const [query, setQuery] = useState("");
@@ -852,7 +987,108 @@ export default function PosScreen({
     setNotice(null);
   }
 
+  /* ---------------------------------------------------- 改單 save -- */
+  const [confirmEdit, setConfirmEdit] = useState<{ preview: EditPreview | null; token: string } | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editConflict, setEditConflict] = useState(false);
+  const [printChange, setPrintChange] = useState(false);
+  const editDone = editing?.status === "COMPLETED";
+
+  function editErrorText(code: string | undefined, detail?: string): string {
+    if (code === "rejected") return t("edit.error.rejected", { detail: detail ?? "" });
+    const known = [
+      "conflict", "change_printing", "not_editable", "not_found", "no_changes", "empty",
+      "item_unavailable", "bad_request", "unauthorized", "unavailable", "network", "rate",
+    ];
+    return t(`edit.error.${known.includes(code ?? "") ? code : "unavailable"}` as KitchenKey);
+  }
+
+  async function postEdit(token: string, dryRun: boolean) {
+    if (!editing) return null;
+    const res = await fetch(`/api/kitchen/orders/${editing.id}/edit`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseRevision: editing.revision,
+        editToken: token,
+        lines: requestLines(lines, true),
+        ...(lunchOverride && hasLunchLine && !lunchNow ? { lunchOverride: true } : {}),
+        ...(editDone && printChange ? { printChange: true } : {}),
+        ...(dryRun ? { dryRun: true } : {}),
+      }),
+    });
+    if (res.status === 429) return { ok: false as const, code: "rate" };
+    return (await res.json()) as {
+      ok: boolean;
+      code?: string;
+      error?: string;
+      diff?: OrderLinesDiff;
+      totals?: { totalCents: number };
+      oldTotals?: { totalCents: number };
+      print?: EditPreview["print"];
+    };
+  }
+
+  /** Save: the server's dry run first, shown in the confirm sheet. */
+  async function openEditConfirm() {
+    if (!canSubmit || !editing) return;
+    // One token per confirm sheet: a double tap on its Save is one edit.
+    const token = newKey();
+    setEditError(null);
+    setEditConflict(false);
+    setConfirmEdit({ preview: null, token });
+    try {
+      const data = await postEdit(token, true);
+      if (!data?.ok || !data.diff || !data.totals || !data.oldTotals || !data.print) {
+        setEditError(editErrorText(data?.code, data?.error));
+        setEditConflict(data?.code === "conflict");
+        return;
+      }
+      setConfirmEdit({
+        token,
+        preview: {
+          diff: data.diff,
+          oldTotalCents: data.oldTotals.totalCents,
+          newTotalCents: data.totals.totalCents,
+          print: data.print,
+        },
+      });
+    } catch {
+      setEditError(t("edit.error.network"));
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing || !confirmEdit?.preview) return;
+    setSubmitting(true);
+    setEditError(null);
+    try {
+      const data = await postEdit(confirmEdit.token, false);
+      if (!data?.ok) {
+        setEditError(editErrorText(data?.code, data?.error));
+        setEditConflict(data?.code === "conflict");
+        return;
+      }
+      toast(t("edit.saved", { number: editing.orderNumber }), "info");
+      void refreshLive();
+      setConfirmEdit(null);
+      router.push(boardPath);
+    } catch {
+      setEditError(t("edit.error.network"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function cancelEditing() {
+    router.push(boardPath);
+  }
+
   async function submit() {
+    if (editing) {
+      void openEditConfirm();
+      return;
+    }
     if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
@@ -861,24 +1097,7 @@ export default function PosScreen({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          lines: lines.map((l) =>
-            l.custom
-              ? {
-                  custom: true,
-                  name: l.custom.name,
-                  amountCents: l.custom.amountCents,
-                  quantity: l.quantity,
-                  ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
-                }
-              : {
-                  itemId: l.itemId,
-                  sizeId: l.sizeId,
-                  modifierIds: l.modifierIds,
-                  quantity: l.quantity,
-                  ...(l.specialInstructions ? { specialInstructions: l.specialInstructions } : {}),
-                  ...(l.surcharge ? { surcharge: l.surcharge } : {}),
-                },
-          ),
+          lines: requestLines(lines, false),
           channel,
           customer: {
             ...(name.trim() ? { name: name.trim() } : {}),
@@ -1064,9 +1283,41 @@ export default function PosScreen({
           {notice}
         </p>
       )}
+      {editing && (
+        <div className={s.editHead} data-edit-head>
+          <span className={s.editTitle}>
+            <span lang="zh-Hant" className={`${s.zh} ${s.num}`}>
+              {t("edit.titleZh", { number: editing.orderNumber })}
+            </span>
+            <span className={s.en}>{t("edit.titleEn")}</span>
+          </span>
+          <button type="button" data-action="cancel-edit" onClick={cancelEditing} className={`${btn("secondary")} ${s.editCancel}`}>
+            <span lang="zh-Hant" className={s.zh}>
+              {t("edit.cancelZh")}
+            </span>
+            <span lang="en" className={s.en}>
+              {t("edit.cancelEn")}
+            </span>
+          </button>
+        </div>
+      )}
+      {editRefused && (
+        <p role="alert" className={s.status}>
+          {t("edit.notEditable")}
+        </p>
+      )}
       <div className={s.tRow}>
         {/* Phone or walk-in, strongest on the ticket. */}
-        <span className={s.key}>{t(`channel.${channel}`)}</span>
+        <span className={s.key}>{t(`channel.${shownChannel}`)}</span>
+        {editing ? (
+          <span className={s.who} data-customer-locked title={t("edit.customerLocked")} aria-label={t("edit.customerLocked")}>
+            <span className={s.whoText}>
+              {name.trim() && <span className={s.ctx}>{name.trim()}</span>}
+              {phone.trim() && <span className={s.num}>{phone.trim()}</span>}
+            </span>
+          </span>
+        ) : (
+          <>
         {/* Who it is for: a name if staff took one (optional), the phone a
             phone order needs, and the scheduled time if it has one. */}
         <button
@@ -1093,7 +1344,9 @@ export default function PosScreen({
           )}
           {scheduledLabel && <span className={`${s.num} ${s.when}`}>{t("pos.scheduledAt", { time: scheduledLabel })}</span>}
         </button>
-        {(lines.length > 0 || customerSummary) && (
+          </>
+        )}
+        {!editing && (lines.length > 0 || customerSummary) && (
           <button
             type="button"
             aria-label={t("pos.clearOrder")}
@@ -1177,6 +1430,14 @@ export default function PosScreen({
                   <span className={`${s.lp} ${s.num}`}>{formatCents(lineCents)}</span>
                 </span>
                 <span className={`${s.sub} ${s.one}`}>
+                  {lineTags.has(line.lineId) && (
+                    <span data-edit-tag className={`${s.editTag} ${lineTags.get(line.lineId) === "edit.tagNew" ? s.editTagNew : ""}`}>
+                      {(() => {
+                        const tag = lineTags.get(line.lineId)!;
+                        return typeof tag === "string" ? t(tag) : t("edit.tagQty", { from: tag.qty[0], to: tag.qty[1] });
+                      })()}
+                    </span>
+                  )}
                   {summary.length > 0 && (
                     <span lang="zh-Hant" className={s.opts}>
                       {summary.join(" / ")}
@@ -1213,7 +1474,16 @@ export default function PosScreen({
       })
     );
 
-  const printLabel = submitting ? (
+  const printLabel = editing ? (
+    <span className={s.editSave}>
+      <span lang="zh-Hant" className={s.zh}>
+        {t("edit.saveZh")}
+      </span>
+      <span lang="en" className={s.en}>
+        {lines.length === 0 ? t("edit.emptyLines") : dirty ? t("edit.saveEn") : t("edit.noChanges")}
+      </span>
+    </span>
+  ) : submitting ? (
     t("pos.printing")
   ) : lines.length === 0 ? (
     <>
@@ -1396,12 +1666,17 @@ export default function PosScreen({
             </span>
             <span className={`${s.v} ${s.num}`}>{formatCents(total)}</span>
           </div>
+          {editing && (
+            <p className={`${s.was} ${s.num}`} data-was-total>
+              {t("edit.was", { total: formatCents(editing.totals.totalCents) })}
+            </p>
+          )}
           {error && (
             <p role="alert" className={s.alert}>
               {error}
             </p>
           )}
-          {!error && lines.length > 0 && missing.length > 0 && (
+          {!error && !editing && lines.length > 0 && missing.length > 0 && (
             <p className={s.alert}>{missing.map((k) => t(k)).join(" · ")}</p>
           )}
           <div className={s.footRow}>
@@ -1449,7 +1724,7 @@ export default function PosScreen({
         >
           <Icon name="chevronDown" size={24} className={s.barChevron} />
           <span className={s.barWho}>
-            <span className={s.key}>{t(`channel.${channel}`)}</span>
+            <span className={s.key}>{editing ? t("edit.titleZh", { number: editing.orderNumber }) : t(`channel.${channel}`)}</span>
             <span className={`${s.soft} ${s.one}`}>
               {placed ? `${placed.orderNumber} · ${t("pos.sent")}` : customerSummary || t("pos.addCustomerEn")}
             </span>
@@ -1471,7 +1746,11 @@ export default function PosScreen({
           title={!error && lines.length > 0 && missing.length > 0 ? missing.map((k) => t(k)).join(" · ") : undefined}
           className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.barPrint}`}
         >
-          {submitting ? (
+          {editing ? (
+            <span lang="zh-Hant" className={s.zh}>
+              {dirty ? t("edit.saveZh") : t("edit.noChanges")}
+            </span>
+          ) : submitting ? (
             t("pos.printing")
           ) : (
             <>
@@ -1483,6 +1762,26 @@ export default function PosScreen({
           )}
         </button>
       </div>
+
+      {confirmEdit && editing && (
+        <EditConfirmSheet
+          orderNumber={editing.orderNumber}
+          preview={confirmEdit.preview}
+          web={editing.channel === "web"}
+          done={editDone}
+          printChange={printChange}
+          onPrintChange={setPrintChange}
+          saving={submitting}
+          error={editError}
+          reopen={editConflict}
+          onConfirm={() => {
+            // Another tablet saved first: load the order as it is now.
+            if (editConflict) window.location.reload();
+            else void saveEdit();
+          }}
+          onClose={() => setConfirmEdit(null)}
+        />
+      )}
 
       {/* --------------------------------------- customer details + notes -- */}
       {detailsOpen && (

@@ -11,7 +11,9 @@ import { businessDateFor } from "@/lib/orders/businessDate";
 import {
   countQueuedOrders,
   findUnprintedForAlert,
+  findUnprintedChangeTickets,
   markAlerted,
+  markChangeTicketAlerted,
   releaseAlertClaim,
 } from "@/lib/orders/repository";
 import {
@@ -327,6 +329,40 @@ function printerAlertText(
   );
 }
 
+/**
+ * 改單 CHANGE TICKETS that did not print (migration 017). One text per ticket,
+ * claimed before sending so overlapping sweeps send one. A change ticket is
+ * as consequential as a kitchen ticket: a dish added and never cooked is a
+ * customer short at the counter. Unlike an order, a failed send is not
+ * retried; the card on the board is red either way.
+ */
+async function alertOnChangeTickets(
+  tenantId: string,
+  timezone: string,
+  owner: string | null,
+  smsReady: boolean,
+): Promise<{ found: number; alerted: number }> {
+  const due = await findUnprintedChangeTickets(tenantId, THRESHOLD_SECONDS, businessDateFor(timezone));
+  if (due.length === 0) return { found: 0, alerted: 0 };
+  console.warn(
+    `[alert] ${due.length} change ticket(s) unprinted: ` +
+      due.map((c) => `${c.orderNumber} rev ${c.revision}${c.failed ? " (gave up)" : ""}`).join(", "),
+  );
+  if (!owner || !smsReady) return { found: due.length, alerted: 0 };
+  let alerted = 0;
+  for (const change of due) {
+    if (!(await markChangeTicketAlerted(tenantId, change.id))) continue;
+    const result = await sendSms(
+      owner,
+      `${restaurant.name}: the CHANGE ticket for order ${change.orderNumber} (edit ${change.revision}) ` +
+        "has NOT printed. Open the kitchen screen and reprint it.",
+    );
+    if (result.sent) alerted++;
+    else console.error(`[alert] could not text the owner about change ${change.orderNumber}: ${result.error}`);
+  }
+  return { found: due.length, alerted };
+}
+
 export async function GET(request: Request): Promise<Response> {
   if (!authorized(request)) {
     return Response.json({ ok: false }, { status: 401 });
@@ -361,6 +397,16 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
+  let changes = { found: 0, alerted: 0 };
+  try {
+    changes = await alertOnChangeTickets(tenant.tenantId, tenant.timezone, owner, isSmsConfigured());
+  } catch (err) {
+    console.error(
+      "[alert] change ticket check failed:",
+      err instanceof Error ? err.message : "unknown error",
+    );
+  }
+
   let due;
   try {
     due = await findUnprintedForAlert(
@@ -378,7 +424,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   if (due.length === 0) {
-    return Response.json({ ok: true, found: 0, alerted: 0, printer: printerAlert, failover });
+    return Response.json({ ok: true, found: 0, alerted: 0, printer: printerAlert, failover, changes });
   }
 
   // Loud in the logs even when SMS cannot go out — an operator reading logs
@@ -396,6 +442,7 @@ export async function GET(request: Request): Promise<Response> {
       skipped: owner ? "SMS is not configured" : "OWNER_ALERT_PHONE is not set",
       printer: printerAlert,
       failover,
+      changes,
     });
   }
 
@@ -451,5 +498,6 @@ export async function GET(request: Request): Promise<Response> {
     exhausted,
     printer: printerAlert,
     failover,
+    changes,
   });
 }

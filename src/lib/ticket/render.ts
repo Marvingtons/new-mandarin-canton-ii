@@ -6,7 +6,7 @@ import { loadTicketMetrics } from "@/lib/ticket/measure";
 import { encodeMonochromePng, findSegmentCuts } from "@/lib/ticket/png";
 import { JOB_BUDGET_BYTES, jobBytesFor, planSegments } from "@/lib/ticket/segments";
 import { encodeStarPrntCopies, maxStarPrntRows } from "@/lib/ticket/starprnt";
-import { BLACK, Canvas, WHITE } from "@/lib/ticket/layout";
+import { BLACK, Canvas, MIN_RULE_PX, WHITE } from "@/lib/ticket/layout";
 import type { PlacedLine } from "@/lib/ticket/layout";
 import { copyProfile } from "@/lib/ticket/copies";
 import type { TicketCopyProfile, TicketCopyRole } from "@/lib/ticket/copies";
@@ -17,6 +17,7 @@ import { formatPhoneNational } from "@/lib/phone";
 import { stationForChannel } from "@/config/stations";
 import { isPreparationModifierId } from "@/lib/menu/preparation";
 import type { Order, OrderLine } from "@/lib/orders/types";
+import type { ChangedLine, OrderChangeTicket } from "@/lib/orders/revisionDiff";
 import { SURCHARGE_MODIFIER_ID } from "@/lib/kitchen/customCharge";
 
 /**
@@ -391,6 +392,111 @@ function drawLine(
   c.space(18);
 }
 
+/** A block heading: "+ 加 ADDED", ruled under so it reads as a section. */
+function blockHeading(c: Canvas, mark: string, zh: string, en: string, coverage: Set<number>): void {
+  const z = zhIfPrintable(zh, coverage);
+  c.text(`${mark} ${z ? `${z} ` : ""}${en}`, { size: 40, weight: 700, marginTop: 10 });
+  c.rule(MIN_RULE_PX, 4, 14);
+}
+
+/** The size as the 改 line names it: 中文 when printable, else English. */
+function sizeName(line: OrderLine, coverage: Set<number>): string {
+  if (line.custom) return formatCents(line.unitCents);
+  const zh = zhIfPrintable(line.sizeLabelZh, coverage);
+  const label = line.sizeLabel.trim();
+  const en = SIZE_CHIP_EN[label.toLowerCase()] ?? label;
+  return zh ?? en;
+}
+
+function modifierNames(line: OrderLine, coverage: Set<number>): string {
+  const names = line.modifiers.map((m) => zhIfPrintable(m.nameZh, coverage) ?? m.nameEn);
+  return names.length > 0 ? names.join(" ") : "-";
+}
+
+/** "2 → 3", "餐盤 → 半盤", "備註 加辣 → 走辣": one line per field that moved. */
+function changeSummary(ch: ChangedLine, coverage: Set<number>): string[] {
+  const out: string[] = [];
+  for (const field of ch.fields) {
+    if (field === "quantity") out.push(`${ch.before.quantity} → ${ch.after.quantity}`);
+    if (field === "size") out.push(`${sizeName(ch.before, coverage)} → ${sizeName(ch.after, coverage)}`);
+    if (field === "modifiers") {
+      out.push(`${modifierNames(ch.before, coverage)} → ${modifierNames(ch.after, coverage)}`);
+    }
+    if (field === "note") {
+      const before = (ch.before.specialInstructions ?? "").trim() || "-";
+      const after = (ch.after.specialInstructions ?? "").trim() || "-";
+      out.push(`${L.note} ${before} → ${after}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * The body of a 改單 CHANGE TICKET: only the blocks that have something in
+ * them, then one footer line. ADDED lines print exactly like a kitchen line.
+ * REMOVED lines print the same way with a heavy strike through the name, so
+ * a torn-off half still says "not this". A CHANGED line is the dish as it is
+ * NOW, then the move in large type ("2 → 3").
+ */
+function drawChangeBlocks(
+  c: Canvas,
+  change: OrderChangeTicket,
+  coverage: Set<number>,
+  showPrice: boolean,
+): void {
+  const { diff } = change;
+  if (diff.added.length > 0) {
+    blockHeading(c, "+", L.added, "ADDED", coverage);
+    for (const line of diff.added) drawLine(c, line, coverage, showPrice);
+  }
+  if (diff.removed.length > 0) {
+    blockHeading(c, "-", L.removed, "REMOVED", coverage);
+    for (const line of diff.removed) {
+      const top = c.height;
+      const first = c.placed.length;
+      // Removed lines carry no price: the money is in the new total.
+      drawLine(c, line, coverage, false);
+      /* A heavy strike through the middle of every NAME row (the English
+         rows, then the 中文 under them, laid out top-down from `top` exactly
+         as drawLine stacks them). Sides and notes are left readable. */
+      let y = top;
+      let zhStarted = false;
+      // The ×N badge is placed first, left of the name column: not a name row.
+      for (const placed of c.placed.slice(first).filter((p) => p.x >= INDENT)) {
+        if (placed.size !== NAME_SIZE && placed.size !== NAME_ZH_SIZE) break;
+        if (placed.size === NAME_ZH_SIZE && !zhStarted) {
+          zhStarted = true;
+          y += 2;
+        }
+        const h = placed.size * 1.2;
+        c.rect(placed.x, y + h * 0.52 - 3, placed.width, 6);
+        y += h;
+      }
+    }
+  }
+  if (diff.changed.length > 0) {
+    blockHeading(c, L.changed, "", "CHANGED", coverage);
+    for (const ch of diff.changed) {
+      // A note that moved is printed once, as "備註 old → new", not twice.
+      const now = ch.fields.includes("note") ? { ...ch.after, specialInstructions: undefined } : ch.after;
+      drawLine(c, now, coverage, false);
+      c.space(-12);
+      for (const move of changeSummary(ch, coverage)) {
+        c.box({ x: INDENT, width: CONTENT_WIDTH - INDENT, border: 4, padding: 6, marginTop: 4 }, (b) => {
+          b.text(move, { size: 38, weight: 700, lineHeight: 1.2 });
+        });
+      }
+      c.space(18);
+    }
+  }
+  const zh = zhIfPrintable(L.unchanged, coverage);
+  c.rule(5);
+  c.text(
+    `${zh ? `${zh} ` : ""}OTHER ${diff.unchangedCount} ITEM${diff.unchangedCount === 1 ? "" : "S"} UNCHANGED`,
+    { size: 28, weight: 700, marginTop: 4 },
+  );
+}
+
 export interface RenderTicketOptions {
   timezone: string;
   /**
@@ -416,6 +522,18 @@ export interface RenderTicketOptions {
   copyRoles?: TicketCopyRole[] | null;
   /** Printed in the header so a reprint is obvious at the pass. */
   reprint?: boolean;
+  /**
+   * 改單: render a CHANGE TICKET instead of the full ticket. Same header,
+   * copies and money rules; the items become the + / - / 改 blocks of this
+   * stored diff. See docs/edit-order.md and lib/orders/revisionDiff.ts.
+   */
+  change?: OrderChangeTicket | null;
+  /**
+   * A FULL ticket of an order that has been edited (the Receipt view, a
+   * 重印): its revision, printed as 已改 REVISED 第N次 beside the number.
+   * 0 or absent prints nothing, so every unedited order is unchanged.
+   */
+  revision?: number;
 }
 
 /** What a composed ticket actually printed in money terms. */
@@ -578,8 +696,28 @@ export async function composeTicketSvg(
   // ticket is, and the pass reads the number first. One step down from the
   // old 96: the phone below is the largest type on the ticket, and the
   // number must not compete with it.
-  const numberTop = c.height;
-  c.text(order.orderNumber, { size: TAKEOUT_NUMBER_SIZE, weight: 700, lineHeight: 1.1 });
+  const change = options.change ?? null;
+  let numberTop = c.height;
+  if (change) {
+    /* 改單 CHANGE · A-002 is the largest thing on a change ticket, inverted,
+       so nobody at the pass can take it for a new order. The order number is
+       the original's: an edit never renumbers. The revision and the time it
+       was saved sit under it, where the badge and chips go. */
+    const zh = zhIfPrintable(L.change, coverage);
+    const band = `${zh ? `${zh} ` : ""}CHANGE · ${order.orderNumber}`;
+    let size = TAKEOUT_NUMBER_SIZE;
+    while (size > 30 && metrics.measure(band, size, 700) > CONTENT_WIDTH - 24) size -= 2;
+    c.banner(band, { size, padY: 10 });
+    const revZh = zhIfPrintable(`${L.revisionBefore}${change.revision}${L.revisionAfter}`, coverage);
+    numberTop = c.height + 10;
+    c.text(
+      `${revZh ? `${revZh} ` : ""}REV ${change.revision} · ${formatPickupTime(change.savedAt, options.timezone)}`,
+      { size: 34, weight: 700, lineHeight: 1.1, marginTop: 10 },
+    );
+    c.space(Math.max(0, numberTop + PAID_BADGE_SIZE - c.height));
+  } else {
+    c.text(order.orderNumber, { size: TAKEOUT_NUMBER_SIZE, weight: 700, lineHeight: 1.1 });
+  }
   /* THE REGISTER COPY'S BADGE: a filled square with a white "$", the height
      of the order number, in the top-right corner of the number's row. No
      words with it. The kitchen copy has nothing here. A reprint chip, when
@@ -593,7 +731,24 @@ export async function composeTicketSvg(
     });
     chipRight = CONTENT_WIDTH - side - 12;
   }
-  if (options.reprint) reprintChip(numberTop, chipRight);
+  if (options.reprint) {
+    reprintChip(numberTop, chipRight);
+    chipRight -= metrics.measure(`${L.reprint} REPRINT`, 24, 700) + 20 + 10;
+  }
+  /* 已改 REVISED 第2次 on a FULL ticket of an edited order, so a receipt or a
+     reprint is never mistaken for the contents the kitchen first saw. */
+  if (!change && (options.revision ?? 0) > 0) {
+    const zh = zhIfPrintable(
+      `${L.revised} ${L.revisionBefore}${options.revision}${L.revisionAfter}`,
+      coverage,
+    );
+    const label = zh ? `${zh} REVISED` : `REVISED ${options.revision}`;
+    const w = metrics.measure(label, 24, 700) + 20;
+    c.rect(chipRight - w, numberTop, w, 24 * 1.2 + 6);
+    c.place(chipRight - w, numberTop + 3, w, (chip) => {
+      chip.text(label, { size: 24, weight: 700, color: WHITE, align: "center" });
+    });
+  }
 
   /* A staff-entered order says so, inverted, under the number: there is no
      customer refreshing a confirmation page for it, and the person at the
@@ -647,7 +802,11 @@ export async function composeTicketSvg(
   c.rule(5);
 
   /* ---------------- items ---------------- */
-  for (const line of order.items) drawLine(c, line, coverage, profile.linePrices);
+  if (change) {
+    drawChangeBlocks(c, change, coverage, profile.linePrices);
+  } else {
+    for (const line of order.items) drawLine(c, line, coverage, profile.linePrices);
+  }
 
   c.rule(5);
 
@@ -655,11 +814,24 @@ export async function composeTicketSvg(
   // The customer is in the header above.
   c.text(`${L.placed} ${placedLabel}`, { size: 21, marginTop: 6 });
 
+  /* A CHANGE TICKET'S MONEY is one line on the copy that shows money: the
+     new total and what it was. The kitchen copy carries none (copies.ts). */
+  if (change && profile.priceBlock) {
+    c.rule();
+    const top = c.height;
+    c.text(`${L.newTotal} NEW TOTAL`, { size: 36, weight: 700 });
+    c.place(0, top, CONTENT_WIDTH, (v) => {
+      v.text(formatCents(change.newTotalCents), { size: 36, weight: 700, align: "right" });
+    });
+    c.text(`${L.was} WAS ${formatCents(change.oldTotalCents)}`, { size: 24, weight: 700, align: "right" });
+    c.banner(`${L.payAtCounter} · COLLECT PAYMENT`, { size: 30, marginTop: 12 });
+  }
+
   /* ---------------- totals ---------------- */
   /* THE KITCHEN COPY STOPS HERE. No subtotal, no tax, no total, no COLLECT
      PAYMENT bar: a cook does not ring the order, so every one of those lines
      is paper spent on something nobody on the line reads. */
-  if (profile.priceBlock) {
+  if (profile.priceBlock && !change) {
     c.rule();
 
     const money = (
@@ -693,8 +865,8 @@ export async function composeTicketSvg(
 
     printed.push({
       role: profile.role,
-      lineCents: profile.linePrices ? order.items.map((l) => l.lineCents) : [],
-      totals: profile.priceBlock
+      lineCents: profile.linePrices && !change ? order.items.map((l) => l.lineCents) : [],
+      totals: profile.priceBlock && !change
         ? {
             subtotal: order.totals.subtotalCents,
             tax: order.totals.taxCents,

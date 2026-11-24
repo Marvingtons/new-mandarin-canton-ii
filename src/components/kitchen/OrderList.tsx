@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import type { Station } from "@/config/stations";
 import type { Order } from "@/lib/orders/types";
 import { useKT } from "@/components/kitchen/KitchenI18n";
@@ -19,7 +20,7 @@ import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
  * action behaves the same whichever screen, and whichever station.
  *
  * Keyboard (board only): J/K or the arrows move the selection, A accept,
- * C complete, P reprint, X cancel. A selected card is ringed in lacquer.
+ * C complete, P reprint, E edit (改單, opens the POS on the order), X cancel. A selected card is ringed in lacquer.
  */
 
 type Pending = { kind: "reprint" | "cancel"; order: Order } | null;
@@ -48,6 +49,10 @@ export default function OrderList({
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [dialog, setDialog] = useState<Pending>(null);
   const [cancelNote, setCancelNote] = useState("");
+  const router = useRouter();
+  const pathname = usePathname();
+  /** The board's own path: this list is on `<board>` or `<board>/history`. */
+  const boardPath = pathname.replace(/\/history\/?$/, "").replace(/\/$/, "");
 
   const done = useCallback(
     (ok: boolean) => {
@@ -63,12 +68,19 @@ export default function OrderList({
         void act(order, kind).then(done);
         return;
       }
+      // 改單: the POS, preloaded with this order. Nothing is written until
+      // its Save, so there is nothing to confirm here.
+      if (kind === "edit") {
+        if (order.status === "CANCELLED") return;
+        router.push(`${boardPath}/pos?edit=${order.id}`);
+        return;
+      }
       if (kind === "reprint" && order.status === "CANCELLED") return;
       if (kind === "cancel" && (order.status === "CANCELLED" || order.status === "COMPLETED")) return;
       setCancelNote("");
       setDialog({ kind, order });
     },
-    [act, done],
+    [act, done, router, boardPath],
   );
 
   /* ---- keyboard ---- */
@@ -97,6 +109,7 @@ export default function OrderList({
       a: onSelected("accept"),
       c: onSelected("complete"),
       p: onSelected("reprint"),
+      e: onSelected("edit"),
       x: onSelected("cancel"),
     },
     keyboard,
@@ -135,10 +148,10 @@ export default function OrderList({
         <ReprintDialog
           order={dialog.order}
           onClose={() => setDialog(null)}
-          onReprint={(station) => {
+          onReprint={(station, changeTicketId) => {
             const order = dialog.order;
             setDialog(null);
-            void act(order, "reprint", { station }).then(done);
+            void act(order, "reprint", { station, changeTicketId }).then(done);
           }}
         />
       )}

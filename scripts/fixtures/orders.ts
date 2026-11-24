@@ -178,6 +178,10 @@ export function fixtureOrder(): Order {
     staffNote: null,
     createdAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
     updatedAt: new Date("2026-07-27T01:05:00.000Z").toISOString(),
+    revision: 0,
+    editedAt: null,
+    ticketRevision: null,
+    changePending: false,
   };
 }
 

@@ -4,6 +4,10 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { E2E_BYPASS, E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
+// The sheet formats with the app's one money formatter, which has no
+// thousands separator ("$1595.37"); a local en-US formatter disagreed as soon
+// as a day passed $1,000.
+import { formatCents } from "../../src/lib/money";
 
 /**
  * 日結 Day report, from History.
@@ -137,8 +141,6 @@ async function openSheet(page: Page): Promise<void> {
   if (date !== today) await dialog.getByRole("button", { name: /後一天|Next day/ }).click();
 }
 
-const money = (cents: number) =>
-  `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 test("the sheet previews today's totals and Print enqueues exactly one job", async ({ browser }, info) => {
   await setPrinters("ok");
@@ -158,7 +160,7 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   const dialog = page.getByRole("dialog");
   const all = seeded.report.columns.all;
   await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(String(all.count));
-  await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(money(all.totalCents));
+  await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(formatCents(all.totalCents));
 
   // The preview asks the renderer for exactly this day and the next #N.
   const preview = dialog.locator('[data-testid="report-preview"]');

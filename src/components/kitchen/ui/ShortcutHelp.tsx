@@ -14,6 +14,7 @@ const GROUPS: { keys: string[]; label: KitchenKey }[][] = [
     { keys: ["A"], label: "card.accept" },
     { keys: ["C"], label: "card.complete" },
     { keys: ["P"], label: "card.reprint" },
+    { keys: ["E"], label: "card.edit" },
     { keys: ["X"], label: "card.cancel" },
     { keys: ["1", "2", "3"], label: "shortcuts.station" },
     { keys: ["/"], label: "shortcuts.search" },

@@ -365,6 +365,12 @@ export default function OrderHistory({
                   </span>
                   <span className="flex flex-wrap items-center gap-1 text-staff-caption text-staff-soft">
                     {deliveries > 0 && t("history.sent", { n: deliveries })}
+                    {/* 改單: opening the row shows each revision's diff (RevisionPanel). */}
+                    {o.revision > 0 && (
+                      <span data-history-edited={o.revision} className={`${ui.pill} bg-staff-ink text-staff-panel`}>
+                        {t("card.edited", { n: o.revision })}
+                      </span>
+                    )}
                     {multi && (
                       <span className={`${ui.pill} bg-staff-brand-tint text-staff-brand`}>
                         {t("card.multiDelivery", { d: deliveries, f: o.fetchCount ?? 0 })}

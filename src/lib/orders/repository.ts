@@ -7,6 +7,7 @@ import { checkOrderRead, checkVersionRead, noteOrderWrite } from "@/lib/db/stale
 import {
   formatOrderNumber,
   isOrderStatus,
+  EDIT_AFTER_DONE_MINUTES,
   PRINT_STUCK_SECONDS,
   ACTIVE_STATUSES,
   PRINTABLE_STATUSES,
@@ -22,6 +23,12 @@ import {
   type PrintDelivery,
   type PrintDeliveryReason,
 } from "@/lib/orders/types";
+import {
+  diffOrderLines,
+  isEmptyDiff,
+  type OrderChangeTicket,
+  type OrderLinesDiff,
+} from "@/lib/orders/revisionDiff";
 import {
   HISTORY_PAGE_SIZE,
   type HistoryPage,
@@ -78,7 +85,9 @@ const DELIVERY_COLUMNS = `
   confirm_code,
   reason,
   actor,
-  station
+  station,
+  change_ticket_id,
+  ticket_revision
 `;
 
 function mapDelivery(row: QueryResultRow): PrintDelivery {
@@ -95,6 +104,8 @@ function mapDelivery(row: QueryResultRow): PrintDelivery {
     reason: String(row.reason) as PrintDeliveryReason,
     actor: row.actor === null ? null : String(row.actor),
     station: isStation(row.station) ? row.station : null,
+    changeTicketId: row.change_ticket_id == null ? null : String(row.change_ticket_id),
+    ticketRevision: row.ticket_revision == null ? null : Number(row.ticket_revision),
   };
 }
 
@@ -148,7 +159,11 @@ const ORDER_COLUMNS = `
   created_at,
   updated_at,
   done_previous_status,
-  done_at
+  done_at,
+  revision,
+  edited_at,
+  ticket_revision,
+  change_ticket_id
 `;
 
 function mapOrder(row: QueryResultRow): Order {
@@ -205,6 +220,10 @@ function mapOrder(row: QueryResultRow): Order {
     updatedAt: (row.updated_at as Date).toISOString(),
     donePreviousStatus: isOrderStatus(row.done_previous_status) ? row.done_previous_status : null,
     doneAt: row.done_at == null ? null : (row.done_at as Date).toISOString(),
+    revision: row.revision == null ? 0 : Number(row.revision),
+    editedAt: row.edited_at == null ? null : (row.edited_at as Date).toISOString(),
+    ticketRevision: row.ticket_revision == null ? null : Number(row.ticket_revision),
+    changePending: row.change_ticket_id != null,
   };
 }
 
@@ -413,17 +432,59 @@ export async function createOrder(
  */
 function needsPaperFrom(statuses: string, stations: string): string {
   return `(
-    (orders.reprint_delivery_id is null
-      and orders.status = any(${statuses}::text[])
+    (${SERVES_FIRST(statuses)}
       and orders.print_station = any(${stations}::text[]))
-    or (orders.reprint_delivery_id is not null
-      and orders.status <> 'CANCELLED'
+    or (${SERVES_CHANGE(statuses)}
+      and orders.print_station = any(${stations}::text[]))
+    or (${SERVES_REPRINT()}
       and exists (
         select 1 from print_deliveries r
          where r.id = orders.reprint_delivery_id
            and r.station = any(${stations}::text[])))
   )`;
 }
+
+/*
+ * WHICH BODY AN ORDER NEEDS NEXT, as three mutually exclusive predicates on an
+ * `orders` row. One order holds one hand-over at a time (print_attempts,
+ * print_delivery_id, the segment cursor), so when it needs more than one body
+ * they go in this order:
+ *
+ *   1. its FIRST kitchen ticket (QUEUED, no 重印 pending), as before;
+ *   2. a 改單 CHANGE TICKET (migration 017), once the first ticket is out of
+ *      the way: the kitchen must have the order before it can apply a change;
+ *   3. a 重印 copy (which may itself be a copy of a change ticket).
+ *
+ * The confirmation of each resets print_attempts to 0 when another is still
+ * waiting, so the next poll claims it like a fresh ticket.
+ */
+const SERVES_FIRST = (statuses: string) =>
+  `(orders.reprint_delivery_id is null and orders.status = any(${statuses}::text[]))`;
+const SERVES_CHANGE = (statuses: string) =>
+  `(orders.change_ticket_id is not null and orders.status <> 'CANCELLED'
+    and not ${SERVES_FIRST(statuses)})`;
+const SERVES_REPRINT = () =>
+  `(orders.reprint_delivery_id is not null and orders.change_ticket_id is null
+    and orders.status <> 'CANCELLED')`;
+
+/**
+ * What a hand-over row records about the body it carries: the change ticket
+ * (when it is one, or a 重印 of one) and the revision of the full ticket. A
+ * SELECT over the order row as it stands after the claim, so the claim, a
+ * re-offer and the renderer all read the same answer.
+ */
+const DELIVERY_BODY_SQL = `
+  select case
+           when ${SERVES_CHANGE("$2")} then orders.change_ticket_id
+           when ${SERVES_REPRINT()} then (
+             select r.change_ticket_id from print_deliveries r
+              where r.id = orders.reprint_delivery_id)
+         end as change_ticket_id,
+         case
+           when ${SERVES_FIRST("$2")} then coalesce(orders.ticket_revision, orders.revision)
+           else orders.revision
+         end as ticket_revision
+    from orders where orders.id = $1`;
 
 /**
  * TIMED FAILOVER, at the moment a printer is handed a ticket.
@@ -501,10 +562,14 @@ async function insertDelivery(
     station: Station;
   },
 ): Promise<void> {
+  const body = await client.query(DELIVERY_BODY_SQL, [params.orderId, PRINTABLE_STATUSES]);
+  const changeTicketId = body.rows[0]?.change_ticket_id ?? null;
+  const ticketRevision = body.rows[0]?.ticket_revision ?? null;
   await client.query(
     `insert into print_deliveries
-       (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station)
-     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6, $7)`,
+       (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station,
+        change_ticket_id, ticket_revision)
+     values ($1, $2, $3, now(), now() + make_interval(secs => $4), $5, $6, $7, $8, $9)`,
     [
       params.id,
       params.orderId,
@@ -513,8 +578,20 @@ async function insertDelivery(
       params.reason,
       params.actor,
       params.station,
+      changeTicketId,
+      ticketRevision,
     ],
   );
+  // A change ticket that has been offered may already be on paper: from now
+  // on a further edit gets a ticket of its own instead of widening this one.
+  if (changeTicketId !== null) {
+    await client.query(
+      `update order_change_tickets
+          set first_offered_at = coalesce(first_offered_at, now()), updated_at = now()
+        where id = $1`,
+      [changeTicketId],
+    );
+  }
 }
 
 export async function claimNextPrintJob(
@@ -535,6 +612,12 @@ export async function claimNextPrintJob(
               print_offered_at          = now(),
               print_delivery_id         = $3,
               print_delivery_expires_at = now() + make_interval(secs => $4),
+              -- 改單: the revision the kitchen ticket is first handed over at.
+              -- From here on an edit prints a change ticket, and retries of
+              -- this ticket render THIS revision, never the edited one.
+              ticket_revision = case when ${SERVES_FIRST("$2")}
+                                     then coalesce(ticket_revision, revision)
+                                     else ticket_revision end,
               updated_at                = now()
         where id = (
           select id from orders
@@ -746,6 +829,7 @@ export async function recordDeliveryFetch(
 
 /** What confirmPrintDelivery did — one line per outcome for the log. */
 export type ConfirmDeliveryKind =
+  | "changed" // 改單: the change ticket printed; status untouched
   | "already" // already confirmed: a stale replay or a race with another DELETE
   | "printed" // final piece confirmed; the order is now PRINTED
   | "advanced" // a non-final piece confirmed; the cursor moved to the next
@@ -811,6 +895,9 @@ export async function confirmPrintDelivery(
               print_delivery_expires_at = null`;
   // And, once a copy is finished one way or the other, the 重印 it was for.
   const CLEAR_REPRINT = `reprint_delivery_id = null`;
+  // 改單: a change ticket waiting behind the body just finished becomes
+  // claimable (the claim only takes print_attempts = 0).
+  const NEXT_IF_CHANGE = `print_attempts = case when change_ticket_id is not null then 0 else print_attempts end`;
 
   return withTransaction(async (client) => {
     const d = await client.query(
@@ -823,10 +910,21 @@ export async function confirmPrintDelivery(
 
     const o = await client.query(
       `select order_number, status, print_segment, print_segments, print_job_key,
-              reprint_delivery_id
+              reprint_delivery_id, change_ticket_id
          from orders where tenant_id = $1 and id = $2 for update`,
       [tenantId, orderId],
     );
+    const deliveryChange = await client.query(
+      `select change_ticket_id from print_deliveries where tenant_id = $1 and id = $2`,
+      [tenantId, deliveryId],
+    );
+    // 改單: this hand-over WAS the order's pending change ticket (not a 重印
+    // copy of an older one, which travels the reprint path below).
+    const servedChange =
+      o.rows.length > 0 &&
+      o.rows[0].change_ticket_id !== null &&
+      deliveryChange.rows[0]?.change_ticket_id != null &&
+      String(deliveryChange.rows[0].change_ticket_id) === String(o.rows[0].change_ticket_id);
     const orderNumber = o.rows.length > 0 ? String(o.rows[0].order_number) : "?";
     const status = (o.rows.length > 0 ? String(o.rows[0].status) : "QUEUED") as OrderStatus;
     const segment = o.rows.length > 0 ? Number(o.rows[0].print_segment) : 0;
@@ -872,11 +970,36 @@ export async function confirmPrintDelivery(
       return { kind: "failed", orderNumber, status, jobKey, segment, segments, nextSegment: null };
     }
 
+    // 改單: the change ticket is finished one way or the other (printed, or a
+    // late confirmation that still means paper came out). Never moves status.
+    // If a 重印 is waiting behind it, it is claimable from the next poll.
+    const finishChange = async (kind: "changed" | "closed") => {
+      await client.query(
+        `update order_change_tickets set printed_at = coalesce(printed_at, now()), updated_at = now()
+          where tenant_id = $1 and id = $2`,
+        [tenantId, o.rows[0].change_ticket_id],
+      );
+      await client.query(
+        `update orders
+            set change_ticket_id = null,
+                last_print_error = null,
+                print_segment = 0,
+                print_segments = 0,
+                print_attempts = case when reprint_delivery_id is not null then 0 else print_attempts end,
+                ${CLEAR_POINTER},
+                updated_at = now()
+          where tenant_id = $1 and id = $2`,
+        [tenantId, orderId],
+      );
+      return { kind, orderNumber, status, jobKey, segment, segments, nextSegment: null };
+    };
+
     if (!input.markPrinted) {
+      if (servedChange) return finishChange("closed");
       // Late confirmation outside the grace window: close the delivery, clear
       // the pointer, but leave the order where it is.
       await client.query(
-        `update orders set ${CLEAR_POINTER}, ${CLEAR_REPRINT}, updated_at = now()
+        `update orders set ${CLEAR_POINTER}, ${CLEAR_REPRINT}, ${NEXT_IF_CHANGE}, updated_at = now()
           where tenant_id = $1 and id = $2`,
         [tenantId, orderId],
       );
@@ -903,6 +1026,8 @@ export async function confirmPrintDelivery(
       return { kind: "advanced", orderNumber, status, jobKey, segment, segments, nextSegment };
     }
 
+    if (servedChange) return finishChange("changed");
+
     // An order that had never made it onto paper (QUEUED, or PRINT_FAILED and
     // now printed after all) is PRINTED by this, whether the copy was its
     // first print or a 重印: the paper is real either way.
@@ -915,6 +1040,7 @@ export async function confirmPrintDelivery(
               print_segments = 0,
               ${CLEAR_POINTER},
               ${CLEAR_REPRINT},
+              ${NEXT_IF_CHANGE},
               updated_at = now()
         where tenant_id = $1 and id = $2 and status in ('QUEUED', 'PRINT_FAILED')
         returning status`,
@@ -935,6 +1061,7 @@ export async function confirmPrintDelivery(
               print_segments = 0,
               ${CLEAR_POINTER},
               ${CLEAR_REPRINT},
+              ${NEXT_IF_CHANGE},
               updated_at = now()
         where tenant_id = $1 and id = $2`,
       [tenantId, orderId],
@@ -1171,6 +1298,11 @@ export async function requestReprint(
   actor = "kitchen",
   /** Which printer. Omitted = the order's own station. */
   station?: Station,
+  /**
+   * 改單: reprint this change ticket (one of the order's, already printed or
+   * failed) instead of the full ticket. Same stored payload, same bytes.
+   */
+  changeTicketId?: string | null,
 ): Promise<Order | null> {
   return wroteOrNull(await withTransaction(async (client) => {
     const { rows: current } = await client.query(
@@ -1184,15 +1316,24 @@ export async function requestReprint(
     if (current.length === 0) return null;
     const row = current[0];
     if (row.status === "CANCELLED" || row.in_flight === true) return null;
+    if (changeTicketId) {
+      const { rows: ct } = await client.query(
+        `select 1 from order_change_tickets
+          where tenant_id = $1 and order_id = $2 and id = $3
+            and (printed_at is not null or failed_at is not null)`,
+        [tenantId, orderId, isDeliveryId(changeTicketId) ? changeTicketId : null],
+      );
+      if (ct.length === 0) return null;
+    }
 
     const target: Station = station ?? (isStation(row.print_station) ? row.print_station : "online");
 
     // Still waiting to be collected: same request, possibly a new printer.
     if (row.reprint_delivery_id !== null && Number(row.print_attempts) === 0) {
       await client.query(
-        `update print_deliveries set station = $3
+        `update print_deliveries set station = $3, change_ticket_id = $4
           where tenant_id = $1 and id = $2`,
-        [tenantId, row.reprint_delivery_id, target],
+        [tenantId, row.reprint_delivery_id, target, changeTicketId ?? null],
       );
       const { rows } = await client.query(
         `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2`,
@@ -1204,9 +1345,9 @@ export async function requestReprint(
     const requestId = randomUUID();
     await client.query(
       `insert into print_deliveries
-         (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station)
-       values ($1, $2, $3, now(), now(), 'manual_reprint', $4, $5)`,
-      [requestId, orderId, tenantId, actor, target],
+         (id, order_id, tenant_id, offered_at, expires_at, reason, actor, station, change_ticket_id)
+       values ($1, $2, $3, now(), now(), 'manual_reprint', $4, $5, $6)`,
+      [requestId, orderId, tenantId, actor, target, changeTicketId ?? null],
     );
 
     // alerted_at and alert_attempts re-arm only for an order that has never
@@ -1476,34 +1617,51 @@ export async function listActiveOrders(
             coalesce(d.delivery_count, 0) as delivery_count,
             coalesce(d.fetch_total, 0)    as fetch_total,
             coalesce(d.reprint_count, 0)  as reprint_count,
+            coalesce(ch.change_count, 0)  as change_count,
+            coalesce(ch.change_failed, false) as change_failed,
             p.pending_since               as print_pending_since,
             (p.pending_since is not null
               and p.pending_since < now() - make_interval(secs => $4)) as print_stuck
        from orders
        left join lateral (
-         select count(*)                                          as delivery_count,
-                coalesce(sum(fetch_count), 0)                     as fetch_total,
+         -- 改單 change-ticket hand-overs are explained by 改單 ×N, so they are
+         -- not counted toward the "more than one ticket" warning.
+         select count(*) filter (where pd.change_ticket_id is null) as delivery_count,
+                coalesce(sum(fetch_count) filter (where pd.change_ticket_id is null), 0) as fetch_total,
                 count(*) filter (where reason = 'manual_reprint') as reprint_count,
                 max(offered_at) filter (where reason = 'manual_reprint') as last_reprint_at
            from print_deliveries pd
           where pd.tenant_id = orders.tenant_id and pd.order_id = orders.id
        ) d on true
+       -- 改單: change tickets this order caused, whether the newest gave up,
+       -- and when the one waiting now was saved.
+       left join lateral (
+         select count(*) as change_count,
+                bool_or(ct.failed_at is not null and ct.printed_at is null
+                        and ct.id = (select x.id from order_change_tickets x
+                                      where x.tenant_id = orders.tenant_id and x.order_id = orders.id
+                                      order by x.created_at desc limit 1)) as change_failed,
+                max(ct.updated_at) filter (where ct.id = orders.change_ticket_id) as change_since
+           from order_change_tickets ct
+          where ct.tenant_id = orders.tenant_id and ct.order_id = orders.id
+       ) ch on true
        -- The current attempt began when the order arrived or at the last 重印.
        -- It is pending while the order still waits for paper and nothing
        -- offered since then has been confirmed.
        left join lateral (
          select case
                   when (orders.status in ('QUEUED', 'PRINT_FAILED')
-                        or orders.reprint_delivery_id is not null)
+                        or orders.reprint_delivery_id is not null
+                        or orders.change_ticket_id is not null)
                    and not exists (
                      select 1 from print_deliveries c
                       where c.tenant_id = orders.tenant_id
                         and c.order_id = orders.id
                         and c.reason <> 'manual_reprint'
                         and c.confirmed_at is not null
-                        and c.offered_at >= coalesce(d.last_reprint_at, orders.created_at)
+                        and c.offered_at >= coalesce(greatest(d.last_reprint_at, ch.change_since), orders.created_at)
                    )
-                  then greatest(orders.created_at, coalesce(d.last_reprint_at, orders.created_at))
+                  then greatest(orders.created_at, coalesce(greatest(d.last_reprint_at, ch.change_since), orders.created_at))
                 end as pending_since
        ) p on true
       where tenant_id = $1
@@ -1692,6 +1850,8 @@ function mapActiveOrder(row: QueryResultRow): Order {
     deliveryCount: Number(row.delivery_count),
     fetchCount: Number(row.fetch_total),
     reprintCount: Number(row.reprint_count),
+    changeCount: Number(row.change_count ?? 0),
+    changeFailed: row.change_failed === true,
     printPendingSince:
       row.print_pending_since == null ? null : (row.print_pending_since as Date).toISOString(),
     printStuck: row.print_stuck === true,
@@ -1751,6 +1911,48 @@ export async function recordPrintAttempt(
   orderId: number,
   outcome: { ok: boolean; error?: string },
 ): Promise<Order | null> {
+  /* 改單 CHANGE TICKET at the cap: it gives up on its own. The order keeps its
+     status (its first ticket printed long ago); the change ticket is marked
+     failed, which turns the card red and is what the unprinted-order alert
+     texts the owner about (findFailedChangeTickets). */
+  if (!outcome.ok) {
+    const failed = await withTransaction(async (client) => {
+      const { rows: cur } = await client.query(
+        `select o.change_ticket_id
+           from orders o
+           join print_deliveries d on d.id = o.print_delivery_id
+          where o.tenant_id = $1 and o.id = $2
+            and o.change_ticket_id is not null
+            and d.change_ticket_id = o.change_ticket_id
+          for update of o`,
+        [tenantId, orderId],
+      );
+      if (cur.length === 0) return null;
+      await client.query(
+        `update order_change_tickets set failed_at = now(), updated_at = now()
+          where tenant_id = $1 and id = $2`,
+        [tenantId, cur[0].change_ticket_id],
+      );
+      const { rows } = await client.query(
+        `update orders
+            set change_ticket_id = null,
+                last_print_error = $3,
+                print_segment = 0,
+                print_segments = 0,
+                print_job_key = null,
+                print_offered_at = null,
+                print_delivery_id = null,
+                print_delivery_expires_at = null,
+                print_attempts = case when reprint_delivery_id is not null then 0 else print_attempts end,
+                updated_at = now()
+          where tenant_id = $1 and id = $2
+          returning ${ORDER_COLUMNS}`,
+        [tenantId, orderId, outcome.error ?? "unknown print error"],
+      );
+      return mapOrder(rows[0]);
+    });
+    if (failed) return wrote(failed);
+  }
   const { rows } = await ordersPool().query(
     `update orders
         set last_print_error = $4,
@@ -1873,6 +2075,7 @@ export async function cancelOrder(
             print_delivery_id = null,
             print_delivery_expires_at = null,
             reprint_delivery_id = null,
+            change_ticket_id = null,
             updated_at = now()
       where tenant_id = $1 and id = $2 and status <> 'CANCELLED'
       returning ${ORDER_COLUMNS}`,
@@ -1959,8 +2162,8 @@ function historyWhere(
 /** Aggregates over print_deliveries, the same three the board shows. */
 const DELIVERY_AGGREGATES = `
   left join lateral (
-    select count(*)                                          as delivery_count,
-           coalesce(sum(fetch_count), 0)                     as fetch_total,
+    select count(*) filter (where pd.change_ticket_id is null) as delivery_count,
+           coalesce(sum(fetch_count) filter (where pd.change_ticket_id is null), 0) as fetch_total,
            count(*) filter (where reason = 'manual_reprint') as reprint_count
       from print_deliveries pd
      where pd.tenant_id = o.tenant_id and pd.order_id = o.id
@@ -2088,4 +2291,509 @@ export async function* iterateOrders(
     cursor = { createdAt: last.cursor_at as Date, id: Number(last.id) };
     if (rows.length < batchSize) return;
   }
+}
+
+/* ======================================================= 改單 EDIT ORDER == */
+/*
+ * Staff reopen an order on the POS, change it, and the kitchen gets a CHANGE
+ * TICKET listing only the differences, under the original number. See
+ * docs/edit-order.md for the whole design; migration 017 for the tables.
+ */
+
+export interface SaveOrderEditInput {
+  orderId: number;
+  /** The revision the POS loaded. Anything else means another tablet saved first. */
+  baseRevision: number;
+  /** One Save press. A retry or double tap with the same token is the same edit. */
+  editToken: string;
+  /** Already priced by the server (lib/orders/editPricing.ts). Never client prices. */
+  items: OrderLine[];
+  totals: OrderTotals;
+  actor: string;
+  /** A COMPLETED order prints no change ticket unless staff ask (docs, open question 3). */
+  printChange: boolean;
+  /** Appended to staff_note, e.g. a web order's "edited by staff, was $X". Never printed. */
+  staffNoteLine: string | null;
+}
+
+export type SaveOrderEditResult =
+  | {
+      kind: "saved";
+      order: Order;
+      /** The revision the order is at now. */
+      revision: number;
+      /** What this edit changed (revision - 1 -> revision). */
+      diff: OrderLinesDiff;
+      /** The change ticket the kitchen will get, or null (replaced, completed, or edited back). */
+      changeTicket: OrderChangeTicket | null;
+      changeTicketId: string | null;
+      /** The order had never been handed to a printer: its first ticket simply carries the new contents. */
+      replaced: boolean;
+      duplicate: boolean;
+    }
+  | { kind: "not_found" | "not_editable" | "conflict" | "no_changes" | "empty" | "change_printing" };
+
+/** The items an order had at `revision`: the live row, or its snapshot. */
+async function itemsAtRevision(
+  client: PoolClient,
+  tenantId: string,
+  orderId: number,
+  revision: number,
+  current: { revision: number; items: OrderLine[] },
+): Promise<OrderLine[]> {
+  if (revision === current.revision) return current.items;
+  const { rows } = await client.query(
+    `select items from order_revisions where tenant_id = $1 and order_id = $2 and revision = $3`,
+    [tenantId, orderId, revision],
+  );
+  if (rows.length === 0) throw new Error(`order ${orderId} has no revision ${revision}`);
+  return rows[0].items as OrderLine[];
+}
+
+async function savedResult(
+  client: PoolClient,
+  tenantId: string,
+  orderId: number,
+  revision: number,
+  diff: OrderLinesDiff,
+  replaced: boolean,
+  duplicate: boolean,
+): Promise<SaveOrderEditResult> {
+  const { rows } = await client.query(
+    `select ${ORDER_COLUMNS} from orders where tenant_id = $1 and id = $2`,
+    [tenantId, orderId],
+  );
+  const order = mapOrder(rows[0]);
+  // The change ticket that carries this revision to the kitchen, if any.
+  const { rows: ct } = await client.query(
+    `select id, payload from order_change_tickets
+      where tenant_id = $1 and order_id = $2 and to_revision >= $3 and from_revision < $3
+      order by created_at desc limit 1`,
+    [tenantId, orderId, revision],
+  );
+  return {
+    kind: "saved",
+    order,
+    revision,
+    diff,
+    changeTicket: ct.length > 0 ? (ct[0].payload as OrderChangeTicket) : null,
+    changeTicketId: ct.length > 0 ? String(ct[0].id) : null,
+    replaced,
+    duplicate,
+  };
+}
+
+/**
+ * SAVE AN EDIT: one transaction.
+ *
+ *   1. lock the order; a token already used returns that save (idempotent)
+ *   2. refuse: cancelled / done too long ago, another tablet saved first
+ *      (optimistic lock on `revision`), no lines (that is Cancel), no change
+ *   3. snapshot the current version into order_revisions
+ *   4. write the new items / totals, revision + 1
+ *   5. the kitchen's side, by whether it can already have paper:
+ *        never handed over        -> nothing to print: the first ticket will
+ *                                    carry the new contents
+ *        PRINT_FAILED             -> the same; staff 重印 prints it current
+ *        COMPLETED (no opt-in)    -> recorded only, the food has gone
+ *        change ticket waiting,
+ *          never offered          -> widened to this revision (one ticket)
+ *          offered, unconfirmed   -> refused until it prints or gives up
+ *        otherwise                -> a new change ticket from what the
+ *                                    kitchen last got
+ */
+export async function saveOrderEdit(
+  tenantId: string,
+  input: SaveOrderEditInput,
+): Promise<SaveOrderEditResult> {
+  const result = await withTransaction(async (client): Promise<SaveOrderEditResult> => {
+    const { rows: locked } = await client.query(
+      `select ${ORDER_COLUMNS},
+              (done_at is not null and done_at < now() - make_interval(mins => $3)) as done_too_long,
+              (print_delivery_id is not null and print_delivery_expires_at > now()) as in_flight,
+              (select d.change_ticket_id from print_deliveries d where d.id = orders.print_delivery_id) as in_flight_change
+         from orders where tenant_id = $1 and id = $2
+         for update`,
+      [tenantId, input.orderId, EDIT_AFTER_DONE_MINUTES],
+    );
+    if (locked.length === 0) return { kind: "not_found" };
+
+    // After the lock, so a double tap that queued behind the first save sees
+    // the first one's revision row and gets its answer, not a conflict.
+    const { rows: done } = await client.query(
+      `select revision, diff from order_revisions
+        where tenant_id = $1 and order_id = $2 and edit_token = $3`,
+      [tenantId, input.orderId, input.editToken],
+    );
+    if (done.length > 0) {
+      const rev = Number(done[0].revision) + 1;
+      return savedResult(client, tenantId, input.orderId, rev, done[0].diff as OrderLinesDiff, false, true);
+    }
+
+    const row = locked[0];
+    const order = mapOrder(row);
+    if (order.status === "CANCELLED") return { kind: "not_editable" };
+    if (order.status === "COMPLETED" && (row.done_too_long === true || !order.doneAt)) {
+      return { kind: "not_editable" };
+    }
+    if (order.revision !== input.baseRevision) return { kind: "conflict" };
+    if (input.items.length === 0) return { kind: "empty" };
+
+    const diff = diffOrderLines(order.items, input.items);
+    if (isEmptyDiff(diff)) return { kind: "no_changes" };
+
+    const next = order.revision + 1;
+    let replaced = false;
+    let resetTicketRevision = false;
+    let changeAction:
+      | { type: "none" }
+      | { type: "new"; from: number }
+      | { type: "widen"; id: string; from: number }
+      | { type: "drop"; id: string } = { type: "none" };
+
+    const pendingId = order.changePending ? String(row.change_ticket_id) : null;
+    if (order.status === "COMPLETED" && !input.printChange) {
+      changeAction = { type: "none" };
+    } else if (order.ticketRevision === null) {
+      replaced = true;
+    } else if (order.status === "PRINT_FAILED") {
+      replaced = true;
+      resetTicketRevision = true;
+    } else if (pendingId) {
+      const { rows: pend } = await client.query(
+        `select from_revision, first_offered_at from order_change_tickets where id = $1`,
+        [pendingId],
+      );
+      const offered = pend[0]?.first_offered_at != null;
+      if (offered || (row.in_flight === true && row.in_flight_change != null)) {
+        return { kind: "change_printing" };
+      }
+      changeAction = { type: "widen", id: pendingId, from: Number(pend[0].from_revision) };
+    } else {
+      // What the kitchen last got: the first ticket's revision, or the last
+      // change ticket that printed, whichever is later.
+      const { rows: last } = await client.query(
+        `select max(to_revision) as rev from order_change_tickets
+          where tenant_id = $1 and order_id = $2 and printed_at is not null`,
+        [tenantId, input.orderId],
+      );
+      const lastPrinted = last[0]?.rev == null ? -1 : Number(last[0].rev);
+      changeAction = { type: "new", from: Math.max(order.ticketRevision, lastPrinted) };
+    }
+
+    // 3. the version being replaced, with what replaced it
+    await client.query(
+      `insert into order_revisions
+         (order_id, tenant_id, revision, items, totals, staff_note, actor, diff, edit_token)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        input.orderId,
+        tenantId,
+        order.revision,
+        JSON.stringify(order.items),
+        JSON.stringify(order.totals),
+        order.staffNote,
+        input.actor,
+        JSON.stringify(diff),
+        input.editToken,
+      ],
+    );
+
+    // 5. the change ticket, computed against what the kitchen actually has
+    let ticketId: string | null = null;
+    if (changeAction.type === "new" || changeAction.type === "widen") {
+      const fromItems = await itemsAtRevision(client, tenantId, input.orderId, changeAction.from, order);
+      const ticketDiff = diffOrderLines(fromItems, input.items);
+      if (isEmptyDiff(ticketDiff)) {
+        // Edited back to exactly what the kitchen has: nothing to print.
+        if (changeAction.type === "widen") changeAction = { type: "drop", id: changeAction.id };
+        else changeAction = { type: "none" };
+      } else {
+        const fromTotals =
+          changeAction.from === order.revision
+            ? order.totals
+            : ((
+                await client.query(
+                  `select totals from order_revisions where tenant_id = $1 and order_id = $2 and revision = $3`,
+                  [tenantId, input.orderId, changeAction.from],
+                )
+              ).rows[0].totals as OrderTotals);
+        const payload: OrderChangeTicket = {
+          revision: next,
+          fromRevision: changeAction.from,
+          savedAt: new Date().toISOString(),
+          diff: ticketDiff,
+          oldTotalCents: fromTotals.totalCents,
+          newTotalCents: input.totals.totalCents,
+        };
+        if (changeAction.type === "widen") {
+          ticketId = changeAction.id;
+          await client.query(
+            `update order_change_tickets set to_revision = $2, payload = $3, updated_at = now() where id = $1`,
+            [ticketId, next, JSON.stringify(payload)],
+          );
+        } else {
+          ticketId = randomUUID();
+          await client.query(
+            `insert into order_change_tickets
+               (id, order_id, tenant_id, from_revision, to_revision, payload)
+             values ($1, $2, $3, $4, $5, $6)`,
+            [ticketId, input.orderId, tenantId, changeAction.from, next, JSON.stringify(payload)],
+          );
+        }
+      }
+    }
+    if (changeAction.type === "drop") {
+      await client.query(`delete from order_change_tickets where id = $1`, [changeAction.id]);
+    }
+
+    // 4. the new current version. A new change ticket becomes claimable now
+    // unless the order is still busy getting other paper (its first ticket,
+    // or a 重印 copy mid-print): that confirmation hands over to it.
+    const { rows: written } = await client.query(
+      `update orders
+          set items = $3,
+              totals = $4,
+              revision = $5,
+              edited_at = now(),
+              staff_note = case
+                when $6::text is null then staff_note
+                when staff_note is null or staff_note = '' then $6::text
+                else staff_note || E'\\n' || $6::text
+              end,
+              ticket_revision = case when $7 then null else ticket_revision end,
+              change_ticket_id = case
+                when $8 = 'set' then $9::uuid
+                when $8 = 'clear' then null
+                else change_ticket_id
+              end,
+              print_attempts = case
+                when $8 = 'set' and change_ticket_id is null
+                 and status <> 'QUEUED' and reprint_delivery_id is null then 0
+                else print_attempts
+              end,
+              print_segment = case
+                when $8 = 'set' and change_ticket_id is null
+                 and status <> 'QUEUED' and reprint_delivery_id is null then 0
+                else print_segment
+              end,
+              print_segments = case
+                when $8 = 'set' and change_ticket_id is null
+                 and status <> 'QUEUED' and reprint_delivery_id is null then 0
+                else print_segments
+              end,
+              updated_at = now()
+        where tenant_id = $1 and id = $2 and revision = $10
+        returning id`,
+      [
+        tenantId,
+        input.orderId,
+        JSON.stringify(input.items),
+        JSON.stringify(input.totals),
+        next,
+        input.staffNoteLine,
+        resetTicketRevision,
+        ticketId ? "set" : changeAction.type === "drop" ? "clear" : "keep",
+        ticketId,
+        order.revision,
+      ],
+    );
+    if (written.length === 0) return { kind: "conflict" };
+
+    return savedResult(client, tenantId, input.orderId, next, diff, replaced, false);
+  });
+  if (result.kind === "saved" && !result.duplicate) wrote(result.order);
+  return result;
+}
+
+/** One saved edit, for the History card's 修改紀錄 panel. */
+export interface OrderRevisionEntry {
+  /** The revision this edit produced (第N次). */
+  revision: number;
+  savedAt: string;
+  actor: string;
+  diff: OrderLinesDiff;
+  totalBeforeCents: number;
+  totalAfterCents: number;
+}
+
+export interface OrderRevisionsView {
+  orderId: number;
+  orderNumber: string;
+  revision: number;
+  /** Newest first. */
+  edits: OrderRevisionEntry[];
+  /** The order as placed (revision 0), or the current one if never edited. */
+  original: { items: OrderLine[]; totals: OrderTotals; placedAt: string };
+  changeTickets: {
+    id: string;
+    fromRevision: number;
+    toRevision: number;
+    createdAt: string;
+    printedAt: string | null;
+    failedAt: string | null;
+  }[];
+}
+
+export async function listOrderRevisions(
+  tenantId: string,
+  orderId: number,
+): Promise<OrderRevisionsView | null> {
+  const order = await getOrderById(tenantId, orderId);
+  if (!order) return null;
+  const { rows } = await ordersPool().query(
+    `select revision, items, totals, created_at, actor, diff
+       from order_revisions where tenant_id = $1 and order_id = $2
+      order by revision asc`,
+    [tenantId, orderId],
+  );
+  const edits: OrderRevisionEntry[] = rows.map((r, i) => ({
+    revision: Number(r.revision) + 1,
+    savedAt: (r.created_at as Date).toISOString(),
+    actor: String(r.actor),
+    diff: r.diff as OrderLinesDiff,
+    totalBeforeCents: (r.totals as OrderTotals).totalCents,
+    totalAfterCents:
+      i + 1 < rows.length
+        ? (rows[i + 1].totals as OrderTotals).totalCents
+        : order.totals.totalCents,
+  }));
+  const { rows: tickets } = await ordersPool().query(
+    `select id, from_revision, to_revision, created_at, printed_at, failed_at
+       from order_change_tickets where tenant_id = $1 and order_id = $2
+      order by created_at desc`,
+    [tenantId, orderId],
+  );
+  const first = rows[0];
+  return {
+    orderId,
+    orderNumber: order.orderNumber,
+    revision: order.revision,
+    edits: edits.reverse(),
+    original: first
+      ? { items: first.items as OrderLine[], totals: first.totals as OrderTotals, placedAt: order.createdAt }
+      : { items: order.items, totals: order.totals, placedAt: order.createdAt },
+    changeTickets: tickets.map((t) => ({
+      id: String(t.id),
+      fromRevision: Number(t.from_revision),
+      toRevision: Number(t.to_revision),
+      createdAt: (t.created_at as Date).toISOString(),
+      printedAt: t.printed_at == null ? null : (t.printed_at as Date).toISOString(),
+      failedAt: t.failed_at == null ? null : (t.failed_at as Date).toISOString(),
+    })),
+  };
+}
+
+/**
+ * WHAT A HAND-OVER PRINTS. The printer path renders through this, never the
+ * order row directly, because after an edit the row is not always the body:
+ *
+ *   - a change ticket (or a 重印 of one): its stored payload, frozen at save;
+ *   - the first kitchen ticket: the revision it was FIRST handed over at, so
+ *     a retry after an edit never prints the edited contents on top of the
+ *     change ticket that carries the same change;
+ *   - a 重印 copy of the full ticket: the current contents, marked 已改
+ *     REVISED when the order has been edited.
+ *
+ * An order never edited renders exactly as before (no options added).
+ */
+export async function printBodyFor(
+  tenantId: string,
+  order: Order,
+  deliveryId: string | null,
+): Promise<{ order: Order; change: OrderChangeTicket | null; revision: number }> {
+  const delivery = deliveryId ? await getPrintDelivery(tenantId, deliveryId) : null;
+  if (delivery?.changeTicketId) {
+    const { rows } = await ordersPool().query(
+      `select payload from order_change_tickets where tenant_id = $1 and id = $2`,
+      [tenantId, delivery.changeTicketId],
+    );
+    if (rows.length > 0) {
+      return { order, change: rows[0].payload as OrderChangeTicket, revision: 0 };
+    }
+  }
+  const rev = delivery?.ticketRevision ?? order.revision;
+  const chip = order.reprintPending ? rev : 0;
+  if (rev === order.revision) return { order, change: null, revision: chip };
+  const { rows } = await ordersPool().query(
+    `select items, totals from order_revisions
+      where tenant_id = $1 and order_id = $2 and revision = $3`,
+    [tenantId, order.id, rev],
+  );
+  if (rows.length === 0) return { order, change: null, revision: chip };
+  return {
+    order: { ...order, items: rows[0].items as OrderLine[], totals: rows[0].totals as OrderTotals },
+    change: null,
+    revision: chip,
+  };
+}
+
+/** A change ticket the owner should hear about: it gave up, or has waited too long. */
+export interface UnprintedChangeTicket {
+  id: string;
+  orderId: number;
+  orderNumber: string;
+  revision: number;
+  failed: boolean;
+}
+
+/**
+ * The unprinted-order alert's second net: a 改單 change ticket matters as much
+ * as a kitchen ticket (a dish added and never cooked is a customer short). A
+ * ticket that failed, or that has been waiting longer than the alert
+ * threshold, and has not been alerted about. Today's and yesterday's only, as
+ * for orders.
+ */
+export async function findUnprintedChangeTickets(
+  tenantId: string,
+  olderThanSeconds: number,
+  today: string,
+): Promise<UnprintedChangeTicket[]> {
+  const { rows } = await ordersPool().query(
+    `select ct.id, ct.order_id, ct.to_revision, ct.failed_at is not null as failed, o.order_number
+       from order_change_tickets ct
+       join orders o on o.id = ct.order_id and o.tenant_id = ct.tenant_id
+      where ct.tenant_id = $1
+        and ct.alerted_at is null
+        and ct.printed_at is null
+        and o.status <> 'CANCELLED'
+        and o.business_date >= $3::date - 1
+        and (ct.failed_at is not null
+             or (o.change_ticket_id = ct.id
+                 and ct.updated_at < now() - make_interval(secs => $2)))
+      order by ct.created_at asc`,
+    [tenantId, olderThanSeconds, today],
+  );
+  return rows.map((r) => ({
+    id: String(r.id),
+    orderId: Number(r.order_id),
+    orderNumber: String(r.order_number),
+    revision: Number(r.to_revision),
+    failed: r.failed === true,
+  }));
+}
+
+/** Claim the right to text about one change ticket. False if another sweep did. */
+export async function markChangeTicketAlerted(tenantId: string, id: string): Promise<boolean> {
+  const { rows } = await ordersPool().query(
+    `update order_change_tickets set alerted_at = now()
+      where tenant_id = $1 and id = $2 and alerted_at is null
+      returning id`,
+    [tenantId, id],
+  );
+  return rows.length > 0;
+}
+
+/** One stored change ticket's payload, scoped to its order. */
+export async function getChangeTicket(
+  tenantId: string,
+  orderId: number,
+  id: string,
+): Promise<OrderChangeTicket | null> {
+  if (!isDeliveryId(id)) return null;
+  const { rows } = await ordersPool().query(
+    `select payload from order_change_tickets where tenant_id = $1 and order_id = $2 and id = $3`,
+    [tenantId, orderId, id],
+  );
+  return rows.length > 0 ? (rows[0].payload as OrderChangeTicket) : null;
 }

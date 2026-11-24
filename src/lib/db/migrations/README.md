@@ -1,7 +1,7 @@
 # Migrations
 
 Numbered SQL files, applied by hand in order against the production database
-(`001` … `016`). `down_*` files are the verified way back for the step they
+(`001` … `017`; `016` is the 日結 daily report, PR #14; `017` the 改單 edit history, PR #15). `down_*` files are the verified way back for the step they
 name. `../schema.sql` is the shape a fresh database gets in one go, meant to
 equal every migration applied in order.
 
