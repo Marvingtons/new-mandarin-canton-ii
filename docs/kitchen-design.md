@@ -305,3 +305,163 @@ Print.
    today's single long scroll with headings. That fits the fixed-card grid and the Toast
    model better. Say if you want the continuous scroll kept.
 6. **Tax** is shown at 8.75% in the mockups. The app uses the tenant's `taxRateBps`.
+
+---
+
+## Revision 3: no defaults; a tap adds, a portion sheet asks size (2026-11-23, for review)
+
+**Why.** The strip above the dishes held two sticky defaults, RICE (白飯 / 炒飯 / 各一半 / 無,
+plus 套用到全部) and SIZE (單點 / 半盤 / 餐盤). A tile tap applied whatever the strip said.
+A default left on 餐盤 from the last catering call silently turned the next walk-in's
+Mongolian Beef into a $75 tray. The strip is going; every size that changes the price
+is now one deliberate tap.
+
+Mockups (static: the live production POS with its DOM edited, no app code changed),
+1024 × 768 and 768 × 1024, in `docs/review/pos-portion/`:
+
+| | 1024 × 768 | 768 × 1024 |
+|---|---|---|
+| New top row | `mock-1-top-row-1024x768.png` | `mock-1-top-row-768x1024.png` |
+| Portion sheet over the grid | `mock-2-portion-sheet-1024x768.png` | `mock-2-portion-sheet-768x1024.png` |
+| 改 sheet, tray-size line | `mock-3-modify-tray-line-1024x768.png` | `mock-3-modify-tray-line-768x1024.png` |
+| Ticket footer with 加飯 | `mock-4-ticket-footer-1024x768.png` | `mock-4-ticket-footer-768x1024.png` |
+| Before (today) | `before-pos-1024x768.png` | `before-pos-768x1024.png` |
+
+### What a tile tap does
+
+The menu today, by sizes: 120 dishes sell 單點 / 半盤 / 餐盤, 18 have one size, 2 family
+dinners sell by head count, and one dish each sells half / whole and cup / bowl.
+
+| Dish | Tap | 改 corner |
+|---|---|---|
+| One size (appetizers, soups, most sides) | adds at once, as now | full sheet |
+| Sold by the tray (單點 / 半盤 / 餐盤) | **portion sheet**: one tap picks the size and adds | full sheet |
+| Rice dish at 單點 | (via the portion sheet) adds with **白飯 Steamed**, never asks | full sheet: 炒飯 / 各一半 / 走飯 |
+| A required choice no rule covers (beef or chicken, the lunch entrée) | full sheet, opened on that choice | full sheet |
+| Family dinner (head count) | existing head-count sheet, unchanged | full sheet |
+| Two sizes that are not trays (half / whole, cup / bowl) | **portion sheet with its two sizes** (see question 1) | full sheet |
+
+- **Rice is never asked on a tap.** A rice dish adds with 白飯 Steamed, the menu's own default
+  (`RICE_STEAMED_ID`, the first option of the required rice group). 炒飯 / 各一半 / 走飯 live
+  only in the 改 sheet. Trays and half trays still carry no rice (`TRAY_SIZE_IDS`).
+- **The red dot** (`data-asks`) keeps meaning "this tap opens the full sheet on a required
+  choice". It does not go on tray dishes for the portion sheet: that would put it on 120 tiles.
+- **#116 Fried/Steamed Rice** is itself sold by the tray, so its tile opens the portion sheet
+  too and adds with its preparation 白飯 Steamed (`PREP_STEAMED_ID`); fried is the line's 改.
+- **Tray dish with another required choice** (黑椒牛肉或雞肉 is one): the full sheet opens with
+  the size section and that choice both open and **no size chosen**. Add stays disabled until
+  both are picked, so there is still no hidden size.
+
+### The portion sheet (mock 2)
+
+- Title **份量 Portion**, the dish's 中文 and English under it, a close ×. Nothing else: no
+  rice, no note, no quantity.
+- **Three big buttons in one row**: 單點 Individual $x / 半盤 Half Tray $y / 餐盤 Party Tray $z,
+  中文 large, English under it, the price from the catalogue (`itemSizes`). At least 120 px
+  tall, so they are the easiest targets on the screen. A dish missing a tier shows only the
+  tiers it has.
+- **One tap adds the line and closes the sheet.** The tile flashes and the ticket bumps, the
+  same feedback as a direct add. Tapping the same dish and size again bumps the quantity
+  (the existing `addLine` merge).
+- **Pre-highlight, not preselect.** The portion last chosen on *this ticket* (from the
+  portion sheet, or the size of the last tray-capable line added) carries the lacquer ring,
+  starting at 單點 on a new ticket. It is a cue for the eye and keyboard focus only: nothing
+  is added until a button is tapped. So a catering call of six half trays is six dishes,
+  six taps on 半盤, each one deliberate. The memory resets with the ticket (Print, Clear, New).
+- **Keyboard**: focus starts on the highlighted button; ← → move; Enter or Space adds;
+  1 / 2 / 3 add 單點 / 半盤 / 餐盤 directly; Esc closes without adding.
+- Scrim tap closes without adding.
+
+### The top row (mock 1)
+
+- Removed: both default groups and 套用到全部 (`data-defaults="rice"`, `data-defaults="size"`,
+  `data-action="apply-rice-all"`).
+- **Landscape (1000 px and wider):** the category chips move up into the top row, with 午餐
+  Lunch and search at its right end. Two rows become one, so the dish grid gains a row's
+  height (about 56 px; at 1024 × 768 the first section shows its third row of tiles whole).
+- **Portrait:** the categories stay the left rail. The top row keeps only 午餐 and search,
+  right-aligned (see question 2).
+
+### Rice that is not included: #116 as its own line
+
+There is no rice surcharge. Rice the dish does not include is the real menu item
+**#116 炒飯／白飯 Fried/Steamed Rice, 單點 $3.00**, as its own ticket line, so the wok
+sees it on the kitchen copy like any dish. Two ways to add it:
+
+1. **Ticket footer, `+ 加飯 Rice $3.00`** (mock 4), left of Print, 56 px tall: one tap adds
+   one #116 line at 單點 with 白飯 Steamed. Tap again to bump its quantity. Fried is the
+   line's 改 (its preparation choice), as for any #116 line. Shown in the landscape column
+   and in the portrait ticket sheet. Not in the portrait bottom bar, which stays who / total /
+   Print.
+2. **The 改 sheet, a `加飯 Add rice +$3.00` row with − n +** (mock 3), under the size section,
+   **only when the chosen size includes no rice**: trays, half trays, appetizers, soups, fried
+   rice and noodles. It counts from 0. On Add or Update the dish line goes on as before and,
+   when n > 0, n × #116 (單點, 白飯) is added as a separate line, merging into an existing
+   identical #116 line. The Add button's total includes it (mock 3: $45.00 + 2 × $3.00).
+   Editing a line later starts the row at 0 again: the rice is its own line, so it is
+   changed on its own line, never re-counted.
+- It is hidden on #116 itself, and on any size whose rice group exists (the 單點 of a rice
+  dish already includes rice; 炒飯 there is the included choice, not a charge).
+
+**The custom charge's 加飯 Extra rice preset is removed.** Every case it covered is the #116
+line at $3.00, and keeping both means two prices for one thing and a rice the kitchen copy
+shows as a charge rather than a dish. The one case the item does not cover, a rice charge
+at a price other than $3.00, is still possible as a typed custom name. `CHARGE_PRESETS`
+loses `extra-rice` (in both the 自訂 sheet and the 加價 surcharge, which share it). The name
+placeholder changes from 例如 加飯 to 例如 加蝦. Orders already stored with an Extra rice
+custom line print as stored: nothing reads the preset to render history.
+
+### Code that goes (no flag, no dead code)
+
+- `src/lib/kitchen/posDefaults.ts`: `RiceDefault`, `SizeDefault`, `RICE_DEFAULTS`,
+  `SIZE_DEFAULTS`, `PosDefaults`, `INITIAL_DEFAULTS`, the two storage keys, `RICE_DEFAULT_MODIFIER`,
+  `isRiceDefault`, `isSizeDefault`, `defaultRiceFor`, `withRice`. `quickAdd` stays as the one
+  pure rule for a tap, rewritten to return `add` / `portion` / `ask` from the item alone
+  (no defaults argument). `sellsTrays` stays. The file is renamed `posTap.ts`.
+- `PosScreen.tsx`: the `defaults` state and its localStorage reads and writes,
+  `setRiceDefault`, `setSizeDefault`, `applyRiceToAll`, `RICE_LABEL`, `SIZE_LABEL`, the strip
+  markup. `pos.module.css`: `.defSeg`, `.applyAll`.
+- On first load the POS removes the stale `nmc-pos-rice` / `nmc-pos-size` keys from
+  localStorage, once.
+- i18n keys that die: `pos.riceSteamedZh/En/All`, `pos.riceFriedZh/En/All`,
+  `pos.riceHalfZh/En/All`, `pos.riceNoneZh/En/All`, `pos.sizeIndividualZh/En/All`,
+  `pos.sizeHalfZh/En/All`, `pos.sizeTrayZh/En/All`, `pos.riceGroup`, `pos.sizeGroup`,
+  `pos.applyAllZh/En`, `pos.applyAll`, `pos.applyAllHint`, `pos.updatedLines`.
+  `pos.defaults` (the toolbar's aria label) is renamed `pos.toolbar`.
+- i18n keys that arrive (中文 first, English second, Spanish only in aria-label / title):
+  `pos.portion.titleZh` 份量, `pos.portion.titleEn` Portion, `pos.portion.aria`
+  份量 Portion / Porción, `pos.addRiceZh` 加飯, `pos.addRiceEn` Rice, `pos.addRiceAria`
+  加飯 Add rice / Agregar arroz, `pos.addRiceRow` 加飯 Add rice, `pos.addRiceRowHint`
+  炒飯／白飯 Fried/Steamed Rice, its own line. Size names come from the menu's own labels
+  (`resolveSizeZh`), so 餐盤 Party Tray reads as the menu says it.
+
+### Out of scope
+
+- The website's customer `ItemSheet` keeps its radios; the web order flow is untouched.
+- Pricing data: unchanged. #116 stays $3.00 / $26.00 / $38.00.
+- Printing: no change needed. #116 already prints as a dish line with its preparation on the
+  item line (`verify:preparation`); phase 2 adds a test that the 加飯 footer's line prints.
+
+### Tests (phase 2)
+
+`kitchen-pos-speed.spec.ts`: the strip tests go ("one tap adds with the sticky defaults",
+"changing rice at the top...", "Apply to all..."; the 半盤 test becomes a portion-sheet test).
+New: a tray dish opens the portion sheet and one tap adds the chosen size (半盤: no rice,
+catalogue price); the highlight follows the last portion on the ticket and resets on a new one;
+a single-size dish adds with no sheet; a rice dish (via 單點) adds with 白飯 and no further
+sheet; the 加飯 footer adds a $3.00 #116 line that is on the kitchen copy; the 改 sheet's 加飯
+row appears on a tray size only and adds n separate #116 lines. Then `verify:rice`,
+`verify:tray-sizes`, `verify:preparation`, `verify:staff-orders`, the `kitchen-tablet` and
+`kitchen-ipad` projects, and the layout spec's no-sideways-scroll / 44 px check at all four
+viewports (with the portion sheet open as well).
+
+### Questions for review
+
+1. **Half / whole and cup / bowl** (one dish each) add their first size today. I have them
+   open the portion sheet with their two sizes, so no size is ever hidden. Alternative: keep
+   adding the first size.
+2. **Portrait top row** now holds only 午餐 and search on an otherwise empty row (mock 1,
+   768 × 1024). Alternative: drop the row and put both at the head of the category rail,
+   giving the grid about 56 px. I drew the simpler version.
+3. **加飯 in the 改 sheet as a stepper (− n +)** rather than a one-shot button, so "two
+   extra rice with this tray" is one sheet. A single "+1" button is simpler if you prefer.
