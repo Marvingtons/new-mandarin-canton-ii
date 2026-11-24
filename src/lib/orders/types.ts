@@ -289,6 +289,46 @@ export interface Order {
   updatedAt: string;
   donePreviousStatus?: OrderStatus | null;
   doneAt?: string | null;
+  /**
+   * 改單 (migration 017). The version the row holds: 0 as placed, +1 per saved
+   * edit. Earlier versions are in order_revisions.
+   */
+  revision: number;
+  /** When the last edit was saved, or null when never edited. */
+  editedAt: string | null;
+  /**
+   * The revision the first kitchen ticket was handed to a printer at, or null
+   * when no body was ever offered (then an edit replaces the contents and
+   * prints no change ticket). See docs/edit-order.md.
+   */
+  ticketRevision: number | null;
+  /** A 改單 change ticket is waiting for, or being printed by, a printer. */
+  changePending: boolean;
+  /** Board only: change tickets this order has caused (改 ×N). */
+  changeCount?: number;
+  /** Board only: a change ticket gave up without printing. */
+  changeFailed?: boolean;
+}
+
+/**
+ * How long after 完成 an order may still be edited: an owner correcting a
+ * mistake, not a second round of cooking. Server and board both read this.
+ */
+export const EDIT_AFTER_DONE_MINUTES = 30;
+
+/**
+ * May this order be opened in 改單 Edit? Any order the kitchen still has work
+ * on; a COMPLETED one for EDIT_AFTER_DONE_MINUTES after it was done; never a
+ * cancelled one. `now` in ms, so the board can pass its server-synced clock.
+ */
+export function isEditable(
+  order: Pick<Order, "status" | "doneAt">,
+  now: number,
+): boolean {
+  if (order.status === "CANCELLED") return false;
+  if (order.status !== "COMPLETED") return true;
+  if (!order.doneAt) return false;
+  return now - new Date(order.doneAt).getTime() <= EDIT_AFTER_DONE_MINUTES * 60_000;
 }
 
 /** What createOrder needs to reserve a row. The number is allocated for you. */
@@ -371,4 +411,12 @@ export interface PrintDelivery {
    * there was one printer.
    */
   station: Station | null;
+  /**
+   * 改單 (migration 017): this hand-over carried that change ticket (or, on a
+   * manual_reprint marker, staff asked for that change ticket again). Null =
+   * the full kitchen ticket.
+   */
+  changeTicketId: string | null;
+  /** The revision of the full ticket this hand-over rendered, when recorded. */
+  ticketRevision: number | null;
 }

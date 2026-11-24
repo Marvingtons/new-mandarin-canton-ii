@@ -1,6 +1,6 @@
 import { publicTenant } from "@/config/tenant.server";
 import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
-import { getOrderById } from "@/lib/orders/repository";
+import { getChangeTicket, getOrderById } from "@/lib/orders/repository";
 import { composeTicketSvg, renderTicket } from "@/lib/ticket/render";
 import type { TicketCopyRole } from "@/lib/ticket/copies";
 
@@ -16,6 +16,10 @@ import type { TicketCopyRole } from "@/lib/ticket/copies";
  * `&format=text` answers with what the copy lays out (each line's text and
  * what it printed in money) instead of the image, so a browser test can
  * check a copy without reading pixels.
+ *
+ * 改單: an edited order renders its CURRENT contents marked 已改 REVISED 第N次.
+ * `?change=<id>` renders one of its stored change tickets instead, exactly as
+ * the printer gets it (the History panel's View, and the browser tests).
  *
  * Node runtime: satori and resvg both need it.
  */
@@ -42,10 +46,14 @@ export async function GET(
   const url = new URL(request.url);
   const copy = url.searchParams.get("copy");
   const roles: TicketCopyRole[] = ["kitchen", "register"];
+  const changeId = url.searchParams.get("change");
+  const change = changeId ? await getChangeTicket(tenant.tenantId, orderId, changeId) : null;
+  if (changeId && !change) return new Response("not found", { status: 404 });
+  const edit = change ? { change } : { revision: order.revision };
   const options =
     copy === "kitchen" || copy === "register"
-      ? { timezone: tenant.timezone, copies: 2, copyIndex: roles.indexOf(copy), copyRoles: roles }
-      : { timezone: tenant.timezone };
+      ? { timezone: tenant.timezone, copies: 2, copyIndex: roles.indexOf(copy), copyRoles: roles, ...edit }
+      : { timezone: tenant.timezone, ...edit };
 
   if (url.searchParams.get("format") === "text") {
     const { lines, money } = await composeTicketSvg(order, options);

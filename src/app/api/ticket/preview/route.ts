@@ -108,6 +108,10 @@ function fixtureOrder(taxRateBps: number | null): Order {
     staffNote: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
+    revision: 0,
+    editedAt: null,
+    ticketRevision: null,
+    changePending: false,
   };
 }
 

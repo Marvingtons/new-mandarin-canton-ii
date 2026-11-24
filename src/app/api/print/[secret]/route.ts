@@ -41,6 +41,7 @@ import {
   confirmPrintDelivery,
   currentPrintJob,
   getOrderById,
+  printBodyFor,
   getPrintDelivery,
   printSegmentState,
   recordDeliveryFetch,
@@ -508,9 +509,19 @@ async function publishJobBody(
   if (jobKey && jobKey.includes(deliveryId)) return printJobUrl(jobKey);
 
   try {
+    // 改單: the body this delivery carries (a change ticket, or the full
+    // ticket at the revision it was first handed over at). Unedited orders
+    // come back unchanged.
+    const body = await printBodyFor(tenant.tenantId, job, deliveryId);
     const ticket = await renderTicketJob(
-      job,
-      { timezone: tenant.timezone, copies: ticketCopies(), copyRoles: ticketCopyRoles() },
+      body.order,
+      {
+        timezone: tenant.timezone,
+        copies: ticketCopies(),
+        copyRoles: ticketCopyRoles(),
+        change: body.change,
+        revision: body.revision,
+      },
       {
         format: "starprnt",
         // Star's 512KB GET cap, expressed as rows. Applies to the R2 object
@@ -721,9 +732,16 @@ export async function GET(
     // over-long ticket into consecutive jobs instead of one refusal.
     const ceiling =
       format === "starprnt" ? maxStarPrntRows(TICKET_WIDTH_PX) : limits.monoLen;
+    const body = await printBodyFor(tenant.tenantId, job, deliveryId);
     const ticket = await renderTicketJob(
-      job,
-      { timezone: tenant.timezone, copies: ticketCopies(), copyRoles: ticketCopyRoles() },
+      body.order,
+      {
+        timezone: tenant.timezone,
+        copies: ticketCopies(),
+        copyRoles: ticketCopyRoles(),
+        change: body.change,
+        revision: body.revision,
+      },
       { format, maxHeight: ceiling, segment },
     );
 
@@ -980,6 +998,13 @@ async function confirmPrinted(url: URL): Promise<Response> {
       console.warn(
         `[cloudprnt] ${result.orderNumber} delivery=${token} — late confirmation closed the ` +
           `delivery without printing; order stays ${result.status}`,
+      );
+      break;
+    case "changed":
+      console.info(
+        `[cloudprnt] verdict=changed ${result.orderNumber} delivery=${token} — 改單 change ` +
+          `ticket printed; order stays ${result.status}` +
+          (result.jobKey ? `, ${result.jobKey} deleted` : ""),
       );
       break;
     case "reprinted":

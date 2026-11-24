@@ -113,3 +113,25 @@ export const StaffTakeoutRequestSchema = z.strictObject({
 export const StaffOrderRequestSchema = StaffTakeoutRequestSchema;
 
 export type StaffOrderRequest = z.infer<typeof StaffOrderRequestSchema>;
+
+/**
+ * 改單 EDIT ORDER: POST /api/kitchen/orders/[id]/edit. The WHOLE edited
+ * ticket, in the same no-price line shape as a new staff order; lines loaded
+ * from the order carry lineId "orig:<index>" (lib/orders/editPricing.ts).
+ * Customer, channel and pickup are not here: an edit cannot change them.
+ */
+export const OrderEditRequestSchema = z.strictObject({
+  /** The revision the POS loaded: the optimistic lock. */
+  baseRevision: z.number().int().min(0),
+  /** One Save press; a retry with the same token is the same edit. */
+  editToken: z.string().min(8).max(200),
+  /** Empty is allowed through so the server can answer "use Cancel". */
+  lines: z.array(StaffLineSchema).max(60),
+  lunchOverride: z.boolean().optional(),
+  /** A COMPLETED order prints a change ticket only when staff ask. */
+  printChange: z.boolean().optional(),
+  /** Price and diff it, write nothing: the confirm sheet. */
+  dryRun: z.boolean().optional(),
+});
+
+export type OrderEditRequest = z.infer<typeof OrderEditRequestSchema>;
