@@ -3,10 +3,12 @@
 A printed end-of-day ORDERS report on the 80mm ticket printer: one receipt,
 with Online, Store and All columns.
 
-Status: **Phase 1 (design), awaiting review.** Nothing is wired yet: no SQL,
-no route, no print kind, no UI. What exists is the data model, the renderer,
-fixtures for four days, and `npm run report:sample`, which renders the four
-PNGs below through the real ticket renderer.
+Status: **built.** History → 日結 Day report opens the print sheet; the
+numbers come from one SQL aggregate, the paper from the ticket renderer, and
+the print goes through the ticket pipeline as its own `report` kind, offered
+once and never retried. Design reviewed and approved on 2026-11-23 with the
+three recommendations below taken as decided. The four PNGs below are
+`npm run report:sample`, rendered through the real ticket renderer.
 
 | Normal Saturday | Slow Monday | 3 cancellations | Empty day |
 | --- | --- | --- | --- |
@@ -35,6 +37,15 @@ whether an order was paid, only that it was taken and reached the kitchen.
 | `src/lib/ticket/layout.ts` | One new primitive, `graphic()`, used for the seal. No ticket calls it. |
 | `scripts/fixtures/orders.ts` | `reportFixtureDays()`: four seeded days built through the real catalogue. |
 | `scripts/report-sample.ts` | `npm run report:sample`. Renders the PNGs to `docs/daily-report/` and fails on any broken invariant, overflowing line or missing glyph. |
+| `src/lib/reports/daily.ts` | Server-only. `readDailyReport`: the day in ONE SQL statement (see "How it is built"). |
+| `src/lib/reports/prints.ts` | Server-only. The `report_prints` queue: request (idempotent), claim once, settle, confirm. |
+| `src/lib/reports/sheet.ts` | Server-only. The print sheet's guard, date and block parsing, and its JSON. |
+| `src/app/api/kitchen/reports/daily/**` | The three staff routes: JSON, preview PNG, print. |
+| `src/app/api/print/[secret]/route.ts` | The CloudPRNT route, now also offering, serving and confirming report prints. |
+| `src/components/kitchen/DailyReportSheet.tsx` | The sheet, opened from `OrderHistory.tsx`. |
+| `src/lib/db/migrations/016_report_prints.sql` | `report_prints`, and `print_deliveries` naming an order OR a report. `down_016_to_015.sql` undoes it. |
+| `scripts/verify-daily-report.ts` | `npm run verify:daily-report`. |
+| `tests/e2e/kitchen-daily-report.spec.ts` | The sheet in a browser, kitchen-tablet and kitchen-ipad. `scripts/report-preview.ts` draws its preview for the spec. |
 
 The subset font was rebuilt (`npm run build:ticket-font`) to add the 14 glyphs
 the report needs: 日結堂食額價未入消列熱賣段無. Every one of the 18
@@ -61,20 +72,16 @@ the order numbers or with History.
 The default day is today in the tenant timezone. Any past day can be chosen;
 no future day.
 
-> **Open question 1, the 4am rule.** The spec says a report printed between
-> midnight and 4am belongs to the previous business day "if businessDate says
-> so", and Phase 2's verify list asks that a 12:10am order land on the previous
-> day. **businessDate.ts does not say so today**: it is the plain local calendar
-> date, with no rollover hour. A 12:10am order is stored on the new date and
-> numbered B-001 of the new day.
->
-> Recommended: keep the report on the stored `business_date` (one truth, the
-> one the order numbers use), and make the print sheet **default** to
-> yesterday when opened between 00:00 and 04:00. The alternative, a 4am
-> rollover inside `businessDateFor`, changes order numbering, the board and
-> History as well, so it is its own change. The restaurant closes by 9:30pm,
-> so neither case has happened yet. I need your call before Phase 2's verify
-> asserts either behaviour.
+**Decided: the 4am rule.** `businessDate.ts` is the plain local calendar
+date, with no rollover hour, so a 12:10am order is stored on the new date and
+numbered B-001 of the new day. The report keeps to the stored `business_date`
+(one truth, the one the order numbers use), and the print sheet **opens on
+yesterday** when it is opened between 00:00 and 04:00
+(`defaultReportDate`, `REPORT_DAY_ROLLOVER_HOUR`). A 4am rollover inside
+`businessDateFor` would change order numbering, the board and History too, so
+it stays its own change if it is ever wanted. `verify:daily-report` asserts
+both halves: the 12:10am order is the next day's, and the sheet opened at
+12:10am is on the day before.
 
 ### Channels and stations
 
@@ -171,11 +178,10 @@ sum to All exactly (add-ons add money and no count, as above).
 day, **any status**, cancelled included (it is when the shop was taking orders).
 An empty day prints `no orders`.
 
-> **Open question 2.** The spec says "first-order to last-order (or print time
-> if later)". For today's report the print time is always later, so that rule
-> would always print the print time, which the spec's own mock does not do
-> (9:01p in the window, 9:02p printed). I followed the mock: the window is
-> first to last order, and the print time has its own line.
+**Decided.** The spec's "or print time if later" would always print the print
+time on today's report, which its own mock does not do (9:01p in the window,
+9:02p printed). The mock stands: the window is first to last order, and the
+print time has its own line.
 
 ### Print sequence and code
 
@@ -231,14 +237,14 @@ cannot be mistaken for a block switched off.
 
 ### Language order
 
-> **Open question 3.** The spec's layout puts English first (`ORDERS 訂單`,
-> `Online 網上`) while its general rules say 中文 first, English second. The
-> mock is drawn English-first, so I followed it; the kitchen ticket itself is
-> 中文 first (`小計 SUBTOTAL`). Flipping it is one string per row in
-> report.ts. Which do you want?
->
-> Also from the spec, deliberately kept: **Walk-in 自取** (the kitchen ticket
-> header says 到店 for a walk-in) and **Tax 稅** (the ticket says 稅金).
+**Decided: as the mock.** The paper is English first (`ORDERS 訂單`,
+`Online 網上`), as the spec's layout draws it, although its general rule and
+the kitchen ticket (`小計 SUBTOTAL`) are 中文 first. Flipping it is one string
+per row in report.ts. The sheet on the tablet follows the staff language
+toggle like every other kitchen screen.
+
+Also from the spec, deliberately kept: **Walk-in 自取** (the kitchen ticket
+header says 到店 for a walk-in) and **Tax 稅** (the ticket says 稅金).
 
 ## Edge cases
 
@@ -258,7 +264,93 @@ cannot be mistaken for a block switched off.
 | Very long dish name | Wraps inside the name column; numbers stay on its first line. |
 | $10,000+ day | `$12,345.67` fits the money column at 22 bold with room. |
 
-## Checks that run today
+## Reading it next to the card batch
+
+At close, lay three things side by side: this report, the card terminal's
+batch report, and the counted cash drawer.
+
+1. **Is the day finished?** NOT INCLUDED → Unprinted should be 0. If it is
+   not (bold), a ticket is still waiting for the printer or failed to print:
+   find it on the board or in History, sort it out, and print the report
+   again. The new print gets the next # and, if anything changed, a new code.
+2. **The one number to match** is **All 合計 → Total**: every order taken and
+   sent to the kitchen, tax included. Card batch total (before tips) plus the
+   cash taken should come close to it.
+3. **Why they differ, in the usual order:**
+   - **Tips.** The batch total includes card tips; this report has none. Use
+     the batch's total before tips.
+   - **Not yet paid, or never paid.** An online order paid at pickup is here
+     from the moment it printed. One not picked up by close is here and in
+     neither the batch nor the drawer.
+   - **Cancelled after payment.** Cancelled orders are not in All; a refund on
+     the terminal is. NOT INCLUDED → Cancelled lists their would-be total.
+   - **Charges 加價** are already inside All. They are shown on their own only
+     so typed-in money (custom lines, surcharges) is visible.
+4. **Online / Store** split the same total by where the ticket printed:
+   Online = web orders, Store = phone plus walk-in. They always add up to All.
+5. **Keep the highest #.** Two prints of one day with the same code printed
+   the same numbers. A higher # with a different code means orders changed
+   in between; the higher one is the true one.
+
+## How it is built
+
+### One SQL statement
+
+`readDailyReport` (src/lib/reports/daily.ts) sums the day where the rows live.
+CTEs: the day's rows classed sold / unprinted / cancelled by status; a lateral
+`jsonb_array_elements(items) with ordinality` giving every line's quantity,
+line total and 加價 share; each order's charges from its lines; then one row of
+jsonb with the buckets by (class, channel), trays, the top 10 (`collate "C"`
+for the tie-break), the local-hour buckets (`created_at at time zone`), and
+the first and last order. The TypeScript side only adds each bucket into its
+channel, its station and All, once each, so Online + Store = All by
+construction. `verify:daily-report` proves it equals `summarizeDay` exactly.
+
+### The `report` print kind
+
+A Print press inserts one `report_prints` row (QUEUED) with the report **as
+summed at that moment** stored on it; the paper is rendered from that row,
+never re-summed. The printer's poll (src/app/api/print/[secret]/route.ts):
+
+- **Tickets first.** A printer takes a report only when it has no ticket in
+  flight and none waiting, and while a report is in flight it is handed no
+  ticket. One job at a time, as for orders.
+- **Same hand-over, same audit.** Claiming writes one `print_deliveries` row
+  (reason `report`, `order_id` null, `report_print_id` set); its id is the job
+  token, the R2 key and what the DELETE echoes. A fetch is counted; a fetch
+  after confirmation is 410. So one press is one piece of paper.
+- **Offered once.** Success → PRINTED. A failure code, a render failure or a
+  window that runs out → FAILED, and **nothing re-offers it**: there is no
+  report branch in the retry, cap or paper-restored requeue. A person prints
+  it again from the sheet, as the next #. A success arriving after FAILED is
+  still recorded as PRINTED (the paper came out).
+- **Window**: the one-copy ticket window (`confirmationWindowSeconds(1, …)`),
+  whatever TICKET_COPIES is.
+- **Which printer**: the station picked on the sheet, printed by whichever
+  printer serves that station (a one-printer shop prints Store reports on its
+  only printer). Never by failover: a report for a silent printer waits, and
+  the sheet says that printer is offline.
+- **Before 016**: every report call in the poll is wrapped; a missing table is
+  "no report", so tickets never wait on this feature.
+
+### The sheet and its routes
+
+History's header has **日結 Day report** beside Export CSV. The sheet:
+◀ date ▶ (a day at a time, nothing past today, opening as above), the printer
+(Store by default), the three optional blocks, the day's earlier prints with
+their status, and the preview, which is the renderer's own PNG for exactly
+these choices and the next #. **Print #N** is disabled, with the reason, while
+that printer is out of paper, has its cover open or is offline, or before
+migration 016. Routes (staff session only; the print POST is also host-gated
+like every route that puts paper in the kitchen):
+
+| Route | What |
+| --- | --- |
+| `GET /api/kitchen/reports/daily[?date=]` | The report JSON, `nextSequence`, the day's prints, printer health, `printable`. |
+| `GET /api/kitchen/reports/daily/preview?date=&station=&blocks=&sequence=` | The receipt as a 1-bit PNG, 576 px wide; `x-report-code` header. |
+| `POST /api/kitchen/reports/daily/print` | `{ date, station, blocks, sequence, requestKey }`. Same key again: the same print (`replay`). Another key for a taken or skipped #: 409 with `nextSequence`. Printer blocked: 409 with `reason`. Future day: 400. |
+
+## Checks
 
 `npm run report:sample` fails (exit 1) on any of:
 
@@ -276,37 +368,15 @@ Current output:
     ok   3-cancellations   48 orders   $2,619.50  cancelled 3  unprinted 1  1656px (207mm)  code 1392FMD3
     ok   4-empty-day        0 orders       $0.00  cancelled 0  unprinted 0  1126px (141mm)  code 3MM9PVVN
 
-## Phase 2, after review (not started)
+### Database and pipeline
 
-1. **Query.** `src/lib/reports/daily.ts` (server-only): one SQL aggregate per
-   report, grouped by channel and status, a lateral over `items` jsonb for
-   trays and top items, and an hour bucket in the tenant timezone, returning a
-   `DailyReport`. `verify:daily-report` builds a known day in the embedded test
-   DB (pattern: `scripts/verify-staff-orders.ts`) and asserts every number, and
-   that the SQL result equals `summarizeDay` over the same rows: add-ons fold,
-   cancelled excluded, the 12:10am case (per open question 1), charges and tax
-   to the cent, Online + Store = All on every row.
-2. **Print kind.** A `report` kind through render, PNG, print (CloudPRNT on the
-   online station, the StarPRNT bridge on the store station), on the
-   delivery/dedup tables so one request prints exactly once, and **outside**
-   the automatic retry/recurrence path: a failed report is reprinted by a
-   person. Extend `verify:print-recurrence` and `verify:print-deliveries`. The
-   print sequence needs a small table (tenant, business date, sequence, code,
-   station, printed at, delivery id), unique on the first three.
-3. **UI.** History tab, 日結 Day report button (top right, 56px like the
-   others). Sheet: date (today by default, ◀ ▶, nothing in the future),
-   station (Store by default), the three block toggles, a live preview from
-   this renderer at tablet size, 列印 Print, disabled with a reason while that
-   printer is offline. Strings through `t()` in both dictionaries; tokens from
-   docs/kitchen-design.md, no new colours.
-4. **Access.** Staff session only (the /kitchen guard).
-   `GET /api/kitchen/reports/daily` returns the JSON; a POST enqueues the
-   print. Both idempotent on (tenant, date, sequence).
-5. **Tests.** Playwright kitchen-tablet and kitchen-ipad: open the sheet,
-   preview shows the seeded day's totals, print enqueues one job, and the
-   no-sideways-scroll / 44px rules hold with the sheet open at all four
-   viewports. Then the full verify:* set, typecheck, typecheck:worker, lint.
-6. **Docs.** How to read it next to the card batch; the route in the ops notes.
+| Check | Count | What it proves |
+| --- | --- | --- |
+| `verify:daily-report` | 52/52 | A hand-worked day, every number: add-ons fold, cancelled and unprinted apart, charges and tax to the cent, 9:15pm stays Saturday, 12:10am is Sunday's, other tenants invisible; SQL = `summarizeDay` on the four sample days; the sheet's opening day; the three routes (auth, JSON, PNG, idempotent print, 409s, no future days). |
+| `verify:print-deliveries` | 72/72 | Scenarios 13-16: one press is one hand-over, held, fetched, confirmed, 410 after; tickets go first and none is handed out mid-report; the request is idempotent, including two presses at once; tickets still print without migration 016. |
+| `verify:print-recurrence` | 5/5 | Real clock: an unconfirmed report is handed over once and ends FAILED, at the shipped window and at the 2s window that makes a ticket print four times. |
+| `verify:station-migrations` | 016 section | 016 and its down are repeatable; a Store report prints on 011-016; tickets print after the rollback. The harness's own old-code and store-seed checks fail on `main` as well (see the PR). |
+| Playwright `kitchen-daily-report` | 12/12 (kitchen-tablet + kitchen-ipad; the full kitchen suites 63/63) | The sheet shows the seeded day's totals; the preview asks for that day and the next #; Print, pressed twice, enqueues exactly one job; Print is disabled with 缺紙 while the store printer is out of paper, and enabled again on the online printer; no sideways scroll and no target under 44 px with the sheet open at 768x1024, 1024x768, 1180x820 and 1366x1024. Under `next start` the preview route cannot load resvg (the same Node-build gap the board's ticket image has; the Worker does not), so the spec draws that day's preview with `scripts/report-preview.ts`, the same `renderReportPng`, and checks it is 576 px wide with the sheet's count and total. |
 
 ## Out of scope
 

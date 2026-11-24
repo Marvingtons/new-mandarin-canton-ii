@@ -298,6 +298,22 @@ rather than a seek to the end of it.
    between the migration and the deploy, and the new code fails on a
    database without 015. Do both back to back, ideally while closed. Rollback:
    `down_015_to_014.sql` together with the Worker rollback.
+7. **日結 Day report.** Requires migration 016 (`016_report_prints.sql`) to
+   print; safe in **either order** with the deploy. Old code never reads
+   `report_prints` and every existing delivery keeps its `order_id`; new code
+   on a database without 016 prints tickets exactly as before and the sheet
+   says report printing is not set up. Staff open it from History → 日結 Day
+   report. Routes, all behind the kitchen session:
+   - `GET /api/kitchen/reports/daily[?date=YYYY-MM-DD]`: the day's numbers as
+     JSON, the next print #, the day's prints and printer health.
+   - `GET /api/kitchen/reports/daily/preview?date=&station=&blocks=&sequence=`:
+     the receipt as a PNG.
+   - `POST /api/kitchen/reports/daily/print` `{ date, station, blocks,
+     sequence, requestKey }`: queues one print; idempotent on (date, #).
+   A report is offered to its printer **once** and never retried. If it does
+   not come out, it shows "Did not print" on the sheet and staff print again
+   (the next #). `[cloudprnt] verdict=report-…` lines in the Worker log follow
+   each one. Rollback: `down_016_to_015.sql` (deletes report prints only).
 
 ---
 
