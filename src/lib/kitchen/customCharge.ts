@@ -34,7 +34,10 @@ export const CUSTOM_NAME_STORAGE_KEY = "nmc-pos-custom-name";
 
 /**
  * The quick names, 中文 and English. "其他 Other" is not a name: it clears the
- * field for typing. Every 中文 here is already in the ticket font's subset.
+ * field for typing. No 加飯 Extra rice: rice is the menu item #116 on its own
+ * line (the POS's 加飯 button and the 改 sheet's 加飯 row), so there is one way
+ * to charge for it, at the menu's price. Every 中文 here is already in the
+ * ticket font's subset.
  */
 export interface ChargePreset {
   id: string;
@@ -42,7 +45,6 @@ export interface ChargePreset {
   en: string;
 }
 export const CHARGE_PRESETS: readonly ChargePreset[] = [
-  { id: "extra-rice", zh: "加飯", en: "Extra rice" },
   { id: "extra-shrimp", zh: "加蝦", en: "Extra shrimp" },
   { id: "extra-meat", zh: "加肉", en: "Extra meat" },
   { id: "extra-spicy", zh: "加辣", en: "Extra spicy" },

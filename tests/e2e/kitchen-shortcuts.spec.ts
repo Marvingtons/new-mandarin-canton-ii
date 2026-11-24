@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
-import { chooseRequired } from "./posSheet";
+import { chooseRequired, tapDish } from "./posSheet";
 
 /**
  * Single-key shortcuts (J K A C P X, 1 2 3, ?, and the shell's N B H M) must
@@ -120,7 +120,7 @@ test("POS: typing a and x in the dish search and a line's instructions fires not
 
   // Put a dish on the ticket, tap its line, and type its special
   // instructions in the sheet that opens.
-  await page.locator("button[data-item]:not([disabled])").first().click();
+  await tapDish(page, page.locator("button[data-item]:not([disabled])").first());
   const sheetAdd = page.getByRole("button", { name: /加入單據/ });
   if (await sheetAdd.isVisible().catch(() => false)) {
     await chooseRequired(page);

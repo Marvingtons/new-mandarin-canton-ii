@@ -114,7 +114,7 @@
 /* Buttons and segmented controls are the staff app's shared ones:
    components/kitchen/ui/ui.module.css. */
 
-/* ---- the strip: sticky rice and size, Apply to all, lunch hours, search -- */
+/* ---- the toolbar: lunch hours and search (landscape: beside the chips) -- */
 .top {
   grid-area: top;
   min-width: 0;
@@ -155,59 +155,6 @@
 .lunchBtn[aria-pressed="true"] {
   background: var(--color-staff-brand);
   color: var(--color-staff-on-brand);
-}
-/* A compact segmented control: 中文 over English, the 44px floor, no wider
-   than its words, so rice and size share one row at 1024. */
-.defSeg {
-  flex: none;
-  padding: calc(2 * var(--staff-u));
-  gap: calc(2 * var(--staff-u));
-}
-.defSeg > button {
-  min-height: calc(var(--spacing) * 11);
-  min-width: calc(var(--spacing) * 11);
-  padding: 0 calc(var(--spacing) * 1);
-  flex-direction: column;
-  justify-content: center;
-  gap: 0;
-  line-height: 1.05;
-}
-.defSeg .zh {
-  font-size: var(--text-staff-caption);
-  font-weight: 700;
-}
-/* Portrait shows the defaults 中文-only, as the rail does: with three sizes
-   (單點 / 半盤 / 餐盤) the English captions pushed the strip past 768. The
-   trilingual label stays on every segment's title and aria-label; landscape
-   shows the captions again. */
-.defSeg .en {
-  display: none;
-  font-size: calc(12 * var(--staff-u));
-  font-weight: 500;
-}
-.applyAll {
-  flex: none;
-  min-height: calc(var(--spacing) * 11);
-  min-width: calc(var(--spacing) * 11);
-  padding: 0 calc(var(--spacing) * 1);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  line-height: 1.05;
-  border-radius: var(--radius-staff-control);
-  font-size: calc(13 * var(--staff-u));
-  font-weight: 700;
-  color: var(--color-staff-brand);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
-}
-.applyAll .en {
-  font-size: calc(12 * var(--staff-u));
-  font-weight: 500;
-}
-.applyAll:active {
-  background: var(--color-staff-sunken);
 }
 .searchField {
   position: relative;
@@ -829,8 +776,45 @@ button.who {
   font-size: var(--text-staff-caption);
   font-weight: 600;
 }
+/* Print, with 加飯 beside it when the menu has #116 to sell. */
+.footRow {
+  display: flex;
+  gap: calc(var(--spacing) * 2);
+  min-width: 0;
+}
+/* 加飯: one #116 Fried/Steamed Rice line, 單點 steamed. A secondary button,
+   中文 over its English and price, never wider than its words. */
+.addRice {
+  flex: none;
+  min-height: calc(var(--spacing) * 14);
+  min-width: calc(var(--spacing) * 11);
+  padding: 0 calc(var(--spacing) * 3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.15;
+  border-radius: var(--radius-staff-control);
+  background: var(--color-staff-panel);
+  box-shadow: inset 0 0 0 2px var(--color-staff-sunken);
+  transition: background var(--staff-motion);
+}
+.addRice .zh {
+  font-size: var(--text-staff-title);
+  font-weight: 700;
+}
+.addRice .en {
+  font-size: var(--text-staff-caption);
+  color: var(--color-staff-soft);
+  white-space: nowrap;
+}
+.addRice:active {
+  background: var(--color-staff-gold-tint);
+}
 button.print {
   min-height: calc(var(--spacing) * 18);
+  flex: 1 1 0;
+  min-width: 0;
   width: 100%;
   font-size: var(--text-staff-title);
   justify-content: space-between;
@@ -956,9 +940,25 @@ button.barPrint {
    five at 1280 and wider, and the ticket a fixed 340px column. */
 @media (min-width: 1000px) {
   .root {
-    grid-template-areas: "top ticket" "rail ticket" "dishes ticket";
-    grid-template-columns: minmax(0, 1fr) var(--z-ticket);
-    grid-template-rows: auto auto minmax(0, 1fr);
+    /* One row above the dishes: the category chips, then lunch and search.
+       There used to be two (a rice and size strip over the chips); the
+       dishes get the row back. */
+    grid-template-areas: "rail top ticket" "dishes dishes ticket";
+    grid-template-columns: minmax(0, 1fr) auto var(--z-ticket);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .top {
+    padding-left: 0;
+  }
+  /* Searching: the field takes the whole row, and the chips step aside. */
+  .searchIsOpen {
+    grid-template-areas: "top top ticket" "dishes dishes ticket";
+  }
+  .searchIsOpen .top {
+    padding-left: calc(var(--spacing) * 3);
+  }
+  .searchIsOpen .rail {
+    display: none;
   }
   .bar,
   .scrim,
@@ -978,7 +978,8 @@ button.barPrint {
   .rail {
     flex-direction: row;
     gap: calc(var(--spacing) * 2);
-    padding: 0 calc(var(--spacing) * 3) calc(var(--spacing) * 2);
+    align-items: center;
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;
@@ -1002,9 +1003,6 @@ button.barPrint {
   .rail .en {
     display: inline;
     font-size: var(--text-staff-caption);
-  }
-  .defSeg .en {
-    display: block;
   }
   .rail button[aria-current="true"] {
     box-shadow: none;

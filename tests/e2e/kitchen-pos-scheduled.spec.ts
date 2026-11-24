@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
-import { chooseRequired } from "./posSheet";
+import { chooseRequired, tapDish } from "./posSheet";
 
 /**
  * The POS "Scheduled for" control: optional, empty by default.
@@ -26,7 +26,7 @@ async function openPos(page: Page): Promise<void> {
 }
 
 async function addAnyDish(page: Page): Promise<void> {
-  await page.locator("button[data-item]:not([disabled])").first().click();
+  await tapDish(page, page.locator("button[data-item]:not([disabled])").first());
   const sheetAdd = page.getByRole("button", { name: /加入單據/ });
   if (await sheetAdd.isVisible().catch(() => false)) {
     await chooseRequired(page);

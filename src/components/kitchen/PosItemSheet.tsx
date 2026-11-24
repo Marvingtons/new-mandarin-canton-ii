@@ -12,6 +12,7 @@ import AmountPad from "@/components/kitchen/AmountPad";
 import { chipClass } from "@/components/kitchen/CustomChargeSheet";
 import { useSheetFocus } from "@/components/kitchen/ui/useSheetFocus";
 import { CHARGE_PRESETS, MAX_CHARGE_NAME, presetLabel, type Surcharge } from "@/lib/kitchen/customCharge";
+import { sizeHasNoRice } from "@/lib/kitchen/posTap";
 
 export interface PosLineDraft {
   itemId: string;
@@ -36,10 +37,16 @@ const MAX_INSTRUCTIONS = 200;
  * Keyed by item id from the parent, so a new dish starts clean.
  *
  * THE SHEET NEVER CHOOSES ON ITS OWN, unlike the customer sheet. What it
- * opens on comes from staff: the strip's sticky rice (a default they set), or
- * the line being edited. A required choice with no sticky default (a lunch
- * entrée, an "or" dish, a family dinner's head count) opens blank, expanded
- * and first, and Add stays disabled until staff pick it.
+ * opens on comes from the screen: the portion staff tapped, the rice a tap
+ * would have used (白飯, the menu's own default), or the line being edited. A
+ * required choice the menu does not default (a lunch entrée, an "or" dish, a
+ * family dinner's head count) opens blank, expanded and first, and Add stays
+ * disabled until staff pick it.
+ *
+ * 加飯 Add rice: on a size that includes no rice (a tray, an appetizer, a
+ * soup), a − n + row adds n × #116 Fried/Steamed Rice (單點, steamed) as its
+ * OWN line beside this one, so the wok sees it on the kitchen copy. It is
+ * never a surcharge, and it counts from 0 every time the sheet opens.
  */
 /** One choice in the sheet (a size, a rice, an extra): selected is ringed in lacquer. */
 /**
@@ -125,6 +132,7 @@ export default function PosItemSheet({
   editing = false,
   focus,
   menuNumber,
+  riceSideCents = null,
   onAdd,
   onClose,
 }: {
@@ -142,7 +150,10 @@ export default function PosItemSheet({
    */
   focus?: string;
   menuNumber: number | null;
-  onAdd: (line: PosLineDraft) => void;
+  /** #116's 單點 price, or null when the menu cannot sell it (no 加飯 row). */
+  riceSideCents?: number | null;
+  /** The line, and how many #116 rice lines to add beside it. */
+  onAdd: (line: PosLineDraft, extraRice: number) => void;
   onClose: () => void;
 }) {
   const t = useKT();
@@ -212,6 +223,10 @@ export default function PosItemSheet({
       panel.querySelector<HTMLElement>("[aria-pressed]"),
   );
 
+  const [extraRice, setExtraRice] = useState(0);
+  const riceRow = riceSideCents !== null && sizeId !== "" && sizeHasNoRice(item, sizeId);
+  const riceCount = riceRow ? extraRice : 0;
+
   function add() {
     if (!groupsValid || chargeHalf) return;
     onAdd({
@@ -221,9 +236,9 @@ export default function PosItemSheet({
       quantity,
       specialInstructions: instructions.trim() || undefined,
       ...(chargeOn ? { surcharge: { amountCents: chargeCents, label: chargeLabel.trim() } } : {}),
-    });
+    }, riceCount);
   }
-  const lineCents = priceCents + (chargeOn ? chargeCents * quantity : 0);
+  const lineCents = priceCents + (chargeOn ? chargeCents * quantity : 0) + riceCount * (riceSideCents ?? 0);
 
   return (
     <div
@@ -298,6 +313,48 @@ export default function PosItemSheet({
                 </div>
               )}
             </fieldset>
+          )}
+
+          {riceRow && (
+            <div
+              data-section="add-rice"
+              className="mb-4 flex min-h-16 items-center justify-between gap-4 rounded-2xl bg-staff-panel py-2.5 pr-3 pl-4 shadow-staff-card"
+            >
+              <div className="flex min-w-0 flex-col">
+                <span className="text-[1.091rem] font-semibold">
+                  <span lang="zh-Hant">{t("pos.addRiceRowZh")}</span>{" "}
+                  <span lang="en" className="font-medium text-staff-soft">
+                    {t("pos.addRiceRowEn")}
+                  </span>
+                </span>
+                <span className="text-base text-staff-soft">{t("pos.addRiceRowHint")}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1" role="group" aria-label={t("pos.addRiceAria", { price: formatCents(riceSideCents ?? 0) })}>
+                <span className="mr-2 font-bold tabular-nums">+{formatCents(riceSideCents ?? 0)}</span>
+                <button
+                  type="button"
+                  data-action="rice-less"
+                  onClick={() => setExtraRice((n) => Math.max(0, n - 1))}
+                  disabled={extraRice === 0}
+                  aria-label={t("pos.decrease")}
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-staff-sunken text-staff-ink hover:bg-staff-gold-tint disabled:opacity-40"
+                >
+                  <Icon name="minus" size={22} />
+                </button>
+                <span className="w-8 text-center text-[1.364rem] font-bold tabular-nums" aria-live="polite" data-rice-count>
+                  {extraRice}
+                </span>
+                <button
+                  type="button"
+                  data-action="rice-more"
+                  onClick={() => setExtraRice((n) => Math.min(50, n + 1))}
+                  aria-label={t("pos.increase")}
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-staff-sunken text-staff-ink hover:bg-staff-gold-tint"
+                >
+                  <Icon name="plus" size={22} />
+                </button>
+              </div>
+            </div>
           )}
 
           {groups.map((g) => {

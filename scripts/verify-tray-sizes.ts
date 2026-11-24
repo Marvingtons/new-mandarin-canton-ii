@@ -10,8 +10,8 @@
  *                 half-tray / party-tray, in that order, strictly ascending,
  *                 and no dish has a half tray without a full one
  *   2. rice       a half tray is the dish alone, like the full tray
- *   3. POS        the strip's 半盤 default lands a half tray with one tap on a
- *                 tray dish, and leaves every other dish exactly as before
+ *   3. POS        a tap on a tray dish opens the portion sheet (no size is
+ *                 ever a default), and its 半盤 adds a half tray with no rice
  *   4. server     the website's order route and the staff route both accept
  *                 a half-tray line, price it from the catalogue, and move the
  *                 order to the long prep window
@@ -23,7 +23,7 @@ import { catalogMenu } from "@/lib/menu/catalog";
 import { isTraySize, itemSizes, type MenuItem } from "@/lib/menu/types";
 import { groupsForSize, RICE_GROUP_ID } from "@/lib/menu/rice";
 import { composeOrder } from "@/lib/orders/compose";
-import { defaultSizeId, quickAdd, INITIAL_DEFAULTS, sellsTrays } from "@/lib/kitchen/posDefaults";
+import { lineAt, sellsTrays, tapRule } from "@/lib/kitchen/posTap";
 import { resolveSizeZh } from "@/data/menu-overrides";
 import { composeTicketSvg } from "@/lib/ticket/render";
 import { fixtureOrder } from "./fixtures/orders";
@@ -99,20 +99,33 @@ check(
 /* --------------------------------------------------------- 3. POS ---- */
 
 const kungPao = items.find((it) => it.id === "kung-pao-chicken")!;
-check("the strip's 半盤 lands a half tray", defaultSizeId(kungPao, "half") === "half-tray");
-check("the strip's 餐盤 still lands the full tray", defaultSizeId(kungPao, "tray") === "party-tray");
-check("the strip's 單點 still lands the individual", defaultSizeId(kungPao, "individual") === "individual");
-const halfTap = quickAdd(kungPao, { ...INITIAL_DEFAULTS, size: "half" });
+const tap = tapRule(kungPao);
 check(
-  "one tap with 半盤 set adds a half tray with no rice and asks nothing",
+  "a tap on a tray dish opens the portion sheet on its three sizes",
+  tap.kind === "portion" && tap.sizes.map((x) => x.id).join() === "individual,half-tray,party-tray",
+  JSON.stringify(tap),
+);
+check(
+  "every tray dish's tap opens the portion sheet: no size is a default",
+  trayDishes.every((it) => tapRule(it).kind === "portion"),
+  trayDishes.filter((it) => tapRule(it).kind !== "portion").map((it) => it.id).join(", "),
+);
+const halfTap = lineAt(kungPao, "half-tray");
+check(
+  "半盤 on the portion sheet adds a half tray with no rice and asks nothing",
   halfTap.kind === "add" && halfTap.line.sizeId === "half-tray" && halfTap.line.modifierIds.length === 0,
   JSON.stringify(halfTap),
 );
-const nonTray = items.filter((it) => !sellsTrays(it));
+const oneTap = lineAt(kungPao, "individual");
 check(
-  "every dish not sold by the tray resolves the same size under 半盤 as under 單點",
-  nonTray.every((it) => defaultSizeId(it, "half") === defaultSizeId(it, "individual")),
-  nonTray.filter((it) => defaultSizeId(it, "half") !== defaultSizeId(it, "individual")).map((it) => it.id).join(", "),
+  "單點 adds the individual with 白飯 steamed, the menu's default, and asks nothing",
+  oneTap.kind === "add" && oneTap.line.modifierIds.join() === "rice-steamed",
+  JSON.stringify(oneTap),
+);
+const oneSize = items.filter((it) => itemSizes(it).length === 1);
+check(
+  "a one-size dish never opens the portion sheet",
+  oneSize.length > 0 && oneSize.every((it) => tapRule(it).kind !== "portion"),
 );
 
 /* ------------------------------------------------------ 4. server ---- */

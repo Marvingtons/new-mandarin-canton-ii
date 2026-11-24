@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * The POS item sheet opens with every required choice the strip's defaults do
@@ -16,4 +16,14 @@ export async function chooseRequired(page: Page): Promise<void> {
     if ((await group.locator('button[aria-pressed="true"]').count()) > 0) continue;
     await group.locator("button[aria-pressed]").first().click();
   }
+}
+
+/**
+ * Tap a dish tile the way staff do. A dish sold in portions (data-portions)
+ * opens the 份量 Portion sheet, and `portion` is the size tapped there.
+ */
+export async function tapDish(page: Page, tile: Locator, portion = "individual"): Promise<void> {
+  const portions = await tile.getAttribute("data-portions");
+  await tile.click();
+  if (portions !== null) await page.locator(`[data-sheet="portion"] [data-portion="${portion}"]`).click();
 }

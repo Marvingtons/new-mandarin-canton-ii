@@ -37,20 +37,8 @@ import ui from "@/components/kitchen/ui/ui.module.css";
 import { useToast } from "@/components/kitchen/ui/Toasts";
 import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
 import { useSheetFocus } from "@/components/kitchen/ui/useSheetFocus";
-import {
-  INITIAL_DEFAULTS,
-  isRiceDefault,
-  isSizeDefault,
-  POS_RICE_STORAGE_KEY,
-  POS_SIZE_STORAGE_KEY,
-  quickAdd,
-  RICE_DEFAULTS,
-  SIZE_DEFAULTS,
-  withRice,
-  type PosDefaults,
-  type RiceDefault,
-  type SizeDefault,
-} from "@/lib/kitchen/posDefaults";
+import PortionSheet from "@/components/kitchen/PortionSheet";
+import { lineAt, RICE_SIDE_ITEM_ID, RICE_SIDE_SIZE_ID, tapAsks, tapRule, type QuickLine } from "@/lib/kitchen/posTap";
 
 /**
  * Staff order entry: a phone call or a walk-in, tapped in and printed.
@@ -68,10 +56,11 @@ import {
  * category, and the ticket with its total and Print pinned at the bottom.
  *
  * NAMES, NOT DETAILS. A dish tile is its 中文 and English on its category's
- * tint, nothing else: tap it and the regular size goes on the ticket; a second
- * size is a chip in the corner. A dish with ANY required choice (a lunch
- * entrée, an "or" dish, the rice) or five party sizes opens the options sheet
- * instead, with the choice unmade: one tap never decides for the caller.
+ * tint, nothing else: tap a one-size dish and it goes on the ticket; tap a
+ * dish sold in portions and the portion sheet asks 單點 / 半盤 / 餐盤, one tap.
+ * A required choice the menu does not default (a lunch entrée, an "or" dish)
+ * or a family dinner's head count opens the full sheet on it, unmade: one tap
+ * never decides for the caller. Rice adds as 白飯, the menu's own default.
  * Prices are on the ticket.
  *
  * Every dish shows 中文 large and English beneath regardless of the language
@@ -114,19 +103,6 @@ const label = "mb-2 block text-staff-body font-semibold text-staff-ink";
 
 /** The shared staff button classes (components/kitchen/ui). */
 const btn = (kind: "primary" | "secondary" | "quiet") => `${ui.btn} ${ui[kind]}`;
-
-/** The strip's labels: 中文 over English on the button, all three languages for assistive tech. */
-const RICE_LABEL: Record<RiceDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
-  steamed: { zh: "pos.riceSteamedZh", en: "pos.riceSteamedEn", all: "pos.riceSteamedAll" },
-  fried: { zh: "pos.riceFriedZh", en: "pos.riceFriedEn", all: "pos.riceFriedAll" },
-  half: { zh: "pos.riceHalfZh", en: "pos.riceHalfEn", all: "pos.riceHalfAll" },
-  none: { zh: "pos.riceNoneZh", en: "pos.riceNoneEn", all: "pos.riceNoneAll" },
-};
-const SIZE_LABEL: Record<SizeDefault, { zh: KitchenKey; en: KitchenKey; all: KitchenKey }> = {
-  individual: { zh: "pos.sizeIndividualZh", en: "pos.sizeIndividualEn", all: "pos.sizeIndividualAll" },
-  half: { zh: "pos.sizeHalfZh", en: "pos.sizeHalfEn", all: "pos.sizeHalfAll" },
-  tray: { zh: "pos.sizeTrayZh", en: "pos.sizeTrayEn", all: "pos.sizeTrayAll" },
-};
 
 function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -178,9 +154,9 @@ function useLinesBelow(listRef: React.RefObject<HTMLElement | null>, itemSelecto
 }
 
 /**
- * A dish tile. The body adds one with the strip's defaults; the 改 corner
- * opens the full sheet. A dot marks a dish whose tap will ask (a required
- * choice the defaults do not cover). Measures its own 中文 so a two-line name
+ * A dish tile. The body adds it, or opens the portion sheet for a dish sold
+ * in portions; the 改 corner opens the full sheet. A dot marks a dish whose
+ * tap opens the full sheet on a required choice (posTap.ts). Measures its own 中文 so a two-line name
  * drops the English to one.
  */
 function DishTile({
@@ -189,6 +165,7 @@ function DishTile({
   count,
   disabledLabel,
   asks,
+  portions,
   flash,
   hint,
   labels,
@@ -201,6 +178,8 @@ function DishTile({
   disabledLabel: string | null;
   /** The tap opens the sheet instead of adding. */
   asks: boolean;
+  /** The tap opens the portion sheet (單點 / 半盤 / 餐盤). */
+  portions: boolean;
   /** Bumped on each tap that added: replays the highlight. */
   flash: number;
   /** The number key that adds it (search results), if any. */
@@ -238,6 +217,7 @@ function DishTile({
         type="button"
         data-item={item.id}
         data-asks={asks || undefined}
+        data-portions={portions || undefined}
         disabled={disabledLabel !== null}
         onClick={onTap}
         aria-label={asks ? `${name} · ${labels.asks}` : name}
@@ -358,27 +338,16 @@ export default function PosScreen({
   const { act, refresh: refreshLive } = useKitchenLive();
   const { toast } = useToast();
 
-  /* ---------------------------------------------- the sticky defaults -- */
-  // The rice and size every tile tap uses, kept per tablet. Read after mount
-  // so the server render and hydration agree.
-  const [defaults, setDefaults] = useState<PosDefaults>(INITIAL_DEFAULTS);
+  // The rice and size strip is gone (docs/kitchen-design.md, Revision 3).
+  // Its per-tablet choices are dropped once, so nothing stale lingers.
   useEffect(() => {
-    const rice = localStorage.getItem(POS_RICE_STORAGE_KEY);
-    const size = localStorage.getItem(POS_SIZE_STORAGE_KEY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- a stored per-device preference, read once
-    setDefaults({
-      rice: isRiceDefault(rice) ? rice : INITIAL_DEFAULTS.rice,
-      size: isSizeDefault(size) ? size : INITIAL_DEFAULTS.size,
-    });
+    try {
+      localStorage.removeItem("nmc-pos-rice");
+      localStorage.removeItem("nmc-pos-size");
+    } catch {
+      /* storage blocked: nothing to clear */
+    }
   }, []);
-  function setRiceDefault(rice: RiceDefault) {
-    setDefaults((d) => ({ ...d, rice }));
-    localStorage.setItem(POS_RICE_STORAGE_KEY, rice);
-  }
-  function setSizeDefault(size: SizeDefault) {
-    setDefaults((d) => ({ ...d, size }));
-    localStorage.setItem(POS_SIZE_STORAGE_KEY, size);
-  }
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [justNow, setJustNow] = useState<Placed | null>(null);
   /** The clear-ticket confirm is open (a destructive action, like cancel). */
@@ -439,6 +408,10 @@ export default function PosScreen({
     replace?: string;
     initial?: { modifierIds?: readonly string[]; quantity?: number; instructions?: string; surcharge?: Surcharge };
   } | null>(null);
+  /** The dish whose portion sheet is open. */
+  const [portionItem, setPortionItem] = useState<MenuItem | null>(null);
+  /** The portion last picked on THIS ticket: the sheet's highlight, never a default. */
+  const [lastPortion, setLastPortion] = useState("individual");
   /** 自訂 Custom: the sheet's starting values, and the line it replaces. */
   const [customSheet, setCustomSheet] = useState<{ initial: CustomChargeDraft; replace?: string } | null>(null);
   /** The tile just tapped, and a counter that replays its highlight. */
@@ -544,8 +517,8 @@ export default function PosScreen({
    * with a sheet open (useShortcuts):
    *   /     open the search and put the cursor in it
    *   Esc   clear the search
-   *   1-9   with search results up, add that result with the strip's
-   *         defaults (or open its sheet if it asks)
+   *   1-9   with search results up, tap that result (add it, or open its
+   *         portion or full sheet)
    */
   const resultKeys: Record<string, () => void> = {};
   for (let n = 1; n <= 9; n++) {
@@ -580,56 +553,90 @@ export default function PosScreen({
   }
 
   /**
-   * A tile's tap: onto the ticket with the strip's rice and size, or the sheet
-   * when a required choice is one the defaults do not cover. A size asked for
-   * by the tile's corner chip always opens the sheet on that size.
+   * A tile's tap (posTap.ts): a one-size dish goes straight on the ticket; a
+   * dish sold in portions opens the portion sheet, where one tap picks the
+   * size and adds; any other required choice opens the full sheet on it.
    */
   function tapDish(item: MenuItem) {
-    const quick = quickAdd(item, defaults);
-    if (quick.kind === "add") {
-      addLine(quick.line);
+    const tap = tapRule(item);
+    if (tap.kind === "portion") setPortionItem(item);
+    else settle(item, tap);
+  }
+
+  /** Add a line the rule could finish, or open the full sheet on what it could not. */
+  function settle(item: MenuItem, tap: ReturnType<typeof lineAt>) {
+    if (tap.kind === "add") {
+      addLine(tap.line);
       setTileFlash((f) => ({ id: item.id, n: f.n + 1 }));
-    } else {
-      // Prefilled with what the defaults do cover (the rice), open on the
-      // one choice they do not.
-      setSheetItem({ item, sizeId: quick.sizeId, focus: quick.focus, initial: { modifierIds: quick.modifierIds } });
+    } else if (tap.kind === "ask") {
+      setSheetItem({ item, sizeId: tap.sizeId, focus: tap.focus, initial: { modifierIds: tap.modifierIds } });
     }
   }
 
-  /** The tile's 改 corner: the full sheet, on the choice a tap would ask for. */
+  /** The portion sheet's tap: that size, remembered for this ticket's next highlight. */
+  function pickPortion(item: MenuItem, sizeId: string) {
+    setPortionItem(null);
+    setLastPortion(sizeId);
+    settle(item, lineAt(item, sizeId));
+  }
+
+  /**
+   * The tile's 改 corner: the full sheet, on the portion last chosen on this
+   * ticket when the dish has it, with the rice the tap would have used.
+   */
   function modifyDish(item: MenuItem) {
-    const quick = quickAdd(item, defaults);
+    const sizes = itemSizes(item);
+    const sizeId = sizes.some((x) => x.id === lastPortion) ? lastPortion : sizes[0]?.id;
+    if (!sizeId) return;
+    const tap = lineAt(item, sizeId);
     setSheetItem(
-      quick.kind === "add"
-        ? { item, sizeId: quick.line.sizeId, initial: { modifierIds: quick.line.modifierIds } }
-        : { item, sizeId: quick.sizeId, focus: quick.focus, initial: { modifierIds: quick.modifierIds } },
+      tap.kind === "add"
+        ? { item, sizeId, initial: { modifierIds: tap.line.modifierIds } }
+        : tap.kind === "ask"
+          ? { item, sizeId, focus: tap.focus, initial: { modifierIds: tap.modifierIds } }
+          : { item, sizeId },
     );
   }
 
   /**
-   * 套用到全部: the strip's rice onto every line that has rice and offers it.
-   * No confirm; the toast says how many changed and its Undo puts them back.
+   * Rice the dish does not include is the real menu item #116 炒飯／白飯
+   * Fried/Steamed Rice at 單點, steamed, as its own line: never a surcharge.
+   * Null when the menu lacks it or it is 86'd (no 加飯 button, no 加飯 row).
    */
-  function applyRiceToAll() {
-    const before = lines;
-    let changed = 0;
-    const after = lines.map((l) => {
-      const item = index.get(l.itemId);
-      const next = item ? withRice(item, l.sizeId, l.modifierIds, defaults.rice) : null;
-      if (!next) return l;
-      changed++;
-      return { ...l, modifierIds: next };
-    });
-    if (changed > 0) setLines(after);
-    toast(
-      t("pos.updatedLines", { n: changed }),
-      "info",
-      changed > 0 ? { label: t("card.undo"), onAction: () => setLines(before) } : undefined,
-    );
-  }
+  const riceSide = useMemo((): QuickLine | null => {
+    const item = index.get(RICE_SIDE_ITEM_ID);
+    if (!item || !isAvailable(item)) return null;
+    const tap = lineAt(item, RICE_SIDE_SIZE_ID);
+    return tap.kind === "add" ? tap.line : null;
+  }, [index]);
+  const riceSideCents = useMemo(() => {
+    const item = index.get(RICE_SIDE_ITEM_ID);
+    if (!item || !riceSide) return 0;
+    try {
+      return resolveLinePrice(item, riceSide.sizeId, riceSide.modifierIds, 1).lineCents;
+    } catch {
+      return 0;
+    }
+  }, [index, riceSide]);
 
   const linesRef = useRef<HTMLDivElement>(null);
-  function addLine(draft: PosLineDraft, replace?: string) {
+  /**
+   * Put a line on the ticket (or change one in place), and `extraRice` × #116
+   * as its own line after it: the 改 sheet's 加飯 row and the footer's 加飯.
+   */
+  function addLine(draft: PosLineDraft, replace?: string, extraRice = 0) {
+    let { list, id: flashId } = mergeLine(lines, draft, replace);
+    if (extraRice > 0 && riceSide) ({ list, id: flashId } = mergeLine(list, { ...riceSide, quantity: extraRice }));
+    setLines(list);
+    setLineFlash((f) => ({ id: flashId, n: f.n + 1 }));
+    setSheetItem(null);
+    setPlaced(null);
+    setError(null);
+    // The newest line is the one to see.
+    requestAnimationFrame(() => linesRef.current?.scrollTo({ top: linesRef.current.scrollHeight }));
+  }
+
+  function mergeLine(lines: TicketLine[], draft: PosLineDraft, replace?: string): { list: TicketLine[]; id: string } {
     const rest = replace ? lines.filter((l) => l.lineId !== replace) : lines;
     // Same dish, same choices, no note: bump the quantity rather than add a
     // second identical row the kitchen has to sum.
@@ -645,24 +652,23 @@ export default function PosScreen({
         l.sizeId === draft.sizeId &&
         [...l.modifierIds].sort().join() === [...draft.modifierIds].sort().join(),
     );
-    let flashId: string;
     if (same) {
-      flashId = same.lineId;
-      setLines(rest.map((l) => (l.lineId === same.lineId ? { ...l, quantity: Math.min(50, l.quantity + draft.quantity) } : l)));
-    } else if (replace) {
-      // An edited line keeps its place on the ticket.
-      flashId = replace;
-      setLines(lines.map((l) => (l.lineId === replace ? { ...draft, lineId: replace } : l)));
-    } else {
-      flashId = newKey();
-      setLines([...rest, { ...draft, lineId: flashId }]);
+      return {
+        id: same.lineId,
+        list: rest.map((l) => (l.lineId === same.lineId ? { ...l, quantity: Math.min(50, l.quantity + draft.quantity) } : l)),
+      };
     }
-    setLineFlash((f) => ({ id: flashId, n: f.n + 1 }));
-    setSheetItem(null);
-    setPlaced(null);
-    setError(null);
-    // The newest line is the one to see.
-    requestAnimationFrame(() => linesRef.current?.scrollTo({ top: linesRef.current.scrollHeight }));
+    // An edited line keeps its place on the ticket.
+    if (replace) return { id: replace, list: lines.map((l) => (l.lineId === replace ? { ...draft, lineId: replace } : l)) };
+    const id = newKey();
+    return { id, list: [...rest, { ...draft, lineId: id }] };
+  }
+
+  /** The footer's 加飯: one #116 line, 單點 steamed; again bumps it. Fried is the line's 改. */
+  function addRiceSide() {
+    if (!riceSide) return;
+    addLine(riceSide);
+    setTileFlash((f) => ({ id: RICE_SIDE_ITEM_ID, n: f.n + 1 }));
   }
 
   /**
@@ -839,6 +845,7 @@ export default function PosScreen({
     setPaymentNote("");
     setStaffNote("");
     setLunchOverride(false);
+    setLastPortion("individual");
     setIdempotencyKey(newKey());
     setReturning(null);
     setConfirmClear(false);
@@ -973,7 +980,8 @@ export default function PosScreen({
         tint={tintOf.get(item.id) ?? "sides"}
         count={onTicket.get(item.id) ?? 0}
         disabledLabel={disabledLabel}
-        asks={quickAdd(item, defaults).kind === "ask"}
+        asks={tapAsks(item)}
+        portions={tapRule(item).kind === "portion"}
         flash={tileFlash.id === item.id ? tileFlash.n : 0}
         hint={hint}
         labels={tileLabels}
@@ -1227,67 +1235,11 @@ export default function PosScreen({
   );
 
   return (
-    <main className={`${s.root} ${ticketOpen ? s.ticketIsOpen : ""}`} data-pos-screen>
+    <main className={`${s.root} ${ticketOpen ? s.ticketIsOpen : ""} ${searchOpen ? s.searchIsOpen : ""}`} data-pos-screen>
       {/* The POS's own controls, under the shared staff header: search, plus
           lunch hours when the clock has not opened lunch. */}
-      <div className={s.top} role="toolbar" aria-label={t("pos.defaults")}>
-        {searchField ?? (
-          <>
-            <div role="group" aria-label={t("pos.riceGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="rice">
-              {RICE_DEFAULTS.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  data-value={r}
-                  aria-pressed={defaults.rice === r}
-                  aria-label={t(RICE_LABEL[r].all)}
-                  title={t(RICE_LABEL[r].all)}
-                  onClick={() => setRiceDefault(r)}
-                >
-                  <span lang="zh-Hant" className={s.zh}>
-                    {t(RICE_LABEL[r].zh)}
-                  </span>
-                  <span lang="en" className={s.en}>
-                    {t(RICE_LABEL[r].en)}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div role="group" aria-label={t("pos.sizeGroup")} className={`${ui.seg} ${s.defSeg}`} data-defaults="size">
-              {SIZE_DEFAULTS.map((z) => (
-                <button
-                  key={z}
-                  type="button"
-                  data-value={z}
-                  aria-pressed={defaults.size === z}
-                  aria-label={t(SIZE_LABEL[z].all)}
-                  title={t(SIZE_LABEL[z].all)}
-                  onClick={() => setSizeDefault(z)}
-                >
-                  <span lang="zh-Hant" className={s.zh}>
-                    {t(SIZE_LABEL[z].zh)}
-                  </span>
-                  <span lang="en" className={s.en}>
-                    {t(SIZE_LABEL[z].en)}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              data-action="apply-rice-all"
-              onClick={applyRiceToAll}
-              aria-label={t("pos.applyAll")}
-              title={t("pos.applyAllHint")}
-              className={s.applyAll}
-            >
-              <span lang="zh-Hant">{t("pos.applyAllZh")}</span>
-              <span lang="en" className={s.en}>
-                {t("pos.applyAllEn")}
-              </span>
-            </button>
-          </>
-        )}
+      <div className={s.top} role="toolbar" aria-label={t("pos.toolbar")}>
+        {searchField}
         <div className={s.topRight}>
           {!lunchNow && (
             <button
@@ -1452,15 +1404,34 @@ export default function PosScreen({
           {!error && lines.length > 0 && missing.length > 0 && (
             <p className={s.alert}>{missing.map((k) => t(k)).join(" · ")}</p>
           )}
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!canSubmit}
-            data-action="print"
-            className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.print}`}
-          >
-            {printLabel}
-          </button>
+          <div className={s.footRow}>
+            {riceSide && (
+              <button
+                type="button"
+                onClick={addRiceSide}
+                data-action="add-rice"
+                aria-label={t("pos.addRiceAria", { price: formatCents(riceSideCents) })}
+                title={t("pos.addRiceAria", { price: formatCents(riceSideCents) })}
+                className={s.addRice}
+              >
+                <span lang="zh-Hant" className={s.zh}>
+                  {t("pos.addRiceZh")}
+                </span>
+                <span className={`${s.en} ${s.num}`}>
+                  {t("pos.addRiceEn")} {formatCents(riceSideCents)}
+                </span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSubmit}
+              data-action="print"
+              className={`${ui.btn} ${canSubmit ? ui.primary : ""} ${s.print}`}
+            >
+              {printLabel}
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -1680,6 +1651,15 @@ export default function PosScreen({
         </dialog>
       )}
 
+      {portionItem && (
+        <PortionSheet
+          item={portionItem}
+          sizes={itemSizes(portionItem)}
+          highlight={lastPortion}
+          onPick={(sizeId) => pickPortion(portionItem, sizeId)}
+          onClose={() => setPortionItem(null)}
+        />
+      )}
       {sheetItem && (
         <PosItemSheet
           key={`${sheetItem.item.id}:${sheetItem.sizeId ?? ""}:${sheetItem.replace ?? ""}`}
@@ -1689,7 +1669,8 @@ export default function PosScreen({
           editing={sheetItem.replace !== undefined}
           focus={sheetItem.focus}
           menuNumber={menuNumber(sheetItem.item.id)}
-          onAdd={(draft) => addLine(draft, sheetItem.replace)}
+          onAdd={(draft, extraRice) => addLine(draft, sheetItem.replace, extraRice)}
+          riceSideCents={riceSide ? riceSideCents : null}
           onClose={() => setSheetItem(null)}
         />
       )}

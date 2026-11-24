@@ -344,13 +344,15 @@ dinners sell by head count, and one dish each sells half / whole and cup / bowl.
 - **Rice is never asked on a tap.** A rice dish adds with 白飯 Steamed, the menu's own default
   (`RICE_STEAMED_ID`, the first option of the required rice group). 炒飯 / 各一半 / 走飯 live
   only in the 改 sheet. Trays and half trays still carry no rice (`TRAY_SIZE_IDS`).
-- **The red dot** (`data-asks`) keeps meaning "this tap opens the full sheet on a required
-  choice". It does not go on tray dishes for the portion sheet: that would put it on 120 tiles.
+- **The red dot** (`data-asks`) keeps meaning "this tap ends on the full sheet for a required
+  choice". It does not go on a tray dish only for the portion sheet (that would be 120 tiles),
+  but it stays on a tray dish that also needs a choice.
 - **#116 Fried/Steamed Rice** is itself sold by the tray, so its tile opens the portion sheet
   too and adds with its preparation 白飯 Steamed (`PREP_STEAMED_ID`); fried is the line's 改.
-- **Tray dish with another required choice** (黑椒牛肉或雞肉 is one): the full sheet opens with
-  the size section and that choice both open and **no size chosen**. Add stays disabled until
-  both are picked, so there is still no hidden size.
+- **Tray dish with another required choice** (黑椒牛肉或雞肉 is one): the portion sheet first
+  (the size, one deliberate tap), then the full sheet on that size, opened on the choice, Add
+  disabled until it is made. *Built this way instead of "the full sheet with no size chosen",
+  which needed a change to the shared `useItemChoice` hook the website's sheet also uses.*
 
 ### The portion sheet (mock 2)
 
@@ -415,9 +417,12 @@ custom line print as stored: nothing reads the preset to render history.
 
 - `src/lib/kitchen/posDefaults.ts`: `RiceDefault`, `SizeDefault`, `RICE_DEFAULTS`,
   `SIZE_DEFAULTS`, `PosDefaults`, `INITIAL_DEFAULTS`, the two storage keys, `RICE_DEFAULT_MODIFIER`,
-  `isRiceDefault`, `isSizeDefault`, `defaultRiceFor`, `withRice`. `quickAdd` stays as the one
-  pure rule for a tap, rewritten to return `add` / `portion` / `ask` from the item alone
-  (no defaults argument). `sellsTrays` stays. The file is renamed `posTap.ts`.
+  `isRiceDefault`, `isSizeDefault`, `defaultRiceFor`, `withRice`, `quickAdd`. The one pure
+  rule for a tap is now `src/lib/kitchen/posTap.ts`: `tapRule` (`add` / `portion` / `ask` from
+  the item alone), `lineAt` (a dish at one size, 白飯 and #116's 白飯 filled in), `tapAsks`
+  (the dot), `sizeHasNoRice` (the 加飯 row). `sellsTrays` stays. The preparation ids moved to
+  a leaf module, `src/lib/menu/prepIds.ts`, so the tap rule can name 白飯 without the menu
+  data `preparation.ts` imports.
 - `PosScreen.tsx`: the `defaults` state and its localStorage reads and writes,
   `setRiceDefault`, `setSizeDefault`, `applyRiceToAll`, `RICE_LABEL`, `SIZE_LABEL`, the strip
   markup. `pos.module.css`: `.defSeg`, `.applyAll`.
@@ -430,9 +435,9 @@ custom line print as stored: nothing reads the preset to render history.
   `pos.defaults` (the toolbar's aria label) is renamed `pos.toolbar`.
 - i18n keys that arrive (中文 first, English second, Spanish only in aria-label / title):
   `pos.portion.titleZh` 份量, `pos.portion.titleEn` Portion, `pos.portion.aria`
-  份量 Portion / Porción, `pos.addRiceZh` 加飯, `pos.addRiceEn` Rice, `pos.addRiceAria`
-  加飯 Add rice / Agregar arroz, `pos.addRiceRow` 加飯 Add rice, `pos.addRiceRowHint`
-  炒飯／白飯 Fried/Steamed Rice, its own line. Size names come from the menu's own labels
+  份量 Portion / Porción, `pos.addRiceZh` + 加飯, `pos.addRiceEn` Rice, `pos.addRiceAria`
+  加飯 Add rice {price} / Agregar arroz {price}, `pos.addRiceRowZh` 加飯, `pos.addRiceRowEn`
+  Add rice, `pos.addRiceRowHint` 炒飯／白飯 #116 · 白飯 Steamed · 單獨一行 Own line. Size names come from the menu's own labels
   (`resolveSizeZh`), so 餐盤 Party Tray reads as the menu says it.
 
 ### Out of scope
@@ -456,6 +461,8 @@ row appears on a tray size only and adds n separate #116 lines. Then `verify:ric
 viewports (with the portion sheet open as well).
 
 ### Questions for review
+
+Answered "as drawn" (2026-11-23): 1 portion sheet, 2 the simpler row, 3 the stepper.
 
 1. **Half / whole and cup / bowl** (one dish each) add their first size today. I have them
    open the portion sheet with their two sizes, so no size is ever hidden. Alternative: keep
