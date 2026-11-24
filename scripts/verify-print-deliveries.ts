@@ -247,7 +247,9 @@ async function s13_changeTicketDelivery(h: Handlers, deps: Deps): Promise<void> 
   check("confirmed: the change pointer clears, status stays PRINTED, printed_at untouched", !after.changePending && after.status === "PRINTED" && after.printedAt === printed.printedAt);
   check("nothing further is offered", !(await poll(h)).jobReady);
   const board = await deps.listActiveOrders(TENANT, "2026-08-31", { includeCompleted: true });
-  check("the card counts 改 ×1", board.find((o) => o.id === order.id)?.changeCount === 1);
+  const card = board.find((o) => o.id === order.id);
+  check("the card counts 改 ×1", card?.changeCount === 1);
+  check("change hand-overs do not raise the 'more than one ticket' warning", card?.deliveryCount === 1, `deliveryCount=${card?.deliveryCount}`);
 }
 
 // 1. Poll -> offer (D1) -> GET -> poll again within the window, no DELETE -> held.

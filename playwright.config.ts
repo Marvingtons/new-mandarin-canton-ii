@@ -34,7 +34,7 @@ export default defineConfig({
       // viewport, user agent and touch. Only the sound spec: the rest of the
       // kitchen suite is engine-neutral and runs once, in Chrome.
       name: "kitchen-ipad",
-      testMatch: /kitchen-sound\.spec\.ts/,
+      testMatch: /kitchen-(sound|edit-order)\.spec\.ts/,
       use: { ...devices["iPad Pro 11 landscape"] },
     },
     {

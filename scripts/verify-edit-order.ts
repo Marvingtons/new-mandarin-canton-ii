@@ -312,6 +312,8 @@ async function s3_lock(m: Mods): Promise<void> {
   const second = await edit(m, id, 0, [...loaded(order), line(m, "hot-sour-soup")]);
   check("the first tablet saves", first.status === 200);
   check("the second gets 409 conflict", second.status === 409 && second.body.code === "conflict", `${second.status} ${second.body.code}`);
+  const stalePreview = await edit(m, id, 0, [...loaded(order), line(m, "hot-sour-soup")], { dryRun: true });
+  check("its confirm sheet (dry run) says so too, never a diff against a version it did not load", stalePreview.status === 409 && stalePreview.body.code === "conflict");
   const { rows } = await q(m, "select count(*)::int as n from order_revisions where order_id = $1", [id]);
   check("only one revision exists", rows[0].n === 1);
 }

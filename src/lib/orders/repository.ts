@@ -1624,8 +1624,10 @@ export async function listActiveOrders(
               and p.pending_since < now() - make_interval(secs => $4)) as print_stuck
        from orders
        left join lateral (
-         select count(*)                                          as delivery_count,
-                coalesce(sum(fetch_count), 0)                     as fetch_total,
+         -- 改單 change-ticket hand-overs are explained by 改單 ×N, so they are
+         -- not counted toward the "more than one ticket" warning.
+         select count(*) filter (where pd.change_ticket_id is null) as delivery_count,
+                coalesce(sum(fetch_count) filter (where pd.change_ticket_id is null), 0) as fetch_total,
                 count(*) filter (where reason = 'manual_reprint') as reprint_count,
                 max(offered_at) filter (where reason = 'manual_reprint') as last_reprint_at
            from print_deliveries pd
@@ -2160,8 +2162,8 @@ function historyWhere(
 /** Aggregates over print_deliveries, the same three the board shows. */
 const DELIVERY_AGGREGATES = `
   left join lateral (
-    select count(*)                                          as delivery_count,
-           coalesce(sum(fetch_count), 0)                     as fetch_total,
+    select count(*) filter (where pd.change_ticket_id is null) as delivery_count,
+           coalesce(sum(fetch_count) filter (where pd.change_ticket_id is null), 0) as fetch_total,
            count(*) filter (where reason = 'manual_reprint') as reprint_count
       from print_deliveries pd
      where pd.tenant_id = o.tenant_id and pd.order_id = o.id

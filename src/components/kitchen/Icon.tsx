@@ -40,6 +40,7 @@ const PATHS = {
   history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
   trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   note: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5",
+  pencil: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
 } as const;
 
 export type IconName = keyof typeof PATHS;

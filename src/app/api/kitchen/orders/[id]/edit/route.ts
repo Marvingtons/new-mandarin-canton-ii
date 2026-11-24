@@ -147,6 +147,9 @@ export async function POST(
 
   const printChange = body.printChange === true;
   if (body.dryRun) {
+    // The confirm sheet must never show a diff against a version this
+    // tablet did not load: another tablet saved first.
+    if (order.revision !== body.baseRevision) return refuse("conflict");
     const diff = diffOrderLines(order.items, priced.lines);
     return Response.json(
       {

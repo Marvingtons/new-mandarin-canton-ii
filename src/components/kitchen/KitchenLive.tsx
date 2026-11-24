@@ -115,7 +115,11 @@ interface LiveValue {
   enableSound: () => void;
   declineSound: () => void;
   refresh: () => Promise<void>;
-  act: (order: OrderRef, action: OrderAction, extra?: { note?: string; station?: Station }) => Promise<boolean>;
+  act: (
+    order: OrderRef,
+    action: OrderAction,
+    extra?: { note?: string; station?: Station; changeTicketId?: string },
+  ) => Promise<boolean>;
 }
 
 const LiveContext = createContext<LiveValue | null>(null);
@@ -438,6 +442,7 @@ export function KitchenLiveProvider({
             action,
             ...(extra?.note ? { note: extra.note } : {}),
             ...(extra?.station ? { station: extra.station } : {}),
+            ...(extra?.changeTicketId ? { changeTicketId: extra.changeTicketId } : {}),
           }),
         });
         if (res.status === 401) {

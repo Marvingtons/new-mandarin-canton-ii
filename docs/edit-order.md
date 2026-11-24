@@ -1,10 +1,11 @@
-# 改單 Edit order: design (Phase 1, for review)
+# 改單 Edit order
 
 Staff reopen an order from the board, change it on the POS, and the kitchen
 gets a **change ticket** that lists only the differences, under the original
-number. Nothing here is built yet except the two pure pieces the design
-depends on (the diff and the change-ticket renderer), so the ticket images
-below come out of the real renderer, font and rasterizer.
+number. Designed in Phase 1 (this document, the mockups and the ticket PNGs,
+all from the real renderer), reviewed, then built in Phase 2 as described
+here. The open questions were answered by the owner on 2026-11-24 and are
+recorded under **Decisions** at the end.
 
 | What | Where |
 | --- | --- |
@@ -13,9 +14,41 @@ below come out of the real renderer, font and rasterizer.
 | New ticket labels, font subset | `src/lib/ticket/glyphs.ts`, `public/fonts/*` (+10 glyphs) |
 | Ticket PNGs | `docs/edit-order/ticket-*.png` (`npm run ticket:change-sample`) |
 | UI mockups (live app, DOM edited) | `docs/edit-order/mock-*.png` (`node docs/edit-order/shoot.mjs`) |
+| Migration | `src/lib/db/migrations/017_order_revisions.sql`, `down_017_to_016.sql` |
+| Save, revisions, print body, alerts | `src/lib/orders/repository.ts` (`saveOrderEdit`, `listOrderRevisions`, `printBodyFor`, `findUnprintedChangeTickets`) |
+| Server pricing of an edit | `src/lib/orders/editPricing.ts` |
+| Routes | `src/app/api/kitchen/orders/[id]/edit`, `.../revisions` |
+| Board, POS, History | `OrderCard.tsx`, `OrderList.tsx`, `PosScreen.tsx`, `EditConfirmSheet.tsx`, `EditDiffList.tsx`, `RevisionPanel.tsx` |
+| Tests | `npm run verify:edit-order`, `tests/e2e/kitchen-edit-order.spec.ts` |
 
 The 18 existing `ticket:sample` outputs (PNG and StarPRNT) are byte-identical
 before and after the renderer change; `verify:ticket-glyphs` passes.
+
+### As built (Phase 2)
+
+Screenshots of the running app (`node docs/edit-order/shoot-app.mjs`), next
+to the Phase 1 mockups further down:
+
+| | 1024x768 | 768x1024 |
+| --- | --- | --- |
+| Board card, 改單 Edit (E) | ![](edit-order/app-1-board-edit-button-1024x768.png) | ![](edit-order/app-1-board-edit-button-768x1024.png) |
+| Edit mode, nothing changed | ![](edit-order/app-2-pos-no-changes-1024x768.png) | ![](edit-order/app-2-pos-no-changes-768x1024.png) |
+| Edit mode, + 新 and 原 2 → 3 | ![](edit-order/app-3-pos-editing-1024x768.png) | ![](edit-order/app-3-pos-editing-768x1024.png) |
+| Confirm sheet (server dry run) | ![](edit-order/app-4-confirm-diff-1024x768.png) | ![](edit-order/app-4-confirm-diff-768x1024.png) |
+| History, 修改紀錄 | ![](edit-order/app-5-history-revisions-1024x768.png) | ![](edit-order/app-5-history-revisions-768x1024.png) |
+
+Tests:
+
+| Check | Result |
+| --- | --- |
+| `verify:edit-order` (new, embedded Postgres, real routes) | 85/85 |
+| `verify:print-deliveries` (+ scenario 13, change ticket deliveries) | 60/60 |
+| `verify:print-recurrence` (+ change ticket slow confirm) | 4/4 scenarios |
+| Every other `verify:*` | pass, except `verify:station-migrations`, which fails the same way on the base branch (`printer_status` baseline) |
+| `ticket:sample` before / after | 18/18 outputs byte-identical |
+| Playwright `kitchen-edit-order.spec.ts` | 10 tests x 2 projects (kitchen-tablet Chrome, kitchen-ipad WebKit) = 20/20 |
+| Playwright, whole suite | 82/82 |
+| typecheck, typecheck:worker, lint | clean (lint: one warning already on the base branch) |
 
 ## Why a change ticket and not a reprint
 
@@ -34,7 +67,7 @@ order and keeps its history.
 - This branch, `edit-order-design`, is cut from `pos-portion-preloader-keypad`
   (PR #13, open), because edit mode is PosScreen as #13 left it: no strip
   defaults, the 份量 portion sheet, the 加飯 #116 side line, `onAdd(draft, extraRice)`.
-  **Open question 1** asks where Phase 2 should be cut.
+  Decision 1 below confirms the base.
 - Migrations: `main` and #13 stop at **015**. PR #14 (`daily-report`, open)
   adds **016** (`016_report_prints.sql`). PR #10 adds none. So this feature
   takes **017** (`017_order_revisions.sql` + `down_017_to_016.sql`), and must
@@ -232,10 +265,11 @@ create index if not exists orders_change_pending_idx
   on orders (tenant_id, created_at) where change_ticket_id is not null;
 ```
 
-Safe in either order with the deploy, like 011 and 016: old code ignores the
-new columns (all nullable or defaulted); new code without 017 fails only the
-edit route (the board hides Edit when `GET /api/kitchen/orders` reports
-`editable: false`). `down_017_to_016.sql` drops exactly these.
+**Run 017 before deploying the code** (as with 014): every order read now
+selects `orders.revision`, so the new code does not run on a database without
+it. Old code on a database with 017 is unaffected: every new column is
+nullable or defaulted, and nothing old reads the new tables.
+`down_017_to_016.sql` drops exactly these, after the Worker is rolled back.
 
 `schema.sql` gains the same lines; `verify:station-migrations`
 (already failing on `main` for baseline drift, per the #14 hand-over note) is
@@ -279,7 +313,9 @@ sends for a new order. The server:
   snapshot: names and `unitCents` as on the order, `lineCents = unit × qty`.
   An edit to add egg rolls must not reprice, rename or refuse the dishes the
   kitchen is already cooking because the menu moved since (a price change, a
-  dish 86'd at 7pm). **Open question 2.**
+  dish 86'd at 7pm). (Decision 2.) Matching is by the `lineId` the POS gives
+  each loaded line, `orig:<index>`, and the server re-checks the line still
+  names the same dish, size, options and surcharge before it keeps the price.
 - **New and changed lines** go through `composeOrder` exactly as a new order,
   with `allowStaffOnly: true` and
   `lunchAllowed = isLunchService(order.createdAt) || lunchOverride || bypass`:
@@ -311,8 +347,9 @@ sees `ticket_revision` set.
 | Handed over at least once (`PRINTED`, `ACCEPTED`, or `QUEUED` with a delivery out) | **Change ticket** from the revision the kitchen has to the new one. |
 | A change ticket is pending and **never handed over** | **Merge**: widen it to the new revision (`to_revision`, payload recomputed from `from_revision`). One ticket, not two. |
 | A change ticket is in a live delivery window (seconds) | **Refused**, retry shortly: "改單正在列印 A change is printing, try again in a moment", the same rule 重印 follows since the A-001 incident. |
-| A change ticket was handed over, window expired, unconfirmed | A **new** change ticket from that ticket's `to_revision`; the old one keeps retrying. (If it in fact printed and only its confirmation was lost, the kitchen gets that one twice, which is today's behaviour for any unconfirmed ticket.) |
-| `COMPLETED` (within 30 min) | Revision recorded, **no change ticket by default**: the food has gone. The confirm sheet has `列印改單 Print change ticket` off. **Open question 3.** |
+| A change ticket was handed over and is not confirmed yet (retrying) | **Refused** too, until it prints or gives up (`409 change_printing`). Built this way rather than as a second, chained ticket: an order holds one pending change ticket, and a second one computed while the first may already be on paper could repeat its lines. In practice this is seconds; a printer that is offline never takes the ticket, so it stays "never handed over" and edits merge into it. |
+| A waiting change ticket and the edit takes the order back to what the kitchen has | The waiting ticket is **dropped**: nothing to print. |
+| `COMPLETED` (within 30 min) | Revision recorded, **no change ticket by default**: the food has gone. The confirm sheet has `列印改單 Print a change ticket`, off. (Decision 3.) |
 
 **A ticket body is always rendered at a fixed revision.** Once the first
 ticket has been offered at revision 0, its retries render revision 0 (from
@@ -337,15 +374,17 @@ hand-over row records what it carried (`change_ticket_id`), and the confirming
 DELETE clears exactly that pointer (`change_ticket_id`, stamps
 `order_change_tickets.printed_at`) and never moves the order's status, like a
 reprint. The board's `printPendingSince` / "did not print" banner covers a
-pending change ticket the same way, worded `改單未印出 Change ticket did not
-print`.
+pending change ticket the same way, and a change ticket that gave up turns
+the card's banner red: `改單未印出，請按重印再印改單。`
 
 **Failure path.** A change ticket shares the order's attempt cap. At the cap
-it is marked `failed_at`, its pointer is cleared, the card goes red, and
-`findUnprintedForAlert` gains a second branch for change tickets (failed, or
-pending longer than the alert threshold, `alerted_at` null), so the owner is
-texted exactly as for an unprinted kitchen ticket. `verify:print-recurrence`
-covers it.
+it is marked `failed_at`, its pointer is cleared (the order's status is not
+touched), the card goes red, and the unprinted-order cron also scans
+`findUnprintedChangeTickets` (failed, or pending longer than the alert
+threshold, `alerted_at` null) and texts the owner once per change ticket.
+`verify:edit-order` (scenario 11) covers the cap and the alert claim;
+`verify:print-recurrence` adds a 45-second slow confirm of a change ticket
+(exactly one hand-over).
 
 **Reprint of a change ticket** is a `manual_reprint` request row with
 `change_ticket_id` set; the copy renders the stored `payload`, so it is the
@@ -354,16 +393,26 @@ same bytes (asserted in `verify:edit-order`).
 ### API
 
 - `POST /api/kitchen/orders/[id]/edit`: staff session guard (as every
-  kitchen route), body `{ baseRevision, editToken, lines, lunchOverride?,
-  dryRun? }` (strict zod, no prices). Answers `{ ok, revision, diff,
-  totals, changeTicket, replaced, duplicate }`, or `409 conflict`,
-  `409 change_printing`, `422 no_changes | empty | not_editable`.
-- `GET /api/kitchen/orders/[id]/revisions`: the order's revisions, newest
-  first, each with time, actor, its diff and the totals before and after.
-- `GET /api/kitchen/orders` gains `revision`, `changeCount`,
-  `changePending` per order, and `editable`.
+  kitchen route), refused on a preview host, rate limited like the POS. Body
+  `{ baseRevision, editToken, lines, lunchOverride?, printChange?, dryRun? }`
+  (strict zod, no prices). Answers `{ ok, revision, diff, totals, oldTotals,
+  changeTicket, changeTicketId, replaced, duplicate }`; a dry run answers
+  `{ ok, dryRun, noChanges, diff, totals, oldTotals, print }`. Refusals:
+  `409 conflict | change_printing | not_editable`, `422 no_changes | empty`,
+  `400 rejected | item_unavailable | bad_request`. The dry run checks the
+  revision too, so a stale tablet's confirm sheet shows the lock error, never
+  a diff against a version it did not load.
+- `GET /api/kitchen/orders/[id]/revisions`: the order's edits, newest first,
+  each with time, actor, its diff and the totals before and after; the
+  order as placed; its change tickets.
+- Board orders gain `revision`, `editedAt`, `ticketRevision`,
+  `changePending`, `changeCount`, `changeFailed`. Whether Edit shows is
+  `isEditable(order, now)` in `lib/orders/types.ts`, the same rule the server
+  applies.
 - `POST /api/kitchen/orders/[id]` `action: "reprint"` gains optional
-  `changeTicketId`.
+  `changeTicketId` (a printed or failed change ticket of that order).
+- `GET /api/kitchen/orders/[id]/ticket` renders an edited order with its
+  已改 chip, and `?change=<id>` renders a stored change ticket.
 
 `actor` is `"kitchen"` today: the board is one shared password with no
 per-person identity (`kitchenSession.ts`), as for 重印.
@@ -374,9 +423,9 @@ per-person identity (`kitchenSession.ts`), as for 重印.
 
 Cards of edited orders show `已改 Edited ×N`. The card expands a
 `修改紀錄 Edit history` panel (loaded from `/revisions` on open): newest first,
-`第N次 Revision N`, time, actor, total before → after, and its diff in the
-same + / - / 改 words as the ticket; the last row is the original with a
-`查看 View` that shows the order as placed.
+`第N次修改 Revision N`, time, total before → after, and its diff in the
+same + / - / 改 words as the ticket; the last row is the original (time,
+total, item count).
 
 The 日結 daily report (PR #14) sums each order's current totals, so an edited
 order counts at its new total. That is the intended reading; no change there.
@@ -405,7 +454,7 @@ order counts at its new total. That is the intended reading; no change there.
   it fresh is refused as on a new order.
 - **Lunch**: the original order time decides (above).
 
-## Phase 2 plan
+## Phase 2: what was built
 
 1. Migration 017 + `schema.sql` + README; repository `saveOrderEdit`,
    `listRevisions`, the claim / confirm / alert changes. `verify:edit-order`
@@ -425,20 +474,26 @@ order counts at its new total. That is the intended reading; no change there.
 6. typecheck, typecheck:worker, lint, every `verify:*`.
 
 Existing kitchen ticket, 重印 of unedited orders, 加菜, and Cancel are not
-changed.
+changed: the 18 `ticket:sample` outputs are byte-identical, and every
+existing `verify:*` and Playwright spec passes as before.
 
-## Open questions
+Not built (out of scope or deliberately left): changing the customer,
+channel or pickup time through Edit; texting a web customer about an edit;
+a View of the original order beyond the History summary line.
 
-1. **Branch base for Phase 2.** Cut from `pos-portion-preloader-keypad`
-   (#13, edit mode needs its PosScreen; recommended), from `main` (edit mode
-   would be written against the old strip and redone), or wait for #13 to
-   merge?
-2. **Untouched lines keep their stored price** (recommended), or recompute
-   every line from today's menu as the spec says? Recomputing means a price
-   change or an 86 since the order breaks or reprices the edit.
-3. **Editing a COMPLETED order** (owner fixing a mistake within 30 min):
-   record only, with an opt-in "print change ticket" (recommended), or always
-   print?
-4. **Money on the change ticket**: only on the register copy, per the
-   no-money kitchen copy rule (recommended), or the spec's footer total on
-   both copies?
+Known harness limit: under `next start` the print route cannot load resvg
+(the same note as PR #14), so the Playwright printer stand-in confirms jobs
+whose body failed to render. The real bytes are covered by
+`verify:edit-order` and the print verifiers, which run the renderer.
+
+## Decisions (owner, 2026-11-24)
+
+1. **Branch base**: cut from `pos-portion-preloader-keypad` (#13): edit mode
+   is #13's PosScreen. This branch merges after #13 (and after #14, for the
+   migration number and the font).
+2. **Untouched lines keep their stored price**; new or changed lines are
+   priced from today's menu.
+3. **A COMPLETED order** (within 30 minutes) records the edit and prints no
+   change ticket unless staff turn on "Print a change ticket".
+4. **Money on the change ticket** only on the register copy (new total and
+   was); the kitchen copy carries none.
