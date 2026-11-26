@@ -94,10 +94,9 @@ export interface MenuItem {
    * wrote by hand beside every printed tray price (the printed column is the
    * "medium"). Set wherever `trayCents` is; never without it.
    *
-   * ⚠️ TODO(confirm) #17 Salted Pepper Chicken Wings: the chicken-section
-   * handwriting reads 50 while the Specials copy of the same dish reads 45,
-   * and every other 75.00 tray is 45. Both entries carry 45 until the owner
-   * confirms.
+   * #17 Salted Pepper Chicken Wings: the chicken-section handwriting read 50
+   * and the Specials copy read 45; the owner confirmed 50.00 (Nov 2026), so
+   * both entries carry 5000 even though other 75.00 trays halve at 45.
    */
   halfTrayCents?: number;
   /**
@@ -195,7 +194,7 @@ export const menu: MenuCategory[] = [
         description: "Crispy fried, sautéed with hot pepper.",
         priceCents: 1995,
         trayCents: 7500,
-        halfTrayCents: 4500,
+        halfTrayCents: 5000,
         spicy: true,
       },
       {
@@ -391,7 +390,7 @@ export const menu: MenuCategory[] = [
         chineseName: "椒鹽雞翼",
         priceCents: 1995,
         trayCents: 7500,
-        halfTrayCents: 4500,
+        halfTrayCents: 5000,
         spicy: true,
       },
       {
