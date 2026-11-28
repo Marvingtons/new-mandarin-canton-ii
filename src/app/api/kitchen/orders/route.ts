@@ -84,7 +84,6 @@ export async function GET(request: Request): Promise<Response> {
 export type StaffOrderError =
   | "unauthorized"
   | "bad_request"
-  | "phone_required"
   | "phone_invalid"
   | "pickup_invalid"
   | "item_unavailable"
@@ -155,8 +154,9 @@ export async function POST(request: Request): Promise<Response> {
     return refuse("unavailable", "Tax rate is not configured. · 稅率未設定。", 503);
   }
 
-  // The customer. A phone order must have a callable number; a walk-in may
-  // leave it blank, but anything typed must still be a real number.
+  // The customer. The number is optional for a phone order exactly as for a
+  // walk-in (staff may take a call without typing it; the order is called by
+  // its number), but anything typed must still be a real number.
   const rawPhone = (body.customer.phone ?? "").trim();
   let phoneE164 = "";
   if (rawPhone) {
@@ -165,8 +165,6 @@ export async function POST(request: Request): Promise<Response> {
       return refuse("phone_invalid", "That phone number is not valid. · 電話號碼無效。");
     }
     phoneE164 = normalized.e164;
-  } else if (body.channel === "phone") {
-    return refuse("phone_required", "A phone order needs a phone number. · 電話訂單需要電話號碼。");
   }
 
   const pickupOpts: PickupOptions = {

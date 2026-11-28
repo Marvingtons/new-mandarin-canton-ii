@@ -500,7 +500,6 @@ export default function PosScreen({
 
   const missing: KitchenKey[] = [];
   if (lines.length === 0) missing.push(editing ? "edit.emptyLines" : "pos.missing.lines");
-  if (!editing && channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
   if (!editing && now && !scheduledOk) missing.push("pos.missing.scheduled");
   /* 改單: what moved, against the order as loaded. Same diff the server
      prints from, on the lines' identities (the server re-prices). */
@@ -1317,8 +1316,8 @@ export default function PosScreen({
           </span>
         ) : (
           <>
-        {/* Who it is for: a name if staff took one (optional), the phone a
-            phone order needs, and the scheduled time if it has one. */}
+        {/* Who it is for: a name and a phone if staff took them (both
+            optional), and the scheduled time if it has one. */}
         <button
           type="button"
           data-context="takeout"
@@ -1837,11 +1836,12 @@ export default function PosScreen({
               </label>
 
               <label>
-                <span className={label}>{channel === "phone" ? t("pos.phone") : t("pos.phoneOptional")}</span>
+                <span className={label}>{t("pos.phone")}</span>
                 <input
                   type="tel"
                   inputMode="tel"
                   autoComplete="off"
+                  placeholder={t("pos.phoneOptional")}
                   value={phone}
                   onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
                   aria-invalid={phoneBad}

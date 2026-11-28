@@ -402,7 +402,7 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
 
   // The name is optional on the POS: left out, or sent blank, the order is
   // taken and stored with "" and nothing on the ticket says "undefined" or
-  // prints an empty 客人 line. A phone order still needs its number.
+  // prints an empty 客人 line.
   for (const [label, customer] of [
     ["omitted", { phone: "(619) 555-0177" }],
     ["blank", { name: "   ", phone: "(619) 555-0177" }],
@@ -416,8 +416,16 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
   }
   const walkInNoOne = await staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { channel: "walk_in", customer: {} }));
   check("a walk-in with no name and no phone is accepted", walkInNoOne.status === 200 && walkInNoOne.body.ok === true, JSON.stringify(walkInNoOne.body).slice(0, 160));
+  // A phone order may now leave the number blank too, exactly like a walk-in:
+  // stored "", no phone line on the ticket, still callable by its number.
   const noPhone = await staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { customer: {} }));
-  check("a phone order with no phone is still refused", noPhone.body.code === "phone_required", JSON.stringify(noPhone.body).slice(0, 160));
+  check("a phone order with no name and no phone is accepted", noPhone.status === 200 && noPhone.body.ok === true, JSON.stringify(noPhone.body).slice(0, 160));
+  const np = await m.repo.getOrderById(TENANT, Number((noPhone.body.order as { id: number }).id));
+  check("  and stores the phone as \"\" on a phone-channel order", np?.channel === "phone" && np?.customer.phone === "", JSON.stringify(np?.customer));
+  const npLines = await texts(np!);
+  check("  and its ticket prints PHONE ORDER with no phone line", npLines.some((t) => t.includes("PHONE ORDER")) && !npLines.some((t) => /\(\d{3}\) \d{3}-\d{4}|undefined|null/.test(t)), npLines.slice(0, 8).join(" | "));
+  const blankPhone = await staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { customer: { phone: "   " } }));
+  check("a phone order with a whitespace-only phone is accepted as no phone", blankPhone.status === 200 && blankPhone.body.ok === true, JSON.stringify(blankPhone.body).slice(0, 160));
 }
 
 async function s3_numbering(m: Mods): Promise<void> {
@@ -717,7 +725,7 @@ async function s7_cancelAndValidation(m: Mods): Promise<void> {
   check("still not offered", (await pollPrinter(m)).jobReady === false);
 
   const noPhone = await staffPost(m, staffBody([defaultLine(m, "egg-rolls")], { customer: { name: "No Phone" } }));
-  check("phone order without a phone is refused", noPhone.body.code === "phone_required");
+  check("phone order without a phone is accepted", noPhone.status === 200 && noPhone.body.ok === true, JSON.stringify(noPhone.body).slice(0, 120));
   const walkIn = await staffPost(m, staffBody([defaultLine(m, "egg-rolls")], { channel: "walk_in", customer: { name: "Walk In" } }));
   check("walk-in without a phone is accepted", walkIn.status === 200, JSON.stringify(walkIn.body).slice(0, 120));
   const badPhone = await staffPost(m, staffBody([defaultLine(m, "egg-rolls")], { customer: { name: "X", phone: "123" } }));
