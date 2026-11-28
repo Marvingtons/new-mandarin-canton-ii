@@ -10,7 +10,8 @@ import RevisionPanel from "@/components/kitchen/RevisionPanel";
 import Icon from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
 import Button from "@/components/kitchen/ui/Button";
-import { ChannelBadge, StationBadge, StatusPill } from "@/components/kitchen/ui/Badges";
+import { ChannelBadge, PrintedOnBadge, StationBadge, StatusPill } from "@/components/kitchen/ui/Badges";
+import { laneOf, printedOn } from "@/lib/kitchen/lane";
 import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
@@ -122,8 +123,9 @@ function OrderCard({
             {order.orderNumber}
           </h3>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <StationBadge station={order.station} />
+            <StationBadge station={laneOf(order)} />
             <ChannelBadge channel={order.channel} />
+            <PrintedOnBadge station={printedOn(order)} />
             <StatusPill status={order.status} />
             {fresh && (
               <span className={`${ui.pill} bg-staff-gold-light text-staff-ink`}>

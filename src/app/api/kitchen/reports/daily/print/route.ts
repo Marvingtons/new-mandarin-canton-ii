@@ -4,7 +4,9 @@ import { stationPrinterHealth } from "@/lib/kitchen/boardFeed";
 import { readDailyReport } from "@/lib/reports/daily";
 import { reportProblems } from "@/lib/reports/dailyModel";
 import { isMissingReportTable, requestReportPrint } from "@/lib/reports/prints";
-import { PrintBodySchema, parseReportDate, printerBlocked, sheetGuard } from "@/lib/reports/sheet";
+import { PrintBodySchema, parseReportDate, poolBlocked, printerBlocked, sheetGuard, suggestStation, ticketsPrintedToday } from "@/lib/reports/sheet";
+import { printerPoolEnabled } from "@/config/stations";
+import { todayFor } from "@/lib/reports/dailyModel";
 
 /**
  * POST /api/kitchen/reports/daily/print
@@ -40,7 +42,16 @@ export async function POST(request: Request): Promise<Response> {
   if (!day.ok) return Response.json({ ok: false, error: day.error }, { status: 400 });
 
   try {
-    const printer = printerBlocked(await stationPrinterHealth(tenant.tenantId), body.station);
+    // 印表機 PRINTER POOL: no printer is picked; the first idle one prints it
+    // and stamps itself on the row. The stored station until then is only a
+    // placeholder (the quieter printer, as the sheet used to suggest).
+    const pool = printerPoolEnabled();
+    const health = await stationPrinterHealth(tenant.tenantId);
+    if (!pool && !body.station) return Response.json({ ok: false, error: "bad request" }, { status: 400 });
+    const station = pool
+      ? suggestStation(await ticketsPrintedToday(tenant.tenantId, todayFor(tenant.timezone)), health)
+      : body.station!;
+    const printer = pool ? poolBlocked(health) : printerBlocked(health, station);
     if (printer) {
       return Response.json(
         { ok: false, error: "printer unavailable", reason: printer.health },
@@ -65,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
     const result = await requestReportPrint({
       tenantId: tenant.tenantId,
       businessDate: day.date,
-      station: body.station,
+      station,
       report,
       sequence: body.sequence,
       requestKey: body.requestKey,

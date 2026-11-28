@@ -14,6 +14,9 @@ import { defineConfig, devices } from "@playwright/test";
  * table 4 in one test must not race clearing it in another.
  */
 const PORT = Number(process.env.E2E_PORT ?? 3100);
+/** The printer-pool project's own server and database (kitchen-pool specs). */
+const POOL_PORT = PORT + 1;
+const POOL_DB_PORT = 55442;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -27,6 +30,7 @@ export default defineConfig({
     {
       name: "kitchen-tablet",
       testMatch: /kitchen-.*\.spec\.ts/,
+      testIgnore: /kitchen-pool.*\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], channel: "chrome", viewport: { width: 1180, height: 820 } },
     },
     {
@@ -38,16 +42,33 @@ export default defineConfig({
       use: { ...devices["iPad Pro 11 landscape"] },
     },
     {
+      // 印表機 PRINTER POOL on (docs/printer-pool.md): its own server, on its
+      // own port and database, so the rest of the suite keeps the default
+      // channel routing it was written against.
+      name: "kitchen-pool",
+      testMatch: /kitchen-pool.*\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"], channel: "chrome", viewport: { width: 1180, height: 820 }, baseURL: `http://localhost:${POOL_PORT}` },
+    },
+    {
       // Customer-site checks are about what a phone is sent.
       name: "phone",
       testIgnore: /kitchen-.*\.spec\.ts/,
       use: { ...devices["Pixel 7"], channel: "chrome" },
     },
   ],
-  webServer: {
-    command: "npx tsx scripts/e2e-server.ts",
-    url: `http://localhost:${PORT}`,
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: "npx tsx scripts/e2e-server.ts",
+      url: `http://localhost:${PORT}`,
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+    {
+      command: "npx tsx scripts/e2e-server.ts",
+      url: `http://localhost:${POOL_PORT}`,
+      reuseExistingServer: true,
+      timeout: 120_000,
+      env: { E2E_PORT: String(POOL_PORT), E2E_DB_PORT: String(POOL_DB_PORT), PRINTER_POOL: "on" },
+    },
+  ],
 });

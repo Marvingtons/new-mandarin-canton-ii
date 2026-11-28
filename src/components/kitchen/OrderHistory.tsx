@@ -24,7 +24,8 @@ import DailyReportSheet from "@/components/kitchen/DailyReportSheet";
 import OrderList from "@/components/kitchen/OrderList";
 import Button from "@/components/kitchen/ui/Button";
 import { buttonClass } from "@/components/kitchen/ui/buttonClass";
-import { ChannelBadge, StationBadge, StatusPill } from "@/components/kitchen/ui/Badges";
+import { ChannelBadge, PrintedOnBadge, StationBadge, StatusPill } from "@/components/kitchen/ui/Badges";
+import { laneOf, printedOn } from "@/lib/kitchen/lane";
 import EmptyState from "@/components/kitchen/ui/EmptyState";
 import Segmented from "@/components/kitchen/ui/Segmented";
 import { Skeleton } from "@/components/kitchen/ui/Skeleton";
@@ -353,8 +354,9 @@ export default function OrderHistory({
                     </span>
                   </span>
                   <span className="flex flex-wrap gap-1">
-                    <StationBadge station={o.station} />
+                    <StationBadge station={laneOf(o)} />
                     <ChannelBadge channel={o.channel} />
+                    <PrintedOnBadge station={printedOn(o)} />
                   </span>
                   <span className="text-staff-body text-staff-soft">{t("history.itemsCount", { n: itemCount })}</span>
                   <span className={`text-right text-staff-body font-semibold ${o.status === "CANCELLED" ? "text-staff-soft line-through" : ""}`}>

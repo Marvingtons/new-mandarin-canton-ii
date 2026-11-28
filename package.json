@@ -48,6 +48,8 @@
     "verify:staff-orders": "tsx --conditions=react-server scripts/verify-staff-orders.ts",
     "verify:kitchen-i18n": "tsx scripts/verify-kitchen-i18n.ts",
     "verify:print-stale-reads": "tsx --conditions=react-server scripts/verify-print-stale-reads.ts",
+    "verify:printer-pool": "tsx --conditions=react-server scripts/verify-printer-pool.ts",
+    "verify:print-pool-regression": "PRINTER_POOL=on npm run -s verify:print-deliveries && PRINTER_POOL=on npm run -s verify:print-recurrence && PRINTER_POOL=on npm run -s verify:print-split && PRINTER_POOL=on npm run -s verify:claim-no-skip",
     "verify:claim-no-skip": "tsx --conditions=react-server scripts/verify-claim-no-skip.ts",
     "verify:stations": "tsx --conditions=react-server scripts/verify-stations.ts",
     "verify:printer-mac": "tsx --conditions=react-server scripts/verify-printer-mac.ts",

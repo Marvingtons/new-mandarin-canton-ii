@@ -8,8 +8,8 @@ import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import ui from "@/components/kitchen/ui/ui.module.css";
 
 /**
- * BOTH PRINTERS, ALWAYS ON SCREEN. Two chips in the header of every staff
- * page, Online and Store, so "why has the kitchen gone quiet" is a glance and
+ * BOTH PRINTERS, ALWAYS ON SCREEN. One 印表機 pill in the header of every staff
+ * page, with a chip per printer, so "why has the kitchen gone quiet" is a glance and
  * not a walk to the printer. When one needs a person, PrinterAlerts (below the
  * header) says which, and exactly what to do.
  */
@@ -95,32 +95,45 @@ export function PrinterStatusStrip() {
     );
   }
 
+  /* ONE 印表機 PRINTERS PILL with both printers in it (docs/printer-pool.md
+     section 8): with the printer pool either printer prints any ticket, so
+     the header says how the printers are, not whose orders go where. Each
+     printer is a small chip inside, in its state's colour, with its words. */
+  const label = printers
+    .map((p) => {
+      const station = t(`station.${p.station}`);
+      const covered = p.printedBy !== p.station;
+      return `${t("station.printer", { station })}: ${t(shortKey(p))}${covered ? `, ${t("printer.coveredBy", { station: t(`station.${p.printedBy}`) })}` : ""}${p.queued > 0 ? `, ${t("printer.queued", { n: p.queued })}` : ""}`;
+    })
+    .join("; ");
   return (
-    <ul aria-label={t("printer.strip")} className="flex items-center gap-2" data-stale={status === "reconnecting" || undefined}>
+    <span
+      role="status"
+      aria-label={`${t("printer.strip")}: ${label}`}
+      data-printers-pill
+      data-stale={status === "reconnecting" || undefined}
+      className={`${ui.pill} min-h-11 gap-2 bg-staff-panel pr-1.5 pl-3 text-staff-caption text-staff-ink shadow-[inset_0_0_0_1px_var(--color-staff-line)]`}
+    >
+      <Icon name="printer" size={16} />
+      <span className="font-semibold" aria-hidden="true">{t("printer.pill")}</span>
       {printers.map((p) => {
         const look = CHIP[lookOf(p)];
-        const station = t(`station.${p.station}`);
-        const state = t(shortKey(p));
-        const covered = p.printedBy !== p.station;
         return (
-          <li key={p.station}>
-            <span
-              role="status"
-              aria-label={`${t("station.printer", { station })}: ${state}${covered ? `, ${t("printer.coveredBy", { station: t(`station.${p.printedBy}`) })}` : ""}${p.queued > 0 ? `, ${t("printer.queued", { n: p.queued })}` : ""}`}
-              className={`${ui.pill} min-h-11 gap-2 px-3 text-staff-caption ${look.className}`}
-            >
-              <Icon name={look.icon} size={16} />
-              <span className="font-semibold">{station}</span>
-              <span aria-hidden="true" className="opacity-60">·</span>
-              <span className="font-medium">{state}</span>
-              {p.queued > 0 && lookOf(p) !== "ok" && (
-                <span className={`${ui.count} ml-1`}>{p.queued}</span>
-              )}
-            </span>
-          </li>
+          <span
+            key={p.station}
+            aria-hidden="true"
+            data-printer={p.station}
+            data-look={lookOf(p)}
+            className={`inline-flex min-h-8 items-center gap-1 rounded-full px-2 ${look.className}`}
+          >
+            <Icon name={look.icon} size={14} />
+            <span className="font-semibold">{t(`station.${p.station}`)}</span>
+            {lookOf(p) !== "ok" && <span className="font-medium">{t(shortKey(p))}</span>}
+            {p.queued > 0 && lookOf(p) !== "ok" && <span className={`${ui.count} ml-0.5`}>{p.queued}</span>}
+          </span>
         );
       })}
-    </ul>
+    </span>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { laneOf } from "@/lib/kitchen/lane";
 import type { Station } from "@/config/stations";
 import { PRINT_STUCK_SECONDS, type Order } from "@/lib/orders/types";
 import type { StationPrinterHealth } from "@/lib/print/printerStatus";
@@ -260,7 +261,7 @@ export function KitchenLiveProvider({
       // Sound and a toast for ONLINE orders only: nobody entered them at this
       // counter, so nobody here knows they exist. A store order was typed in
       // by the person standing here; it is highlighted, not announced.
-      const online = arrivals.filter((o) => o.station === "online");
+      const online = arrivals.filter((o) => laneOf(o) === "online");
       if (online.length > 0) {
         chime();
         for (const o of online) toast(t("board.newOnline", { number: o.orderNumber }), "arrival");

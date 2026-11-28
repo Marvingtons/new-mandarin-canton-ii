@@ -1,6 +1,8 @@
 # 印表機 Printer pool: either printer prints any ticket
 
-Status: **design, for review. Nothing here is built yet.** Part D of the
+Status: **built, behind `PRINTER_POOL` (default off).** Design reviewed and
+approved 2026-11-28 with the four decisions at the end taken as proposed.
+"As built" below lists where the build differs from the design. Part D of the
 2026-11-27 brief. The precondition is confirmed: both printers sit side by
 side and one person tears off from both (owner, 2026-11-27). If that ever
 changes, the right version is the smaller one in "Not chosen" below.
@@ -80,11 +82,11 @@ measured as: claim time minus the first poll, by any idle and healthy
 printer, after T became claimable. That figure is bounded by
 `PRINT_POOL_INTERVAL_MS`. verify:printer-pool measures it for every ticket.
 
-**`queued_at`** is when T became claimable: `orders.created_at` for a first
-ticket, the change ticket's `created_at` for 改單, and the manual_reprint
-row's `offered_at` for 重印. For a PRINT_FAILED order put back by the
-paper-restore requeue, it is the time of the requeue (`updated_at` of that
-write). No new column is needed.
+**`queued_at`** is when T became claimable. As built, that is
+`orders.updated_at`, the last write that made the ticket claimable: its
+creation, a 改單 save, a 重印 request, or a paper-restore requeue. Each of
+those writes stamps `updated_at`, so one column covers all four. No new column
+is needed.
 
 **Two queued tickets, both printers idle:** A (preferred) claims #1. "Last"
 is now A, so B is preferred for #2 and claims it on its very next poll. The
@@ -106,10 +108,12 @@ A printer is **busy** when **either** of these is true:
 **Unhealthy** is the second bullet alone. It decides change tickets and
 reprints (section 4) and takeovers (section 6).
 
-Both are read from the health row that the poll writes in the same request
-(`recordPoll` already returns `othersSilentSeconds`; it will also return the
-other printer's blocked flag and its last poll time), so the claim decides
-from the database clock, not from the Worker's clock.
+As built, both are read inside the claim's own transaction
+(`readPoolState` in repository.ts) from `printer_station_status` and the
+orders table, on the database clock. A printer with no health row (never
+polled, not set up) counts as unhealthy, so a one-printer shop takes
+everything. A report in flight is read outside that transaction and fails to
+"not busy", so a database without migration 016 prints tickets as before.
 
 ## 4. 重印 Reprint and 改單 change tickets
 
@@ -127,12 +131,14 @@ from the database clock, not from the Worker's clock.
 
 ## 5. Reports through the pool
 
-A 日結 report is queued with **no printer** and claimed like a ticket: any
-idle printer, with the same alternation, claims the oldest QUEUED report
-**after** any ticket it could claim (tickets first, which is today's rule).
-`report_prints.station` becomes "printed by", set when the report is claimed.
-**Migration 020** drops `not null` on `report_prints.station`. Old rows keep
-their station.
+A 日結 report is queued with **no printer picked** and claimed like a
+ticket: the first idle printer claims the oldest QUEUED report, **after** any
+ticket it could claim (tickets first, which is today's rule). As built,
+reports take no alternation turn, because they are one or two a day.
+`report_prints.station` becomes "printed by", stamped when the report is
+claimed. As built there is **no migration 020**: the request writes the
+quieter printer as a placeholder, which satisfies `not null`, and the claim
+overwrites it. The sheet shows no printer for a report still QUEUED.
 
 The sheet loses **送往哪部打印機？ Which printer?**, and with it Part C's
 "printed fewer today" suggestion. Print is disabled only when **both**
@@ -168,15 +174,20 @@ never retried (prints.ts, unchanged).
   are always equal, so without this change the filter would start sorting
   orders by printer.
 - **Header:** the two pills become one **印表機 Printers** pill showing both
-  statuses (for example `印表機 ● ●`, with each dot's colour and label from
-  today's per-printer health). It opens the same detail strip as today.
+  printers, each a small chip in its health colour. A chip adds its state in
+  words when it is not OK. The screen-reader label names both printers in
+  full. The banner under the header (PrinterAlerts) is unchanged.
+- **History:** the Online / Store filter is by channel too, and rows show the
+  same printed-on icon.
 
 ## 9. Rollout
 
-`PRINTER_POOL=on|off`, default **off**. With it off, every code path is
-today's. The deploy is inert. Turn it on after a bench test with both real
-printers, and turn it off again to roll back instantly. Migration 020 is safe
-in either order with the deploy: old code always writes a station.
+`PRINTER_POOL=on|off`, default **off**. With it off, every routing path is
+today's and the deploy is inert. The board changes (lanes by channel, the
+printed-on icon, the one pill) apply either way, because with the pool off
+the lane and the printer agree. Turn the pool on after a bench test with both
+real printers (DEPLOY_RUNBOOK step 9), and unset it to roll back instantly. No
+migration.
 
 ## 10. Tests
 
@@ -202,10 +213,22 @@ in either order with the deploy: old code always writes a station.
   the old token is dead), verify:print-recurrence (a pooled ticket never
   recurs), verify:print-split (a split ticket stays on one printer:
   continuation pieces go to the claimer only).
-- **Playwright kitchen-tablet:** the card's printer icon after printing, the
-  single 印表機 pill, and the 日結 sheet without the printer picker.
+- **Playwright:** a `kitchen-pool` project runs its own e2e server with
+  `PRINTER_POOL=on`. A phone order printed by the online printer keeps its
+  Store lane and shows the online printer's icon, and the 日結 sheet has no
+  printer picker and prints. The kitchen-tablet project checks the single
+  印表機 pill.
 
-## Decisions I would like confirmed
+### As built (results)
+
+| Check | Result |
+| --- | --- |
+| verify:printer-pool | 49/49. 200 tickets each printed exactly once, split 50.0 / 50.0. In the bulk run the worst hold-back was 222 ms against a 340 ms bound. The hold-back is also pinned step by step (1b). Paper out: 100/0. Unfetched takeover after the 2 s window, with no 轉自. Fetched takeover only after failover, with 轉自. Recovery takes at most one job per poll. 重印 / 改單 follow the original printer while it is healthy. A report goes to the printer with paper |
+| verify:claim-no-skip | new section 5: two printers claim 5 × 40 from one queue at once with 20 looping readers. None claimed twice, none left, 100 / 100 |
+| verify:print-pool-regression | print-deliveries, print-recurrence, print-split and claim-no-skip all pass with `PRINTER_POOL=on` |
+| every print verifier with the pool off | unchanged, all pass |
+
+## Decisions (confirmed 2026-11-28)
 
 1. **Rollout flag, default off** (section 9), rather than switching the pool on at deploy.
 2. **轉自 REROUTED FROM stays**, only for a fetched-but-unconfirmed takeover. The alternative is to drop it entirely in the pool.

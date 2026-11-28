@@ -36,6 +36,8 @@ import {
   type HistorySummary,
 } from "@/lib/orders/history";
 import {
+  CHANNEL_STATION,
+  OTHER_STATION,
   STATIONS,
   isStation,
   orderNumberPrefix,
@@ -43,6 +45,7 @@ import {
   type Station,
 } from "@/config/stations";
 import { MARK_FAILOVER_SQL } from "@/lib/print/healthStore";
+import { OFFLINE_AFTER_SECONDS } from "@/lib/print/printerStatus";
 
 /**
  * Which printer is asking, and whose tickets it prints. From
@@ -59,6 +62,12 @@ export interface PrinterScope {
    * for one of these is rerouted: see applyFailover.
    */
   failoverFrom?: readonly Station[];
+  /**
+   * 印表機 PRINTER POOL (docs/printer-pool.md): set when PRINTER_POOL is on.
+   * The claim then takes the oldest ticket of ANY channel, with the
+   * alternation preference, and stamps print_station = this printer.
+   */
+  pool?: { intervalMs: number };
 }
 
 const SINGLE_PRINTER: PrinterScope = { station: "online", serves: STATIONS };
@@ -596,6 +605,238 @@ async function insertDelivery(
   }
 }
 
+/**
+ * What the pool's claim decides from, read in the claim's own transaction on
+ * the database clock (docs/printer-pool.md sections 2 and 3):
+ *
+ *   lastStation       the printer of the newest first-offer hand-over
+ *   otherHealthy      the other printer polled inside OFFLINE_AFTER_SECONDS
+ *                     and is not out of paper, open or offline. A printer
+ *                     with no health row (never polled, not set up) is not.
+ *   otherRecent       the other printer polled inside one poll interval
+ *   otherInFlight     a ticket or a 日結 report is handed to it, unconfirmed
+ */
+export interface PoolState {
+  lastStation: Station | null;
+  otherHealthy: boolean;
+  otherRecent: boolean;
+  otherInFlight: boolean;
+}
+
+export async function readPoolState(
+  client: PoolClient | ReturnType<typeof ordersPool>,
+  tenantId: string,
+  me: Station,
+  intervalMs: number,
+): Promise<PoolState> {
+  const other = OTHER_STATION[me];
+  const { rows } = await client.query(
+    `select
+       (select d.station from print_deliveries d
+         where d.tenant_id = $1 and d.reason = 'first-offer' and d.order_id is not null
+         order by d.offered_at desc, d.id desc limit 1) as last_station,
+       coalesce((select s.online and not s.paper_out and not s.cover_open
+                        and s.last_seen_at > now() - make_interval(secs => $3)
+                   from printer_station_status s
+                  where s.tenant_id = $1 and s.station = $2), false) as other_healthy,
+       coalesce((select s.last_seen_at > now() - make_interval(secs => $4)
+                   from printer_station_status s
+                  where s.tenant_id = $1 and s.station = $2), false) as other_recent,
+       exists (select 1 from orders
+                where orders.tenant_id = $1 and orders.print_attempts > 0
+                  and ${needsPaperFrom("$5", "$6")}) as other_in_flight`,
+    [tenantId, other, OFFLINE_AFTER_SECONDS, intervalMs / 1000, PRINTABLE_STATUSES, [other]],
+  );
+  const r = rows[0] ?? {};
+  return {
+    lastStation: isStation(r.last_station) ? r.last_station : null,
+    otherHealthy: r.other_healthy === true,
+    otherRecent: r.other_recent === true,
+    otherInFlight: r.other_in_flight === true || (await otherReportInFlight(tenantId, other)),
+  };
+}
+
+/**
+ * A 日結 report handed to the other printer and not yet confirmed. Its own
+ * read on the pool, OUTSIDE the claim's transaction, and failing to false: on
+ * a database without migration 016 there is no report_prints, and tickets
+ * must print exactly as before.
+ */
+async function otherReportInFlight(tenantId: string, other: Station): Promise<boolean> {
+  try {
+    const { rows } = await ordersPool().query(
+      `select exists (select 1 from report_prints
+                       where tenant_id = $1 and station = $2 and status = 'OFFERED') as busy`,
+      [tenantId, other],
+    );
+    return rows[0]?.busy === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The alternation rule (docs/printer-pool.md section 2), pure. True when
+ * this printer may take a ticket at once; false when it must leave a ticket
+ * younger than one poll interval to the other printer, which is idle,
+ * healthy, polling, and did not print the last one.
+ */
+export function poolMayClaimNow(me: Station, s: PoolState): boolean {
+  const preferred = s.lastStation === null || s.lastStation !== me;
+  const otherBusy = s.otherInFlight || !s.otherHealthy;
+  return preferred || otherBusy || !s.otherRecent;
+}
+
+/**
+ * "This order needs paper, and the POOL may give it to `me`": a first ticket
+ * of any channel; a 改單 change ticket or a 重印 copy only for the printer it
+ * belongs to (`stations`: this printer, plus the other when that one is
+ * unhealthy). One printer, one job: only print_attempts = 0 rows are
+ * claimable, as before.
+ */
+function poolNeedsPaper(statuses: string, stations: string): string {
+  return `(
+    ${SERVES_FIRST(statuses)}
+    or (${SERVES_CHANGE(statuses)}
+      and orders.print_station = any(${stations}::text[]))
+    or (${SERVES_REPRINT()}
+      and exists (
+        select 1 from print_deliveries r
+         where r.id = orders.reprint_delivery_id
+           and r.station = any(${stations}::text[])))
+  )`;
+}
+
+/**
+ * The POOL claim: the oldest claimable ticket for this printer, whatever its
+ * channel, under the same SKIP LOCKED + re-check as claimNextPrintJob, so two
+ * printers polling in the same millisecond can never both take one ticket.
+ *
+ * When the alternation says "leave it to the other printer", only tickets
+ * that have been claimable for at least one poll interval may be taken
+ * (`orders.updated_at`, the last write that made it claimable: its creation,
+ * a 改單 save, a 重印 request, a paper-restore requeue). The claim stamps
+ * print_station = this printer: from here on it is the printer holding it.
+ */
+async function claimPoolJob(
+  tenantId: string,
+  windowSeconds: number,
+  scope: PrinterScope & { pool: { intervalMs: number } },
+): Promise<Order | null> {
+  return wroteOrNull(await withTransaction(async (client) => {
+    const me = scope.station;
+    const state = await readPoolState(client, tenantId, me, scope.pool.intervalMs);
+    const now = poolMayClaimNow(me, state);
+    const stations = state.otherHealthy ? [me] : [me, OTHER_STATION[me]];
+    const deliveryId = randomUUID();
+    // Held back (the other printer is preferred): only tickets claimable for a full interval.
+    const { rows } = await client.query(
+      `update orders
+          set print_attempts            = print_attempts + 1,
+              print_offered_at          = now(),
+              print_delivery_id         = $3,
+              print_delivery_expires_at = now() + make_interval(secs => $4),
+              ticket_revision = case when ${SERVES_FIRST("$2")}
+                                     then coalesce(ticket_revision, revision)
+                                     else ticket_revision end,
+              -- The printer holding it. A 重印 copy never moves the order
+              -- (its marker row moves instead, below).
+              print_station = case when reprint_delivery_id is null then $6 else print_station end,
+              updated_at                = now()
+        where id = (
+          select id from orders
+           where tenant_id = $1
+             and print_attempts = 0
+             and ${poolNeedsPaper("$2", "$5")}
+             and ($8::boolean or orders.updated_at <= now() - make_interval(secs => $7))
+           order by created_at asc
+           for update skip locked
+           limit 1
+        )
+          and print_attempts = 0
+          and ${poolNeedsPaper("$2", "$5")}
+        returning ${ORDER_COLUMNS}`,
+      [tenantId, PRINTABLE_STATUSES, deliveryId, windowSeconds, stations, me, scope.pool.intervalMs / 1000, now],
+    );
+    if (rows.length === 0) return null;
+    const order = mapOrder(rows[0]);
+    // A 重印 copy aimed at the other printer, taken here because that one is
+    // unhealthy: its marker now names the printer actually printing it, so
+    // this printer's in-flight read (currentPrintJob) finds it.
+    await client.query(
+      `update print_deliveries set station = $3
+        where tenant_id = $1 and id = (select reprint_delivery_id from orders where id = $2)
+          and station <> $3`,
+      [tenantId, order.id, me],
+    );
+    await insertDelivery(client, {
+      id: deliveryId,
+      orderId: order.id,
+      tenantId,
+      windowSeconds,
+      reason: "first-offer",
+      actor: "printer",
+      station: me,
+    });
+    return order;
+  }));
+}
+
+/**
+ * POOL TAKEOVER (docs/printer-pool.md section 6). A ticket the OTHER printer
+ * holds whose hand-over window has run out, re-offered to `me`:
+ *
+ *   - never fetched (fetch_count 0, and only when fetches are counted): at
+ *     once, whatever the other printer's health. A body never fetched cannot
+ *     be on paper. First piece only, so a split ticket stays on one printer.
+ *     No 轉自 line.
+ *   - fetched (or uncountable): only when timed failover has the other
+ *     printer (`failover`), and then with the existing 轉自 REROUTED FROM line.
+ *
+ * Same compare-and-set as every re-offer (reofferPrintDelivery), so the other
+ * printer's own retry and this cannot both win. Null when there is nothing
+ * to take.
+ */
+export async function takeOverStaleDelivery(
+  tenantId: string,
+  me: Station,
+  opts: { windowSeconds: number; cap: number; failover: boolean; fetchesCounted: boolean },
+): Promise<Order | null> {
+  const other = OTHER_STATION[me];
+  const { rows } = await ordersPool().query(
+    `select orders.id, orders.print_delivery_id,
+            coalesce(d.fetch_count, 0) as fetch_count, orders.print_segment
+       from orders
+       left join print_deliveries d on d.id = orders.print_delivery_id
+      where orders.tenant_id = $1
+        and orders.print_attempts > 0
+        and orders.print_attempts < $4
+        and ${needsPaperFrom("$2", "$3")}
+        and orders.print_delivery_id is not null
+        and orders.print_delivery_expires_at <= now()
+        and d.confirmed_at is null
+      order by orders.created_at asc
+      limit 5`,
+    [tenantId, PRINTABLE_STATUSES, [other], opts.cap],
+  );
+  for (const r of rows) {
+    const unfetched = opts.fetchesCounted && Number(r.fetch_count) === 0 && Number(r.print_segment ?? 0) === 0;
+    if (!unfetched && !opts.failover) continue;
+    const taken = await reofferPrintDelivery(
+      tenantId,
+      Number(r.id),
+      opts.windowSeconds,
+      "retry",
+      String(r.print_delivery_id),
+      me,
+      unfetched ? [] : [other],
+      true,
+    );
+    if (taken) return taken;
+  }
+  return null;
+}
+
 export async function claimNextPrintJob(
   tenantId: string,
   windowSeconds: number = DEFAULT_CONFIRM_WINDOW_SECONDS,
@@ -606,6 +847,7 @@ export async function claimNextPrintJob(
    */
   scope: PrinterScope = SINGLE_PRINTER,
 ): Promise<Order | null> {
+  if (scope.pool) return claimPoolJob(tenantId, windowSeconds, { ...scope, pool: scope.pool });
   return wroteOrNull(await withTransaction(async (client) => {
     const deliveryId = randomUUID();
     const { rows } = await client.query(
@@ -770,6 +1012,11 @@ export async function reofferPrintDelivery(
   station: Station = "online",
   /** Its failover stations (PrinterScope.failoverFrom): a takeover is a reroute. */
   failoverFrom: readonly Station[] = [],
+  /**
+   * POOL takeover: the ticket moves to `station` (print_station, or a 重印's
+   * marker row), so this printer's in-flight read finds it from now on.
+   */
+  move = false,
 ): Promise<Order | null> {
   return wroteOrNull(await withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -817,11 +1064,26 @@ export async function reofferPrintDelivery(
     // No row matched: the order is no longer offerable (status changed, or its
     // current delivery was already confirmed). Do NOT create a delivery.
     if (rows.length === 0) return null;
-    const order = await applyFailover(client, tenantId, mapOrder(rows[0]), {
+    let order = await applyFailover(client, tenantId, mapOrder(rows[0]), {
       station,
       serves: STATIONS,
       failoverFrom,
     });
+    if (move) {
+      const moved = await client.query(
+        `update orders set print_station = case when reprint_delivery_id is null then $3 else print_station end
+          where tenant_id = $1 and id = $2
+          returning ${ORDER_COLUMNS}`,
+        [tenantId, orderId, station],
+      );
+      if (moved.rows.length > 0) order = mapOrder(moved.rows[0]);
+      await client.query(
+        `update print_deliveries set station = $3
+          where tenant_id = $1 and id = (select reprint_delivery_id from orders where id = $2)
+            and station <> $3`,
+        [tenantId, orderId, station],
+      );
+    }
     await insertDelivery(client, {
       id: deliveryId,
       orderId,
@@ -2262,8 +2524,15 @@ function historyWhere(
     clauses.push(`o.channel = any($${params.length}::text[])`);
   }
   if (query.stations.length > 0) {
-    params.push(query.stations);
-    clauses.push(`o.print_station = any($${params.length}::text[])`);
+    // The Online / Store LANE, by channel (lib/kitchen/lane.ts): with the
+    // printer pool print_station is the printer that printed it, not whose
+    // order it is.
+    params.push(
+      (Object.keys(CHANNEL_STATION) as OrderChannel[]).filter((c) =>
+        query.stations.includes(CHANNEL_STATION[c]),
+      ),
+    );
+    clauses.push(`o.channel = any($${params.length}::text[])`);
   }
   const q = query.q.trim();
   if (q) {

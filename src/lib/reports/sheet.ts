@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { STATIONS, type Station } from "@/config/stations";
+import { STATIONS, printerPoolEnabled, type Station } from "@/config/stations";
 import { publicTenant } from "@/config/tenant.server";
 import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
 import { isOrdersDbConfigured, ordersPool } from "@/lib/db/postgres";
@@ -70,7 +70,11 @@ export function parseScope(raw: string | null | undefined): ChannelScope | null 
 
 export const PrintBodySchema = z.strictObject({
   date: z.string(),
-  station: z.enum(STATIONS),
+  /**
+   * Which printer. Required without the printer pool; with it (PRINTER_POOL
+   * on) ignored if sent: the first idle printer prints it.
+   */
+  station: z.enum(STATIONS).optional(),
   /** 範圍 SCOPE. Absent (an older page) = all. */
   scope: z.enum(CHANNEL_SCOPES).optional(),
   /**
@@ -84,6 +88,15 @@ export const PrintBodySchema = z.strictObject({
   /** The client's key for this press of Print. */
   requestKey: z.string().min(8).max(100),
 });
+
+/**
+ * POOL: a report can print unless BOTH printers cannot; the first blocked one
+ * is the reason when they both are.
+ */
+export function poolBlocked(printers: readonly StationPrinterHealth[]): StationPrinterHealth | null {
+  const blocked = STATIONS.map((s) => printerBlocked(printers, s));
+  return blocked.every((b) => b !== null) ? blocked[0] : null;
+}
 
 /** A printer that cannot take paper now, and why: the sheet's disabled reason. */
 export function printerBlocked(printers: readonly StationPrinterHealth[], station: Station): StationPrinterHealth | null {
@@ -112,6 +125,11 @@ export interface ReportSheet {
   suggestedStation: Station;
   /** Kitchen tickets each printer confirmed today, the suggestion's basis. */
   ticketsToday: Record<Station, number>;
+  /**
+   * 印表機 PRINTER POOL on: there is no printer to pick. The report goes to
+   * the first idle printer, and Print is off only while BOTH cannot print.
+   */
+  pool: boolean;
   /** False before migration 016: the sheet shows the numbers but cannot print. */
   printable: boolean;
 }
@@ -185,6 +203,7 @@ export async function loadSheet(
     printers,
     suggestedStation: suggestStation(ticketsToday, printers),
     ticketsToday,
+    pool: printerPoolEnabled(),
     printable,
   };
 }

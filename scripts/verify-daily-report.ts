@@ -457,6 +457,7 @@ function s4_sheetDay(m: Mods): void {
 
 const PASSWORD = "verify-daily-report-password";
 const MAC_STORE = "00:11:62:00:00:42";
+const MAC_ONLINE = "00:11:62:00:00:41";
 
 async function s5_routes(m: Mods): Promise<void> {
   console.log("\n5. the sheet's routes");
@@ -568,6 +569,31 @@ async function s5_routes(m: Mods): Promise<void> {
   const outBody = (await out.json()) as { error: string; reason: string };
   check("a printer out of paper refuses the print, saying why", out.status === 409 && outBody.reason === "paper-out",
     JSON.stringify(outBody));
+
+  /* 印表機 PRINTER POOL: no printer is picked, one out of paper does not
+     stop a report, both out of paper does. */
+  process.env.PRINTER_POOL = "on";
+  try {
+    const poolPress = (key: string, sequence: number) =>
+      m.print.POST(req("/api/kitchen/reports/daily/print", {
+        method: "POST",
+        body: JSON.stringify({ date: SAT, sequence, requestKey: key }),
+      }));
+    const sheetPool = (await (await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}`))).json()) as { pool: boolean; nextSequence: number };
+    check("pool: the sheet says there is no printer to pick", sheetPool.pool === true);
+    const one = await poolPress("pool-press-0001", sheetPool.nextSequence);
+    check("pool: store out of paper, a report with no printer picked still queues", one.status === 200, String(one.status));
+    await m.pool.ordersPool().query(
+      `insert into printer_station_status (tenant_id, station, last_seen_at, online, paper_out, printer_mac)
+       values ($1, 'online', now(), true, true, $2)
+       on conflict (tenant_id, station) do update set paper_out = true, last_seen_at = now()`,
+      [TENANT, MAC_ONLINE.replace(/:/g, "").toLowerCase()],
+    );
+    const both = await poolPress("pool-press-0002", sheetPool.nextSequence + 1);
+    check("pool: both out of paper refuses it", both.status === 409, String(both.status));
+  } finally {
+    delete process.env.PRINTER_POOL;
+  }
 }
 
 /* ----------------------------------------------------------------- main -- */
@@ -597,6 +623,8 @@ async function main(): Promise<void> {
   process.env.RESTAURANT_TIMEZONE = TIMEZONE;
   process.env.ADMIN_DASH_PASSWORD = PASSWORD;
   process.env.CLOUDPRNT_PRINTER_MAC_STORE = MAC_STORE;
+  process.env.CLOUDPRNT_PRINTER_MAC_ONLINE = MAC_ONLINE;
+  delete process.env.PRINTER_POOL;
 
   const pool = await import("../src/lib/db/postgres");
   await pool.ordersPool().query(await readFile(join(process.cwd(), "src", "lib", "db", "schema.sql"), "utf8"));

@@ -115,13 +115,16 @@ test.afterAll(async () => {
   await db.end();
 });
 
-test("the header shows both printers on every staff page", async () => {
+test("the header shows one 印表機 pill with both printers on every staff page", async () => {
   for (const path of ["/kitchen", "/kitchen/pos", "/kitchen/history"]) {
     await page.goto(path);
-    const strip = page.getByRole("list", { name: "打印機狀態" });
-    await expect(strip.getByRole("listitem")).toHaveCount(2);
-    await expect(strip).toContainText("網上");
-    await expect(strip).toContainText("店內");
+    const pill = page.locator("[data-printers-pill]");
+    await expect(pill).toHaveCount(1);
+    await expect(pill).toContainText("印表機");
+    await expect(pill.locator("[data-printer]")).toHaveCount(2);
+    await expect(pill).toContainText("網上");
+    await expect(pill).toContainText("店內");
+    await expect(pill).toHaveAttribute("aria-label", /打印機狀態.*網上.*店內/);
     // Same header element and nav on all three.
     await expect(page.getByRole("navigation", { name: "廚房選單" })).toBeVisible();
   }
@@ -129,8 +132,9 @@ test("the header shows both printers on every staff page", async () => {
 });
 
 test("a printer that needs a person says which station and what to do", async () => {
-  const strip = page.getByRole("list", { name: "打印機狀態" });
-  await expect(strip.getByRole("listitem").filter({ hasText: "店內" })).toContainText("缺紙");
+  const store = page.locator('[data-printers-pill] [data-printer="store"]');
+  await expect(store).toContainText("缺紙");
+  await expect(store).toHaveAttribute("data-look", "blocked");
   await expect(page.getByRole("alert").filter({ hasText: "店內打印機缺紙" })).toBeVisible();
 });
 

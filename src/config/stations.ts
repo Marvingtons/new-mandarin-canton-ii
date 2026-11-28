@@ -47,7 +47,8 @@ export function stationForChannel(channel: OrderChannel): Station {
  * ORDER NUMBER PREFIX PER STATION. Each station has its own daily sequence
  * (order_counters is keyed by tenant, business date and station, migration
  * 015), so a day reads A-001, A-002 for the website and B-001, B-002 for the
- * counter, and the prefix alone says which printer a ticket belongs to.
+ * counter. The prefix is the CHANNEL's (web or counter), never the printer:
+ * with PRINTER_POOL on, either printer prints either prefix.
  *
  * The online prefix is only the fallback: ORDER_NUMBER_PREFIX, which every
  * deployment already sets, stays the online prefix (see orderNumberPrefix).
@@ -154,4 +155,31 @@ export function failoverStations(input: {
     const silent = input.silentSeconds[s];
     return silent !== undefined && silent > input.windowSeconds;
   });
+}
+
+/**
+ * PRINTER POOL (docs/printer-pool.md), behind PRINTER_POOL=on.
+ *
+ * Off (the default): every ticket prints on its channel's printer, exactly as
+ * above. On: one queue; any idle printer claims the oldest ticket, and when
+ * both are idle the one that did not print the last ticket gets it. Channel
+ * still decides the order number, the board lane and the 日結 split.
+ * Server-side only.
+ */
+export function printerPoolEnabled(raw: string | undefined = process.env.PRINTER_POOL): boolean {
+  return raw !== undefined && /^(on|true|1|yes)$/i.test(raw.trim());
+}
+
+/**
+ * The printers' poll interval, in ms: the longest the alternation preference
+ * may hold a ticket back. 3000 matches the TSP143's setting
+ * (docs/print-latency.md). PRINT_POOL_INTERVAL_MS overrides it; the pool
+ * verifier runs a compressed clock with it.
+ */
+export const PRINT_POOL_INTERVAL_MS_DEFAULT = 3000;
+
+export function printPoolIntervalMs(raw: string | undefined = process.env.PRINT_POOL_INTERVAL_MS): number {
+  if (raw === undefined || raw.trim() === "") return PRINT_POOL_INTERVAL_MS_DEFAULT;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : PRINT_POOL_INTERVAL_MS_DEFAULT;
 }

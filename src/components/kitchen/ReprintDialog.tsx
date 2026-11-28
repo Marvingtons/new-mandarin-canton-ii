@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { STATIONS, type Station } from "@/config/stations";
+import { OTHER_STATION, STATIONS, type Station } from "@/config/stations";
+import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import type { Order } from "@/lib/orders/types";
 import Icon from "@/components/kitchen/Icon";
 import { useKT } from "@/components/kitchen/KitchenI18n";
@@ -18,7 +19,10 @@ interface ChangeTicketChoice {
 }
 
 /**
- * 重印, with the printer chosen. The order's current station is preselected,
+ * 重印, with the printer chosen. The printer that printed it is preselected
+ * when it can print; when it is out of paper, open or offline and the other
+ * one is fine, the other is preselected and the dialog says why
+ * (docs/printer-pool.md section 4).
  * so the everyday reprint is still one tap on "Reprint"; picking the other
  * printer is how staff route around one that is out of paper.
  *
@@ -36,7 +40,13 @@ export default function ReprintDialog({
   onClose: () => void;
 }) {
   const t = useKT();
-  const [station, setStation] = useState<Station>(order.station);
+  const { printers } = useKitchenLive();
+  const down = (s: Station) => {
+    const p = printers.find((x) => x.station === s);
+    return !!p && (p.blocked || p.health === "offline");
+  };
+  const switched = down(order.station) && !down(OTHER_STATION[order.station]);
+  const [station, setStation] = useState<Station>(switched ? OTHER_STATION[order.station] : order.station);
   const [what, setWhat] = useState<string>("full");
   const [changes, setChanges] = useState<ChangeTicketChoice[]>([]);
   // The board counts change tickets; History only knows the order was edited.
@@ -96,6 +106,11 @@ export default function ReprintDialog({
               ),
             }))}
           />
+          {switched && (
+            <p role="note" className="text-staff-caption text-staff-soft" data-reprint-switched>
+              {t("reprint.switched", { station: t(`station.${order.station}`) })}
+            </p>
+          )}
         </fieldset>
         <div className={ui.dialogActions}>
           <Button variant="secondary" onClick={onClose}>

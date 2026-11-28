@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { laneOf } from "@/lib/kitchen/lane";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { STATIONS, isStation, type Station } from "@/config/stations";
@@ -106,7 +107,7 @@ export default function OrdersBoard({
   const visible = useMemo(
     () =>
       searched.filter(
-        (o) => (station === "all" || o.station === station) && IN_FILTER[statusFilter](o.status),
+        (o) => (station === "all" || laneOf(o) === station) && IN_FILTER[statusFilter](o.status),
       ),
     [searched, station, statusFilter],
   );
@@ -115,13 +116,13 @@ export default function OrdersBoard({
     const inStatus = searched.filter((o) => IN_FILTER[statusFilter](o.status));
     return {
       all: inStatus.length,
-      online: inStatus.filter((o) => o.station === "online").length,
-      store: inStatus.filter((o) => o.station === "store").length,
+      online: inStatus.filter((o) => laneOf(o) === "online").length,
+      store: inStatus.filter((o) => laneOf(o) === "store").length,
     };
   }, [searched, statusFilter]);
 
   const statusCounts = useMemo(() => {
-    const inStation = searched.filter((o) => station === "all" || o.station === station);
+    const inStation = searched.filter((o) => station === "all" || laneOf(o) === station);
     return Object.fromEntries(
       STATUS_FILTERS.map((f) => [f, inStation.filter((o) => IN_FILTER[f](o.status)).length]),
     ) as Record<StatusFilter, number>;
