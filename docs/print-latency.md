@@ -493,3 +493,8 @@ The poll and the DELETE stay https.
 - **The trade-off.** The ticket body (name and phone) is readable in flight on
   the LAN-to-Cloudflare hop. Printers must be on the staff WPA2 network, never a
   guest SSID (`docs/CF_PRINTER_READINESS.md`, Phase 5).
+
+**Smaller tickets are now on by default too** (`PRINT_COMPACT_BLANK_ROWS`,
+`0` turns it off). They did not fix the latency, but the store printer printed
+them line for line the same (B-053 three times, B-054), and they trim about
+25% off every download. The code default now matches the production secret.

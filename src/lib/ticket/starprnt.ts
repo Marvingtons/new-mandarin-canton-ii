@@ -252,9 +252,8 @@ function rasterBlocks(
  * models the full-width encoding, stays a true upper bound and the segment
  * plan (and therefore which pieces an order prints as) is unchanged.
  *
- * Off unless PRINT_COMPACT_BLANK_ROWS is set: Star documents the range but not
- * this firmware's behaviour with a 1-byte block, so it is confirmed on one
- * live ticket before it is left on.
+ * On by default (PRINT_COMPACT_BLANK_ROWS=0 turns it off): the store
+ * TSP143IV printed it line for line the same as full width on 2026-11-27.
  */
 function compactRasterBlocks(
   rgba: Uint8Array,

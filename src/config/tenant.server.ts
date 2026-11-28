@@ -537,14 +537,6 @@ export function printFetchViaWorker(): boolean {
 }
 
 /**
- * Send a ticket's blank rows as 1-byte ESC GS S blocks instead of 72 zero
- * bytes each (lib/ticket/starprnt.ts, compactRasterBlocks). About 25% fewer
- * bytes for the printer to download, the same paper. OFF by default: Star
- * documents the command's 1..128 byte range but not this firmware's handling
- * of a 1-byte block, so confirm on ONE live ticket (it prints, same length,
- * no gaps) before leaving it on. Turning it off again needs only this var.
- */
-/**
  * HOW THE PRINTER DOWNLOADS A TICKET BODY (docs/print-latency.md, the B-053
  * tests). The poll and the DELETE are always https; this is the job body only.
  *
@@ -570,31 +562,17 @@ export function printJobBodyScheme(): "http" | "https" {
 }
 
 /**
- * SERVE THE JOB BODY FROM THE POLL'S OWN HOST (docs/print-latency.md, the
- * B-053 test). The printer is silent for ~16 s after jobReady whatever the
- * job's size, so the suspect is connection setup to the second host
- * (print-jobs.…). With this on, the poll advertises its own GET as
- * jobGetUrl and that GET answers with the finished R2 object's bytes: no
- * redirect, a fixed Content-Length, no render.
- *
- *   unset / "off"     the printer fetches R2 directly (the proven path)
- *   "1" / "https"     same host, https, the same scheme as the poll
- *   "http"            same host, plain http (job bodies only; the poll stays https)
- *
- * Not the 520 path: that one rendered on the fly and left through OpenNext's
- * re-streamed, chunked response. This serves an already-finished object, and
- * custom-worker.ts re-sends it at a fixed length outside that layer.
+ * Send a ticket's blank rows as 1-byte ESC GS S blocks instead of 72 zero
+ * bytes each (lib/ticket/starprnt.ts, compactRasterBlocks). About 25% fewer
+ * bytes, the same paper. ON by default since 2026-11-27: the store TSP143IV
+ * printed B-053 and B-054 this way, line for line the same as the full-width
+ * encoding (docs/print-latency.md). Set PRINT_COMPACT_BLANK_ROWS=0 (or off,
+ * false) to send full-width rows again.
  */
-export function printFetchProxy(): "off" | "https" | "http" {
-  const raw = env("PRINT_FETCH_PROXY");
-  if (raw === null || raw === "off" || raw === "0" || raw === "false") return "off";
-  return raw === "http" ? "http" : "https";
-}
-
 export function printCompactBlankRows(): boolean {
   const raw = env("PRINT_COMPACT_BLANK_ROWS");
-  if (raw === null) return false;
-  return raw === "true" || raw === "1" || raw === "on";
+  if (raw === null) return true;
+  return !(raw === "0" || raw === "off" || raw === "false");
 }
 
 export function verifiedPhoneTtlDays(): number {
