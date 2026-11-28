@@ -283,8 +283,9 @@ rather than a seek to the end of it.
    printer.
 5. **Printer B (store).** Requires migrations 011 and 012. Apply 011, then
    012, then deploy once; both are safe under the code already running, which
-   `npm run verify:station-migrations` proves by running main's own code
-   against them. 012 adds a new `printer_station_status` table and leaves
+   `verify:station-migrations` proved by running the pre-station code against
+   them (retired 2026-11-27 once 011-016 were in `schema.sql`; see
+   `docs/migration-baseline/README.md`). 012 adds a new `printer_station_status` table and leaves
    `printer_status` alone, so a rollback needs no schema change. Point the second TSP143IVUE at the same URL with the same settings,
    read its MAC off its self-test print, and set `CLOUDPRNT_PRINTER_MAC_STORE`.
    From then on phone and walk-in tickets print on it and web tickets

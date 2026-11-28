@@ -51,7 +51,6 @@
     "verify:claim-no-skip": "tsx --conditions=react-server scripts/verify-claim-no-skip.ts",
     "verify:stations": "tsx --conditions=react-server scripts/verify-stations.ts",
     "verify:printer-mac": "tsx --conditions=react-server scripts/verify-printer-mac.ts",
-    "verify:station-migrations": "tsx --conditions=react-server scripts/verify-station-migrations.ts",
     "verify:board-poll": "tsx --conditions=react-server scripts/verify-board-poll.ts",
     "verify:test-mode-route": "tsx --conditions=react-server scripts/verify-test-mode-route.ts",
     "verify:starprnt-compact": "tsx --conditions=react-server scripts/verify-starprnt-compact.ts",
