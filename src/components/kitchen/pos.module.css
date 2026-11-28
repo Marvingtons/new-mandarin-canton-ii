@@ -818,12 +818,26 @@ button.print {
   width: 100%;
   font-size: var(--text-staff-title);
   justify-content: space-between;
-  padding: 0 calc(var(--spacing) * 6);
+  gap: calc(var(--spacing) * 2);
+  padding: 0 calc(var(--spacing) * 4);
+  /* A big order beside 加飯 in a 1024 or 1366 landscape ticket column has
+     less room than "列印 Print $152.03" on one line: 列印 then wraps over
+     Print rather than pushing the button out of the column. The total never
+     wraps. */
+  white-space: normal;
+  text-align: left;
+  line-height: 1.1;
+}
+button.print .num {
+  white-space: nowrap;
 }
 button.print .zh {
   font-size: var(--text-staff-heading);
 }
 button.print:disabled {
+  /* 中文 over its English, both centred. */
+  flex-direction: column;
+  gap: 0;
   justify-content: center;
   font-size: var(--text-staff-body);
   white-space: normal;
@@ -831,6 +845,8 @@ button.print:disabled {
 }
 button.print:disabled .zh {
   font-size: var(--text-staff-body);
+  /* 加菜才能列印 is one phrase: the English beside it wraps instead. */
+  white-space: nowrap;
 }
 
 /* ---- the ticket in portrait: a bar, and a sheet over the dishes --------
