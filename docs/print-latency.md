@@ -402,13 +402,26 @@ first poll used it:
 still spends ~22 s between being handed the ticket and confirming it. That hop
 is the download plus printing, and only fix 2 (bytes) and fix 4 (WiFi) act on it.
 
-**One thing to watch:** the POS order request now reports 411 ms of CPU, up
-from 24 ms. The render moved there, and on a cold isolate it costs more than
-the 9 to 48 ms measured locally. Wall time includes the `waitUntil` work, so
-this tail cannot show whether staff waited longer for the POS to answer. A
-board read in the same second also took 638 ms. One sample is not enough to
-call it; if the POS feels slower after Print, this is the first suspect, and
-reverting `3881e1d` undoes it.
+**Does the pre-render slow the POS down? No.** In production the order
+request reports 411 ms of CPU, up from 24 ms, but its wall and CPU times
+include the `waitUntil` work, so the tail cannot say what staff waited for. Tested
+locally instead, on the same build under workerd (`wrangler dev --local`, local
+R2 and Postgres, nothing printed), with 12 or more POS orders each way:
+
+| POS order request, client-measured | p50 | range |
+|---|---:|---:|
+| pre-render on | 25 ms | 20 to 29 ms |
+| pre-render off | 24 ms | 19 to 30 ms (first request 170 ms, cold) |
+
+The pre-render ran after each response, in 10 to 14 ms warm and 54 ms on the
+isolate's first ticket, and the next local printer poll took the staged copy.
+The 411 ms in production is the render's cold start (fonts and the
+rasterizer) landing on the order's request instead of the printer's poll; the
+POS has its answer before it starts.
+
+**Still untested: `PRINT_COMPACT_BLANK_ROWS` on the real printer.** Every
+software check passes, but only the TSP143IV can say whether it accepts a
+1-byte `ESC GS S` block. It stays off until someone can watch one ticket print.
 
 Per-station before/after tables need dozens of tickets: re-run
 `npm run measure:print-latency` after a full service.
