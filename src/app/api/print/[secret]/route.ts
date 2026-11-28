@@ -2,6 +2,7 @@ import {
   lateConfirmationGraceSeconds,
   printConfirmFloorSeconds,
   printFetchViaWorker,
+  printCompactBlankRows,
   printOfferCap,
   printRenderCap,
   printSecondsPerCopy,
@@ -977,7 +978,13 @@ export async function GET(
         change: body.change,
         revision: body.revision,
       },
-      { format, maxHeight: ceiling, segment },
+      {
+        format,
+        maxHeight: ceiling,
+        segment,
+        // Same bytes as the R2 path, so the fallback and R2 never disagree.
+        compactBlankRows: format === "starprnt" && printCompactBlankRows(),
+      },
     );
 
     {

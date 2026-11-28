@@ -536,6 +536,20 @@ export function printFetchViaWorker(): boolean {
   return raw === "true" || raw === "1" || raw === "on";
 }
 
+/**
+ * Send a ticket's blank rows as 1-byte ESC GS S blocks instead of 72 zero
+ * bytes each (lib/ticket/starprnt.ts, compactRasterBlocks). About 25% fewer
+ * bytes for the printer to download, the same paper. OFF by default: Star
+ * documents the command's 1..128 byte range but not this firmware's handling
+ * of a 1-byte block, so confirm on ONE live ticket (it prints, same length,
+ * no gaps) before leaving it on. Turning it off again needs only this var.
+ */
+export function printCompactBlankRows(): boolean {
+  const raw = env("PRINT_COMPACT_BLANK_ROWS");
+  if (raw === null) return false;
+  return raw === "true" || raw === "1" || raw === "on";
+}
+
 export function verifiedPhoneTtlDays(): number {
   const days = intEnv("VERIFIED_PHONE_TTL_DAYS", 90);
   return Number.isFinite(days) && days > 0 ? days : 0;

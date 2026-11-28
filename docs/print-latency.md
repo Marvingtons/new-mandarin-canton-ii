@@ -244,3 +244,46 @@ To measure: apply `018_print_prerender.sql`, deploy, then compare a
 `wrangler tail` of hand-over polls (`pre-rendered` in the log line) against the
 489 ms above, and re-run `npm run measure:print-latency` once a few dozen
 orders have printed. Until then there is no after-number for this fix.
+
+## Step 2, fix 2: render cost and bytes (flag off until one live ticket)
+
+**Render cost.** After fix 1 the render no longer sits on the hand-over
+(9 to 48 ms, now inside `waitUntil`), so a render cache would save nothing on
+hop b+c. Not built.
+
+**Bytes.** About a quarter of every ticket's raster rows are blank, and each
+went over the wire as 72 zero bytes. With `PRINT_COMPACT_BLANK_ROWS=1`, every
+run of blank rows becomes its own `ESC GS S` block 1 byte wide: the same
+command, the same one dot line per row, and no ink, so where the printer places
+a narrow block cannot matter. Ink rows are untouched.
+
+| Fixture (2 copies) | Full width | Compact | Less |
+|---|---:|---:|---:|
+| two rices (side + entrée) | 100,079 | 68,677 | 31% |
+| typical (A-001 shape) | 136,673 | 99,238 | 27% |
+| mixed sizes | 186,659 | 139,498 | 25% |
+| baseline sample | 199,619 | 157,961 | 21% |
+| 12-line party tray | 303,497 | 233,178 | 23% |
+| full-menu breadth | 412,271 | 311,643 | 24% |
+| all fixtures, 2 and 3 copies | 4,196,414 | 3,139,513 | **25.2%** |
+
+`npm run verify:starprnt-compact` (45 checks) decodes both encodings of every
+piece back to pixels and requires them identical, with the same pieces, the
+same cuts and the same segment plan. The full-width size model stays an upper
+bound, so no order splits differently.
+
+Expected effect, if the download really is byte-bound at the ~12 KB/s measured
+above: a 110 KB ticket loses about 28 KB, so **≈2 s** off hop b+c. That is an
+estimate until it is measured.
+
+**Why it is off by default.** Star's Rev. 4.01 gives `ESC GS S` a 1 to 128
+byte range, but nothing confirms this firmware's handling of a 1-byte block,
+and the Star manual PDF is encrypted, so the placement and feed text could not
+be quoted here. Turn it on, print ONE ticket, and check it against a ticket
+printed with it off: same length, no gaps, no blank-row stripes.
+
+**Not done, and bigger: right-trimming ink rows.** Giving each text line its
+own block, only as wide as its rightmost ink, would make tickets about 45%
+smaller than today. It depends on a narrower raster printing at the left
+margin, which this repo has no citation for. It needs that page of the manual,
+or a bench test, before it is built.

@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { ticketCopies, ticketCopyRoles } from "@/config/tenant.server";
+import { printCompactBlankRows, ticketCopies, ticketCopyRoles } from "@/config/tenant.server";
 import { payloadHash } from "@/lib/print/cloudprnt";
 import {
   deletePrintJob,
@@ -99,6 +99,8 @@ function renderArgs(timezone: string, body: PrintBody, segment: number) {
       // exactly as it applied to the Worker response.
       maxHeight: maxStarPrntRows(TICKET_WIDTH_PX),
       segment,
+      // Changes the bytes, so it is part of the fingerprint like the rest.
+      compactBlankRows: printCompactBlankRows(),
     },
   };
 }
