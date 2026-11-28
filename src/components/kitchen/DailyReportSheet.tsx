@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STATIONS, type Station } from "@/config/stations";
 import { formatCents } from "@/lib/money";
-import type { DailyReport, ReportBlocks } from "@/lib/reports/dailyModel";
+import type { DailyReport } from "@/lib/reports/dailyModel";
 import type { PrinterHealth } from "@/lib/print/printerStatus";
 import Icon from "@/components/kitchen/Icon";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
@@ -16,15 +16,12 @@ import ui from "@/components/kitchen/ui/ui.module.css";
 /**
  * 日結 DAY REPORT print sheet, opened from History.
  *
- * Date (◀ ▶ a day at a time, never past today), the printer, the three
- * optional blocks, and a live preview drawn by the SAME renderer as the paper
+ * Date (◀ ▶ a day at a time, never past today), the printer, and a live
+ * preview drawn by the SAME renderer as the paper
  * (GET /api/kitchen/reports/daily/preview), so what is on the tablet is what
  * prints. Print is disabled, with the reason, while that printer is out of
  * paper, open or offline. See docs/daily-report.md.
  */
-
-type BlockKey = keyof ReportBlocks;
-const BLOCK_KEYS: BlockKey[] = ["trays", "top", "hours"];
 
 interface SheetData {
   ok: true;
@@ -64,7 +61,6 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
   // before 4am). What is SHOWN is data.date, the day the server answered.
   const [requested, setRequested] = useState<string | null>(null);
   const [station, setStation] = useState<Station>("store");
-  const [blocks, setBlocks] = useState<ReportBlocks>({ trays: true, top: true, hours: true });
   const [data, setData] = useState<SheetData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -111,7 +107,6 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
     ? `/api/kitchen/reports/daily/preview?${new URLSearchParams({
         date: data.date,
         station,
-        blocks: BLOCK_KEYS.filter((k) => blocks[k]).join(","),
         sequence: String(data.nextSequence),
         v: data.report.code,
       }).toString()}`
@@ -139,7 +134,6 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({
           date: data.date,
           station,
-          blocks,
           sequence: data.nextSequence,
           requestKey: pressKey.current,
         }),
@@ -216,24 +210,6 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
                 ),
               }))}
             />
-          </fieldset>
-
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-2 text-staff-body font-semibold">{t("report.blocks")}</legend>
-            <div className="flex flex-wrap gap-2">
-              {BLOCK_KEYS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  aria-pressed={blocks[k]}
-                  onClick={() => setBlocks((b) => ({ ...b, [k]: !b[k] }))}
-                  className={ui.chip}
-                >
-                  {t(`report.block.${k}`)}
-                </button>
-              ))}
-            </div>
-            <p className="text-staff-caption text-staff-soft">{t("report.always")}</p>
           </fieldset>
 
           {data && data.prints.length > 0 && (

@@ -329,7 +329,6 @@ async function reportNeverRecurs(
     tenantId: TENANT,
     businessDate,
     station: "store",
-    blocks: deps.model.DEFAULT_BLOCKS,
     report: deps.model.summarizeDay([], {
       tenantId: TENANT,
       businessDate,

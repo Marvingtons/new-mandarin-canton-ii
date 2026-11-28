@@ -1,19 +1,30 @@
 # 日結 Daily Report
 
 A printed end-of-day ORDERS report on the 80mm ticket printer: one receipt,
-with Online, Store and All columns.
+in type the owner can read at arm's length without glasses.
 
-Status: **built.** History → 日結 Day report opens the print sheet; the
-numbers come from one SQL aggregate, the paper from the ticket renderer, and
-the print goes through the ticket pipeline as its own `report` kind, offered
-once and never retried. Design reviewed and approved on 2026-11-23 with the
-three recommendations below taken as decided. The four PNGs below are
-`npm run report:sample`, rendered through the real ticket renderer.
+Status: **built, v2 (2026-11-27).** History → 日結 Day report opens the print
+sheet; the numbers come from one SQL aggregate, the paper from the ticket
+renderer, and the print goes through the ticket pipeline as its own `report`
+kind, offered once and never retried. v1 (2026-11-23) set every row at the
+ticket's 22px money size with Online / Store / All money columns; v2 is the
+same data, query, sheet and print path with **bigger type and fewer blocks**:
+nothing smaller than the kitchen ticket's 中文 dish name, at most three
+columns, and NOT INCLUDED, BY HOUR, Family dinners and the optional-block
+toggles gone. The four PNGs below are `npm run report:sample`, rendered
+through the real ticket renderer.
 
 | Normal Saturday | Slow Monday | 3 cancellations | Empty day |
 | --- | --- | --- | --- |
 | ![](daily-report/1-saturday.png) | ![](daily-report/2-slow-monday.png) | ![](daily-report/3-cancellations.png) | ![](daily-report/4-empty-day.png) |
-| 115 counted, 1 unprinted, 218 mm | 12 counted, no trays, 193 mm | 48 counted, 3 cancelled, 1 failed print, printed next morning on the Online printer, 207 mm | 0 orders, looked up a week later, 141 mm |
+| 115 counted, 182 mm (v1 218) | 12 counted, no trays, 176 mm (v1 193) | 48 counted, Top 5 merges 陳皮雞 8+7 and 蒙古牛肉 8+5, 182 mm (v1 207) | 0 orders, 146 mm (v1 141) |
+
+**Paper length.** The v2 brief asked for about half the v1 length. At this
+type size that is not reachable with what the report keeps: about 18 body
+lines, four titles, the band and the TOTAL figure come to roughly 180 mm
+however tightly they are set. Halving the length would need body type near
+v1's 22-24px. The paper is 12-15% shorter on a real day; the empty day is
+slightly longer, as every block now prints at the larger size.
 
 ## What it is, and is not
 
@@ -21,8 +32,8 @@ The owner prints a card terminal batch report today (tenders, VISA/MC, tips).
 This system never takes payment: online orders pay at pickup, and the POS
 prints tickets. So this is an **orders** report, made to lie next to the card
 batch and the cash drawer so the three can be checked against each other. The
-footer says so in words: *Orders taken, not payments. Match All 合計 against the
-card batch + cash drawer.*
+footer says so in one line: *對數：合計 vs 刷卡機 + 現金 / Match TOTAL against
+card batch + cash.*
 
 It has no tenders, no tips, no card totals and no cash count. It cannot say
 whether an order was paid, only that it was taken and reached the kitchen.
@@ -31,7 +42,8 @@ whether an order was paid, only that it was taken and reached the kitchen.
 
 | File | What it is |
 | --- | --- |
-| `src/lib/reports/dailyModel.ts` | Pure. The `DailyReport` shape, every counting rule, the reference aggregation `summarizeDay`, the formatters and `reportProblems` (the invariants). No database, no clock, no `server-only`. |
+| `src/lib/reports/dailyModel.ts` | Pure. The `DailyReport` shape, every counting rule, the reference aggregation `summarizeDay`, `topDishes` (the printed TOP 5, merged by dish), the formatters and `reportProblems` (the invariants). No database, no clock, no `server-only`. |
+| `src/lib/menu/dishKey.ts` | Pure. `dishKey(item)`: an item's canonical dish, by its 中文 name, so the Specials copy and the numbered copy of a dish are one. |
 | `src/lib/ticket/report.ts` | `composeReportSvg` / `renderReportPng`: `DailyReport` to 80mm PNG on the ticket's own canvas, metrics, font and rasterizer. |
 | `src/lib/ticket/glyphs.ts` | `REPORT_LABELS`: every 中文 string the report prints, fed into the subset. |
 | `src/lib/ticket/layout.ts` | One new primitive, `graphic()`, used for the seal. No ticket calls it. |
@@ -39,7 +51,7 @@ whether an order was paid, only that it was taken and reached the kitchen.
 | `scripts/report-sample.ts` | `npm run report:sample`. Renders the PNGs to `docs/daily-report/` and fails on any broken invariant, overflowing line or missing glyph. |
 | `src/lib/reports/daily.ts` | Server-only. `readDailyReport`: the day in ONE SQL statement (see "How it is built"). |
 | `src/lib/reports/prints.ts` | Server-only. The `report_prints` queue: request (idempotent), claim once, settle, confirm. |
-| `src/lib/reports/sheet.ts` | Server-only. The print sheet's guard, date and block parsing, and its JSON. |
+| `src/lib/reports/sheet.ts` | Server-only. The print sheet's guard, date parsing, print body and its JSON. |
 | `src/app/api/kitchen/reports/daily/**` | The three staff routes: JSON, preview PNG, print. |
 | `src/app/api/print/[secret]/route.ts` | The CloudPRNT route, now also offering, serving and confirming report prints. |
 | `src/components/kitchen/DailyReportSheet.tsx` | The sheet, opened from `OrderHistory.tsx`. |
@@ -47,13 +59,11 @@ whether an order was paid, only that it was taken and reached the kitchen.
 | `scripts/verify-daily-report.ts` | `npm run verify:daily-report`. |
 | `tests/e2e/kitchen-daily-report.spec.ts` | The sheet in a browser, kitchen-tablet and kitchen-ipad. `scripts/report-preview.ts` draws its preview for the spec. |
 
-The subset font was rebuilt (`npm run build:ticket-font`) to add the 14 glyphs
-the report needs: 日結堂食額價未入消列熱賣段無. Every one of the 18
-`ticket:sample` PNGs is byte-identical before and after, and
-`verify:ticket-glyphs` passes. The rebuild also dropped 廚房收銀, the retired
-KITCHEN / REGISTER copy-bar labels, which no code prints any more (they appear
-only in comments in render.ts and copies.ts); the subset now matches glyphs.ts
-exactly.
+The subset font was rebuilt (`npm run build:ticket-font`) for v1 to add the 14
+glyphs the report needed, and again for v2: it adds 對數刷卡機現 and the
+full-width colon ： for the reconcile line, and drops 入列堂未段消食, which only
+the removed labels (未計入, 未列印, 取消, 時段, 堂食) used. `verify:ticket-glyphs`
+now walks the report's own fixed lines too and passes.
 
 ## Data definitions
 
@@ -90,12 +100,16 @@ From `ORDER_CHANNELS` (`src/lib/orders/types.ts`) and `CHANNEL_STATION`
 
 | Channel | Station | Report row |
 | --- | --- | --- |
-| `web` | online | Online 網上 |
-| `phone` | store | Phone 電話 |
-| `walk_in` | store | Walk-in 自取 |
-| `dine_in` (retired 2026-11-14) | store | Dine-in 堂食, **only on a day that has one** |
+| `web` | online | 網上 Online |
+| `phone` | store | 店內 Store |
+| `walk_in` | store | 店內 Store |
+| `dine_in` (retired 2026-11-14) | store | 店內 Store |
 
-Store = phone + walk_in + dine_in. Online + Store = All on every row.
+The paper has **two tills, not three channels**: the owner reconciles the
+online orders and the counter, so phone and walk-in (and dine-in on a day
+before 2026-11-14) print as one 店內 Store line, which is the `store` station
+column. Online + Store = All on every row. The per-channel buckets are still
+in the data (`report.channels`) and in the sheet's JSON.
 
 ### Which orders count
 
@@ -104,8 +118,12 @@ Store = phone + walk_in + dine_in. Online + Store = All on every row.
 | Status | Where it goes |
 | --- | --- |
 | `PRINTED`, `ACCEPTED`, `COMPLETED` | **Counted.** It reached the kitchen (printer confirmed, kitchen took it, or it was handed over). |
-| `QUEUED`, `PRINT_FAILED` | **Not included: Unprinted 未列印.** Not on paper at print time; the kitchen may still be cooking it. An order that failed to print and was then taken by the kitchen (接單) is `ACCEPTED` and counts. |
-| `CANCELLED` | **Not included: Cancelled 取消**, with its would-be stored total. |
+| `QUEUED`, `PRINT_FAILED` | **Not counted (unprinted).** Not on paper at print time; the kitchen may still be cooking it. An order that failed to print and was then taken by the kitchen (接單) is `ACCEPTED` and counts. |
+| `CANCELLED` | **Not counted (cancelled).** |
+
+Both are still summed into the data (`report.cancelled`, `report.unprinted`,
+with their would-be stored totals) and are part of the code; since v2 the
+paper does not print them (the NOT INCLUDED block is gone).
 
 Status is read at the moment the report is built, so an order still `QUEUED`
 at 9:02pm moves into the counted rows on a reprint at 9:10pm. The print number
@@ -130,7 +148,7 @@ How `totals` stores a custom charge (`src/lib/kitchen/customCharge.ts`):
   whose price is already inside the line's `unitCents`, so `priceCents ×
   quantity` of it is in the line total and in the stored subtotal.
 
-So, per order:
+So, per order (the paper prints these for All only):
 
     Charges 加價 = Σ custom lineCents + Σ surcharge priceCents × quantity
     Subtotal 小計 = stored subtotalCents − Charges
@@ -139,9 +157,9 @@ So, per order:
 
 Charges are lifted **out of** the subtotal, never added on top, so nothing is
 counted twice and Subtotal + Charges + Tax = Total on every column, to the
-cent. Tip is dormant (every writer stores 0); a Tip 小費 row prints only if a
-day ever has one, so the column still adds up. Online orders cannot carry a
-charge (the web checkout has no price field), so Online Charges is always 0.00.
+cent. 加價 Charges prints only when it is not zero. Tip is dormant (every
+writer stores 0); a 小費 Tip row prints only if a day ever has one, so the
+column still adds up.
 
 ### Trays 餐盤
 
@@ -151,37 +169,53 @@ Quantities, not lines, on counted orders only.
 - **Party tray 餐盤**: lines with any other `TRAY_SIZE_IDS` size (today only
   `party-tray`; a capacity added later counts here until it gets a row).
 - **Family dinners 家庭餐**: lines whose item id is in the `family-dinners` or
-  `big-family-dinner` combo categories. Lines store no category, so the id
-  set is read from `comboCategories()` (`familyDinnerItemIds()`); a new set is
-  counted the day it is added. Phase 2 passes the list to SQL as a parameter.
+  `big-family-dinner` combo categories (`familyDinnerItemIds()`, passed to
+  SQL as a parameter). Still counted in the data; **not printed** since v2.
 
-### Top 10 熱賣
+The paper prints one footer line, `餐盤 Trays: 半盤 5 · 餐盤 4`, and leaves it
+out when both are zero.
 
-Counted orders, grouped by item id with sizes merged, sorted by quantity, then
-sales, then item id (so a tie never reorders between prints). Sales is the sum
-of line totals **excluding surcharges**, which are Charges. Custom lines are
-not dishes and are left out. Name is 中文 then English, from the order lines
-themselves.
+### 熱賣 TOP 5
 
-Edge: the two lunch-special ids both print as 午市套餐 Lunch Special. They are
-different items with different prices, so they stay two rows.
+The data (`report.top`) is unchanged: the top 10 **catalogue items**, grouped
+by item id with sizes merged, sorted by quantity, then sales, then item id.
+Sales excludes surcharges (they are Charges); custom lines are left out.
+
+The paper prints `topDishes(report)`: those items **merged by dish**, then the
+first five. A dish is its 中文 name (`dishKey` in `src/lib/menu/dishKey.ts`),
+so the Specials copy and the numbered copy of the same dish are one line:
+
+| Dish | Catalogue ids |
+| --- | --- |
+| 陳皮雞 | `orange-flavored-chicken-special`, `orange-flavored-chicken` |
+| 椒鹽雞翼 | `salted-pepper-chicken-wings-special`, `salted-pepper-chicken-wings` |
+| 蒙古牛肉 | `mongolian-beef-special`, `mongolian-beef` |
+| 椒鹽鮮魷 | `salted-pepper-squid-special`, `salted-pepper-squid` |
+| 午市套餐 | `combo-lunch-15-75`, `combo-lunch-16-25` |
+| 大家庭套餐 | `combo-big-family-128`, `combo-big-family-178` |
+
+The last two are different products at different prices that share a 中文
+name; with English gone from the line they would print identically, so they
+merge too. Merged dishes sort by quantity, then sales, then key. Each line is
+the 中文 name and the quantity: no English, no sales column. A dish with no
+中文 name prints its English.
+
+**Known limit.** The merge reads the stored top 10 items, so a dish whose two
+copies **both** rank below 10th is not seen, even if together they would make
+the top 5. Grouping by dish in the SQL aggregate and `summarizeDay` would close
+it; v2 kept the data and query as they were.
 
 ### By hour 時段
 
-Counted orders by the restaurant-local hour of `created_at`, one row per hour
-that has at least one; closed or empty hours are left out. Counts and totals
-sum to All exactly (add-ons add money and no count, as above).
+Still in the data (`report.hours`, and `reportProblems` checks it sums to
+All); **not printed** since v2.
 
 ### Header window
 
-`Sat 21 Nov 2026 · 11:00a – 9:01p` is the first to the last order created that
-day, **any status**, cancelled included (it is when the shop was taking orders).
-An empty day prints `no orders`.
-
-**Decided.** The spec's "or print time if later" would always print the print
-time on today's report, which its own mock does not do (9:01p in the window,
-9:02p printed). The mock stands: the window is first to last order, and the
-print time has its own line.
+`11:00a – 9:01p` is the first to the last order created that day, **any
+status**, cancelled included (it is when the shop was taking orders). An empty
+day prints `無訂單 No orders`. The print time, station and address lines are
+gone since v2; the #N rides the window line.
 
 ### Print sequence and code
 
@@ -193,101 +227,107 @@ base32, no I L O U) of **every number on the report**, not of the print. So:
 - a later print with a different code means orders changed in between (a late
   order printed, one was cancelled), and the higher # is the one to keep.
 
-Nothing else on the paper calls out a change, as the spec asks.
+Nothing else on the paper calls out a change, as the spec asks. The #N prints
+in the header (`11:00a – 9:01p · #3`) and the code on the last line
+(`2026-11-21 · BJ6AVYDQ`).
 
 ## Layout
 
 80mm (576px at 203dpi), 20px padding, 536px content: the ticket's own paper,
-canvas, subset font, and black-on-white thermal rules (nothing under 3px). The
-type scale is the ticket's money block:
+canvas, subset font, and black-on-white thermal rules (nothing under 3px).
 
-| Size | Use | Same as on the ticket |
-| --- | --- | --- |
-| 30 bold | Restaurant name; the 日結 DAILY REPORT bar (inverted) | 到店付款 COLLECT PAYMENT bar |
-| 24 bold | Date line; section titles | 電話 / 取餐時間 labels |
-| 22 regular | Every row | 小計 SUBTOTAL / 稅金 TAX rows |
-| 22 bold | All 合計, Total 合計, and Unprinted when it is not 0 | |
-| 21 regular | Address, printed line, column heads (bold), footer small print | 落單 PLACED line |
+### Type
 
-Rules: 5px under the header and above the footer, 3px between sections and
-above All, matching the ticket's 5px / 3px.
+The floor is the kitchen ticket's 中文 dish name (`NAME_ZH_SIZE`, 38 bold in
+render.ts). Nothing on the report is smaller.
 
-**Columns.** One right edge for every count (406px), one for every money
-figure (536px), down the whole receipt. The TOTALS block adds two more edges
-118px apart for Online and Store. Digits in this font have equal advances at
-each weight (12.21px regular, 12.98px bold at 22px), so right alignment lines
-the digits up as tabular figures. Money always shows cents and groups
-thousands: `$2,104.50` in count blocks, `1,935.17` (no $) in the three-column
-TOTALS block, as the spec draws it. Row labels hang 16px in from their title
-and wrap inside their own column rather than run into a number; long dish names
-in Top 10 wrap under the name, never under the rank.
+| Size | Use |
+| --- | --- |
+| 38 | The floor: the restaurant name (bold), the footer's English line and the date + code line |
+| 42 regular | Row labels, the order window, Top 5 dish names |
+| 42 bold | Every number (counts, money, quantities), the date, the All row, the trays and reconcile lines |
+| 48 bold | Section titles, the 日結 DAILY REPORT band (inverted) |
+| 104 / 96 / 88 / 84 bold | The 合計 TOTAL figure: the largest that fits the paper, never under 2x body (84). `$12,345.67` takes 96. |
 
-**Seal.** The 富源 seal is drawn from `src/lib/brand/seal.ts` (the same
-geometry the site uses) in black, 84px tall, with its frame stroke held at the
-3px thermal floor (the artwork's stroke would be under a pixel at this size).
-It needs no font glyphs.
+Body rows are set at 1.12x line height (numbers, not prose). Rules: 3px
+between sections and above the All and TOTAL rows, 5px above the footer.
 
-**Paper.** 141mm empty, about 195 to 220mm on a real day. Top 10 and By hour
-are the variable parts; By hour is at most 11 rows for an 11:00 to 9:30 day.
+### Blocks, in order
 
-Optional blocks (Trays, Top 10, By hour) default on and are toggled in the
-print sheet; ORDERS, TOTALS and NOT INCLUDED always print. An optional block
-with nothing to list prints `無 None` rather than vanishing, so an empty Top 10
-cannot be mistaken for a block switched off.
+1. **Header.** The 富源 seal (46px tall, frame held at 3px) and
+   `NEW MANDARIN CANTON II` at 38 bold on one line; the `日結 DAILY REPORT`
+   band; then `Fri 27 Nov 2026` and `12:04p – 7:43p · #1`. The brief asked for
+   date, window and # on one line; at 38px or more they need 564px of a 536px
+   line, so the date takes its own line.
+2. **訂單 ORDERS.** `網上 Online`, `店內 Store`, a rule, `合計 All` (bold),
+   each with count and total.
+3. **金額 TOTALS**, All only. `小計 Subtotal`, `加價 Charges` (only when not
+   zero), `稅 Tax`, a rule, `合計 TOTAL` and the TOTAL figure right-aligned
+   under it with its `$`.
+4. **熱賣 TOP 5.** `1. 蒙古牛肉` … quantity, merged by dish (above). `無`
+   when there is nothing.
+5. **Footer.** `餐盤 Trays: 半盤 5 · 餐盤 4` (left out when both are zero;
+   steps down to the 38 floor if two-digit counts would not fit at 42), then
+   `對數：合計 vs 刷卡機 + 現金` and `Match TOTAL against card batch + cash`,
+   then `2026-11-27 · <code>`.
+
+Nothing is optional any more, so the print sheet has no block toggles.
+
+**Columns.** At most three: label, count, total. Every count ends on one right
+edge (308px) and every money figure on another (536px), down the receipt.
+Digits are tabular at each weight, so right alignment lines them up. Table
+money drops the `$` (the column says what it is) and groups thousands
+(`6,785.90`); only the TOTAL carries `$`. Labels wrap inside their own column
+rather than run into a number.
 
 ### Language order
 
-**Decided: as the mock.** The paper is English first (`ORDERS 訂單`,
-`Online 網上`), as the spec's layout draws it, although its general rule and
-the kitchen ticket (`小計 SUBTOTAL`) are 中文 first. Flipping it is one string
-per row in report.ts. The sheet on the tablet follows the staff language
-toggle like every other kitchen screen.
+**中文 first** on every label (`訂單 ORDERS`, `網上 Online`), as on the kitchen
+ticket. v1 followed its mock's English-first order; v2 flips it. The sheet on
+the tablet follows the staff language toggle like every other kitchen screen.
 
-Also from the spec, deliberately kept: **Walk-in 自取** (the kitchen ticket
-header says 到店 for a walk-in) and **Tax 稅** (the ticket says 稅金).
+No em dashes anywhere on the paper; the window uses an en dash.
 
 ## Edge cases
 
 | Case | Behaviour |
 | --- | --- |
-| No orders at all | Every row prints 0 / $0.00, window says `no orders`, Top 10 and By hour print `無 None`. (PNG 4.) |
-| No trays | Trays prints its three rows at 0. (PNG 2.) |
-| Cancellations | Counted out of every row, listed with their would-be stored total under NOT INCLUDED. (PNG 3.) |
-| Still printing | QUEUED and PRINT_FAILED under NOT INCLUDED; the Unprinted row goes bold when it is not 0. (PNGs 1 and 3.) |
-| Printed on a later day | `Printed Fri 20 Nov 10:15a · Online printer · print #2`, no "today". (PNG 3.) |
-| Hours with no orders | Left out of By hour. (PNG 3 has no 2p or 3p.) |
-| Historical dine-in | A Dine-in 堂食 row appears on that day only, and folds into Store and All. |
+| No orders at all | Every row prints 0 / 0.00, TOTAL `$0.00`, the window says `無訂單 No orders`, TOP 5 prints `無`. (PNG 4.) |
+| No trays | The trays line is left out. |
+| Cancellations, still printing | Counted out of every row; not printed since v2 (see "Which orders count"). |
+| Specials and numbered copies of a dish | One TOP 5 line with the quantities added. (PNG 3: 陳皮雞 8+7, 蒙古牛肉 8+5.) |
+| Historical dine-in | Folds into 店內 Store and All. |
 | Add-on tickets | Money in, count 0 (see above). |
 | A dish with no 中文 | English alone, as on the ticket. |
 | A hand-written or malformed row | Missing totals read as 0, never NaN; a broken report fails `reportProblems` and must not print. |
-| Tip ever non-zero | A Tip 小費 row appears so columns still add up. |
-| Very long dish name | Wraps inside the name column; numbers stay on its first line. |
-| $10,000+ day | `$12,345.67` fits the money column at 22 bold with room. |
+| Tip ever non-zero | A 小費 Tip row appears so the column still adds up. |
+| Two-digit tray counts | The trays line drops to 38px to stay on one line. |
+| $10,000+ day | `12,345.67` fits the money column at 42 bold; the TOTAL drops from 104 to 96. |
 
 ## Reading it next to the card batch
 
 At close, lay three things side by side: this report, the card terminal's
 batch report, and the counted cash drawer.
 
-1. **Is the day finished?** NOT INCLUDED → Unprinted should be 0. If it is
-   not (bold), a ticket is still waiting for the printer or failed to print:
-   find it on the board or in History, sort it out, and print the report
-   again. The new print gets the next # and, if anything changed, a new code.
-2. **The one number to match** is **All 合計 → Total**: every order taken and
-   sent to the kitchen, tax included. Card batch total (before tips) plus the
-   cash taken should come close to it.
+1. **Is the day finished?** The paper no longer lists unprinted tickets.
+   Before printing, check the board for a ticket still waiting for the printer
+   or one that failed; sort it out first. A reprint gets the next # and, if
+   anything changed, a new code.
+2. **The one number to match** is **合計 TOTAL**: every order taken and sent
+   to the kitchen, tax included. Card batch total (before tips) plus the cash
+   taken should come close to it. That is the footer's 對數 line.
 3. **Why they differ, in the usual order:**
    - **Tips.** The batch total includes card tips; this report has none. Use
      the batch's total before tips.
    - **Not yet paid, or never paid.** An online order paid at pickup is here
      from the moment it printed. One not picked up by close is here and in
      neither the batch nor the drawer.
-   - **Cancelled after payment.** Cancelled orders are not in All; a refund on
-     the terminal is. NOT INCLUDED → Cancelled lists their would-be total.
-   - **Charges 加價** are already inside All. They are shown on their own only
-     so typed-in money (custom lines, surcharges) is visible.
-4. **Online / Store** split the same total by where the ticket printed:
-   Online = web orders, Store = phone plus walk-in. They always add up to All.
+   - **Cancelled after payment.** Cancelled orders are not in TOTAL; a refund
+     on the terminal is.
+   - **加價 Charges** are already inside TOTAL. They are shown on their own
+     only so typed-in money (custom lines, surcharges) is visible.
+4. **網上 Online / 店內 Store** split the same total by till: Online = web
+   orders, Store = phone plus walk-in. They always add up to All.
 5. **Keep the highest #.** Two prints of one day with the same code printed
    the same numbers. A higher # with a different code means orders changed
    in between; the higher one is the true one.
@@ -337,9 +377,9 @@ never re-summed. The printer's poll (src/app/api/print/[secret]/route.ts):
 
 History's header has **日結 Day report** beside Export CSV. The sheet:
 ◀ date ▶ (a day at a time, nothing past today, opening as above), the printer
-(Store by default), the three optional blocks, the day's earlier prints with
-their status, and the preview, which is the renderer's own PNG for exactly
-these choices and the next #. **Print #N** is disabled, with the reason, while
+(Store by default), the day's earlier prints with their status, and the
+preview, which is the renderer's own PNG for exactly these choices and the
+next #. The optional-block toggles are gone (v2): nothing is optional. **Print #N** is disabled, with the reason, while
 that printer is out of paper, has its cover open or is offline, or before
 migration 016. Routes (staff session only; the print POST is also host-gated
 like every route that puts paper in the kitchen):
@@ -347,8 +387,11 @@ like every route that puts paper in the kitchen):
 | Route | What |
 | --- | --- |
 | `GET /api/kitchen/reports/daily[?date=]` | The report JSON, `nextSequence`, the day's prints, printer health, `printable`. |
-| `GET /api/kitchen/reports/daily/preview?date=&station=&blocks=&sequence=` | The receipt as a 1-bit PNG, 576 px wide; `x-report-code` header. |
-| `POST /api/kitchen/reports/daily/print` | `{ date, station, blocks, sequence, requestKey }`. Same key again: the same print (`replay`). Another key for a taken or skipped #: 409 with `nextSequence`. Printer blocked: 409 with `reason`. Future day: 400. |
+| `GET /api/kitchen/reports/daily/preview?date=&station=&sequence=` | The receipt as a 1-bit PNG, 576 px wide; `x-report-code` header. |
+| `POST /api/kitchen/reports/daily/print` | `{ date, station, sequence, requestKey }`. Same key again: the same print (`replay`). Another key for a taken or skipped #: 409 with `nextSequence`. Printer blocked: 409 with `reason`. Future day: 400. A `blocks` field from a tablet still on the old page is accepted and ignored. |
+
+`report_prints.blocks` (migration 016, `not null`) is kept so no migration was
+needed: every print since v2 writes `'{}'`, and rows from before still read.
 
 ## Checks
 
@@ -357,26 +400,30 @@ like every route that puts paper in the kitchen):
 - Online + Store != All, for count and every money row;
 - the channel rows not summing to All;
 - Subtotal + Charges + Tax + Tip != stored Total, on any column;
-- By hour not summing to All, for count or money;
+- By hour not summing to All, for count or money (still in the data);
+- two TOP 5 lines sharing a name;
 - any laid-out line wider than its column or past the paper;
 - any glyph drawn as .notdef.
 
-Current output:
+It also prints each day's TOP 5 and the catalogue items it was merged from.
+The fixture days order the Specials copies of 蒙古牛肉 and 陳皮雞 so the merge
+shows on paper. Current output:
 
-    ok   1-saturday       115 orders   $6,785.90  cancelled 0  unprinted 1  1743px (218mm)  code 8E9SS51J
-    ok   2-slow-monday     12 orders     $603.73  cancelled 0  unprinted 0  1546px (193mm)  code AWD3BKXS
-    ok   3-cancellations   48 orders   $2,619.50  cancelled 3  unprinted 1  1656px (207mm)  code 1392FMD3
-    ok   4-empty-day        0 orders       $0.00  cancelled 0  unprinted 0  1126px (141mm)  code 3MM9PVVN
+    ok   1-saturday       115 orders   $6,639.70  cancelled 0  unprinted 1  1452px (182mm)  code BJ6AVYDQ
+    ok   2-slow-monday     12 orders     $577.63  cancelled 0  unprinted 0  1404px (176mm)  code N538K82P
+    ok   3-cancellations   48 orders   $2,968.37  cancelled 3  unprinted 1  1457px (182mm)  code S0TMZHTD
+    ok   4-empty-day        0 orders       $0.00  cancelled 0  unprinted 0  1168px (146mm)  code 3MM9PVVN
 
 ### Database and pipeline
 
 | Check | Count | What it proves |
 | --- | --- | --- |
-| `verify:daily-report` | 52/52 | A hand-worked day, every number: add-ons fold, cancelled and unprinted apart, charges and tax to the cent, 9:15pm stays Saturday, 12:10am is Sunday's, other tenants invisible; SQL = `summarizeDay` on the four sample days; the sheet's opening day; the three routes (auth, JSON, PNG, idempotent print, 409s, no future days). |
-| `verify:print-deliveries` | 72/72 | Scenarios 13-16: one press is one hand-over, held, fetched, confirmed, 410 after; tickets go first and none is handed out mid-report; the request is idempotent, including two presses at once; tickets still print without migration 016. |
-| `verify:print-recurrence` | 5/5 | Real clock: an unconfirmed report is handed over once and ends FAILED, at the shipped window and at the 2s window that makes a ticket print four times. |
-| `verify:station-migrations` | 016 section | 016 and its down are repeatable; a Store report prints on 011-016; tickets print after the rollback. The harness's own old-code and store-seed checks fail on `main` as well (see the PR). |
-| Playwright `kitchen-daily-report` | 12/12 (kitchen-tablet + kitchen-ipad; the full kitchen suites 63/63) | The sheet shows the seeded day's totals; the preview asks for that day and the next #; Print, pressed twice, enqueues exactly one job; Print is disabled with 缺紙 while the store printer is out of paper, and enabled again on the online printer; no sideways scroll and no target under 44 px with the sheet open at 768x1024, 1024x768, 1180x820 and 1366x1024. The spec also draws that day's preview with `scripts/report-preview.ts`, the same `renderReportPng`, and checks it is 576 px wide with the sheet's count and total. (The preview route itself could not load resvg under `next start` until `src/lib/ticket/resvg.ts` stopped using `require.resolve` for the wasm, fixed when PR #14 merged.) |
+| `verify:daily-report` | 79/79 | A hand-worked day, every number: add-ons fold, cancelled and unprinted apart, charges and tax to the cent, 9:15pm stays Saturday, 12:10am is Sunday's, other tenants invisible; SQL = `summarizeDay` on the four sample days, and no two Top lines share a nameZh on any of them; **TOP 5 by dish** (v2): every catalogue nameZh is one dish key and the four Specials pairs are one dish each, a hand-worked Monday whose ranking only comes out right merged (蒙古牛肉 3+2 first, 椒鹽雞翼 1+2 third, the sixth dish cut), and the paper itself: each dish printed once, no English dish names, no em dash, NOT INCLUDED / BY HOUR / Family dinners gone, the TOTAL the largest type and at least 84px, nothing under 38px; the sheet's opening day; the three routes (auth, JSON, PNG, idempotent print, 409s, no future days, a print stores `blocks` `'{}'`, an old tablet still sending `blocks` is accepted). |
+| `verify:print-deliveries` | 87/87 | Scenarios 13-16: one press is one hand-over, held, fetched, confirmed, 410 after; tickets go first and none is handed out mid-report; the request is idempotent, including two presses at once; tickets still print without migration 016. |
+| `verify:print-recurrence` | 6/6 | Real clock: an unconfirmed report is handed over once and ends FAILED, at the shipped window and at the 2s window that makes a ticket print four times. |
+| `verify:station-migrations` | 016 section | 016 and its down are repeatable; a Store report prints on 011-016; tickets print after the rollback. **Currently crashes before any of that** on `main` as well as on this change: its production seed inserts into `printer_status`, which `schema.sql` no longer has (`relation "printer_status" does not exist`). |
+| `verify:ticket-glyphs` | 0 missing | Walks REPORT_LABELS and the report's own fixed lines (reconcile line, block titles, dates, the code alphabet) besides every ticket string. The v2 font rebuild leaves all 18 `ticket:sample` kitchen tickets byte-identical. |
+| Playwright `kitchen-daily-report` | 12/12 (kitchen-tablet + kitchen-ipad; the full kitchen suites 91/92, below) | The sheet shows the seeded day's totals; the preview asks for that day and the next # and sends no `blocks`; the block toggles are gone; the drawn TOP 5 has at most five lines, one per dish, 中文 only; Print's body is exactly `{ date, requestKey, sequence, station }`; Print, pressed twice, enqueues exactly one job; Print is disabled with 缺紙 while the store printer is out of paper, and enabled again on the online printer; no sideways scroll and no target under 44 px with the sheet open at 768x1024, 1024x768, 1180x820 and 1366x1024. The spec also draws that day's preview with `scripts/report-preview.ts`, the same `renderReportPng`, and checks it is 576 px wide with the sheet's count and total. (The preview route itself could not load resvg under `next start` until `src/lib/ticket/resvg.ts` stopped using `require.resolve` for the wasm, fixed when PR #14 merged.) Run on its own the spec passes on both devices; in the full two-project run the iPad's Print test can meet the tablet's print of the same day in the shared database and get #3 where it read #2, as it did once in the v2 run (91 passed, 1 failed). |
 
 ## Out of scope
 

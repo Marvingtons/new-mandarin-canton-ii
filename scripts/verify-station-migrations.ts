@@ -624,7 +624,6 @@ async function main(): Promise<void> {
       tenantId: TENANT,
       businessDate: day,
       station: "store",
-      blocks: model.DEFAULT_BLOCKS,
       report: model.summarizeDay([], { tenantId: TENANT, businessDate: day, timezone: "America/Los_Angeles", familyItemIds: new Set() }),
       sequence: await prints.nextReportSequence(TENANT, day),
       requestKey: "migrations-016",

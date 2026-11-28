@@ -11,12 +11,12 @@ import { TICKET_WIDTH_PX } from "@/lib/ticket/render";
 import { encodeStarPrntCopies, maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { FRAME_D, FU_DS, VIEWBOX_FULL, YUAN_DS } from "@/lib/brand/seal";
 import { restaurant } from "@/data/restaurant";
-import { businessDateFor } from "@/lib/orders/businessDate";
 import {
   formatBusinessDate,
   formatClock,
-  formatHour,
   formatMoney,
+  topDishes,
+  TOP_DISHES,
   type Bucket,
   type DailyReport,
   type ReportPrint,
@@ -25,61 +25,59 @@ import {
 /**
  * 日結 DAILY REPORT renderer: DailyReport -> 80mm PNG.
  *
- * THE SAME PAPER, THE SAME TYPE. This is not a second ticket design: it is the
- * kitchen ticket's canvas (layout.ts), metrics (measure.ts), subset font and
- * rasterizer, on the same TSP143 roll. The type scale is the ticket's money
- * block, which is the part of the ticket this report is a column of:
+ * THE SAME PAPER, BIGGER TYPE. The kitchen ticket's canvas (layout.ts),
+ * metrics (measure.ts), subset font and rasterizer, on the same TSP143 roll.
+ * The owner reads this at arm's length without glasses, so the floor is the
+ * kitchen ticket's 中文 dish name (render.ts NAME_ZH_SIZE, 38 bold) and the
+ * body sits one step above it:
  *
- *   22 regular   every row (the ticket's 小計 SUBTOTAL / 稅金 TAX rows)
- *   22 bold      the All 合計 row
- *   24 bold      section titles (the ticket's 電話 / 取餐時間 labels)
- *   21 regular   header and footer small print (the ticket's 落單 line)
- *   30 bold      the 日結 DAILY REPORT bar (the ticket's COLLECT PAYMENT bar)
- *   rules        5px closing the header and before the footer, 3px elsewhere
+ *   42 regular   row labels (中文 first)
+ *   42 bold      every number: counts, money, quantities (tabular digits)
+ *   48 bold      section titles and the 日結 DAILY REPORT band
+ *   38           the floor: the restaurant name, the footer's English and code
+ *   >= 84 bold   the 合計 TOTAL figure, the largest number on the paper
  *
- * COLUMN DISCIPLINE. Every count sits on one right edge and every money figure
- * on another, down the whole receipt, so the eye reads a column rather than
- * hunting each number. The TOTALS block's three columns are the only other
- * edges. Digits in this font are tabular (equal advance at each weight), so
- * right alignment lines the digits up too. Money always shows its cents.
+ * THREE COLUMNS AT MOST. At this size a row holds a label, a count and a
+ * total, no more: every count ends on COUNT_RIGHT and every money figure on
+ * MONEY_RIGHT, down the whole receipt. Table money drops the "$" (it is the
+ * column); only the TOTAL carries it.
  *
- * Black on white only, nothing under MIN_RULE_PX, exactly as render.ts.
+ * No em dashes. Black on white only, nothing under MIN_RULE_PX, exactly as
+ * render.ts. See docs/daily-report.md for the block-by-block reasoning.
  */
 
 const PAD = 20;
 const CONTENT_WIDTH = TICKET_WIDTH_PX - 2 * PAD;
 
-/** Rows hang this far in from their section title. */
-const INDENT = 16;
+/** Type scale. FLOOR is the kitchen ticket's 中文 dish name. */
+const FLOOR = 38;
+const BODY = 42;
+const TITLE = 48;
+/** The TOTAL figure: the first of these that fits the paper, never under 2x BODY. */
+const TOTAL_SIZES = [104, 96, 88, 2 * BODY];
 
-/** Right edges. One for counts, one for money, for every block that has them. */
-const COUNT_RIGHT = 406;
+/** Body rows sit a little tighter than the 1.2 default: numbers, not prose. */
+const ROW_LH = 1.12;
+
+/** Right edges. One for counts, one for money. */
 const MONEY_RIGHT = CONTENT_WIDTH;
-/** The TOTALS block: Online, Store, All. 118px apart holds "12,345.67" bold with air. */
-const COL_STEP = 118;
-const TOTALS_RIGHTS = [MONEY_RIGHT - 2 * COL_STEP, MONEY_RIGHT - COL_STEP, MONEY_RIGHT];
+/**
+ * The widest table figure a day can print is "12,345.67" (42 bold, ~201px);
+ * the count column ends a gap short of it.
+ */
+const MONEY_COL = 206;
+const COUNT_RIGHT = MONEY_RIGHT - MONEY_COL - 22;
 /** A cell's own width, for right alignment inside it. */
-const CELL = 112;
-/** Labels stop this far short of the first number column. */
-const LABEL_GAP = 10;
+const CELL = 230;
+/** Labels stop this far short of the first number's ink. */
+const LABEL_GAP = 12;
 
-const ROW = 22;
-const TITLE = 24;
-const SMALL = 21;
-const BAR = 30;
-
-/** The seal beside the name: height of the two header lines, frame stroke held at the thermal floor. */
-const SEAL_HEIGHT = 84;
+/** The seal beside the name: as tall as the name line, so both fit one line at the floor size. */
+const SEAL_HEIGHT = 46;
 
 export interface ComposeReportOptions extends ReportPrint {
   /** Defaults to the restaurant's. */
   timezone?: string;
-}
-
-/** "(619) 656-6888" -> "619 656 6888", the way the spec's header sets it. */
-function phoneDigits(phone: string): string {
-  const d = phone.replace(/\D/g, "");
-  return d.length === 10 ? `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}` : phone;
 }
 
 /** The 富源 seal, in black, scaled to `height`. Returns [markup, width]. */
@@ -114,15 +112,17 @@ export async function composeReportSvg(
 
   /* ------------------------------------------------------------ helpers -- */
 
-  /** Right-align `text` so it ends at `right`, on a row starting at `top`. */
-  const cell = (text: string, right: number, top: number, weight: 400 | 700, size = ROW) => {
-    c.place(right - CELL, top, CELL, (v) => v.text(text, { size, weight, align: "right" }));
+  /** Right-align bold `text` so it ends at `right`, on a row starting at `top`. */
+  const cell = (text: string, right: number, top: number) => {
+    c.place(right - CELL, top, CELL, (v) =>
+      v.text(text, { size: BODY, weight: 700, lineHeight: ROW_LH, align: "right" }),
+    );
   };
 
   /**
-   * One table row: a label, then right-aligned cells. The label may run up to
-   * LABEL_GAP short of the leftmost number's ink, and wraps inside that if it
-   * must; the cells ride its first line.
+   * One table row: a label, then right-aligned bold numbers. The label may
+   * run up to LABEL_GAP short of the leftmost number's ink, and wraps inside
+   * that if it must; the numbers ride its first line.
    */
   const row = (
     label: string,
@@ -130,178 +130,125 @@ export async function composeReportSvg(
     opts: { weight?: 400 | 700; marginTop?: number } = {},
   ) => {
     const weight = opts.weight ?? 400;
-    const marginTop = opts.marginTop ?? 2;
+    const marginTop = opts.marginTop ?? 0;
     const inkLeft = cells.length
-      ? Math.min(...cells.map((x) => x.right - metrics.measure(x.text, ROW, weight)))
-      : CONTENT_WIDTH;
+      ? Math.min(...cells.map((x) => x.right - metrics.measure(x.text, BODY, 700)))
+      : CONTENT_WIDTH + LABEL_GAP;
     const top = c.height + marginTop;
-    c.text(label, { size: ROW, weight, x: INDENT, maxWidth: inkLeft - INDENT - LABEL_GAP, marginTop });
-    for (const x of cells) cell(x.text, x.right, top, weight);
+    c.text(label, { size: BODY, weight, lineHeight: ROW_LH, maxWidth: inkLeft - LABEL_GAP, marginTop });
+    for (const x of cells) cell(x.text, x.right, top);
   };
 
-  /** A section title with its column heads on the same line. */
-  const section = (title: string, heads: { text: string; right: number }[]) => {
-    c.rule(MIN_RULE_PX, 12, 8);
-    const top = c.height;
-    c.text(title, { size: TITLE, weight: 700 });
-    for (const h of heads) {
-      c.place(h.right - CELL, top + (TITLE - SMALL) * 0.6, CELL, (v) =>
-        v.text(h.text, { size: SMALL, weight: 700, align: "right" }),
-      );
-    }
+  const section = (title: string) => {
+    c.rule(MIN_RULE_PX, 14, 6);
+    c.text(title, { size: TITLE, weight: 700, lineHeight: 1.1 });
     c.space(2);
   };
 
+  const money = (cents: number) => formatMoney(cents, false);
   const countMoney = (b: Bucket) => [
     { text: String(b.count), right: COUNT_RIGHT },
-    { text: formatMoney(b.totalCents), right: MONEY_RIGHT },
-  ];
-  const heads2 = (a: string, b: string) => [
-    { text: a, right: COUNT_RIGHT },
-    { text: b, right: MONEY_RIGHT },
+    { text: money(b.totalCents), right: MONEY_RIGHT },
   ];
 
   /* ------------------------------------------------------------- header -- */
 
+  // Seal and name on one line, the name at the floor size.
   const [seal, sealWidth] = sealMarkup(SEAL_HEIGHT);
   const headTop = c.height;
   c.graphic(0, headTop, seal);
-  const textX = Math.ceil(sealWidth) + 16;
-  const textWidth = CONTENT_WIDTH - textX;
-  const block = new Canvas(textWidth, metrics);
-  block.text(restaurant.name.toUpperCase(), { size: BAR, weight: 700, lineHeight: 1.15 });
-  block.text(`${restaurant.address.street} · ${phoneDigits(restaurant.phones[0] ?? "")}`, {
-    size: SMALL,
-    marginTop: 4,
-  });
-  const nameTop = headTop + Math.max(0, (SEAL_HEIGHT - block.height) / 2);
-  c.place(textX, nameTop, textWidth, (g) => {
-    g.text(restaurant.name.toUpperCase(), { size: BAR, weight: 700, lineHeight: 1.15 });
-    g.text(`${restaurant.address.street} · ${phoneDigits(restaurant.phones[0] ?? "")}`, {
-      size: SMALL,
-      marginTop: 4,
-    });
-  });
-  c.space(Math.max(SEAL_HEIGHT, block.height));
+  const textX = Math.ceil(sealWidth) + 8;
+  const nameLine = FLOOR * 1.15;
+  c.place(textX, headTop + (SEAL_HEIGHT - nameLine) / 2, CONTENT_WIDTH - textX, (g) =>
+    g.text(restaurant.name.toUpperCase(), { size: FLOOR, weight: 700, lineHeight: 1.15 }),
+  );
+  c.space(Math.max(SEAL_HEIGHT, nameLine));
 
-  c.banner(`${R.dailyReport} DAILY REPORT`, { size: BAR, marginTop: 14 });
+  c.banner(`${R.dailyReport} DAILY REPORT`, { size: TITLE, padY: 4, marginTop: 10 });
 
+  // Date, then the order window and this print's #N. At the floor size the
+  // three do not fit one 72mm line, so the date takes the first.
   const window =
     report.firstOrderAt && report.lastOrderAt
       ? `${formatClock(report.firstOrderAt, tz)} – ${formatClock(report.lastOrderAt, tz)}`
-      : "no orders";
-  c.text(`${formatBusinessDate(report.businessDate)} · ${window}`, {
-    size: TITLE,
-    weight: 700,
-    marginTop: 10,
-  });
-
-  const printedDay = businessDateFor(tz, new Date(options.printedAt));
-  const sameDay = printedDay === report.businessDate;
-  const printedLabel = sameDay
-    ? formatClock(options.printedAt, tz)
-    : `${formatBusinessDate(printedDay).replace(/ \d{4}$/, "")} ${formatClock(options.printedAt, tz)}`;
-  const stationLabel = options.station === "store" ? "Store printer" : "Online printer";
-  c.text(
-    `Printed ${printedLabel} · ${stationLabel} · print #${options.sequence}${sameDay ? " today" : ""}`,
-    { size: SMALL, marginTop: 2 },
-  );
+      : `${R.none}${R.orders} No orders`;
+  c.text(formatBusinessDate(report.businessDate), { size: BODY, weight: 700, lineHeight: ROW_LH, marginTop: 8 });
+  c.text(`${window} · #${options.sequence}`, { size: BODY, lineHeight: ROW_LH });
 
   /* ------------------------------------------------------------- ORDERS -- */
 
-  section(`ORDERS ${R.orders}`, heads2("Count", "Total"));
-  row(`Online ${R.online}`, countMoney(report.channels.web));
-  row(`Phone ${R.phone}`, countMoney(report.channels.phone));
-  row(`Walk-in ${R.walkIn}`, countMoney(report.channels.walk_in));
-  const dineIn = report.channels.dine_in;
-  if (dineIn.count > 0 || dineIn.totalCents !== 0) {
-    // Retired channel (2026-11-14). Only a day from before then has one.
-    row(`Dine-in ${R.dineIn}`, countMoney(dineIn));
-  }
-  c.rule(MIN_RULE_PX, 6, 4);
-  row(`All ${R.all}`, countMoney(report.columns.all), { weight: 700, marginTop: 0 });
+  // Two tills, not three channels: Store is phone + walk-in (and dine-in on a
+  // day from before 2026-11-14), the TOTALS column the owner counts at the counter.
+  const { online, store, all } = report.columns;
+  section(`${R.orders} ORDERS`);
+  row(`${R.online} Online`, countMoney(online));
+  row(`${R.store} Store`, countMoney(store));
+  c.rule(MIN_RULE_PX, 4, 4);
+  row(`${R.all} All`, countMoney(all), { weight: 700 });
 
   /* ------------------------------------------------------------- TOTALS -- */
 
-  section(`TOTALS ${R.totals}`, [
-    { text: "Online", right: TOTALS_RIGHTS[0] },
-    { text: "Store", right: TOTALS_RIGHTS[1] },
-    { text: "All", right: TOTALS_RIGHTS[2] },
-  ]);
-  const { online, store, all } = report.columns;
-  const three = (pick: (b: Bucket) => number) =>
-    [online, store, all].map((b, i) => ({ text: formatMoney(pick(b), false), right: TOTALS_RIGHTS[i] }));
-  row(`Subtotal ${R.subtotal}`, three((b) => b.subtotalCents));
-  row(`Charges ${R.charges}`, three((b) => b.chargesCents));
-  row(`Tax ${R.tax}`, three((b) => b.taxCents));
+  section(`${R.totals} TOTALS`);
+  const one = (cents: number) => [{ text: money(cents), right: MONEY_RIGHT }];
+  row(`${R.subtotal} Subtotal`, one(all.subtotalCents));
+  if (all.chargesCents !== 0) row(`${R.charges} Charges`, one(all.chargesCents));
+  row(`${R.tax} Tax`, one(all.taxCents));
   if (all.tipCents !== 0) {
     // Dormant: every writer stores 0 today. Printed only so a day that ever
     // has one still adds up down the column.
-    row(`Tip ${R.tip}`, three((b) => b.tipCents));
+    row(`${R.tip} Tip`, one(all.tipCents));
   }
-  row(`Total ${R.all}`, three((b) => b.totalCents), { weight: 700 });
+  c.rule(MIN_RULE_PX, 4, 4);
+  c.text(`${R.all} TOTAL`, { size: TITLE, weight: 700, lineHeight: 1.1 });
+  const total = formatMoney(all.totalCents);
+  const totalSize =
+    TOTAL_SIZES.find((s) => metrics.measure(total, s, 700) <= CONTENT_WIDTH) ?? TOTAL_SIZES[TOTAL_SIZES.length - 1];
+  c.text(total, { size: totalSize, weight: 700, lineHeight: 1.0, align: "right" });
 
-  /* ------------------------------------------------------- NOT INCLUDED -- */
+  /* ------------------------------------------------------------- TOP 5 -- */
 
-  section(`NOT INCLUDED ${R.notIncluded}`, heads2("Count", "Total"));
-  row(`Cancelled ${R.cancelled}`, countMoney(report.cancelled));
-  row(`Unprinted ${R.unprinted}`, countMoney(report.unprinted), {
-    weight: report.unprinted.count > 0 ? 700 : 400,
-  });
-
-  /* ------------------------------------------------------------- TRAYS -- */
-
-  if (options.blocks.trays) {
-    section(`TRAYS ${R.trays}`, []);
-    row(`Half tray ${R.halfTray}`, [{ text: String(report.trays.halfTray), right: COUNT_RIGHT }]);
-    row(`Party tray ${R.partyTray}`, [{ text: String(report.trays.partyTray), right: COUNT_RIGHT }]);
-    row(`Family dinners ${R.familyDinners}`, [
-      { text: String(report.trays.familyDinners), right: COUNT_RIGHT },
-    ]);
-  }
-
-  /* ------------------------------------------------------------ TOP 10 -- */
-
-  if (options.blocks.top) {
-    section(`TOP 10 ${R.top}`, heads2("Qty", "Sales"));
-    if (report.top.length === 0) {
-      row(`${R.none} None`, []);
-    }
-    const rankWidth = metrics.measure("10.", ROW, 400) + 8;
-    const nameX = INDENT + rankWidth;
-    // The name runs up to the widest quantity a day could print (three digits).
-    const nameWidth = COUNT_RIGHT - metrics.measure("000", ROW, 400) - LABEL_GAP - nameX;
-    for (const [i, item] of report.top.entries()) {
-      const top = c.height + 2;
-      c.place(INDENT, top, rankWidth, (v) => v.text(`${i + 1}.`, { size: ROW }));
-      const name = item.nameZh ? `${item.nameZh} ${item.nameEn}` : item.nameEn;
-      c.text(name, { size: ROW, x: nameX, maxWidth: nameWidth, marginTop: 2 });
-      cell(String(item.quantity), COUNT_RIGHT, top, 400);
-      cell(formatMoney(item.salesCents), MONEY_RIGHT, top, 400);
-    }
-  }
-
-  /* ------------------------------------------------------------ BY HOUR -- */
-
-  if (options.blocks.hours) {
-    section(`BY HOUR ${R.byHour}`, heads2("Count", "Total"));
-    if (report.hours.length === 0) {
-      row(`${R.none} None`, []);
-    }
-    for (const h of report.hours) {
-      row(formatHour(h.hour), [
-        { text: String(h.count), right: COUNT_RIGHT },
-        { text: formatMoney(h.totalCents), right: MONEY_RIGHT },
-      ]);
-    }
+  const dishes = topDishes(report, TOP_DISHES);
+  section(`${R.top} TOP ${TOP_DISHES}`);
+  if (dishes.length === 0) row(R.none, []);
+  const rankWidth = metrics.measure(`${TOP_DISHES}.`, BODY, 400) + 12;
+  for (const [i, d] of dishes.entries()) {
+    const top = c.height;
+    const qty = String(d.quantity);
+    c.place(0, top, rankWidth, (v) => v.text(`${i + 1}.`, { size: BODY, lineHeight: ROW_LH }));
+    c.text(d.name, {
+      size: BODY,
+      lineHeight: ROW_LH,
+      x: rankWidth,
+      maxWidth: MONEY_RIGHT - metrics.measure(qty, BODY, 700) - LABEL_GAP - rankWidth,
+    });
+    cell(qty, MONEY_RIGHT, top);
   }
 
   /* ------------------------------------------------------------- footer -- */
 
   c.rule(5, 14, 8);
-  c.text("Orders taken, not payments.", { size: ROW, weight: 700 });
-  c.text(`Match All ${R.all} against the card batch + cash drawer.`, { size: SMALL, marginTop: 2 });
-  c.text(`${report.businessDate} · #${options.sequence} · ${report.code}`, { size: SMALL, marginTop: 8 });
+  const { halfTray, partyTray } = report.trays;
+  if (halfTray > 0 || partyTray > 0) {
+    // One line: body size when the counts are short, the floor size when two
+    // two-digit counts push it past the paper; wraps only past that.
+    const trays = `${R.trays} Trays: ${R.halfTray} ${halfTray} · ${R.partyTray} ${partyTray}`;
+    const fit =
+      ([[BODY, 700], [FLOOR, 700], [FLOOR, 400]] as const).find(
+        ([size, weight]) => metrics.measure(trays, size, weight) <= CONTENT_WIDTH,
+      ) ?? ([FLOOR, 400] as const);
+    c.text(trays, { size: fit[0], weight: fit[1], lineHeight: ROW_LH, marginBottom: 6 });
+  }
+  c.text(`${R.reconcile}${R.colon}${R.all} vs ${R.cardTerminal} + ${R.cash}`, {
+    size: BODY,
+    weight: 700,
+    lineHeight: ROW_LH,
+  });
+  c.text("Match TOTAL against card batch + cash", { size: FLOOR, lineHeight: ROW_LH });
+  c.text(`${report.businessDate} · ${report.code}`, {
+    size: FLOOR,
+    lineHeight: ROW_LH,
+    marginTop: 8,
+  });
 
   const { svg, height } = c.toSvg(TICKET_WIDTH_PX, PAD);
   return { svg, height, lines: c.placed, missing: [...c.missing] };

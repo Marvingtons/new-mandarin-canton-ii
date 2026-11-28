@@ -9,12 +9,10 @@ import { stationPrinterHealth } from "@/lib/kitchen/boardFeed";
 import type { StationPrinterHealth } from "@/lib/print/printerStatus";
 import { readDailyReport } from "@/lib/reports/daily";
 import {
-  DEFAULT_BLOCKS,
   defaultReportDate,
   isReportDate,
   todayFor,
   type DailyReport,
-  type ReportBlocks,
 } from "@/lib/reports/dailyModel";
 import {
   isMissingReportTable,
@@ -61,17 +59,15 @@ export function parseReportDate(
   return { ok: true, date: raw };
 }
 
-/** "trays,top" → { trays: true, top: true, hours: false }. Absent = all on. */
-export function parseBlocks(raw: string | null | undefined): ReportBlocks {
-  if (raw === null || raw === undefined) return { ...DEFAULT_BLOCKS };
-  const on = new Set(raw.split(",").map((s) => s.trim()));
-  return { trays: on.has("trays"), top: on.has("top"), hours: on.has("hours") };
-}
-
 export const PrintBodySchema = z.strictObject({
   date: z.string(),
   station: z.enum(STATIONS),
-  blocks: z.strictObject({ trays: z.boolean(), top: z.boolean(), hours: z.boolean() }),
+  /**
+   * Ignored. The sheet's optional-block toggles are gone (日結 v2: nothing on
+   * the report is optional); a tablet still running the old page sends this,
+   * and its print must not be refused for it.
+   */
+  blocks: z.unknown().optional(),
   /** The #N the sheet showed. */
   sequence: z.number().int().min(1).max(999),
   /** The client's key for this press of Print. */

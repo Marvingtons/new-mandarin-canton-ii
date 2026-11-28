@@ -4,7 +4,8 @@
  *
  *   DATABASE_URL=… npx tsx --conditions=react-server scripts/report-preview.ts <date> <sequence> <pngPath>
  *
- * Prints {"code", "count", "totalCents", "height", "width", "missing"} as JSON
+ * Prints {"code", "count", "totalCents", "top", "height", "width", "missing"} as
+ * JSON (`top`: the printed 熱賣 TOP lines, merged by dish)
  * and writes the PNG. Written when the preview route could not load resvg
  * under `next start` (fixed in src/lib/ticket/resvg.ts); kept because it hands
  * the spec the drawn numbers as JSON, from the same renderReportPng and the
@@ -20,13 +21,13 @@ async function main(): Promise<void> {
   }
   const { readDailyReport } = await import("../src/lib/reports/daily");
   const { renderReportPng } = await import("../src/lib/ticket/report");
+  const { topDishes } = await import("../src/lib/reports/dailyModel");
   const timezone = "America/Los_Angeles";
   const report = await readDailyReport({ tenantId: "new-mandarin-canton", businessDate: date, timezone });
   const { png, height, missing } = await renderReportPng(report, {
     printedAt: new Date().toISOString(),
     station: "store",
     sequence,
-    blocks: { trays: true, top: true, hours: true },
     timezone,
   });
   await writeFile(pngPath, png);
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
       code: report.code,
       count: report.columns.all.count,
       totalCents: report.columns.all.totalCents,
+      top: topDishes(report).map((d) => ({ name: d.name, quantity: d.quantity })),
       height,
       width,
       missing,

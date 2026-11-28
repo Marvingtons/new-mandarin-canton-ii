@@ -571,7 +571,6 @@ function reportRenderOptions(print: ReportPrint, timezone: string) {
     printedAt: print.requestedAt,
     station: print.station,
     sequence: print.sequence,
-    blocks: print.blocks,
     timezone,
   };
 }

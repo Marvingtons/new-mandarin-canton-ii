@@ -22,6 +22,7 @@
 import { CHANNEL_STATION, type Station } from "@/config/stations";
 import { comboCategories } from "@/data/combo-items";
 import { CUSTOM_ITEM_ID, SURCHARGE_MODIFIER_ID } from "@/lib/kitchen/customCharge";
+import { dishKey } from "@/lib/menu/dishKey";
 import { TRAY_SIZE_IDS } from "@/lib/menu/types";
 import type { OrderChannel, OrderLine, OrderStatus, OrderTotals } from "@/lib/orders/types";
 
@@ -55,14 +56,6 @@ export const REPORT_CHANNELS: readonly OrderChannel[] = ["web", "phone", "walk_i
 /** The TOTALS block's columns. Online + Store = All on every row, always. */
 export const REPORT_COLUMNS = ["online", "store", "all"] as const;
 export type ReportColumn = (typeof REPORT_COLUMNS)[number];
-
-/** Optional blocks. The three top blocks (ORDERS, TOTALS, NOT INCLUDED) always print. */
-export interface ReportBlocks {
-  trays: boolean;
-  top: boolean;
-  hours: boolean;
-}
-export const DEFAULT_BLOCKS: ReportBlocks = { trays: true, top: true, hours: true };
 
 /** How many dishes 熱賣 TOP lists. */
 export const TOP_ITEMS = 10;
@@ -134,7 +127,6 @@ export interface ReportPrint {
   station: Station;
   /** 1-based, per (tenant, business date). */
   sequence: number;
-  blocks: ReportBlocks;
 }
 
 /* ------------------------------------------------------------ the inputs -- */
@@ -383,6 +375,52 @@ export function summarizeDay(rows: readonly ReportOrderRow[], opts: SummarizeOpt
     hours: [...hours.values()].sort((a, b) => a.hour - b.hour),
   };
   return { ...report, code: reportCode(report) };
+}
+
+/* ------------------------------------------------------------ top dishes -- */
+
+/** How many dishes the printed 熱賣 TOP lists. */
+export const TOP_DISHES = 5;
+
+export interface TopDish {
+  /** dishKey(): the 中文 name, or the item id when there is none. */
+  key: string;
+  /** What the paper prints: the 中文 name, or the English when there is none. */
+  name: string;
+  quantity: number;
+  salesCents: number;
+}
+
+/**
+ * The printed 熱賣 TOP: report.top merged by DISH (lib/menu/dishKey), so the
+ * Specials copy and the numbered copy of a dish are one line, then the first
+ * `n`. Same order as report.top: quantity, then sales, then key.
+ *
+ * Reads report.top as stored (the top TOP_ITEMS catalogue items), so a dish
+ * whose two copies BOTH sit below that cut is not seen. docs/daily-report.md.
+ */
+export function topDishes(report: Pick<DailyReport, "top">, n: number = TOP_DISHES): TopDish[] {
+  const byDish = new Map<string, TopDish>();
+  for (const item of report.top) {
+    const key = dishKey(item);
+    const d = byDish.get(key) ?? {
+      key,
+      name: item.nameZh?.trim() || item.nameEn,
+      quantity: 0,
+      salesCents: 0,
+    };
+    d.quantity += item.quantity;
+    d.salesCents += item.salesCents;
+    byDish.set(key, d);
+  }
+  return [...byDish.values()]
+    .sort(
+      (a, b) =>
+        b.quantity - a.quantity ||
+        b.salesCents - a.salesCents ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    )
+    .slice(0, n);
 }
 
 /* ------------------------------------------------------------- formatting -- */

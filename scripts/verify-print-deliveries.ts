@@ -565,7 +565,6 @@ async function queueReport(deps: Deps, sequence = 1, key = `press-${++reportKey}
     tenantId: TENANT,
     businessDate: REPORT_DATE,
     station: "store",
-    blocks: deps.model.DEFAULT_BLOCKS,
     report,
     sequence,
     requestKey: key,

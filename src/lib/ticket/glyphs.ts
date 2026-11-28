@@ -109,26 +109,25 @@ export const REPORT_LABELS = {
   dailyReport: "日結",
   orders: "訂單",
   online: "網上",
-  phone: "電話",
-  walkIn: "自取",
-  /** Retired channel; a row only on a day from before 2026-11-14 that has one. */
-  dineIn: "堂食",
+  /** Phone + walk-in (and a retired dine-in day): the one till the owner counts. */
+  store: "店內",
   all: "合計",
   totals: "金額",
   subtotal: "小計",
   charges: "加價",
   tax: "稅",
   tip: "小費",
-  notIncluded: "未計入",
-  cancelled: "取消",
-  unprinted: "未列印",
   trays: "餐盤",
   halfTray: "半盤",
   partyTray: "餐盤",
-  familyDinners: "家庭餐",
   top: "熱賣",
-  byHour: "時段",
   none: "無",
+  /** The reconcile line: 對數：合計 vs 刷卡機 + 現金. */
+  reconcile: "對數",
+  cardTerminal: "刷卡機",
+  cash: "現金",
+  /** Full-width colon, as 中文 sets it. */
+  colon: "：",
 } as const;
 
 /**

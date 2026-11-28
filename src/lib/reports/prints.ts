@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import { ordersPool, withTransaction } from "@/lib/db/postgres";
 import { isStation, type Station } from "@/config/stations";
-import type { DailyReport, ReportBlocks } from "@/lib/reports/dailyModel";
+import type { DailyReport } from "@/lib/reports/dailyModel";
 
 /**
  * 日結 DAILY REPORT as a PRINT KIND: the `report_prints` queue (migration 016).
@@ -49,7 +49,6 @@ export interface ReportPrint {
   businessDate: string;
   sequence: number;
   station: Station;
-  blocks: ReportBlocks;
   report: DailyReport;
   code: string;
   requestKey: string;
@@ -67,7 +66,7 @@ function columns(alias = ""): string {
   const a = alias ? `${alias}.` : "";
   return `
   ${a}id, ${a}tenant_id, to_char(${a}business_date, 'YYYY-MM-DD') as business_date, ${a}sequence,
-  ${a}station, ${a}blocks, ${a}report, ${a}code, ${a}request_key, ${a}status, ${a}delivery_id,
+  ${a}station, ${a}report, ${a}code, ${a}request_key, ${a}status, ${a}delivery_id,
   ${a}delivery_expires_at, ${a}job_key, ${a}printed_at, ${a}last_error, ${a}requested_at
 `;
 }
@@ -82,7 +81,6 @@ function mapPrint(row: QueryResultRow): ReportPrint {
     businessDate: String(row.business_date),
     sequence: Number(row.sequence),
     station: isStation(row.station) ? row.station : "store",
-    blocks: row.blocks as ReportBlocks,
     report: row.report as DailyReport,
     code: String(row.code),
     requestKey: String(row.request_key),
@@ -129,7 +127,6 @@ export interface ReportPrintRequest {
   tenantId: string;
   businessDate: string;
   station: Station;
-  blocks: ReportBlocks;
   report: DailyReport;
   /** The #N the sheet showed. The request is idempotent on (tenant, date, sequence). */
   sequence: number;
@@ -190,7 +187,7 @@ export async function requestReportPrint(req: ReportPrintRequest): Promise<Repor
     const inserted = await client.query(
       `insert into report_prints
          (id, tenant_id, kind, business_date, sequence, station, blocks, report, code, request_key)
-       values ($1, $2, 'daily', $3::date, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+       values ($1, $2, 'daily', $3::date, $4, $5, '{}'::jsonb, $6::jsonb, $7, $8)
        returning ${COLUMNS}`,
       [
         randomUUID(),
@@ -198,7 +195,6 @@ export async function requestReportPrint(req: ReportPrintRequest): Promise<Repor
         req.businessDate,
         req.sequence,
         req.station,
-        JSON.stringify(req.blocks),
         JSON.stringify(req.report),
         req.report.code,
         req.requestKey,

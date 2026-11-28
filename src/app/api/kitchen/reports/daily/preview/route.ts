@@ -1,11 +1,11 @@
 import { isStation } from "@/config/stations";
 import { publicTenant } from "@/config/tenant.server";
 import { readDailyReport } from "@/lib/reports/daily";
-import { parseBlocks, parseReportDate, sheetGuard } from "@/lib/reports/sheet";
+import { parseReportDate, sheetGuard } from "@/lib/reports/sheet";
 import { renderReportPng } from "@/lib/ticket/report";
 
 /**
- * GET /api/kitchen/reports/daily/preview?date=&station=&blocks=trays,top,hours&sequence=
+ * GET /api/kitchen/reports/daily/preview?date=&station=&sequence=
  *
  * The sheet's live preview: the report as the printer's own 1-bit PNG, drawn
  * by the SAME renderer as the paper (lib/ticket/report.ts), so what the
@@ -38,7 +38,6 @@ export async function GET(request: Request): Promise<Response> {
       printedAt: new Date().toISOString(),
       station,
       sequence,
-      blocks: parseBlocks(params.get("blocks")),
       timezone: tenant.timezone,
     });
     return new Response(new Uint8Array(png), {

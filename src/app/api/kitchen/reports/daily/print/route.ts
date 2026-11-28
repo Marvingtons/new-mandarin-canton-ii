@@ -8,7 +8,7 @@ import { PrintBodySchema, parseReportDate, printerBlocked, sheetGuard } from "@/
 
 /**
  * POST /api/kitchen/reports/daily/print
- *   { date, station, blocks, sequence, requestKey }
+ *   { date, station, sequence, requestKey }
  *
  * Queue ONE 日結 print. Idempotent on (tenant, date, sequence): the same
  * requestKey again answers the print it already made; a #N someone else
@@ -65,7 +65,6 @@ export async function POST(request: Request): Promise<Response> {
       tenantId: tenant.tenantId,
       businessDate: day.date,
       station: body.station,
-      blocks: body.blocks,
       report,
       sequence: body.sequence,
       requestKey: body.requestKey,

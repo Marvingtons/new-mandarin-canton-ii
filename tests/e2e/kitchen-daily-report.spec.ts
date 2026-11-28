@@ -13,7 +13,9 @@ import { formatCents } from "../../src/lib/money";
  * 日結 Day report, from History.
  *
  *   SHEET   History's 日結 button opens the sheet; its summary and preview are
- *           today's numbers from the database, including orders seeded here
+ *           today's numbers from the database, including orders seeded here.
+ *           Nothing on the report is optional (日結 v2), so the sheet has no
+ *           block toggles and neither the preview nor Print sends any
  *   PRINT   Print enqueues exactly ONE report print, however it is pressed,
  *           and the sheet moves on to the next #N
  *   LAYOUT  with the sheet open: no sideways page scroll, no target under
@@ -170,6 +172,12 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   expect(src.searchParams.get("date")).toBe(today);
   expect(src.searchParams.get("sequence")).toBe(String(seeded.nextSequence));
   expect(src.searchParams.get("station")).toBe("store");
+  expect(src.searchParams.has("blocks")).toBe(false);
+  // No optional-block toggles: the only pressed-state buttons left are the
+  // printer picker's two, and the 加印 Include group is gone.
+  await expect(dialog.locator("button[aria-pressed]")).toHaveCount(2);
+  await expect(dialog.getByRole("button", { name: /^(餐盤|熱賣 10|時段|Trays|Top 10|By hour)$/ })).toHaveCount(0);
+  await expect(dialog.getByText(/加印|Include/)).toHaveCount(0);
 
   // And that render, from the same database, drawn here by the same
   // renderReportPng (scripts/report-preview.ts) so its numbers can be read
@@ -181,16 +189,31 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
     { env: { ...process.env, DATABASE_URL: `postgresql://postgres:postgres@localhost:${E2E_DB_PORT}/nmc_e2e` } },
   );
   await info.attach("day report preview", { path: pngPath, contentType: "image/png" });
-  const drawn = JSON.parse(stdout) as { count: number; totalCents: number; width: number; missing: number[] };
+  const drawn = JSON.parse(stdout) as {
+    count: number; totalCents: number; width: number; missing: number[];
+    top: Array<{ name: string; quantity: number }>;
+  };
   expect(drawn).toMatchObject({ count: all.count, totalCents: all.totalCents, width: 576, missing: [] });
+  // 熱賣 TOP 5: at most five lines (the Egg Rolls seeded above make one),
+  // one per dish, 中文 name only.
+  expect(drawn.top.length).toBeGreaterThan(0);
+  expect(drawn.top.length).toBeLessThanOrEqual(5);
+  expect(new Set(drawn.top.map((d) => d.name)).size).toBe(drawn.top.length);
+  for (const d of drawn.top) expect(d.name).not.toMatch(/[A-Za-z]/);
 
-  // Print, pressed twice in quick succession: one job.
+  // Print, pressed twice in quick succession: one job. The body carries no
+  // `blocks`: there is nothing left to choose.
+  const printBody = page.waitForRequest(
+    (r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/kitchen/reports/daily/print",
+  );
   const print = dialog.locator('[data-testid="report-print"]');
   await expect(print).toBeEnabled();
   await expect(print).toContainText(`#${seeded.nextSequence}`);
   await print.click();
   await print.click({ force: true, trial: false }).catch(() => undefined);
   await expect(dialog.locator('[data-testid="report-notice"]')).toContainText(`#${seeded.nextSequence}`);
+  const sent = (await printBody).postDataJSON() as Record<string, unknown>;
+  expect(Object.keys(sent).sort()).toEqual(["date", "requestKey", "sequence", "station"]);
 
   const after = await sheetJson(page, today);
   expect(after.prints.length).toBe(seeded.prints.length + 1);

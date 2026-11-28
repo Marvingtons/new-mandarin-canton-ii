@@ -18,7 +18,7 @@ import { RICE_FRIED_ID } from "../../src/lib/menu/rice";
 import { PREP_STEAMED_ID } from "../../src/lib/menu/preparation";
 import type { MenuItem } from "../../src/lib/menu/types";
 import type { Order, OrderChannel, OrderLine, OrderStatus } from "../../src/lib/orders/types";
-import type { ReportBlocks, ReportOrderRow } from "../../src/lib/reports/dailyModel";
+import type { ReportOrderRow } from "../../src/lib/reports/dailyModel";
 import type { Station } from "../../src/config/stations";
 import { zonedWallClockToUtc } from "../../src/lib/orders/businessDate";
 import { customOrderLine, surchargeModifier } from "../../src/lib/kitchen/customCharge";
@@ -655,6 +655,10 @@ const POPULAR: readonly [string, number][] = [
   ["hot-sour-soup", 3],
   ["fried-steamed-rice", 3],
   ["combo-lunch-15-75", 3],
+  // The Specials copies of two dishes above, so the printed TOP 5 has to merge
+  // them by dish (lib/menu/dishKey) to name each dish once.
+  ["mongolian-beef-special", 4],
+  ["orange-flavored-chicken-special", 3],
 ];
 
 export interface ReportFixtureDay {
@@ -663,7 +667,7 @@ export interface ReportFixtureDay {
   title: string;
   businessDate: string;
   rows: ReportOrderRow[];
-  print: { printedAt: string; station: Station; sequence: number; blocks: ReportBlocks };
+  print: { printedAt: string; station: Station; sequence: number };
 }
 
 interface DaySpec {
@@ -797,7 +801,6 @@ async function buildDay(spec: DaySpec): Promise<ReportFixtureDay> {
       printedAt: at(spec.printDate ?? spec.businessDate, spec.printAt).toISOString(),
       station: spec.station,
       sequence: spec.sequence,
-      blocks: { trays: true, top: true, hours: true },
     },
   };
 }

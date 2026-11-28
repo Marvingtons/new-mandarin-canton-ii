@@ -256,7 +256,9 @@ create table if not exists report_prints (
   sequence             int         not null,
   -- The printer it was sent to.
   station              text        not null,
-  -- The optional blocks (trays, top, hours) as the sheet had them.
+  -- The optional blocks (trays, top, hours) as the sheet had them. Since 日結
+  -- v2 (2026-11-27) nothing is optional and every print writes '{}'; kept so
+  -- no migration is needed and older rows still read.
   blocks               jsonb       not null,
   -- The DailyReport exactly as it was summed when Print was pressed. The job
   -- is rendered from THIS, never re-summed at hand-over, so the paper carries

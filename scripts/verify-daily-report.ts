@@ -20,13 +20,21 @@
  *   3. INVARIANTS. reportProblems() is empty for every report read: Online +
  *      Store = All on every row, the channels sum to All, subtotal + charges +
  *      tax + tip = the stored total, the hours sum to All.
+ *   3b. TOP 5 BY DISH. The printed 熱賣 TOP merges the Specials copy and the
+ *      numbered copy of a dish (lib/menu/dishKey: same nameZh, same dish):
+ *      a hand-worked day whose ranking only comes out right merged, every
+ *      catalogue pair sharing a nameZh shares a key, no two Top lines on any
+ *      fixture day share a nameZh, and the paper prints each dish once, 中文
+ *      only.
  *   4. THE DAY THE SHEET OPENS ON. Today, or yesterday before 4am; nothing in
  *      the future.
  *   5. THE ROUTES. /api/kitchen/reports/daily (JSON), /preview (PNG) and
  *      /print, called as the tablet calls them: staff session required, the
  *      JSON is the aggregate's numbers, the preview is a PNG of them, a print
  *      is idempotent on (tenant, date, #N), a future day is refused, and a
- *      printer out of paper refuses the print with its reason.
+ *      printer out of paper refuses the print with its reason. A print carries
+ *      no optional blocks (日結 v2) and stores '{}'; an old tablet that still
+ *      sends `blocks` is not refused for it.
  *
  * ⚠️ WINDOWS: PostgreSQL refuses to start under an administrative token; run
  * from a NON-ELEVATED shell (see verify:print-recurrence for the runas note).
@@ -70,6 +78,9 @@ interface Mods {
   session: typeof import("../src/lib/auth/kitchenSession");
   sheet: { GET: (r: Request) => Promise<Response> };
   preview: { GET: (r: Request) => Promise<Response> };
+  render: typeof import("../src/lib/ticket/report");
+  dish: typeof import("../src/lib/menu/dishKey");
+  catalog: typeof import("../src/lib/menu/catalog");
   print: { POST: (r: Request) => Promise<Response> };
 }
 
@@ -277,7 +288,93 @@ async function s2_fixtureDays(m: Mods): Promise<void> {
       same ? "" : firstDifference(sql, model),
     );
     eq(`${day.slug}: invariants hold`, m.model.reportProblems(sql), []);
+    const names = m.model.topDishes(sql).map((d) => d.name);
+    check(`${day.slug}: no two Top lines share a nameZh`, new Set(names).size === names.length, names.join(", "));
   }
+}
+
+/* ------------------------------------------------------- 3b. top by dish -- */
+
+const MON = "2026-11-23";
+
+async function s3b_topByDish(m: Mods): Promise<void> {
+  console.log("\n3b. 熱賣 TOP 5, merged by dish");
+
+  // The helper, on the real catalogue: every item sharing a nameZh shares a
+  // key, the named Specials pairs among them, and different names never do.
+  const items = m.catalog.staffCatalogMenu().categories.flatMap((c) => c.items);
+  const byZh = new Map<string, Set<string>>();
+  for (const i of items) {
+    if (!i.nameZh) continue;
+    const keys = byZh.get(i.nameZh) ?? new Set<string>();
+    keys.add(m.dish.dishKey({ itemId: i.id, nameZh: i.nameZh }));
+    byZh.set(i.nameZh, keys);
+  }
+  check("every nameZh maps to exactly one dish key", [...byZh.values()].every((k) => k.size === 1));
+  const allKeys = [...byZh.values()].map((k) => [...k][0]);
+  check("different nameZh, different dish key", new Set(allKeys).size === allKeys.length);
+  const key = (id: string) => {
+    const i = items.find((x) => x.id === id);
+    return i ? m.dish.dishKey({ itemId: i.id, nameZh: i.nameZh }) : `missing ${id}`;
+  };
+  for (const [a, b] of [
+    ["salted-pepper-chicken-wings-special", "salted-pepper-chicken-wings"],
+    ["mongolian-beef-special", "mongolian-beef"],
+    ["orange-flavored-chicken-special", "orange-flavored-chicken"],
+    ["salted-pepper-squid-special", "salted-pepper-squid"],
+  ]) {
+    check(`${a} and ${b} are one dish`, key(a) === key(b) && !key(a).startsWith("missing"), `${key(a)} vs ${key(b)}`);
+  }
+  check("no 中文 name: the item is its own dish", m.dish.dishKey({ itemId: "x", nameZh: null }) === "id:x");
+
+  // A hand-worked Monday. By catalogue id the top line would be 陳皮雞 4;
+  // by dish it is 蒙古牛肉 3 + 2 = 5, and 椒鹽雞翼 1 + 2 = 3 passes 宮保雞丁 2.
+  // Six dishes, so the cut to five drops 春卷 (1 at $3.50 loses the sales
+  // tie-break to 酸辣湯 1 at $9.00).
+  const zh = (nameZh: string) => ({ nameZh });
+  const rows: ReportOrderRow[] = [
+    { channel: "web", status: "COMPLETED", createdAt: at(m, MON, "11:30"),
+      items: [line("mongolian-beef", 3, 1695, zh("蒙古牛肉")), line("salted-pepper-chicken-wings", 1, 1395, zh("椒鹽雞翼"))],
+      totals: totals(3 * 1695 + 1395, 590) },
+    { channel: "phone", status: "COMPLETED", createdAt: at(m, MON, "12:00"),
+      items: [line("mongolian-beef-special", 2, 1895, zh("蒙古牛肉")), line("salted-pepper-chicken-wings-special", 2, 1595, zh("椒鹽雞翼"))],
+      totals: totals(2 * 1895 + 2 * 1595, 611) },
+    { channel: "walk_in", status: "COMPLETED", createdAt: at(m, MON, "12:30"),
+      items: [line("orange-flavored-chicken", 4, 1595, zh("陳皮雞")), line("kung-pao-chicken", 2, 1495, zh("宮保雞丁"))],
+      totals: totals(4 * 1595 + 2 * 1495, 820) },
+    { channel: "web", status: "COMPLETED", createdAt: at(m, MON, "13:00"),
+      items: [line("hot-sour-soup", 1, 900, zh("酸辣湯")), line("egg-rolls", 1, 350, zh("春卷"))],
+      totals: totals(1250, 109) },
+  ];
+  for (const row of rows) await insertRow(m, TENANT, MON, row);
+  const r = await m.daily.readDailyReport({ tenantId: TENANT, businessDate: MON, timezone: TIMEZONE });
+  eq(
+    "TOP 5: merged by dish, by quantity then sales",
+    m.model.topDishes(r).map((d) => [d.name, d.quantity]),
+    [["蒙古牛肉", 5], ["陳皮雞", 4], ["椒鹽雞翼", 3], ["宮保雞丁", 2], ["酸辣湯", 1]],
+  );
+  check("the stored report still lists catalogue items (8 of them)", r.top.length === 8, String(r.top.length));
+
+  // And the paper: each dish once, 中文 only, no English half and no sales column.
+  const { lines } = await m.render.composeReportSvg(r, {
+    printedAt: at(m, MON, "21:30"), station: "store", sequence: 1, timezone: TIMEZONE,
+  });
+  const text = lines.map((l) => l.text);
+  for (const name of ["蒙古牛肉", "陳皮雞", "椒鹽雞翼", "宮保雞丁", "酸辣湯"]) {
+    check(`the paper prints ${name} once`, text.filter((t) => t === name).length === 1);
+  }
+  check("春卷 (sixth) is not printed", !text.includes("春卷"));
+  check("no English dish names on the paper", !text.some((t) => /mongolian|chicken|soup/i.test(t)));
+  check("no em dash anywhere on the paper", !text.some((t) => t.includes("\u2014")));
+  check(
+    "gone: NOT INCLUDED, BY HOUR, Family dinners, the payments sentence",
+    !text.some((t) => /NOT INCLUDED|BY HOUR|Family|not payments|未計入|時段|家庭餐/.test(t)),
+  );
+  check("the TOTAL figure is on the paper with its $", text.includes(m.model.formatMoney(r.columns.all.totalCents)));
+  const total = lines.find((l) => l.text === m.model.formatMoney(r.columns.all.totalCents))!;
+  check("the TOTAL is the largest type on the paper, at least 2x body", total.size >= 84 && lines.every((l) => l.size <= total.size));
+  check("nothing on the paper under the kitchen ticket's 中文 dish name (38)", lines.every((l) => l.size >= 38),
+    lines.filter((l) => l.size < 38).map((l) => `${l.text}@${l.size}`).join(", "));
 }
 
 function firstDifference(a: unknown, b: unknown, path = "report"): string {
@@ -342,7 +439,7 @@ async function s5_routes(m: Mods): Promise<void> {
   check("GET refuses a future day", (await m.sheet.GET(req("/api/kitchen/reports/daily?date=2099-01-01"))).status === 400);
   check("GET refuses a malformed day", (await m.sheet.GET(req("/api/kitchen/reports/daily?date=2026-02-30"))).status === 400);
 
-  const png = await m.preview.GET(req(`/api/kitchen/reports/daily/preview?date=${SAT}&station=store&blocks=trays,top&sequence=1`));
+  const png = await m.preview.GET(req(`/api/kitchen/reports/daily/preview?date=${SAT}&station=store&sequence=1`));
   const bytes = new Uint8Array(await png.arrayBuffer());
   check(
     "the preview is a PNG, and carries the report's code",
@@ -356,7 +453,7 @@ async function s5_routes(m: Mods): Promise<void> {
     m.print.POST(req("/api/kitchen/reports/daily/print", {
       method: "POST",
       body: JSON.stringify({
-        date: SAT, station: "store", blocks: { trays: true, top: true, hours: false }, sequence, requestKey, ...extra,
+        date: SAT, station: "store", sequence, requestKey, ...extra,
       }),
     }));
   const first = await press(1, "sheet-press-0001");
@@ -374,10 +471,17 @@ async function s5_routes(m: Mods): Promise<void> {
     [TENANT, SAT],
   );
   check("one row in report_prints, QUEUED for the printer", rows[0].n === 1 && rows[0].status === "QUEUED", JSON.stringify(rows[0]));
+  const stored = await m.pool.ordersPool().query(
+    `select blocks from report_prints where tenant_id = $1 and business_date = $2::date and sequence = 1`,
+    [TENANT, SAT],
+  );
+  eq("a print stores no optional blocks ('{}')", stored.rows[0]?.blocks, {});
+  const stale = await press(2, "old-tablet-blocks-01", { blocks: { trays: true, top: true, hours: true } });
+  check("an old tablet still sending `blocks` is not refused for it", stale.status === 200, String(stale.status));
   const after = (await (await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}`))).json()) as {
     nextSequence: number; prints: Array<{ sequence: number }>;
   };
-  check("the sheet now offers #2 and lists #1", after.nextSequence === 2 && after.prints[0]?.sequence === 1);
+  check("the sheet now offers #3 and lists #2, #1", after.nextSequence === 3 && after.prints[0]?.sequence === 2 && after.prints[1]?.sequence === 1);
 
   // The store printer reports paper out.
   await m.pool.ordersPool().query(
@@ -385,7 +489,7 @@ async function s5_routes(m: Mods): Promise<void> {
      values ($1, 'store', now(), true, true, $2)`,
     [TENANT, MAC_STORE.replace(/:/g, "").toLowerCase()],
   );
-  const out = await press(2, "paper-out-press1");
+  const out = await press(3, "paper-out-press1");
   const outBody = (await out.json()) as { error: string; reason: string };
   check("a printer out of paper refuses the print, saying why", out.status === 409 && outBody.reason === "paper-out",
     JSON.stringify(outBody));
@@ -431,11 +535,15 @@ async function main(): Promise<void> {
     sheet: (await import("../src/app/api/kitchen/reports/daily/route")) as unknown as Mods["sheet"],
     preview: (await import("../src/app/api/kitchen/reports/daily/preview/route")) as unknown as Mods["preview"],
     print: (await import("../src/app/api/kitchen/reports/daily/print/route")) as unknown as Mods["print"],
+    render: await import("../src/lib/ticket/report"),
+    dish: await import("../src/lib/menu/dishKey"),
+    catalog: await import("../src/lib/menu/catalog"),
   };
 
   try {
     await s1_handWorkedDay(m);
     await s2_fixtureDays(m);
+    await s3b_topByDish(m);
     s4_sheetDay(m);
     await s5_routes(m);
   } finally {

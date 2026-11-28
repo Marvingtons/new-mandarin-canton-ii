@@ -26,6 +26,7 @@ import {
   formatMoney,
   reportProblems,
   summarizeDay,
+  topDishes,
 } from "../src/lib/reports/dailyModel";
 import { reportFixtureDays } from "./fixtures/orders";
 
@@ -47,6 +48,9 @@ async function main(): Promise<void> {
     });
 
     const problems = reportProblems(report);
+    const top = topDishes(report);
+    const names = top.map((d) => d.name);
+    if (new Set(names).size !== names.length) problems.push(`two Top lines share a name: ${names.join(", ")}`);
 
     const options = { ...day.print, timezone: TIMEZONE };
     const { lines, height } = await composeReportSvg(report, options);
@@ -69,6 +73,10 @@ async function main(): Promise<void> {
       `${problems.length ? "FAIL" : "ok  "} ${day.slug.padEnd(16)} ${String(all.count).padStart(3)} orders  ` +
         `${formatMoney(all.totalCents).padStart(10)}  cancelled ${report.cancelled.count}  ` +
         `unprinted ${report.unprinted.count}  ${height}px (${(height / 8).toFixed(0)}mm)  code ${report.code}`,
+    );
+    console.log(
+      `       top: ${top.map((d) => `${d.name} ${d.quantity}`).join(" · ") || "none"}` +
+        `  (from ${report.top.map((t) => `${t.itemId} ${t.quantity}`).join(", ")})`,
     );
     for (const p of problems) console.log(`       - ${p}`);
     failures += problems.length;

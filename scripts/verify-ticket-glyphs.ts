@@ -30,7 +30,7 @@ import { catalogMenu } from "../src/lib/menu/catalog";
 import { itemSizes } from "../src/lib/menu/types";
 import { resolveSizeZh } from "../src/data/menu-overrides";
 import { restaurant } from "../src/data/restaurant";
-import { collectTicketGlyphs, TICKET_LABELS } from "../src/lib/ticket/glyphs";
+import { collectTicketGlyphs, REPORT_LABELS, TICKET_LABELS } from "../src/lib/ticket/glyphs";
 import { TICKET_COPY_PROFILES } from "../src/lib/ticket/copies";
 import { formatPhoneNational } from "../src/lib/phone";
 import { STATION_ORDER_PREFIX } from "../src/config/stations";
@@ -73,6 +73,26 @@ function chromeSources(): Source[] {
   if (restaurant.chineseName) {
     out.push({ where: "restaurant 中文", text: restaurant.chineseName });
   }
+  // The 日結 DAILY REPORT (lib/ticket/report.ts): every label, then the fixed
+  // lines it composes from them, written out here independently so a label
+  // dropped from REPORT_LABELS but still printed fails this script. The
+  // reconcile line is the one that brought 對數, 刷卡機, 現金 and the
+  // full-width colon into the subset.
+  for (const [key, zh] of Object.entries(REPORT_LABELS)) {
+    out.push({ where: `REPORT_LABELS.${key}`, text: zh });
+  }
+  out.push(
+    { where: "report reconcile", text: "對數：合計 vs 刷卡機 + 現金" },
+    { where: "report reconcile (English)", text: "Match TOTAL against card batch + cash" },
+    { where: "report blocks", text: "日結 DAILY REPORT 訂單 ORDERS 金額 TOTALS 熱賣 TOP 網上 Online 店內 Store 合計 All" },
+    { where: "report rows", text: "小計 Subtotal 加價 Charges 稅 Tax 小費 Tip 合計 TOTAL 無訂單 No orders" },
+    { where: "report footer", text: "餐盤 Trays: 半盤 · 餐盤" },
+    // Every weekday and month formatBusinessDate prints, the clock's a/p and
+    // the window's en dash, and the footer code's Crockford base32 alphabet.
+    { where: "report date", text: "Mon Tue Wed Thu Fri Sat Sun Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec" },
+    { where: "report window", text: "0123456789:ap – #" },
+    { where: "report code", text: "0123456789ABCDEFGHJKMNPQRSTVWXYZ" },
+  );
   return out;
 }
 
