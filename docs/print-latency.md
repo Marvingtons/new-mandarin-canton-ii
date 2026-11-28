@@ -371,3 +371,44 @@ never says "sent" about a lost ticket. Covered by
 `tests/e2e/kitchen-pos-print-status.spec.ts`, which plays the store printer.
 It changes no print timing; it makes the wait visible, and every staff tap
 from now on doubles as a measurement.
+
+## After deploying fixes 1, 3 and 5 (2026-11-27, 18:09 to 18:19 PT)
+
+Deployed as Worker version `f9baf3b4` (rollback: `9ec8ebbd`), migration 018
+already applied. `PRINT_COMPACT_BLANK_ROWS` is still off and both printers are
+still at a 3 s Polling time, so fixes 2 and 4 are not in these numbers.
+Ten minutes of `wrangler tail`, both printers:
+
+| Request | Before | After |
+|---|---:|---|
+| empty poll, Worker wall | 173 ms p50, 185 ms p90 | **46 ms p50, 56 ms p90** (394 polls) |
+| empty poll, Worker CPU | 9 ms p50 | 6 ms p50 |
+| hand-over poll, Worker wall | 489 ms (B-006) | **245 ms** (B-044, pre-rendered hit) |
+| POS order POST, Worker wall / CPU | 110 ms / 24 ms | 980 ms / 411 ms (includes the pre-render in `waitUntil`) |
+| DELETE confirmation | 326 ms | 481 ms (n = 1) |
+
+One ticket went through the new path during the window, B-044 (phone, store
+printer). Its pre-render finished 581 ms after the order and the printer's
+first poll used it:
+
+| Ticket | a: created→offered | b+c: offered→confirmed | d: total |
+|---|---:|---:|---:|
+| store p50 before (7 days) | 1.7 s | 21.7 s | 24.1 s |
+| B-043 (old code, minutes before the deploy) | 0.5 s | 23.1 s | 23.7 s |
+| B-044 (new code) | 1.4 s | 22.4 s | 23.8 s |
+
+**No visible change to tap-to-paper, as predicted.** The server got about
+0.25 s faster per hand-over and empty polls got 4x cheaper, but the printer
+still spends ~22 s between being handed the ticket and confirming it. That hop
+is the download plus printing, and only fix 2 (bytes) and fix 4 (WiFi) act on it.
+
+**One thing to watch:** the POS order request now reports 411 ms of CPU, up
+from 24 ms. The render moved there, and on a cold isolate it costs more than
+the 9 to 48 ms measured locally. Wall time includes the `waitUntil` work, so
+this tail cannot show whether staff waited longer for the POS to answer. A
+board read in the same second also took 638 ms. One sample is not enough to
+call it; if the POS feels slower after Print, this is the first suspect, and
+reverting `3881e1d` undoes it.
+
+Per-station before/after tables need dozens of tickets: re-run
+`npm run measure:print-latency` after a full service.
