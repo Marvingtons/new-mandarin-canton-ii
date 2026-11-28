@@ -1142,6 +1142,73 @@ export async function recordPrintSegments(
   );
 }
 
+/** A kitchen ticket rendered and uploaded at order creation (migration 018). */
+export interface StagedPrintJob {
+  key: string;
+  segments: number;
+  fingerprint: string;
+}
+
+/**
+ * Remember the body rendered at creation. Only while the order has never been
+ * handed over: a stage that loses the race to the printer's first poll writes
+ * nothing, and the object it uploaded is collected by the bucket lifecycle.
+ */
+export async function stagePrintJob(
+  tenantId: string,
+  orderId: number,
+  staged: StagedPrintJob,
+): Promise<boolean> {
+  const { rowCount } = await ordersPool().query(
+    `update orders set print_prerender = $3::jsonb
+      where tenant_id = $1 and id = $2 and print_attempts = 0 and print_job_key is null`,
+    [tenantId, orderId, JSON.stringify(staged)],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Take the staged body for a hand-over whose render inputs hash to
+ * `fingerprint`. ONE statement: the stage is cleared whatever happens (it is
+ * single-use, so no later delivery can be handed the same URL), and when it
+ * matches, print_job_key and print_segments are recorded exactly as
+ * publishJobBody records them after a render. Returns what was staged (the
+ * caller compares the fingerprint, and deletes the object when it does not
+ * match), or null when nothing was, including (never a throw) a database
+ * without 018.
+ */
+export async function takeStagedPrintJob(
+  tenantId: string,
+  orderId: number,
+  fingerprint: string,
+): Promise<StagedPrintJob | null> {
+  try {
+    const { rows } = await ordersPool().query(
+      `with old as (
+         select id, print_prerender as p from orders
+          where tenant_id = $1 and id = $2 and print_prerender is not null
+          for update
+       )
+       update orders o
+          set print_prerender = null,
+              print_job_key  = case when old.p->>'fingerprint' = $3 then old.p->>'key' else o.print_job_key end,
+              print_segments = case when old.p->>'fingerprint' = $3 then (old.p->>'segments')::int else o.print_segments end,
+              updated_at = now()
+         from old
+        where o.id = old.id
+        returning old.p as staged`,
+      [tenantId, orderId, fingerprint],
+    );
+    return (rows[0]?.staged as StagedPrintJob | undefined) ?? null;
+  } catch (err) {
+    console.warn(
+      "[cloudprnt] staged body unavailable (migration 018 not applied?): " +
+        (err instanceof Error ? err.message : "unknown error"),
+    );
+    return null;
+  }
+}
+
 /**
  * PAPER IS BACK — put back what the outage broke.
  *

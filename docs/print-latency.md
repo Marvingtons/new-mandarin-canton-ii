@@ -222,3 +222,25 @@ on every delivery (b = printer reaches our GET; c = 302 to R2, fetch, print,
 DELETE). The bytes printed don't change. The risk, as `printFetchViaWorker()`
 warns, is firmware that does not follow the 302, in which case tickets stop
 until the flag is turned off again. Watch the first ticket.
+
+## Step 2, fix 1: pre-render at creation (not yet measured in production)
+
+Both order routes (`/api/orders`, `/api/kitchen/orders`) now render and upload
+the first kitchen ticket inside `ctx.waitUntil`, after their response, and
+record it in `orders.print_prerender` (migration 018). The hand-over takes it
+in one statement only when the sha256 of its own render inputs matches;
+otherwise it renders exactly as before. Code: `src/lib/print/prerender.ts`.
+
+What the hand-over poll no longer does on a hit: the render (9 to 48 ms CPU),
+the R2 put, and two of its four database round trips. Expected saving is
+**≈0.2 to 0.3 s** of hop b+c, per the server-cost table above.
+
+Proved locally by `npm run verify:print-prerender` (26 checks): the staged
+bytes equal a render at hand-over; an edit, the printer winning the race, a
+retry, and a database without 018 all fall back to rendering with unchanged
+output, deliveries and confirmations.
+
+To measure: apply `018_print_prerender.sql`, deploy, then compare a
+`wrangler tail` of hand-over polls (`pre-rendered` in the log line) against the
+489 ms above, and re-run `npm run measure:print-latency` once a few dozen
+orders have printed. Until then there is no after-number for this fix.

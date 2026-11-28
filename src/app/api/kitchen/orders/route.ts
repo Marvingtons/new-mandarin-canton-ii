@@ -6,6 +6,7 @@ import {
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { createOrder } from "@/lib/orders/repository";
+import { schedulePrerender } from "@/lib/print/prerender";
 import { getMenu } from "@/lib/menu/source";
 import { composeOrder, staffLunchAllowed } from "@/lib/orders/compose";
 import { StaffOrderRequestSchema, type StaffOrderRequest } from "@/lib/orders/requestSchema";
@@ -240,6 +241,11 @@ export async function POST(request: Request): Promise<Response> {
       paymentNote: clean(body.paymentNote),
       staffNote: clean(body.staffNote),
     });
+    // Render the kitchen ticket now, after this response, so the printer's
+    // hand-over does not have to (lib/print/prerender.ts).
+    if (result.created) {
+      schedulePrerender({ tenantId: tenant.tenantId, timezone: tenant.timezone }, result.order);
+    }
     if (bypass) {
       console.warn(
         `[kitchen-orders] *** GATE BYPASSED *** staff order ${result.order.orderNumber}: ` +

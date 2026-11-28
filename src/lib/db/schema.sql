@@ -61,6 +61,10 @@ create table if not exists orders (
   -- a ticket that already exists, and is how a confirmation knows which object
   -- to delete. Cleared with the segment counters whenever the sequence resets.
   print_job_key     text,
+  -- The kitchen ticket rendered at order creation (migration 018), or NULL:
+  -- {"key", "segments", "fingerprint"}. Taken and cleared by the hand-over that
+  -- uses it, only when the fingerprint of what it would render matches.
+  print_prerender   jsonb,
   -- When a job body was last handed to the printer with jobReady:true.
   --
   -- Written by exactly one thing — an offer leaving the server — and cleared

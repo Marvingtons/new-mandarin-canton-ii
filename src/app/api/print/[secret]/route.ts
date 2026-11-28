@@ -51,6 +51,7 @@ import {
   recordRenderFailure,
   reofferPrintDelivery,
   requeueAfterPrinterRestored,
+  takeStagedPrintJob,
   type ConfirmDeliveryInput,
 } from "@/lib/orders/repository";
 import {
@@ -62,6 +63,7 @@ import {
   putPrintJob,
 } from "@/lib/print/jobStore";
 import type { Order } from "@/lib/orders/types";
+import { printerJobFingerprint, renderPrinterJob } from "@/lib/print/prerender";
 import { renderTicketJob, TICKET_WIDTH_PX } from "@/lib/ticket/render";
 import { maxStarPrntRows } from "@/lib/ticket/starprnt";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
@@ -730,23 +732,30 @@ async function publishJobBody(
     // ticket at the revision it was first handed over at). Unedited orders
     // come back unchanged.
     const body = await printBodyFor(tenant.tenantId, job, deliveryId);
-    const ticket = await renderTicketJob(
-      body.order,
-      {
-        timezone: tenant.timezone,
-        copies: ticketCopies(),
-        copyRoles: ticketCopyRoles(),
-        change: body.change,
-        revision: body.revision,
-      },
-      {
-        format: "starprnt",
-        // Star's 512KB GET cap, expressed as rows. Applies to the R2 object
-        // exactly as it applied to the Worker response.
-        maxHeight: maxStarPrntRows(TICKET_WIDTH_PX),
-        segment,
-      },
-    );
+
+    // PRE-RENDERED AT CREATION (lib/print/prerender.ts): the first piece may
+    // already be in R2, rendered from these exact inputs. Taken only on a
+    // fingerprint match, in one statement that also records the key and the
+    // piece count as the render path below does; anything else renders.
+    if (segment === 0) {
+      const fingerprint = await printerJobFingerprint(tenant.timezone, body, segment);
+      const staged = await takeStagedPrintJob(tenant.tenantId, job.id, fingerprint);
+      if (staged && staged.fingerprint === fingerprint) {
+        console.info(
+          `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} piece 1/${staged.segments} ` +
+            `-> R2 ${staged.key} (pre-rendered)`,
+        );
+        return printJobUrl(staged.key);
+      }
+      if (staged) {
+        console.info(
+          `[cloudprnt] ${job.orderNumber} pre-render is stale (order changed since), rendering`,
+        );
+        await deletePrintJob(staged.key);
+      }
+    }
+
+    const ticket = await renderPrinterJob(tenant.timezone, body, segment);
 
     /* UNCONDITIONAL, including segments === 1. This used to be guarded on
        "> 1", which made print_segments a one-way latch: it could record 2
