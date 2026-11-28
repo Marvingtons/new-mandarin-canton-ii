@@ -36,6 +36,7 @@ const BYPASS = "verify-staff-orders-bypass";
 const PRINT_SECRET = "verify-staff-orders-print";
 const MAC = "00:11:62:00:00:09";
 const TIMEZONE = "America/Los_Angeles";
+const CANCEL_PIN = "4826";
 
 /* ------------------------------------------------------------- results -- */
 
@@ -563,7 +564,7 @@ async function s4_history(m: Mods): Promise<void> {
       channel,
     });
     const cancelled = i % 10 === 9;
-    if (cancelled) await m.repo.cancelOrder(TENANT, order.id, "test cancel");
+    if (cancelled) await m.repo.cancelOrder(TENANT, order.id, "test cancel", "manager-pin");
     created.push({ number: order.orderNumber, date, channel, total, cancelled });
   }
   // And one in another tenant, in range, that must never appear.
@@ -623,14 +624,14 @@ async function s4_history(m: Mods): Promise<void> {
 
   const all = await csv(range);
   check("CSV is text/csv", all.status === 200 && (all.type ?? "").startsWith("text/csv"), `${all.status} ${all.type}`);
-  check("CSV header", all.header === "order_number,business_date,created_at,customer,phone,channel,items,subtotal,tax,total,status,station");
+  check("CSV header", all.header === "order_number,business_date,created_at,customer,phone,channel,items,subtotal,tax,total,status,station,cancelled_by");
   const csvNumbers = all.rows.map((r) => `${r.split(",")[1]}/${r.split(",")[0]}`);
   const listNumbers = listed.map((o) => `${o.businessDate}/${o.orderNumber}`);
   check("CSV rows are the listed rows, in the same order", JSON.stringify(csvNumbers) === JSON.stringify(listNumbers), `${csvNumbers.length} vs ${listNumbers.length}`);
   const csvTotal = all.rows.reduce((n, r) => {
     const cols = r.split(",");
-    // From the end: status and total sit just before station.
-    return cols[cols.length - 2] === "CANCELLED" ? n : n + Math.round(Number(cols[cols.length - 3]) * 100);
+    // From the end: total, status, station, cancelled_by.
+    return cols[cols.length - 3] === "CANCELLED" ? n : n + Math.round(Number(cols[cols.length - 4]) * 100);
   }, 0);
   check("CSV totals (excluding cancelled) equal the summary", csvTotal === p1.summary.salesCents, `${csvTotal} vs ${p1.summary.salesCents}`);
 
@@ -642,7 +643,7 @@ async function s4_history(m: Mods): Promise<void> {
   check("filtered CSV has the same rows", fc.rows.length === f.total);
   check(
     "filtered CSV total equals filtered summary",
-    fc.rows.reduce((n, r) => n + Math.round(Number(r.split(",").at(-3)) * 100), 0) === f.summary.salesCents,
+    fc.rows.reduce((n, r) => n + Math.round(Number(r.split(",").at(-4)) * 100), 0) === f.summary.salesCents,
   );
 
   const byPhone = await history("from=2026-09-01&to=2026-09-03&q=555-8877");
@@ -757,7 +758,7 @@ async function s7_cancelAndValidation(m: Mods): Promise<void> {
       kitchenRequest(`/api/kitchen/orders/${id}`, { method: "POST", body: JSON.stringify({ action, ...extra }) }),
       { params: Promise.resolve({ id: String(id) }) },
     );
-  const cancel = await act("cancel", { note: "customer called back to cancel" });
+  const cancel = await act("cancel", { note: "customer called back to cancel", pin: CANCEL_PIN });
   const after = await m.repo.getOrderById(TENANT, id);
   check("cancel answers ok", cancel.status === 200);
   check("status CANCELLED with the note", after?.status === "CANCELLED" && (after?.staffNote ?? "").includes("customer called back"));
@@ -890,6 +891,80 @@ async function s10_beverages(m: Mods): Promise<void> {
   check("a ticket with no drinks prints no 飲品 heading", !foodOnly.some((t) => t.includes("DRINKS")));
 }
 
+async function s11_cancelPin(m: Mods): Promise<void> {
+  console.log("\n11. 取消 needs the manager PIN; undo does not; 5 wrong in 10 min cools down 60s");
+  await resetTenant(m);
+  const pool = m.pool.ordersPool();
+  await pool.query("delete from cancel_pin_failures");
+  const place = async () => Number(((await staffPost(m, staffBody([defaultLine(m, "egg-rolls")]))).body.order as { id: number }).id);
+  const act = async (id: number, action: string, extra: Record<string, unknown> = {}) => {
+    const res = await m.orderAction.POST(
+      kitchenRequest(`/api/kitchen/orders/${id}`, { method: "POST", body: JSON.stringify({ action, ...extra }) }),
+      { params: Promise.resolve({ id: String(id) }) },
+    );
+    return { status: res.status, retryAfter: res.headers.get("retry-after"), body: (await res.json()) as Record<string, unknown> };
+  };
+  const status = async (id: number) => (await m.repo.getOrderById(TENANT, id))?.status;
+
+  const id = await place();
+  const none = await act(id, "cancel");
+  check("cancel without a PIN is a 401", none.status === 401 && none.body.code === "pin_required", `status=${none.status}`);
+  check("  and the order is untouched", (await status(id)) !== "CANCELLED");
+  const wrong = await act(id, "cancel", { pin: "0000" });
+  check("a wrong PIN is a 403", wrong.status === 403 && wrong.body.code === "pin_wrong", `status=${wrong.status}`);
+  check("  and the order is untouched", (await status(id)) !== "CANCELLED");
+  check("  and the response never carries the PIN", !JSON.stringify(wrong.body).includes(CANCEL_PIN));
+  const right = await act(id, "cancel", { pin: CANCEL_PIN, note: "authorised" });
+  const cancelled = await m.repo.getOrderById(TENANT, id);
+  check("the right PIN cancels", right.status === 200 && cancelled?.status === "CANCELLED", `status=${right.status}`);
+  check("the cancel is recorded as manager-pin", cancelled?.cancelledBy === "manager-pin", String(cancelled?.cancelledBy));
+  const history = await m.history.GET(kitchenRequest(`/api/kitchen/history?from=${cancelled!.businessDate}&to=${cancelled!.businessDate}`));
+  const listed = ((await history.json()) as { orders: { id: number; cancelledBy?: string | null }[] }).orders.find((o) => o.id === id);
+  check("History shows who cancelled it", listed?.cancelledBy === "manager-pin", JSON.stringify(listed?.cancelledBy));
+  const csv = await (await m.historyCsv.GET(kitchenRequest(`/api/kitchen/history/csv?from=${cancelled!.businessDate}&to=${cancelled!.businessDate}`))).text();
+  check("the CSV carries cancelled_by", csv.split(/\r?\n/)[0].endsWith(",cancelled_by") && csv.includes("manager-pin"));
+
+  const undo = await act(id, "undo");
+  const undone = await m.repo.getOrderById(TENANT, id);
+  check("undo of a cancel needs no PIN", undo.status === 200 && undone?.status !== "CANCELLED", `status=${undo.status}`);
+  check("  and clears cancelled_by", undone?.cancelledBy === null, String(undone?.cancelledBy));
+
+  /* Rate limit, per tablet session. The one wrong PIN above is cleared so
+     this counts from zero. */
+  await pool.query("delete from cancel_pin_failures");
+  const target = await place();
+  const codes: number[] = [];
+  for (let i = 0; i < 5; i++) codes.push((await act(target, "cancel", { pin: "1111" })).status);
+  check("five wrong PINs are five 403s", codes.every((c) => c === 403), codes.join(","));
+  const locked = await act(target, "cancel", { pin: CANCEL_PIN });
+  check("the sixth try, even the right PIN, is a 429", locked.status === 429 && locked.body.code === "pin_cooldown", `status=${locked.status}`);
+  check("  with Retry-After of at most 60s", Number(locked.retryAfter) > 0 && Number(locked.retryAfter) <= 60, String(locked.retryAfter));
+  check("  and the order is untouched", (await status(target)) !== "CANCELLED");
+
+  const saved = kitchenCookie;
+  await new Promise((r) => setTimeout(r, 5));
+  kitchenCookie = `nmc_kitchen=${m.session.login(PASSWORD)}`;
+  const other = await act(target, "cancel", { pin: "1111" });
+  check("another tablet session is not locked by this one", other.status === 403, `status=${other.status}`);
+  kitchenCookie = saved;
+
+  await pool.query("update cancel_pin_failures set failed_at = failed_at - interval '61 seconds'");
+  const afterCooldown = await act(target, "cancel", { pin: CANCEL_PIN });
+  check("after the 60s cooldown the right PIN cancels", afterCooldown.status === 200 && (await status(target)) === "CANCELLED", `status=${afterCooldown.status}`);
+  const again = await place();
+  const relock = await act(again, "cancel", { pin: "9999" });
+  check("one more wrong inside the 10 minutes locks again", relock.status === 403 && Number(relock.body.retryAfterSeconds) > 0, JSON.stringify(relock.body));
+  await pool.query("update cancel_pin_failures set failed_at = failed_at - interval '11 minutes'");
+  const fresh = await act(again, "cancel", { pin: "9999" });
+  check("misses older than 10 minutes no longer count", fresh.status === 403 && Number(fresh.body.retryAfterSeconds) === 0, JSON.stringify(fresh.body));
+
+  const prev = process.env.CANCEL_PIN;
+  process.env.CANCEL_PIN = "12ab";
+  const misconfigured = await act(again, "cancel", { pin: "12ab" });
+  check("a malformed CANCEL_PIN refuses every cancel (503), never falls open", misconfigured.status === 503 && misconfigured.body.code === "pin_unconfigured", `status=${misconfigured.status}`);
+  process.env.CANCEL_PIN = prev;
+}
+
 async function s9_noTimeLimits(m: Mods): Promise<void> {
   console.log("\n9. staff orders have NO time limits; the web still does (clock pinned, no bypass)");
   await resetTenant(m);
@@ -977,6 +1052,7 @@ async function main(): Promise<void> {
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
   process.env.ADMIN_DASH_PASSWORD = PASSWORD;
+  process.env.CANCEL_PIN = CANCEL_PIN;
   process.env.ORDER_GATE_BYPASS = BYPASS;
   process.env.OTP_SIGNING_SECRET = "verify-staff-orders-otp-secret-0123456789abcdef";
   process.env.CLOUDPRNT_SECRET = PRINT_SECRET;
@@ -1027,6 +1103,7 @@ async function main(): Promise<void> {
     await s8_perPhoneCap(m);
     await s9_noTimeLimits(m);
     await s10_beverages(m);
+    await s11_cancelPin(m);
   } finally {
     await pool.closeOrdersPool();
     console.log("\nstopping postgres…");

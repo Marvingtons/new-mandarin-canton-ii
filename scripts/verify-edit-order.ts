@@ -524,7 +524,7 @@ async function s10_cases(m: Mods): Promise<void> {
   check("31 minutes after done: 409 not_editable", stale.status === 409 && stale.body.code === "not_editable");
 
   const cancelled = await place(m, [line(m, "beef-broccoli")]);
-  await m.orderAction.POST(kitchenRequest(`/api/kitchen/orders/${cancelled}`, { method: "POST", body: JSON.stringify({ action: "cancel" }) }), ctx(cancelled));
+  await m.orderAction.POST(kitchenRequest(`/api/kitchen/orders/${cancelled}`, { method: "POST", body: JSON.stringify({ action: "cancel", pin: "2468" }) }), ctx(cancelled));
   const c = (await m.repo.getOrderById(TENANT, cancelled))!;
   const ce = await edit(m, cancelled, 0, [...loaded(c), line(m, "egg-rolls")]);
   check("a cancelled order: 409 not_editable", ce.status === 409 && ce.body.code === "not_editable");
@@ -618,6 +618,7 @@ async function main(): Promise<void> {
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
   process.env.ADMIN_DASH_PASSWORD = PASSWORD;
+  process.env.CANCEL_PIN = "2468";
   process.env.ORDER_GATE_BYPASS = BYPASS;
   process.env.OTP_SIGNING_SECRET = "verify-edit-order-otp-secret-0123456789abcdef";
   process.env.CLOUDPRNT_SECRET = PRINT_SECRET;

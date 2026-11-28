@@ -160,6 +160,7 @@ const ORDER_COLUMNS = `
   updated_at,
   done_previous_status,
   done_at,
+  cancelled_by,
   revision,
   edited_at,
   ticket_revision,
@@ -220,6 +221,7 @@ function mapOrder(row: QueryResultRow): Order {
     updatedAt: (row.updated_at as Date).toISOString(),
     donePreviousStatus: isOrderStatus(row.done_previous_status) ? row.done_previous_status : null,
     doneAt: row.done_at == null ? null : (row.done_at as Date).toISOString(),
+    cancelledBy: row.cancelled_by == null ? null : String(row.cancelled_by),
     revision: row.revision == null ? 0 : Number(row.revision),
     editedAt: row.edited_at == null ? null : (row.edited_at as Date).toISOString(),
     ticketRevision: row.ticket_revision == null ? null : Number(row.ticket_revision),
@@ -1997,7 +1999,7 @@ export async function listRecentlyDone(tenantId: string): Promise<Order[]> {
 export async function undoDone(tenantId: string, orderId: number): Promise<Order | null> {
   const { rows } = await ordersPool().query(
     `update orders set status = done_previous_status, done_previous_status = null,
-        done_at = null, updated_at = now()
+        done_at = null, cancelled_by = null, updated_at = now()
       where tenant_id = $1 and id = $2 and status in ('COMPLETED', 'CANCELLED')
         and done_previous_status in ('QUEUED', 'PRINTED', 'PRINT_FAILED', 'ACCEPTED')
         and done_at > now() - interval '10 minutes'
@@ -2183,10 +2185,13 @@ export async function cancelOrder(
   tenantId: string,
   orderId: number,
   note: string | null,
+  /** Who authorised it, kept on the order for History: "manager-pin". */
+  actor: string,
 ): Promise<Order | null> {
   const { rows } = await ordersPool().query(
     `update orders
         set status = 'CANCELLED',
+            cancelled_by = $4,
             done_previous_status = case when status not in ('COMPLETED', 'CANCELLED') then status else done_previous_status end,
             done_at = case when status not in ('COMPLETED', 'CANCELLED') then now() else done_at end,
             staff_note = case
@@ -2203,7 +2208,7 @@ export async function cancelOrder(
             updated_at = now()
       where tenant_id = $1 and id = $2 and status <> 'CANCELLED'
       returning ${ORDER_COLUMNS}`,
-    [tenantId, orderId, note && note.trim() ? note.trim() : null],
+    [tenantId, orderId, note && note.trim() ? note.trim() : null, actor],
   );
   return rows.length > 0 ? wrote(mapOrder(rows[0])) : null;
 }

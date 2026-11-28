@@ -8,7 +8,7 @@ import { useKT } from "@/components/kitchen/KitchenI18n";
 import { useKitchenLive } from "@/components/kitchen/KitchenLive";
 import OrderCard, { type CardRequest } from "@/components/kitchen/OrderCard";
 import ReprintDialog from "@/components/kitchen/ReprintDialog";
-import { ConfirmDialog } from "@/components/kitchen/ui/Dialog";
+import CancelPinDialog from "@/components/kitchen/CancelPinDialog";
 import { OrderCardSkeleton } from "@/components/kitchen/ui/Skeleton";
 import { useShortcuts } from "@/components/kitchen/ui/shortcuts";
 
@@ -157,28 +157,16 @@ export default function OrderList({
       )}
 
       {dialog?.kind === "cancel" && (
-        <ConfirmDialog
-          title={t("card.cancelTitle", { number: dialog.order.orderNumber })}
-          body={t("confirm.cancelBody")}
-          confirmLabel={t("card.cancelConfirm")}
+        <CancelPinDialog
+          order={dialog.order}
+          note={cancelNote}
+          onNoteChange={setCancelNote}
           onClose={() => setDialog(null)}
-          onConfirm={() => {
-            const order = dialog.order;
-            const note = cancelNote.trim() || undefined;
+          onCancelled={() => {
             setDialog(null);
-            void act(order, "cancel", { note }).then(done);
+            done(true);
           }}
-        >
-          <label className="flex flex-col gap-1.5">
-            <span className="text-staff-body text-staff-soft">{t("card.cancelReason")}</span>
-            <input
-              value={cancelNote}
-              onChange={(e) => setCancelNote(e.target.value)}
-              maxLength={300}
-              className="min-h-14 rounded-staff-control bg-staff-panel px-3 text-staff-body shadow-[inset_0_0_0_1px_var(--color-staff-line-strong)] outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-staff-brand)]"
-            />
-          </label>
-        </ConfirmDialog>
+        />
       )}
     </>
   );

@@ -309,6 +309,27 @@ export function ownerAlertPhone(): string | null {
   return env("OWNER_ALERT_PHONE");
 }
 
+/**
+ * The manager PIN that Cancel on the board asks for (4 to 8 digits).
+ *
+ * Separate from ADMIN_DASH_PASSWORD on purpose: every staff member has the
+ * board password to take, print and edit orders; only a manager can cancel
+ * one. Checked server-side on the cancel action; never sent to a browser.
+ *
+ * Null when unset or malformed, and cancel then refuses with "no PIN set"
+ * rather than falling back to no PIN: a misconfigured deploy must not quietly
+ * let anyone cancel.
+ */
+export function cancelPin(): string | null {
+  const pin = env("CANCEL_PIN");
+  if (pin === null) return null;
+  if (!/^\d{4,8}$/.test(pin)) {
+    console.warn("[tenant] CANCEL_PIN must be 4 to 8 digits; cancel is refused until it is fixed.");
+    return null;
+  }
+  return pin;
+}
+
 /** Secret path segment the CloudPRNT printer polls. */
 export function requireCloudPrntSecret(): string {
   return required(

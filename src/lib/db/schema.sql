@@ -554,3 +554,22 @@ create index if not exists orders_change_pending_idx
 
 alter table order_revisions      enable row level security;
 alter table order_change_tickets enable row level security;
+
+-- 019: 取消 needs the manager PIN (CANCEL_PIN). Who authorised a cancel, for
+-- History: 'manager-pin'. NULL on orders not cancelled, cancelled before 019,
+-- or cancelled and then undone.
+alter table orders add column if not exists cancelled_by text;
+
+-- Wrong CANCEL_PIN attempts, per board session (a hash of the kitchen cookie,
+-- never the cookie). 5 inside 10 minutes locks that tablet's cancel for 60s.
+-- In Postgres, not in memory, so every Worker isolate sees the same count.
+-- Rows older than a day are deleted as new ones are written.
+create table if not exists cancel_pin_failures (
+  id           bigserial   primary key,
+  tenant_id    text        not null,
+  session_key  text        not null,
+  failed_at    timestamptz not null default now()
+);
+create index if not exists cancel_pin_failures_session_idx
+  on cancel_pin_failures (tenant_id, session_key, failed_at);
+alter table cancel_pin_failures enable row level security;

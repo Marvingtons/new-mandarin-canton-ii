@@ -7,3 +7,4 @@ export const E2E_PORT = Number(process.env.E2E_PORT ?? 3100);
 export const E2E_DB_PORT = Number(process.env.E2E_DB_PORT ?? 55441);
 export const E2E_KITCHEN_PASSWORD = "e2e-kitchen-password";
 export const E2E_BYPASS = "e2e-gate-bypass";
+export const E2E_CANCEL_PIN = "1357";

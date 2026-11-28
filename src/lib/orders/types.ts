@@ -296,6 +296,12 @@ export interface Order {
   donePreviousStatus?: OrderStatus | null;
   doneAt?: string | null;
   /**
+   * Who cancelled it (migration 019): "manager-pin" for a cancel authorised
+   * with CANCEL_PIN on the board. Null on an order that is not cancelled, on
+   * one cancelled before the PIN existed, and after an undo.
+   */
+  cancelledBy?: string | null;
+  /**
    * 改單 (migration 017). The version the row holds: 0 as placed, +1 per saved
    * edit. Earlier versions are in order_revisions.
    */
