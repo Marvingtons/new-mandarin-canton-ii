@@ -179,6 +179,9 @@ export const CSV_HEADER = [
   // first eleven columns keeps working. (The dine-in table, guests and addon
   // columns that sat before it were removed with dine-in on 2026-11-14.)
   "station",
+  // Who authorised a cancel (migration 019): "manager-pin", or empty.
+  // Appended, for the same reason as station.
+  "cancelled_by",
 ] as const;
 
 /** RFC 4180 quoting, plus a leading-apostrophe guard against formula injection. */
@@ -236,6 +239,7 @@ export function csvRow(order: Order, timezone: string): string {
     dollars(order.totals.totalCents),
     order.status,
     order.station,
+    order.cancelledBy ?? "",
   ]
     .map((v) => csvCell(String(v ?? "")))
     .join(",");

@@ -137,9 +137,11 @@ async function call(handler: Handler, path: string, ifNoneMatch?: string | null)
 const version = (m: Mods, held?: string | null) => call(m.version.GET, "/api/kitchen/orders/version", held);
 const list = (m: Mods, held?: string | null) => call(m.orders.GET, "/api/kitchen/orders", held);
 
+const CANCEL_PIN = "2468";
+
 async function act(m: Mods, id: number, action: string, extra: Record<string, unknown> = {}): Promise<number> {
   const res = await m.action.POST(
-    req(`/api/kitchen/orders/${id}`, { method: "POST", body: JSON.stringify({ action, ...extra }) }),
+    req(`/api/kitchen/orders/${id}`, { method: "POST", body: JSON.stringify({ action, ...(action === "cancel" ? { pin: CANCEL_PIN } : {}), ...extra }) }),
     { params: Promise.resolve({ id: String(id) }) },
   );
   return res.status;
@@ -521,6 +523,7 @@ async function main(): Promise<void> {
   process.env.TENANT_TAX_RATE_BPS = "875";
   process.env.ORDER_NUMBER_PREFIX = "A";
   process.env.ADMIN_DASH_PASSWORD = PASSWORD;
+  process.env.CANCEL_PIN = CANCEL_PIN;
   process.env.CLOUDPRNT_SECRET = "verify-board-poll-print";
   process.env.CLOUDPRNT_PRINTER_MAC_ONLINE = MAC_ONLINE;
   process.env.CLOUDPRNT_PRINTER_MAC_STORE = MAC_STORE;

@@ -57,6 +57,7 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `DATABASE_URL` | Supabase Postgres, **pooled, port 6543** | step 1.3 |
 | `OTP_SIGNING_SECRET` | HMAC key for the phone-verification cookie. Its own secret — never reuse the kitchen password | `openssl rand -hex 32` |
 | `ADMIN_DASH_PASSWORD` | Shared password for the `/kitchen` board | pick something staff can type |
+| `CANCEL_PIN` | Manager PIN, 4 to 8 digits, that 取消 Cancel on the board asks for. Staff take, print and edit orders without it. Unset or not 4-8 digits = **no one can cancel** (the dialog says so); it never falls back to no PIN | the owner picks it; never the board password |
 | `CLOUDPRNT_SECRET` | The print endpoint's only credential; travels in the URL | `openssl rand -hex 32` |
 | `TWILIO_ACCOUNT_SID` | Twilio account | step 3 |
 | `TWILIO_AUTH_TOKEN` | Twilio account | step 3 |
@@ -314,6 +315,16 @@ rather than a seek to the end of it.
    not come out, it shows "Did not print" on the sheet and staff print again
    (the next #). `[cloudprnt] verdict=report-…` lines in the Worker log follow
    each one. Rollback: `down_016_to_015.sql` (deletes report prints only).
+8. **取消 Cancel needs the manager PIN.** Requires migration 019
+   (`019_cancel_pin.sql`) **before** the deploy: the new code reads
+   `orders.cancelled_by` on every order read. Set `CANCEL_PIN` in the same
+   deploy. The board's cancel dialog takes the PIN on a keypad; the server
+   checks it (the browser never sees it). 5 wrong in 10 minutes from one
+   tablet locks that tablet's cancel for 60 seconds, counted in
+   `cancel_pin_failures` so every Worker isolate agrees. Undo of a cancel
+   needs no PIN. History marks each PIN cancel 主管取消 Manager cancel, and the
+   CSV has a `cancelled_by` column. Rollback: deploy the previous code, then
+   `down_019_to_018.sql`.
 
 ---
 

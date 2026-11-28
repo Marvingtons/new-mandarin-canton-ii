@@ -1,6 +1,12 @@
 import { z } from "zod";
-import { publicTenant } from "@/config/tenant.server";
-import { hasKitchenSessionFromRequest } from "@/lib/auth/kitchenSession";
+import { cancelPin, publicTenant } from "@/config/tenant.server";
+import { hasKitchenSessionFromRequest, kitchenSessionKey } from "@/lib/auth/kitchenSession";
+import {
+  CANCEL_PIN_ACTOR,
+  cancelPinCooldown,
+  cancelPinMatches,
+  recordCancelPinFailure,
+} from "@/lib/auth/cancelPin";
 import {
   cancelOrder,
   getOrderById,
@@ -27,6 +33,8 @@ const BodySchema = z.strictObject({
   action: z.enum(["accept", "complete", "cancel", "reprint", "notify", "undo"]),
   /** Why, for a cancel. Stored on staff_note; never printed. */
   note: z.string().max(500).optional(),
+  /** For a cancel: the manager PIN (CANCEL_PIN). Checked here, never echoed. */
+  pin: z.string().max(16).optional(),
   /**
    * For a reprint: which printer. Omitted = the station it is already on,
    * which is what the picker preselects.
@@ -128,8 +136,39 @@ export async function POST(
 
   // 取消: CANCELLED, with the reason on staff_note, and the print pointer
   // cleared so nothing reads as in flight. Never re-offered to the printer.
+  //
+  // MANAGER PIN. Staff take, print and edit orders on the board password
+  // alone; cancelling one needs CANCEL_PIN as well, checked HERE (the client
+  // never learns it). No PIN: 401. Wrong: 403, and counted per tablet
+  // session; 5 wrong in 10 minutes: 429 for 60 seconds (lib/auth/cancelPin).
+  // Undo of a cancel is the "undo" action above and needs no PIN.
   if (body.action === "cancel") {
-    const cancelled = await cancelOrder(tenant.tenantId, orderId, body.note ?? null);
+    const expected = cancelPin();
+    if (expected === null) {
+      return Response.json(
+        { ok: false, code: "pin_unconfigured", error: "No cancel PIN is set (CANCEL_PIN)." },
+        { status: 503 },
+      );
+    }
+    if (!body.pin) {
+      return Response.json({ ok: false, code: "pin_required", error: "The manager PIN is required to cancel." }, { status: 401 });
+    }
+    const sessionKey = kitchenSessionKey(request) ?? "unknown";
+    const wait = await cancelPinCooldown(tenant.tenantId, sessionKey);
+    if (wait > 0) {
+      return Response.json(
+        { ok: false, code: "pin_cooldown", retryAfterSeconds: wait, error: "Too many wrong PINs. Wait, then try again." },
+        { status: 429, headers: { "retry-after": String(wait) } },
+      );
+    }
+    if (!cancelPinMatches(body.pin, expected)) {
+      const after = await recordCancelPinFailure(tenant.tenantId, sessionKey);
+      return Response.json(
+        { ok: false, code: "pin_wrong", retryAfterSeconds: after, error: "Wrong PIN." },
+        { status: 403 },
+      );
+    }
+    const cancelled = await cancelOrder(tenant.tenantId, orderId, body.note ?? null, CANCEL_PIN_ACTOR);
     return Response.json({ ok: true, order: cancelled ?? order });
   }
 

@@ -257,6 +257,20 @@
 .staff-pop {
   animation: staff-pop 220ms cubic-bezier(0.2, 0, 0, 1);
 }
+/* A wrong manager PIN (PinPad): one short shake of the field. */
+@keyframes staff-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-10px); }
+  40% { transform: translateX(9px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(4px); }
+}
+.staff-shake {
+  animation: staff-shake 320ms cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-shake { animation: none; }
+}
 @keyframes staff-sheet-in {
   from {
     transform: translateX(2rem);

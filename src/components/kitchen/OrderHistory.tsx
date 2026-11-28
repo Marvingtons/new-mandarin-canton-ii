@@ -360,8 +360,14 @@ export default function OrderHistory({
                   <span className={`text-right text-staff-body font-semibold ${o.status === "CANCELLED" ? "text-staff-soft line-through" : ""}`}>
                     {formatCents(o.totals.totalCents)}
                   </span>
-                  <span>
+                  <span className="flex flex-wrap items-center gap-1">
                     <StatusPill status={o.status} />
+                    {/* Who authorised the cancel (migration 019). */}
+                    {o.status === "CANCELLED" && o.cancelledBy === "manager-pin" && (
+                      <span data-cancelled-by="manager-pin" className={`${ui.pill} bg-staff-sunken text-staff-ink`}>
+                        {t("history.cancelledByPin")}
+                      </span>
+                    )}
                   </span>
                   <span className="flex flex-wrap items-center gap-1 text-staff-caption text-staff-soft">
                     {deliveries > 0 && t("history.sent", { n: deliveries })}

@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { Client } from "pg";
 
-import { E2E_BYPASS, E2E_DB_PORT, E2E_KITCHEN_PASSWORD, E2E_PORT } from "../tests/e2e/env";
+import { E2E_BYPASS, E2E_CANCEL_PIN, E2E_DB_PORT, E2E_KITCHEN_PASSWORD, E2E_PORT } from "../tests/e2e/env";
 const DB_NAME = "nmc_e2e";
 
 async function main(): Promise<void> {
@@ -66,6 +66,7 @@ async function main(): Promise<void> {
       TENANT_TAX_RATE_BPS: "875",
       ORDER_NUMBER_PREFIX: "A",
       ADMIN_DASH_PASSWORD: E2E_KITCHEN_PASSWORD,
+      CANCEL_PIN: E2E_CANCEL_PIN,
       ORDER_GATE_BYPASS: E2E_BYPASS,
       // `next start` is NODE_ENV=production, where /api/test-mode is a 404
       // unless deliberately opened. The specs open it.

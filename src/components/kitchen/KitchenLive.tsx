@@ -120,7 +120,18 @@ interface LiveValue {
     action: OrderAction,
     extra?: { note?: string; station?: Station; changeTicketId?: string },
   ) => Promise<boolean>;
+  /**
+   * 取消 with the manager PIN. Not optimistic: the dialog stays open until
+   * the server says yes, so a wrong PIN can shake in place.
+   */
+  cancelWithPin: (order: OrderRef, pin: string, note?: string) => Promise<CancelPinResult>;
 }
+
+export type CancelPinResult =
+  | { ok: true }
+  | { ok: false; reason: "wrong"; retryAfterSeconds: number }
+  | { ok: false; reason: "cooldown"; retryAfterSeconds: number }
+  | { ok: false; reason: "unconfigured" | "failed" };
 
 const LiveContext = createContext<LiveValue | null>(null);
 
@@ -490,6 +501,40 @@ export function KitchenLiveProvider({
     [setOverlay, dropOverlay, adopt, toast, t],
   );
 
+  const cancelWithPin = useCallback<LiveValue["cancelWithPin"]>(
+    async (order, pin, note) => {
+      let res: Response;
+      let data: { ok: boolean; code?: string; retryAfterSeconds?: number; order?: Order | null };
+      try {
+        res = await fetch(`/api/kitchen/orders/${order.id}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "cancel", pin, ...(note ? { note } : {}) }),
+        });
+        data = res.headers.get("content-type")?.includes("json") ? await res.json() : { ok: false };
+      } catch {
+        toast(t("toast.offline"), "error");
+        return { ok: false, reason: "failed" };
+      }
+      // A 401 that is not about the PIN is an expired board session.
+      if (res.status === 401 && data.code !== "pin_required") {
+        window.location.reload();
+        return { ok: false, reason: "failed" };
+      }
+      if (data.code === "pin_wrong") return { ok: false, reason: "wrong", retryAfterSeconds: data.retryAfterSeconds ?? 0 };
+      if (data.code === "pin_cooldown") return { ok: false, reason: "cooldown", retryAfterSeconds: data.retryAfterSeconds ?? 60 };
+      if (data.code === "pin_unconfigured") return { ok: false, reason: "unconfigured" };
+      if (!data.ok) {
+        toast(t("toast.failed", { number: order.orderNumber }), "error");
+        return { ok: false, reason: "failed" };
+      }
+      if (data.order) adopt(data.order);
+      toast(t("toast.cancelled", { number: order.orderNumber }));
+      return { ok: true };
+    },
+    [adopt, toast, t],
+  );
+
   // "Did not print", measured against the server's clock (see the deadline
   // effect above). The server's own flag stands until the first X-Server-Time.
   const clocked = useMemo(
@@ -536,10 +581,11 @@ export function KitchenLiveProvider({
       declineSound,
       refresh,
       act,
+      cancelWithPin,
     }),
     [
       orders, recentlyDone, printers, printersConfigured, status, freshIds, pendingIds,
-      muted, sound, toggleMute, enableSound, declineSound, refresh, act,
+      muted, sound, toggleMute, enableSound, declineSound, refresh, act, cancelWithPin,
     ],
   );
 
