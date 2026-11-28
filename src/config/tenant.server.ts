@@ -544,6 +544,28 @@ export function printFetchViaWorker(): boolean {
  * of a 1-byte block, so confirm on ONE live ticket (it prints, same length,
  * no gaps) before leaving it on. Turning it off again needs only this var.
  */
+/**
+ * SERVE THE JOB BODY FROM THE POLL'S OWN HOST (docs/print-latency.md, the
+ * B-053 test). The printer is silent for ~16 s after jobReady whatever the
+ * job's size, so the suspect is connection setup to the second host
+ * (print-jobs.…). With this on, the poll advertises its own GET as
+ * jobGetUrl and that GET answers with the finished R2 object's bytes: no
+ * redirect, a fixed Content-Length, no render.
+ *
+ *   unset / "off"     the printer fetches R2 directly (the proven path)
+ *   "1" / "https"     same host, https, the same scheme as the poll
+ *   "http"            same host, plain http (job bodies only; the poll stays https)
+ *
+ * Not the 520 path: that one rendered on the fly and left through OpenNext's
+ * re-streamed, chunked response. This serves an already-finished object, and
+ * custom-worker.ts re-sends it at a fixed length outside that layer.
+ */
+export function printFetchProxy(): "off" | "https" | "http" {
+  const raw = env("PRINT_FETCH_PROXY");
+  if (raw === null || raw === "off" || raw === "0" || raw === "false") return "off";
+  return raw === "http" ? "http" : "https";
+}
+
 export function printCompactBlankRows(): boolean {
   const raw = env("PRINT_COMPACT_BLANK_ROWS");
   if (raw === null) return false;

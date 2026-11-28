@@ -3,6 +3,7 @@ import {
   printConfirmFloorSeconds,
   printFetchViaWorker,
   printCompactBlankRows,
+  printFetchProxy,
   printOfferCap,
   printRenderCap,
   printSecondsPerCopy,
@@ -469,7 +470,17 @@ export async function POST(
     // Worker never sees the fetch). With PRINT_FETCH_VIA_WORKER on: the Worker's
     // own GET, so the fetch is counted and gated before a 302 to R2 — see
     // printFetchViaWorker() for why that is opt-in.
-    const advertisedGetUrl = printFetchViaWorker() ? selfGetUrl : (jobUrl ?? selfGetUrl);
+    // PRINT_FETCH_PROXY: the same host as this poll, the bytes served by the
+    // Worker's own GET (no redirect). "http" advertises it without TLS.
+    const proxy = printFetchProxy();
+    const proxyGetUrl =
+      proxy === "http" ? selfGetUrl.replace(/^https:\/\//, "http://") : selfGetUrl;
+    const advertisedGetUrl =
+      proxy !== "off" && jobUrl
+        ? proxyGetUrl
+        : printFetchViaWorker()
+          ? selfGetUrl
+          : (jobUrl ?? selfGetUrl);
 
     const body: CloudPrntStatusResponse = {
       jobReady: true,
@@ -900,6 +911,30 @@ export async function GET(
   // printing — flip PRINT_FETCH_VIA_WORKER off (back to R2-direct) or replace
   // this branch with a stream-through-Worker serve, and verify with `wrangler
   // tail`. See printFetchViaWorker().
+  // SAME-HOST PROXY (PRINT_FETCH_PROXY): the finished R2 object's exact bytes,
+  // answered here with no redirect. The 410 gates above have already run. The
+  // x-nmc-fixed-length marker makes custom-worker.ts re-send the body as one
+  // fixed-length buffer, outside OpenNext's re-streaming (the 520 cause).
+  if (token && deliveryId && printFetchProxy() !== "off" && printJobStoreReady()) {
+    const state = await printSegmentState(tenant.tenantId, job.id);
+    const bytes = state.jobKey ? await getPrintJob(state.jobKey) : null;
+    if (bytes) {
+      const delivery = await getPrintDelivery(tenant.tenantId, deliveryId);
+      const fetchCount = await recordDeliveryFetch(tenant.tenantId, deliveryId);
+      const sinceOffer = delivery
+        ? ((Date.now() - Date.parse(delivery.offeredAt)) / 1000).toFixed(1)
+        : "?";
+      console.info(
+        `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} GET arrived +${sinceOffer}s after offer ` +
+          `(proxy ${url.protocol.replace(":", "")}, ${bytes.byteLength} bytes) fetch_count=${fetchCount ?? "?"}`,
+      );
+      const res = jobResponse(bytes, JOB_MEDIA_TYPE_STARPRNT);
+      res.headers.set("x-nmc-fixed-length", "1");
+      return res;
+    }
+    // No published object: fall through to the paths below, unchanged.
+  }
+
   if (token && deliveryId && printFetchViaWorker() && printJobStoreReady()) {
     const state = await printSegmentState(tenant.tenantId, job.id);
     const r2Url = state.jobKey ? printJobUrl(state.jobKey) : null;
