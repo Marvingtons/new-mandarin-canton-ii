@@ -135,8 +135,11 @@ export async function prerenderTicket(
   // No delivery yet: the body a first offer will carry (current revision, no
   // change ticket, no chip). Reads nothing from the database for a new order.
   const body = await printBodyFor(tenant.tenantId, order, null);
-  const fingerprint = await printerJobFingerprint(tenant.timezone, body, 0);
-  const ticket = await renderPrinterJob(tenant.timezone, body, 0);
+  // Independent: the fingerprint reads the inputs, the render produces the bytes.
+  const [fingerprint, ticket] = await Promise.all([
+    printerJobFingerprint(tenant.timezone, body, 0),
+    renderPrinterJob(tenant.timezone, body, 0),
+  ]);
   const sha256 = await payloadHash(ticket.body);
   // "pre" + a fresh uuid stands where a delivery id goes: an identity of its
   // own, used by exactly one delivery (the stage is single-use).
