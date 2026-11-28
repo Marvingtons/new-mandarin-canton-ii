@@ -425,3 +425,21 @@ software check passes, but only the TSP143IV can say whether it accepts a
 
 Per-station before/after tables need dozens of tickets: re-run
 `npm run measure:print-latency` after a full service.
+
+### First tickets since the deploy (measured 2026-11-27, evening service)
+
+First kitchen tickets confirmed in the last 7 days, split at the deploy
+(18:09 PT). Seconds, p50 unless marked.
+
+| | n | a: created→offered | b+c p50 | b+c p90 | total p50 | total p90 | total max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| store, before | 49 | 1.5 | 20.7 | 24.5 | 22.5 | 27.7 | 62.8 |
+| store, after | 10 | 1.7 | 20.3 | 22.0 | 22.8 | 23.8 | 24.3 |
+| online, before | 29 | 1.9 | 23.3 | 35.5 | 24.9 | 37.3 | 40.3 |
+| online, after | 0 | | | | | | |
+
+All 10 deliveries since the deploy were first offers confirmed `200 OK`: no
+retries, no failures, and no stage left behind on any order. Tap-to-paper is
+unchanged within noise, as the Step 1 numbers predicted: the ~20 s of b+c is
+the printer downloading and printing, which fixes 1, 3 and 5 do not touch.
+No web orders have printed on the online printer since the deploy.
