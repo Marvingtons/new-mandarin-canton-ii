@@ -327,3 +327,47 @@ paper.
 Advice: **2 s**, which saves ≈1 s (≈0.5 s on hop a, ≈0.5 s on the DELETE
 tick) and stays under the Workers free plan's 100,000 requests a day. **1 s** only
 on a paid Workers plan. Not measured until the printers' setting is changed.
+
+## Step 2, fix 4: WiFi
+
+Nothing here is code. The numbers above point at the network for most of the
+time: the printer sits silent for ~15 s fetching ~110 KB, which is ~12 KB/s,
+far below what any working WiFi link carries. The first job after an hour idle
+takes ~10 s longer, and the online printer is ~3 s slower than the store printer
+on the same size of ticket. In order, cheapest test first:
+
+1. **Find out whether it is the WiFi at all.** If the printer model has a LAN
+   port, plug one printer into the router with a cable for one service, then
+   re-run `npm run measure:print-latency`. If b+c drops to a few seconds, the
+   radio link is the problem; if it does not, it is TLS or the printer itself,
+   and the levers are the ones under fix 2 and "What this means for Step 2".
+2. **Signal.** Print the printer's network configuration (the self-test print;
+   Star's TSP100IV hardware manual gives the button sequence) and note the
+   signal level and the band. Move the router or add an access point so the
+   printers are close and in line of sight. A microwave or a steel hood
+   between them is the usual kitchen culprit on 2.4 GHz.
+3. **Swap the two printers' places for a day.** If the slowness follows the
+   spot, it is the radio path at the online printer's position. If it follows
+   the printer, it is that unit.
+4. **Router settings** (all on the router, none on our side):
+   - a DHCP reservation for both printers, so their address never changes
+     after an idle hour;
+   - a fixed 2.4 GHz channel (1, 6 or 11) rather than auto, and no band
+     steering for these two devices;
+   - longer DNS caching, or a public resolver such as 1.1.1.1 for the
+     printers, because a cold DNS lookup is part of the +10 s after idle.
+5. **Measure after each change**, one change at a time, with the same script.
+   Without a before and after, a WiFi change is a guess.
+
+## Step 2, fix 5: POS status line
+
+After Print, the POS shows the order's progress from the board poll it
+already runs (every 4 s): **已送出** (Sent) until the printer is handed it,
+**列印中** (Printing) until the printer confirms, **已列印** (Printed) once it
+has. A seconds count runs from the tap and, once printed, shows the server's
+own order to confirmation time. **未印出** (Not printed) replaces it if the
+ticket gave up or passed the board's "did not print" threshold, so the line
+never says "sent" about a lost ticket. Covered by
+`tests/e2e/kitchen-pos-print-status.spec.ts`, which plays the store printer.
+It changes no print timing; it makes the wait visible, and every staff tap
+from now on doubles as a measurement.
