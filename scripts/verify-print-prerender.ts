@@ -18,6 +18,11 @@
  *   4. single use: a retry after expiry is a new delivery with its own key
  *   5. schedulePrerender (the route's call) stages on its own and never throws
  *   6. a database without migration 018 still prints, and the schedule fails quietly
+ *   7. the default job URL: plain http on the poll's own host, answered with the
+ *      exact R2 bytes at a fixed length; a second fetch is 410
+ *
+ * Scenarios 1 to 6 run with PRINT_JOB_BODY_SCHEME=https so the printer is
+ * pointed at R2 directly and the key can be read off the URL.
  */
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -76,6 +81,7 @@ function check(name: string, passed: boolean, detail = ""): void {
 interface Handlers {
   POST: (r: Request, ctx: { params: Promise<{ secret: string }> }) => Promise<Response>;
   DELETE: (r: Request, ctx: { params: Promise<{ secret: string }> }) => Promise<Response>;
+  GET: (r: Request, ctx: { params: Promise<{ secret: string }> }) => Promise<Response>;
 }
 
 async function poll(h: Handlers): Promise<{ jobReady: boolean; token: string | null; url: string | null }> {
@@ -271,6 +277,31 @@ async function s6_withoutMigration(h: Handlers, repo: Repo, pre: Pre, pool: Pool
   }
 }
 
+async function s7_httpDefault(h: Handlers, repo: Repo, pre: Pre, pool: Pool) {
+  console.log("\n7. the default: an http job URL on the poll's host, served once");
+  await reset(pool);
+  delete process.env.PRINT_JOB_BODY_SCHEME;
+  try {
+    const order = await seed(repo);
+    await pre.prerenderTicket(TENANT_REF, order);
+    const stagedKey = (await staged(pool, order.id))!.key;
+    const p = await poll(h);
+    check("the job URL is plain http on the poll's own host", (p.url ?? "").startsWith("http://example.test/api/print/"), p.url ?? "");
+    check("and carries this delivery's token", (p.url ?? "").includes(`token=${p.token}`));
+    const res = await h.GET(new Request(p.url!.replace(/^http:/, "https:")), { params });
+    const body = new Uint8Array(await res.arrayBuffer());
+    check("the GET is 200 with the job's media type", res.status === 200 && res.headers.get("content-type") === "application/vnd.star.starprnt", `${res.status}`);
+    check("a fixed Content-Length equal to the bytes", res.headers.get("content-length") === String(body.byteLength));
+    check("marked for custom-worker.ts to re-send at a fixed length", res.headers.get("x-nmc-fixed-length") === "1");
+    check("the exact bytes of the published R2 object", same(objects.get(stagedKey), body));
+    const again = await h.GET(new Request(p.url!.replace(/^http:/, "https:")), { params });
+    check("a second fetch of the same delivery is 410", again.status === 410, `${again.status}`);
+    check("and the print still confirms", (await confirm(h, p.token!)) === 200);
+  } finally {
+    process.env.PRINT_JOB_BODY_SCHEME = "https";
+  }
+}
+
 /* --------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -296,6 +327,7 @@ async function main(): Promise<void> {
   process.env.PRINT_CONFIRM_FLOOR_SECONDS = "25";
   process.env.PRINT_SECONDS_PER_COPY = "0";
   delete process.env.PRINT_FETCH_VIA_WORKER;
+  process.env.PRINT_JOB_BODY_SCHEME = "https";
   delete process.env.PRINT_OFFER_CAP;
 
   const { ordersPool, closeOrdersPool } = await import("../src/lib/db/postgres");
@@ -312,6 +344,7 @@ async function main(): Promise<void> {
     await s4_singleUse(route, repo, pre, pool);
     await s5_schedule(route, repo, pre, pool);
     await s6_withoutMigration(route, repo, pre, pool);
+    await s7_httpDefault(route, repo, pre, pool);
   } finally {
     await closeOrdersPool();
     await pg.stop();

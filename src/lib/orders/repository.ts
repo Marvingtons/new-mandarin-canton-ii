@@ -879,6 +879,36 @@ export async function recordDeliveryFetch(
   return rows.length > 0 ? Number(rows[0].fetch_count) : null;
 }
 
+/**
+ * Count one fetch of a delivery's job URL and say whether it may be served:
+ * the first fetch, within `maxAgeSeconds` of the hand-over (database clock).
+ * One statement, so two GETs racing for one delivery cannot both be first.
+ * Null for an unknown delivery.
+ */
+export async function claimDeliveryFetch(
+  tenantId: string,
+  deliveryId: string,
+  maxAgeSeconds: number,
+): Promise<{ fetchCount: number; expired: boolean; ageSeconds: number } | null> {
+  if (!isDeliveryId(deliveryId)) return null;
+  const { rows } = await ordersPool().query(
+    `update print_deliveries
+        set fetch_count = fetch_count + 1,
+            fetched_at  = coalesce(fetched_at, now())
+      where tenant_id = $1 and id = $2
+      returning fetch_count,
+                extract(epoch from now() - offered_at) as age,
+                now() - offered_at > make_interval(secs => $3) as expired`,
+    [tenantId, deliveryId, maxAgeSeconds],
+  );
+  if (rows.length === 0) return null;
+  return {
+    fetchCount: Number(rows[0].fetch_count),
+    expired: rows[0].expired === true,
+    ageSeconds: Number(rows[0].age),
+  };
+}
+
 /** What confirmPrintDelivery did — one line per outcome for the log. */
 export type ConfirmDeliveryKind =
   | "changed" // 改單: the change ticket printed; status untouched

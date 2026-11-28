@@ -483,15 +483,13 @@ with a fixed `Content-Length`. Verified locally: `200`, `Content-Length` set,
 no chunking, no redirect, `Content-Encoding: identity`, and bytes that decode
 to the same 2-copy job.
 
-**Proposal: plain http for job bodies only** (`PRINT_FETCH_PROXY=http`),
-keeping the poll and the DELETE on https.
-- **Single use.** The URL is per delivery: its token is unguessable, and the
-  GET answers 410 once the delivery is confirmed or superseded.
-- **The trade-off.** The ticket body travels unencrypted between Cloudflare and
-  the printer, and it carries the customer's name and phone number. Anyone on
-  that network path could read a ticket in flight; they could not create, alter
-  or confirm one.
-
-It is live now as a Worker secret. The code default is still off, pending your
-decision. Test 1's https setting is the same switch with a different value;
-there is no separate code to revert.
+**Decision: plain http for job bodies is the default** (`PRINT_JOB_BODY_SCHEME`,
+default `http`; set it to `https` to go back to the printer fetching R2 directly).
+The poll and the DELETE stay https.
+- **One shot.** The job URL answers once, within 120 s of its hand-over, and
+  410 to anything else: a second fetch of the same delivery, a late fetch, or a
+  fetch after confirmation or supersession. Covered by `verify:print-deliveries`
+  (scenarios 6 and 6b) and `verify:print-prerender` (scenario 7).
+- **The trade-off.** The ticket body (name and phone) is readable in flight on
+  the LAN-to-Cloudflare hop. Printers must be on the staff WPA2 network, never a
+  guest SSID (`docs/CF_PRINTER_READINESS.md`, Phase 5).

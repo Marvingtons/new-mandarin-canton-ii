@@ -545,6 +545,31 @@ export function printFetchViaWorker(): boolean {
  * no gaps) before leaving it on. Turning it off again needs only this var.
  */
 /**
+ * HOW THE PRINTER DOWNLOADS A TICKET BODY (docs/print-latency.md, the B-053
+ * tests). The poll and the DELETE are always https; this is the job body only.
+ *
+ *   "http" (default)  the poll advertises its own GET as plain http, and that
+ *                     GET answers with the finished R2 object's bytes (no
+ *                     redirect, a fixed Content-Length). Measured: the
+ *                     TSP143IV opens a new TLS connection for every job GET
+ *                     and spends ~14 s on the handshake; over http it asks
+ *                     within ~1 s, and tap to paper fell from ~23 s to ~5.5 s.
+ *   "https"           the printer fetches the R2 object directly over https,
+ *                     the path used before 2026-11-27.
+ *
+ * The trade-off of "http": the ticket (customer name and phone) is readable in
+ * flight between Cloudflare and the printer. The URL is single use: it answers
+ * once, within JOB_URL_TTL_SECONDS of the hand-over, and 410 after that.
+ *
+ * Not the 520 path: that one rendered on the fly and left through OpenNext's
+ * re-streamed, chunked response. This serves a finished object, and
+ * custom-worker.ts re-sends it at a fixed length outside that layer.
+ */
+export function printJobBodyScheme(): "http" | "https" {
+  return env("PRINT_JOB_BODY_SCHEME") === "https" ? "https" : "http";
+}
+
+/**
  * SERVE THE JOB BODY FROM THE POLL'S OWN HOST (docs/print-latency.md, the
  * B-053 test). The printer is silent for ~16 s after jobReady whatever the
  * job's size, so the suspect is connection setup to the second host

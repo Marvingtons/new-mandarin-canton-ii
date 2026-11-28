@@ -87,7 +87,7 @@ const worker = {
     ctx: ExecutionContext,
   ): Promise<Response> {
     let response = await handler.fetch(request, env, ctx);
-    // A print job body served by the Worker (PRINT_FETCH_PROXY). OpenNext
+    // A print job body served by the Worker (PRINT_JOB_BODY_SCHEME). OpenNext
     // hands its route responses back as a stream, which leaves as chunked
     // transfer with no Content-Length: the 520 the printer could not use. So
     // this one response is read to the end and re-sent as a single buffer,

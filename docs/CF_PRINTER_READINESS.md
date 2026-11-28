@@ -254,6 +254,7 @@ and uses an indexed read; anything new must do the same.
 | 3 | JSON-LD | `MISSING` | no `application/ld+json` in `src` |
 | 4 | Kitchen auth | `READY` | httpOnly + sameSite=lax + secure-in-prod ([kitchenSession.ts:112](../src/lib/auth/kitchenSession.ts#L112)); `timingSafeEqual` |
 | 5 | Takeout messaging | `READY` | "Pickup only" ×7, "no delivery" ×6, second number ×3, "15–20" ×6, "20–30" ×5, "feeds 15–20" ×2 |
+| 6 | Print job bodies over http | `ACCEPTED RISK` | Ticket bodies (customer name + phone) travel over plain http on the LAN-to-Cloudflare hop (`PRINT_JOB_BODY_SCHEME`, default `http`; poll and DELETE stay https). Each job URL is single use and short lived: one fetch, within 120 s of hand-over, then 410. Printers must be on the staff WPA2 network, never a guest SSID. Why: [print-latency.md](print-latency.md) |
 
 ---
 

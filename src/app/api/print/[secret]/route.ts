@@ -3,7 +3,7 @@ import {
   printConfirmFloorSeconds,
   printFetchViaWorker,
   printCompactBlankRows,
-  printFetchProxy,
+  printJobBodyScheme,
   printOfferCap,
   printRenderCap,
   printSecondsPerCopy,
@@ -47,6 +47,7 @@ import {
   getPrintDelivery,
   printSegmentState,
   printerHasWork,
+  claimDeliveryFetch,
   recordDeliveryFetch,
   recordPrintAttempt,
   recordPrintJobKey,
@@ -470,14 +471,14 @@ export async function POST(
     // Worker never sees the fetch). With PRINT_FETCH_VIA_WORKER on: the Worker's
     // own GET, so the fetch is counted and gated before a 302 to R2 — see
     // printFetchViaWorker() for why that is opt-in.
-    // PRINT_FETCH_PROXY: the same host as this poll, the bytes served by the
-    // Worker's own GET (no redirect). "http" advertises it without TLS.
-    const proxy = printFetchProxy();
-    const proxyGetUrl =
-      proxy === "http" ? selfGetUrl.replace(/^https:\/\//, "http://") : selfGetUrl;
+    // PRINT_JOB_BODY_SCHEME (default "http"): this poll's own GET, without TLS,
+    // answered with the published R2 bytes. The TSP143IV spends ~14 s on a TLS
+    // handshake per job GET; see printJobBodyScheme(). The poll and the DELETE
+    // stay https. Only once a body is published: with no R2 object the token
+    // GET renders, which is the slow path we do not advertise over http.
     const advertisedGetUrl =
-      proxy !== "off" && jobUrl
-        ? proxyGetUrl
+      printJobBodyScheme() === "http" && jobUrl && !printFetchViaWorker()
+        ? selfGetUrl.replace(/^https:\/\//, "http://")
         : printFetchViaWorker()
           ? selfGetUrl
           : (jobUrl ?? selfGetUrl);
@@ -821,6 +822,9 @@ async function publishJobBody(
 
 /* ------------------------------------------------------------------- GET -- */
 
+/** A delivery's job URL answers once, and only this long after its hand-over. */
+const JOB_URL_TTL_SECONDS = 120;
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ secret: string }> },
@@ -851,6 +855,10 @@ export async function GET(
   const token = url.searchParams.get("token");
   let job: Order | null;
   let deliveryId: string | null;
+  /** The token path counts its fetch at the one-shot gate; nothing counts it twice. */
+  let counted: number | null = null;
+  const countFetch = async (id: string | null): Promise<number | null> =>
+    counted ?? (id ? await recordDeliveryFetch(tenant.tenantId, id) : null);
 
   if (token) {
     // A 日結 report's delivery? Served on its own path, never as an order.
@@ -882,6 +890,24 @@ export async function GET(
       );
       return new Response("", { status: 410 });
     }
+    // ONE SHOT. A delivery's job URL is fetched once, within
+    // JOB_URL_TTL_SECONDS of its hand-over (database clock); anything else is
+    // 410 Gone. The body may travel over plain http, so a URL that leaked
+    // from the network must be worth nothing a moment later. The fetch is
+    // counted in the same statement, refused or not.
+    const claim = await claimDeliveryFetch(tenant.tenantId, token, JOB_URL_TTL_SECONDS);
+    if (!claim) return new Response("", { status: 404 });
+    if (claim.fetchCount > 1 || claim.expired) {
+      console.warn(
+        `[cloudprnt] GET token=${token} ${order.orderNumber} — ` +
+          (claim.fetchCount > 1
+            ? `fetch #${claim.fetchCount} of a one-shot job URL`
+            : `${claim.ageSeconds.toFixed(0)}s after hand-over, past the ${JOB_URL_TTL_SECONDS}s limit`) +
+          "; 410 Gone",
+      );
+      return new Response("", { status: 410 });
+    }
+    counted = claim.fetchCount;
     job = order;
     deliveryId = token;
   } else {
@@ -911,16 +937,17 @@ export async function GET(
   // printing — flip PRINT_FETCH_VIA_WORKER off (back to R2-direct) or replace
   // this branch with a stream-through-Worker serve, and verify with `wrangler
   // tail`. See printFetchViaWorker().
-  // SAME-HOST PROXY (PRINT_FETCH_PROXY): the finished R2 object's exact bytes,
-  // answered here with no redirect. The 410 gates above have already run. The
-  // x-nmc-fixed-length marker makes custom-worker.ts re-send the body as one
-  // fixed-length buffer, outside OpenNext's re-streaming (the 520 cause).
-  if (token && deliveryId && printFetchProxy() !== "off" && printJobStoreReady()) {
+  // THE JOB BODY FROM THIS HOST (printJobBodyScheme): the finished R2 object's
+  // exact bytes, answered here with no redirect. The 410 gates above have
+  // already run. The x-nmc-fixed-length marker makes custom-worker.ts re-send
+  // the body as one fixed-length buffer, outside OpenNext's re-streaming (the
+  // 520 cause).
+  if (token && deliveryId && printJobStoreReady() && !printFetchViaWorker()) {
     const state = await printSegmentState(tenant.tenantId, job.id);
     const bytes = state.jobKey ? await getPrintJob(state.jobKey) : null;
     if (bytes) {
       const delivery = await getPrintDelivery(tenant.tenantId, deliveryId);
-      const fetchCount = await recordDeliveryFetch(tenant.tenantId, deliveryId);
+      const fetchCount = await countFetch(deliveryId);
       const sinceOffer = delivery
         ? ((Date.now() - Date.parse(delivery.offeredAt)) / 1000).toFixed(1)
         : "?";
@@ -939,7 +966,7 @@ export async function GET(
     const state = await printSegmentState(tenant.tenantId, job.id);
     const r2Url = state.jobKey ? printJobUrl(state.jobKey) : null;
     if (r2Url) {
-      const fetchCount = await recordDeliveryFetch(tenant.tenantId, deliveryId);
+      const fetchCount = await countFetch(deliveryId);
       console.info(
         `[cloudprnt] ${job.orderNumber} delivery=${deliveryId} fetch -> 302 R2 ` +
           `${state.jobKey} fetch_count=${fetchCount ?? "?"}`,
@@ -985,9 +1012,7 @@ export async function GET(
       const body = await getPrintJob(published.jobKey);
       if (body) {
         const sha256 = await payloadHash(body);
-        const fetchCount = deliveryId
-          ? await recordDeliveryFetch(tenant.tenantId, deliveryId)
-          : null;
+        const fetchCount = await countFetch(deliveryId);
         console.info(
           `[cloudprnt] serving ${job.orderNumber} delivery=${deliveryId ?? "none"} ` +
             `from R2 ${published.jobKey} (${body.byteLength} bytes) ` +
@@ -1049,9 +1074,7 @@ export async function GET(
     // actually returns and compare. Anything that rewrote the body in between
     // — a compression layer, a re-encode, a truncated stream — moves it.
     const sha256 = await payloadHash(ticket.body);
-    const fetchCount = deliveryId
-      ? await recordDeliveryFetch(tenant.tenantId, deliveryId)
-      : null;
+    const fetchCount = await countFetch(deliveryId);
     console.info(
       `[cloudprnt] serving ${job.orderNumber} delivery=${deliveryId ?? "none"} ` +
         `as ${mediaType} (${ticket.body.length} bytes, ${ticket.height}px) ` +

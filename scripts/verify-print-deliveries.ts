@@ -361,7 +361,7 @@ async function s5_noReofferDuringConfirm(h: Handlers, deps: Deps): Promise<void>
 
 // 6. Printer GETs D1 twice before DELETE -> fetch_count = 2, one delivery, one confirm.
 async function s6_fetchCounted(h: Handlers, deps: Deps): Promise<void> {
-  console.log("\n6. two fetches of one delivery are COUNTED (the silent double-print is visible)");
+  console.log("\n6. a job URL is ONE SHOT: a second fetch of one delivery is 410, and still counted");
   await reset(deps);
   const order = await seedOrder(deps);
   const p1 = await poll(h);
@@ -371,9 +371,41 @@ async function s6_fetchCounted(h: Handlers, deps: Deps): Promise<void> {
   const ds = await deliveriesFor(deps, order.id);
   const after = await deps.getOrderById(TENANT, order.id);
 
-  check("both fetches served 200", g1.status === 200 && g2.status === 200);
-  check("fetch_count = 2 on the one delivery", ds.length === 1 && ds[0].fetch_count === 2, `count=${ds[0]?.fetch_count}`);
+  check("the first fetch is served 200", g1.status === 200 && g1.bytes > 0, `status=${g1.status}`);
+  check("a second fetch of the same delivery is 410 Gone", g2.status === 410, `status=${g2.status}`);
+  check("fetch_count = 2 on the one delivery (the refused fetch is visible)", ds.length === 1 && ds[0].fetch_count === 2, `count=${ds[0]?.fetch_count}`);
   check("still one delivery, one confirm -> PRINTED", ds.length === 1 && ds[0].confirmed_at !== null && status === 200 && after?.status === "PRINTED");
+}
+
+// 6b. A job URL never fetched expires 120 s after its hand-over.
+async function s6b_jobUrlExpires(h: Handlers, deps: Deps): Promise<void> {
+  console.log("\n6b. a job URL not fetched within 120 s of its hand-over is 410, even inside the confirmation window");
+  await reset(deps);
+  const order = await seedOrder(deps);
+  const p1 = await poll(h);
+  // 121 s ago by the database clock; the delivery itself is left unexpired.
+  await deps.ordersPool().query(
+    `update print_deliveries set offered_at = now() - interval '121 seconds',
+                                 expires_at = now() + interval '60 seconds'
+      where id = $1`,
+    [p1.token],
+  );
+  const late = await getByToken(h, p1.token!);
+  check("the fetch is 410 Gone", late.status === 410, `status=${late.status}`);
+  const still = await deps.getOrderById(TENANT, order.id);
+  check("the order is still QUEUED and unprinted (its next delivery prints it)", still?.status === "QUEUED" && still.printedAt === null, `status=${still?.status}`);
+
+  await reset(deps);
+  await seedOrder(deps);
+  const p2 = await poll(h);
+  await deps.ordersPool().query(
+    `update print_deliveries set offered_at = now() - interval '119 seconds',
+                                 expires_at = now() + interval '60 seconds'
+      where id = $1`,
+    [p2.token],
+  );
+  const inTime = await getByToken(h, p2.token!);
+  check("at 119 s it is still served", inTime.status === 200, `status=${inTime.status}`);
 }
 
 // 7. 520 on D1 -> delivery failed/closed, order re-armed, next poll offers D2.
@@ -735,6 +767,7 @@ async function main(): Promise<void> {
     await s4_supersededConfirmIsStale(route, deps);
     await s5_noReofferDuringConfirm(route, deps);
     await s6_fetchCounted(route, deps);
+    await s6b_jobUrlExpires(route, deps);
     await s7_downloadFailedReoffers(route, deps);
     await s8_manualReprintIsLabeled(route, deps);
     await s9_confirmThenExpire(route, deps);
