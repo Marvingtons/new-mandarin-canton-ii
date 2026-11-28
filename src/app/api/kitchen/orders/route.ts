@@ -1,18 +1,18 @@
-import { orderCaps, publicTenant } from "@/config/tenant.server";
+import { publicTenant } from "@/config/tenant.server";
 import {
   hasKitchenSessionFromRequest,
   kitchenSessionKey,
 } from "@/lib/auth/kitchenSession";
-import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
+import { businessDateFor } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { createOrder } from "@/lib/orders/repository";
 import { schedulePrerender } from "@/lib/print/prerender";
 import { getMenu } from "@/lib/menu/source";
 import { composeOrder, staffLunchAllowed } from "@/lib/orders/compose";
 import { StaffOrderRequestSchema, type StaffOrderRequest } from "@/lib/orders/requestSchema";
-import { isValidStaffPickup, type PickupOptions } from "@/lib/order/pickup";
-import { isGateBypassRequest, isWellFormedPickupValue } from "@/lib/order/bypass";
-import { readyWindow } from "@/lib/order/readyWindow";
+import type { PickupOptions } from "@/lib/order/pickup";
+import { isGateBypassRequest } from "@/lib/order/bypass";
+import { staffPickupPlan } from "@/lib/order/staffPickup";
 import { normalizePhone } from "@/lib/phone";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
@@ -113,9 +113,12 @@ function refuse(code: StaffOrderError, message: string, status = 400): Response 
  *     idempotency index, status QUEUED;
  *   - printed by the same CloudPRNT claim. Nothing here talks to a printer.
  *
- * What staff may do that the web may not: pick a pickup time after the online
- * cutoff (but inside store hours), and order a lunch special outside 11 to 3
- * with the override toggle. Both are the counter's call to make.
+ * What staff may do that the web may not: take an order at ANY time of day,
+ * with no store-hours, online-cutoff or minimum-lead check at all (after
+ * closing, before opening, on a closed day), and order a lunch special outside
+ * 11 to 3 with the override toggle. Both are the counter's call to make. The
+ * pickup time is refused only when it does not parse or is already more than
+ * five minutes past (lib/order/staffPickup.ts).
  *
  * Not subject to the web's per-phone daily cap, and does not count toward it
  * (countOrdersForPhone counts channel 'web' only): that cap is abuse control
@@ -174,19 +177,9 @@ export async function POST(request: Request): Promise<Response> {
     intervalMinutes: tenant.pickupSlotIntervalMinutes,
   };
   const now = new Date();
-  // The same test-mode signal the web honours, for exercising the POS out of
-  // hours. Skips the clocks only: store hours and the lunch window.
+  // The same test-mode signal the web honours. On this route it now skips
+  // only the lunch window: staff pickup has no clock to skip.
   const bypass = isGateBypassRequest(request);
-
-  const pickupOk = bypass
-    ? isWellFormedPickupValue(body.pickup.time)
-    : isValidStaffPickup(body.pickup.time, now, pickupOpts);
-  if (!pickupOk) {
-    return refuse(
-      "pickup_invalid",
-      "That pickup time is outside store hours. · 取餐時間不在營業時間內。",
-    );
-  }
 
   const composed = composeOrder(await getMenu(), body.lines, {
     taxRateBps: tenant.taxRateBps,
@@ -202,19 +195,10 @@ export async function POST(request: Request): Promise<Response> {
     return refuse(composed.reason === "item_unavailable" ? "item_unavailable" : "rejected", composed.error);
   }
 
-  const pickupAt = pickupInstant(body.pickup.time, tenant.timezone, tenant.pickupLeadMinutes, now);
-  const maxPickup = now.getTime() + orderCaps().maxPickupHours * 60 * 60_000;
-  if (pickupAt.getTime() > maxPickup) {
-    return refuse("pickup_invalid", "That pickup time is too far ahead. · 取餐時間太遠。");
+  const plan = staffPickupPlan(body.pickup.time, now, pickupOpts, composed.hasLongPrep);
+  if (!plan.ok) {
+    return refuse("pickup_invalid", "取餐時間無效或已過。 · That pickup time is not valid or has passed.");
   }
-
-  const ready = readyWindow(
-    now,
-    pickupOpts,
-    composed.hasLongPrep,
-    body.pickup.time === "asap" ? null : pickupAt,
-  );
-
 
   try {
     const result = await createOrder({
@@ -229,14 +213,14 @@ export async function POST(request: Request): Promise<Response> {
         name: (body.customer.name ?? "").trim(),
         phone: phoneE164,
         // Staff set "Scheduled for": it prints as 預訂 SCHEDULED. ASAP prints
-        // no time at all (lib/orders/types.ts, OrderCustomer.scheduledFor).
-        ...(body.pickup.time === "asap" ? {} : { scheduledFor: pickupAt.toISOString() }),
+        // 盡快 (lib/orders/types.ts, OrderCustomer.scheduledFor / pickupAsap).
+        ...(plan.scheduledFor ? { scheduledFor: plan.scheduledFor.toISOString() } : { pickupAsap: true }),
       },
       // Staff taking the order IS the verification; see migration 009.
       phoneVerifiedAt: now,
-      pickupAt: ready.from,
-      readyFrom: ready.from,
-      readyTo: ready.to,
+      pickupAt: plan.pickupAt,
+      readyFrom: plan.readyFrom,
+      readyTo: plan.readyTo,
       channel: body.channel,
       paymentNote: clean(body.paymentNote),
       staffNote: clean(body.staffNote),
@@ -249,7 +233,7 @@ export async function POST(request: Request): Promise<Response> {
     if (bypass) {
       console.warn(
         `[kitchen-orders] *** GATE BYPASSED *** staff order ${result.order.orderNumber}: ` +
-          "store-hours and lunch-window gates were SKIPPED (test mode).",
+          "the lunch-window gate was SKIPPED (test mode).",
       );
     }
     return Response.json({

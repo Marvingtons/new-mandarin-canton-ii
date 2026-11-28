@@ -31,7 +31,9 @@ import {
   hoursForDay,
   isAcceptingOrders,
   isOpenNow,
+  isValidPickup,
   pickupSlots,
+  staffPickupSlots,
   type PickupOptions,
 } from "@/lib/order/pickup";
 import { readyWindow } from "@/lib/order/readyWindow";
@@ -260,6 +262,25 @@ for (const day of WEEK) {
     !!c && c.bare === expected.replace(/\s*(AM|PM)$/i, "") && !/M$/.test(c.bare),
     `bare=${JSON.stringify(c?.bare)}`,
   );
+}
+
+/* ----------- staff have no time limits; the WEBSITE still does ------- */
+/* The POS takes a phone or walk-in order at any hour (verify:staff-orders
+   proves the route accepts it). These are the same instants from the web's
+   side: every one of them is still refused online. */
+
+const LATE = [
+  { label: "Friday 8:41 PM (after close)", at: at(DATE.friday, 20, 41) },
+  { label: "Friday 9:05 PM", at: at(DATE.friday, 21, 5) },
+  { label: "Monday 10:00 AM (before open)", at: at(DATE.monday, 10, 0) },
+];
+for (const { label, at: probe } of LATE) {
+  check(`web: ${label} is not accepting orders`, !isAcceptingOrders(probe, OPTS), "the website took an order out of hours");
+  check(`web: ${label} offers no pickup slots`, pickupSlots(probe, OPTS).length === 0, JSON.stringify(pickupSlots(probe, OPTS).map((x) => x.value)));
+  check(`web: ${label} refuses ASAP`, !isValidPickup("asap", probe, OPTS), "asap was valid");
+  check(`web: ${label} refuses 9:15 PM`, !isValidPickup("21:15", probe, OPTS), "21:15 was valid");
+  const staff = staffPickupSlots(probe, OPTS);
+  check(`staff: ${label} still offers ASAP first, then times`, staff[0]?.value === "asap" && staff.length > 1, JSON.stringify(staff.map((x) => x.value)));
 }
 
 const total = pass + failures.length;

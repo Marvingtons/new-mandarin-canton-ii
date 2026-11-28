@@ -157,7 +157,13 @@ function OrderCard({
         </div>
         <div className="shrink-0 text-right">
           <div className="text-staff-caption font-medium text-staff-soft">{t("card.pickup")}</div>
-          <div className="text-staff-heading font-bold whitespace-nowrap">{orderReadyLabel(order, timezone)}</div>
+          {/* A staff ASAP order says so in words, with when it came in,
+              rather than an estimated window nobody promised. */}
+          <div className="text-staff-heading font-bold whitespace-nowrap" data-pickup={order.customer.pickupAsap ? "asap" : "time"}>
+            {order.customer.pickupAsap
+              ? t("card.asapPlaced", { time: formatPickupTime(order.createdAt, timezone) })
+              : orderReadyLabel(order, timezone)}
+          </div>
           {!onBoard && (
             <div className="mt-1 text-staff-caption text-staff-soft">
               {t("card.placed", { time: `${order.businessDate} ${formatPickupTime(order.createdAt, timezone)}` })}

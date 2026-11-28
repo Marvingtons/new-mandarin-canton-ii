@@ -6,10 +6,10 @@ import { enableTestMode } from "./testMode";
 import { chooseRequired, tapDish } from "./posSheet";
 
 /**
- * The POS "Scheduled for" control: optional, empty by default.
+ * The POS pickup control: 盡快 ASAP first and preselected.
  *
- *   - Left empty, the phone order goes in as ASAP and its ticket prints NO
- *     time at all (the estimate is the board's business, not the paper's).
+ *   - Left on ASAP, the phone order goes in as "asap" and its ticket prints
+ *     取餐時間 PICKUP / 盡快 ASAP under the phone, never an estimated time.
  *   - Set, the order carries that time and its ticket prints 預訂 SCHEDULED
  *     and the one time, directly under the phone number.
  *
@@ -53,21 +53,22 @@ async function placeAndRead(page: Page, info: TestInfo, png: string): Promise<{ 
   return { id: body.order.id, lines: rendered.lines, missing: rendered.missing };
 }
 
-test("Scheduled for: empty prints no time, a set time prints 預訂 SCHEDULED under the phone; the name is optional", async ({ browser }, info) => {
+test("Pickup: ASAP prints 盡快, a set time prints 預訂 SCHEDULED under the phone; the name is optional", async ({ browser }, info) => {
   const context = await browser.newContext({ viewport: { width: 1180, height: 820 } });
   await context.addInitScript(() => localStorage.setItem("nmc-kitchen-sound", "off"));
   const page = await context.newPage();
   await openPos(page);
 
-  /* ---- 1. Phone order, Scheduled for left empty ---- */
+  /* ---- 1. Phone order, pickup left on ASAP ---- */
   await addAnyDish(page);
   await page.locator('[data-context="takeout"]').click();
   await page.locator('[data-channel="phone"]').click();
   await page.getByLabel("客人姓名").fill("E2E Scheduled");
   await page.getByLabel("電話", { exact: true }).fill("6195550166");
   const scheduled = page.locator('select[data-field="scheduled"]');
-  // Optional and empty by default.
-  await expect(scheduled).toHaveValue("");
+  // 盡快 ASAP, preselected.
+  await expect(scheduled).toHaveValue("asap");
+  await expect(scheduled.locator("option").first()).toHaveText("盡快 ASAP");
   await page.locator('[data-action="details-done"]').click();
 
   const asapRequest = page.waitForRequest(
@@ -76,7 +77,9 @@ test("Scheduled for: empty prints no time, a set time prints 預訂 SCHEDULED un
   const asap = await placeAndRead(page, info, "phone-asap-ticket.png");
   expect(((await asapRequest).postDataJSON() as { pickup: { time: string } }).pickup.time).toBe("asap");
   expect(asap.missing).toEqual([]);
-  expect(asap.lines.some((l) => /SCHEDULED|PICKUP|預訂|取餐時間/.test(l))).toBe(false);
+  const a = asap.lines.indexOf("(619) 555-0166");
+  expect(asap.lines.slice(a + 1, a + 3)).toEqual(["取餐時間 PICKUP", "盡快 ASAP"]);
+  expect(asap.lines.some((l) => /SCHEDULED|預訂/.test(l))).toBe(false);
 
   /* ---- 2. Phone order with a Scheduled for time and NO name ---- */
   await addAnyDish(page);
@@ -85,8 +88,8 @@ test("Scheduled for: empty prints no time, a set time prints 預訂 SCHEDULED un
   // The name is optional now: left empty on purpose.
   await expect(page.getByLabel("客人姓名")).toHaveValue("");
   await page.getByLabel("電話", { exact: true }).fill("6195550166");
-  // Test mode offers every slot of the day; take the first clock time.
-  const firstTime = scheduled.locator("option:not([value=''])").first();
+  // The first clock time after ASAP.
+  const firstTime = scheduled.locator("option:not([value='asap'])").first();
   const value = (await firstTime.getAttribute("value")) ?? "";
   const label = ((await firstTime.textContent()) ?? "").trim();
   expect(value).toMatch(/^\d{2}:\d{2}$/);

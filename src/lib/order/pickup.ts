@@ -240,44 +240,56 @@ export function pickupLabel(value: string, opts: PickupOptions): string {
 /** The POS offers pickup in quarter hours, whatever the web's interval is. */
 export const STAFF_SLOT_MINUTES = 15;
 
+/** How long past closing the POS still offers clock times, for a late caller. */
+export const STAFF_SLOTS_AFTER_CLOSE_MINUTES = 120;
+
+/** Last quarter hour of the day: a pickup value is a time TODAY. */
+const LAST_SLOT = 23 * 60 + 45;
+
 /**
  * Pickup choices for an order staff are taking at the counter or on the phone.
  *
- * Bounded by STORE hours, not the online cutoff: staff are the authority on
- * what the kitchen can still cook, so a 8:20 PM call for 8:30 is theirs to
- * accept even after the website has stopped taking orders. What they cannot do
- * is promise a time the doors are shut. ASAP only while the doors are open;
- * scheduled slots from the later of opening and now + lead, through closing.
+ * NO TIME LIMITS. Store hours, the online cutoff and the prep lead are the
+ * website's rules; staff are the authority on what the kitchen can cook, so a
+ * call at 8:41 PM, after closing, or on a closed day is theirs to take.
  *
- * Shared by the POS (to render the choices) and the staff route (to re-check
- * the submitted value), like pickupSlots is for the web.
+ * Always ASAP first (preselected by the POS), then every quarter hour
+ * from the next one after now until two hours past today's closing (or two
+ * hours from now, whichever is later; never past 11:45 PM, since a value is a
+ * time today). Never empty, so Print is never blocked on the picker.
+ *
+ * The server does NOT re-check against this list (see staffPickupAcceptable):
+ * any parseable time not already past is accepted.
  */
-export function staffPickupSlots(
-  now: Date,
-  opts: PickupOptions,
-  slotOpts: PickupSlotOptions = {},
-): PickupSlot[] {
-  const asIfOpen = slotOpts.asIfOpen === true;
+export function staffPickupSlots(now: Date, opts: PickupOptions): PickupSlot[] {
   const { day, minutes } = localNow(opts.timezone, now);
   const w = todaysWindow(day);
-  if (!w && !asIfOpen) return [];
-
-  const slots: PickupSlot[] = [];
-  if (asIfOpen || isOpenNow(now, opts)) {
-    slots.push({ value: "asap", label: `ASAP (~${opts.leadMinutes} min)` });
-  }
-  if (w) {
-    let earliest = Math.max(w.open, minutes + opts.leadMinutes);
-    if (asIfOpen && earliest > w.close) earliest = w.open;
-    let t = Math.ceil(earliest / STAFF_SLOT_MINUTES) * STAFF_SLOT_MINUTES;
-    for (; t <= w.close; t += STAFF_SLOT_MINUTES) {
-      slots.push({ value: hhmm(t), label: label12h(t) });
-    }
+  // The POS renders ASAP through its dictionary (pos.scheduledNone).
+  const slots: PickupSlot[] = [{ value: "asap", label: "ASAP" }];
+  const end = Math.min(
+    LAST_SLOT,
+    Math.max(w ? w.close + STAFF_SLOTS_AFTER_CLOSE_MINUTES : 0, minutes + STAFF_SLOTS_AFTER_CLOSE_MINUTES),
+  );
+  for (let t = (Math.floor(minutes / STAFF_SLOT_MINUTES) + 1) * STAFF_SLOT_MINUTES; t <= end; t += STAFF_SLOT_MINUTES) {
+    slots.push({ value: hhmm(t), label: label12h(t) });
   }
   return slots;
 }
 
-/** Server-side: would the POS offer this value right now? */
-export function isValidStaffPickup(value: string, now: Date, opts: PickupOptions): boolean {
-  return staffPickupSlots(now, opts).some((s) => s.value === value);
+/** How far in the past a staff-chosen time may be and still be accepted. */
+export const STAFF_PAST_GRACE_MINUTES = 5;
+
+/**
+ * Server-side, for a staff order: "asap", or an "HH:MM" that parses and whose
+ * instant (`at`, as pickupInstant resolved it) is not more than five minutes
+ * behind now. No comparison against store hours, the cutoff or the lead.
+ */
+export function staffPickupAcceptable(value: string, at: Date, now: Date): boolean {
+  if (value === "asap") return true;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return false;
+  const h = Number.parseInt(m[1], 10);
+  const min = Number.parseInt(m[2], 10);
+  if (h > 23 || min > 59) return false;
+  return at.getTime() >= now.getTime() - STAFF_PAST_GRACE_MINUTES * 60_000;
 }

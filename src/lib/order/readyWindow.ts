@@ -58,6 +58,11 @@ export function readyWindow(
   opts: PickupOptions,
   longPrep: boolean,
   scheduledFor: Date | null,
+  /**
+   * false for a STAFF order: staff may take an order after closing, so its
+   * window is never pulled back to a closing time that has already passed.
+   */
+  capAtClose = true,
 ): ReadyWindow {
   const range = longPrep ? LONG_PREP_READY : STANDARD_READY;
 
@@ -72,7 +77,7 @@ export function readyWindow(
     to = addMinutes(now, range.max);
   }
 
-  const closing = closingInstant(now, opts);
+  const closing = capAtClose ? closingInstant(now, opts) : null;
   if (closing) {
     if (from.getTime() > closing.getTime()) from = closing;
     if (to.getTime() > closing.getTime()) to = closing;

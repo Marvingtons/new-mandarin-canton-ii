@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import { orderGateBypassSecret, publicTenant } from "@/config/tenant.server";
+import { publicTenant } from "@/config/tenant.server";
 import { staffCatalogMenu } from "@/lib/menu/catalog";
-import { isValidTestModeCookie, TEST_MODE_COOKIE } from "@/lib/order/bypass";
 import { KitchenFrame, kitchenGuard, kitchenMetadata } from "@/components/kitchen/KitchenGuard";
 import PosScreen from "@/components/kitchen/PosScreen";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
@@ -57,12 +55,6 @@ export default async function KitchenPosPage({
     if (order && editableNow(order)) editOrder = order;
     else editRefused = true;
   }
-  // A test-mode session (see /api/test-mode) gets pickup times as if the store
-  // were open, matching the order route, which honours the same cookie.
-  const testMode =
-    orderGateBypassSecret() !== null &&
-    isValidTestModeCookie((await cookies()).get(TEST_MODE_COOKIE)?.value);
-
   return (
     <KitchenFrame lang={guard.lang} basePath={guard.basePath} active="pos">
       <PosScreen
@@ -73,7 +65,6 @@ export default async function KitchenPosPage({
           leadMinutes: tenant.pickupLeadMinutes,
           intervalMinutes: tenant.pickupSlotIntervalMinutes,
         }}
-        asIfOpen={testMode}
         editOrder={editOrder}
         editRefused={editRefused}
         // A new mount per order (and per revision), so edit mode never keeps

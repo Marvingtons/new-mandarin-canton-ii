@@ -227,6 +227,7 @@ function normalizeOrder(order: Order): Order {
       name: asText(customer.name).trim() || "-",
       phone: asText(customer.phone).trim() || "-",
       scheduledFor: asInstant(customer.scheduledFor),
+      pickupAsap: customer.pickupAsap === true,
     },
     totals: {
       ...(order.totals ?? {}),
@@ -779,6 +780,14 @@ export async function composeTicketSvg(
     c.box({ border: 6, padding: 10, marginTop: 8 }, (box) => {
       box.text(`${L.scheduled} SCHEDULED`, { size: 28, weight: 700 });
       box.text(chosenTime, { size: 60, weight: 700, lineHeight: 1.1 });
+    });
+  } else if (storeOrder && order.customer.pickupAsap) {
+    /* A staff order taken as ASAP (盡快): said in words, never as an
+       estimated clock time, so nobody reads a promise that was not made.
+       The lighter border keeps it apart from a SCHEDULED box at a glance. */
+    c.box({ border: 4, padding: 10, marginTop: 8 }, (box) => {
+      box.text(`${L.pickup} PICKUP`, { size: 24, weight: 700 });
+      box.text(`${L.asap} ASAP`, { size: 52, weight: 700, lineHeight: 1.1 });
     });
   }
 

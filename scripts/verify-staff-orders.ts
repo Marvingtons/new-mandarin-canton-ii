@@ -118,7 +118,7 @@ function staffBody(lines: CartLine[], extra: Record<string, unknown> = {}) {
 }
 
 let ipSeq = 0;
-async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap", name = "Web Test") {
+async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap", name = "Web Test", bypass = true) {
   const e164 = `+1${phone.replace(/\D/g, "")}`;
   const res = await m.webOrders.POST(
     // localhost: POST /api/orders refuses any other host (lib/http/deployHost).
@@ -127,7 +127,7 @@ async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap",
       headers: {
         "content-type": "application/json",
         cookie: `nmc_phone=${m.otp.mintToken(e164)}`,
-        "x-gate-bypass": BYPASS,
+        ...(bypass ? { "x-gate-bypass": BYPASS } : {}),
         "x-forwarded-for": `10.0.0.${++ipSeq % 250}`,
       },
       body: JSON.stringify({
@@ -139,6 +139,40 @@ async function webPost(m: Mods, lines: CartLine[], phone: string, time = "asap",
   );
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
+
+/**
+ * Run `fn` with the process clock pinned near `instant`: `new Date()` and
+ * Date.now() read `instant` plus the real time elapsed since, so timeouts and
+ * the rate limiter still tick. The routes take their clock from `new Date()`,
+ * so this is how a route is exercised at 8:41 PM on a Friday without waiting
+ * for one. Postgres keeps its own clock (created_at).
+ */
+async function withClock<T>(instant: Date, fn: () => Promise<T>): Promise<T> {
+  const Real = Date;
+  const offset = instant.getTime() - Real.now();
+  class Pinned extends Real {
+    constructor(...args: unknown[]) {
+      if (args.length === 0) super(Real.now() + offset);
+      else super(...(args as [string | number | Date]));
+    }
+    static now(): number {
+      return Real.now() + offset;
+    }
+  }
+  globalThis.Date = Pinned as DateConstructor;
+  try {
+    return await fn();
+  } finally {
+    globalThis.Date = Real;
+  }
+}
+
+/** A restaurant-local wall clock in late November 2026 (PST, -08:00). */
+function pst(dateIso: string, hh: number, mm: number): Date {
+  return new Date(`${dateIso}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00-08:00`);
+}
+const FRIDAY = "2026-11-27";
+const MONDAY = "2026-11-30";
 
 /** A line the item sheet would build: first option of every required group. */
 function defaultLine(m: Mods, itemId: string, sizeId?: string, quantity = 1): CartLine {
@@ -372,17 +406,26 @@ async function s2_phoneOrderPrints(m: Mods): Promise<void> {
   check("a web ticket keeps its 客人 name line", web.includes("客人 Staff Test"));
   check("a walk-in ticket prints no 客人 name line", !walkIn.some((t) => t.startsWith("客人")));
 
-  // The time box: an ASAP order stored no chosen time and prints none; a
-  // "Scheduled for" time is stored on the customer and prints as 預訂
-  // SCHEDULED, once, right under the phone. Bypassed so any well-formed
-  // slot is accepted whatever the clock says.
-  check("an ASAP phone order stores no scheduledFor", order?.customer.scheduledFor === undefined);
-  check("an ASAP phone ticket prints no time box", !phoneTicket.some((t) => /SCHEDULED|PICKUP|預訂|取餐時間/.test(t)));
-  const scheduled = await staffPost(
-    m,
-    staffBody([defaultLine(m, "chicken-broccoli")], { pickup: { time: "17:30" } }),
-    { bypass: true },
+  // The time box: an ASAP order stores no chosen time and prints 盡快 ASAP
+  // under the phone; a "Scheduled for" time is stored on the customer and
+  // prints as 預訂 SCHEDULED, once, right under the phone. The clock is pinned
+  // to 2 PM so 5:30 PM is still ahead whenever this runs.
+  check("an ASAP phone order stores no scheduledFor, and pickupAsap", order?.customer.scheduledFor === undefined && order?.customer.pickupAsap === true);
+  const iAsap = phoneTicket.indexOf("(619) 555-0177");
+  check(
+    "an ASAP phone ticket prints 取餐時間 PICKUP / 盡快 ASAP under the phone",
+    phoneTicket[iAsap + 1] === "取餐時間 PICKUP" && phoneTicket[iAsap + 2] === "盡快 ASAP",
+    phoneTicket.slice(iAsap, iAsap + 3).join(" | "),
   );
+  check("an ASAP phone ticket prints no SCHEDULED box", !phoneTicket.some((t) => /SCHEDULED|預訂/.test(t)));
+  // Pinned to 2 PM (with a session minted then) so 5:30 PM is still ahead.
+  const saved = kitchenCookie;
+  const twoPm = pst(FRIDAY, 14, 0);
+  kitchenCookie = `nmc_kitchen=${await withClock(twoPm, async () => m.session.login(PASSWORD))}`;
+  const scheduled = await withClock(twoPm, () =>
+    staffPost(m, staffBody([defaultLine(m, "chicken-broccoli")], { pickup: { time: "17:30" } }), { bypass: false }),
+  );
+  kitchenCookie = saved;
   check("a scheduled phone order is accepted", scheduled.status === 200 && scheduled.body.ok === true, JSON.stringify(scheduled.body).slice(0, 160));
   const scheduledOrder = await m.repo.getOrderById(TENANT, Number((scheduled.body.order as { id: number }).id));
   const at = scheduledOrder?.customer.scheduledFor;
@@ -796,6 +839,66 @@ async function s8_perPhoneCap(m: Mods): Promise<void> {
   }
 }
 
+async function s9_noTimeLimits(m: Mods): Promise<void> {
+  console.log("\n9. staff orders have NO time limits; the web still does (clock pinned, no bypass)");
+  await resetTenant(m);
+  const line = defaultLine(m, "egg-rolls");
+  const times = [
+    { label: "Fri 8:41 PM (after close)", at: pst(FRIDAY, 20, 41) },
+    { label: "Fri 9:05 PM", at: pst(FRIDAY, 21, 5) },
+    { label: "Mon 10:00 AM (before open)", at: pst(MONDAY, 10, 0) },
+  ];
+  const min = (a: string | null | undefined, b: Date) => (a ? Math.round((new Date(a).getTime() - b.getTime()) / 60_000) : NaN);
+
+  const realCookie = kitchenCookie;
+  for (const { label, at } of times) {
+    // A kitchen session is minted at the pinned time, so it is live there.
+    kitchenCookie = `nmc_kitchen=${await withClock(at, async () => m.session.login(PASSWORD))}`;
+    const slots = m.pickup.staffPickupSlots(at, { timezone: TIMEZONE, leadMinutes: 20, intervalMinutes: 15 });
+    check(`${label}: the picker offers ASAP first, then times`, slots[0]?.value === "asap" && slots.length > 1, slots.slice(0, 4).map((x) => x.value).join(","));
+    for (const channel of ["phone", "walk_in"] as const) {
+      const res = await withClock(at, () => staffPost(m, staffBody([line], { channel }), { bypass: false }));
+      check(`${label}: ${channel} ASAP accepted`, res.status === 200 && res.body.ok === true, JSON.stringify(res.body).slice(0, 160));
+      if (res.status !== 200) continue;
+      const o = await m.repo.getOrderById(TENANT, Number((res.body.order as { id: number }).id));
+      check(
+        `  stored ASAP: pickup now+20, ready now+15 to now+20, not pulled back to closing`,
+        o?.customer.pickupAsap === true &&
+          o?.customer.scheduledFor === undefined &&
+          min(o?.pickupAt, at) === 20 &&
+          min(o?.readyFrom, at) === 15 &&
+          min(o?.readyTo, at) === 20,
+        `pickup ${min(o?.pickupAt, at)} ready ${min(o?.readyFrom, at)}..${min(o?.readyTo, at)} min`,
+      );
+    }
+    const late = await withClock(at, () => staffPost(m, staffBody([line], { pickup: { time: "22:15" } }), { bypass: false }));
+    check(`${label}: a chosen 10:15 PM accepted`, late.status === 200, JSON.stringify(late.body).slice(0, 160));
+    const web = await withClock(at, () => webPost(m, [line], "6195550199", "asap", "Web Late", false));
+    check(`${label}: the website still refuses`, web.status === 400 && web.body.ok === false, `status=${web.status}`);
+  }
+
+  // A late caller at 8:41 PM Friday is told 9:15 PM: accepted and printed as that time.
+  const fri = pst(FRIDAY, 20, 41);
+  kitchenCookie = `nmc_kitchen=${await withClock(fri, async () => m.session.login(PASSWORD))}`;
+  const nine15 = await withClock(fri, () => staffPost(m, staffBody([line], { pickup: { time: "21:15" } }), { bypass: false }));
+  check("Fri 8:41 PM: a chosen 9:15 PM accepted", nine15.status === 200, JSON.stringify(nine15.body).slice(0, 160));
+  const o915 = await m.repo.getOrderById(TENANT, Number((nine15.body.order as { id: number }).id));
+  check("  stored as scheduled for 9:15 PM", !!o915?.customer.scheduledFor && m.biz.formatPickupTime(o915.customer.scheduledFor, TIMEZONE) === "9:15 PM");
+  const t915 = (await m.render.composeTicketSvg(o915!, { timezone: TIMEZONE })).lines.map((l) => l.text);
+  check("  and prints 預訂 SCHEDULED 9:15 PM", t915.includes("預訂 SCHEDULED") && t915.includes("9:15 PM") && !t915.includes("盡快 ASAP"));
+
+  // The only refusals: unparseable, or more than five minutes past.
+  const nine05 = pst(FRIDAY, 21, 5);
+  const past = async (time: string) =>
+    withClock(nine05, () => staffPost(m, staffBody([line], { pickup: { time } }), { bypass: false }));
+  check("Fri 9:05 PM: 9:01 PM (4 min past) accepted", (await past("21:01")).status === 200);
+  const old = await past("20:45");
+  check("Fri 9:05 PM: 8:45 PM (20 min past) refused", old.status === 400 && old.body.code === "pickup_invalid", JSON.stringify(old.body).slice(0, 120));
+  const junk = await past("25:00");
+  check("an unparseable time is refused", junk.status === 400 && junk.body.code === "pickup_invalid");
+  kitchenCookie = realCookie;
+}
+
 /* ---------------------------------------------------------------- main -- */
 
 async function main(): Promise<void> {
@@ -871,6 +974,7 @@ async function main(): Promise<void> {
     await s6_lunchAndSoup(m);
     await s7_cancelAndValidation(m);
     await s8_perPhoneCap(m);
+    await s9_noTimeLimits(m);
   } finally {
     await pool.closeOrdersPool();
     console.log("\nstopping postgres…");

@@ -181,6 +181,12 @@ export interface OrderCustomer {
    * and print no time box, which is what an ASAP order prints.
    */
   scheduledFor?: string;
+  /**
+   * True on a STAFF order taken as ASAP (盡快). The ticket prints 盡快 in the
+   * pickup box and the board card reads "盡快 · placed 8:41". Absent on web
+   * orders and on staff orders written before it existed: those print as before.
+   */
+  pickupAsap?: boolean;
 }
 
 /** A full order row, as the repository returns it. */

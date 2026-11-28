@@ -386,15 +386,12 @@ export default function PosScreen({
   menu,
   taxRateBps,
   pickupOptions,
-  asIfOpen,
   editOrder = null,
   editRefused = false,
 }: {
   menu: Menu;
   taxRateBps: number | null;
   pickupOptions: PickupOptions;
-  /** Test-mode session: show pickup times as if the store were open. */
-  asIfOpen: boolean;
   /**
    * 改單 EDIT MODE (docs/edit-order.md): the order being edited, loaded by the
    * page. The ticket starts as its lines; customer, channel and pickup are
@@ -436,8 +433,8 @@ export default function PosScreen({
   const lunchOpen = lunchNow || lunchOverride;
 
   const slots = useMemo(
-    () => (now ? staffPickupSlots(now, pickupOptions, { asIfOpen }) : []),
-    [now, pickupOptions, asIfOpen],
+    () => (now ? staffPickupSlots(now, pickupOptions) : []),
+    [now, pickupOptions],
   );
 
   /* ---------------------------------------------------------- the ticket -- */
@@ -457,8 +454,8 @@ export default function PosScreen({
       ? "walk_in"
       : editing.channel
     : channel;
-  /** "Scheduled for": a staff-chosen "HH:MM", or "" for none (ASAP, no time printed). */
-  const [scheduled, setScheduled] = useState("");
+  /** Pickup: "asap" (盡快, preselected; prints 盡快) or a staff-chosen "HH:MM". */
+  const [scheduled, setScheduled] = useState("asap");
   const [paymentNote, setPaymentNote] = useState("");
   const [staffNote, setStaffNote] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(newKey);
@@ -484,14 +481,17 @@ export default function PosScreen({
   /** The clear-ticket confirm is open (a destructive action, like cancel). */
   const [confirmClear, setConfirmClear] = useState(false);
 
-  // "Scheduled for" offers the clock times; leaving it empty is ASAP, which
-  // the store only takes while its doors are open.
+  // NO TIME LIMITS on a staff order (lib/order/pickup.ts, staffPickupSlots):
+  // ASAP is always offered and preselected, then quarter hours until two hours
+  // past closing. The picker never blocks Print. A chosen time that has since
+  // passed stays chosen (what prints is what staff told the caller); the
+  // server takes it up to five minutes late.
   const scheduledSlots = slots.filter((x) => x.value !== "asap");
-  const asapOpen = slots.some((x) => x.value === "asap");
-  // A chosen time that has since passed is NOT swapped for another one: what
-  // prints is what staff told the caller, so they choose again.
-  const scheduledOk = scheduled === "" ? asapOpen : scheduledSlots.some((x) => x.value === scheduled);
-  const scheduledLabel = scheduledSlots.find((x) => x.value === scheduled)?.label ?? null;
+  const scheduledLabel =
+    scheduled === "asap"
+      ? null
+      : (scheduledSlots.find((x) => x.value === scheduled)?.label ??
+        clockLabel(Number(scheduled.slice(0, 2)) * 60 + Number(scheduled.slice(3, 5))));
 
   const priced = useMemo(
     () =>
@@ -522,7 +522,6 @@ export default function PosScreen({
 
   const missing: KitchenKey[] = [];
   if (lines.length === 0) missing.push(editing ? "edit.emptyLines" : "pos.missing.lines");
-  if (!editing && now && !scheduledOk) missing.push("pos.missing.scheduled");
   /* 改單: what moved, against the order as loaded. Same diff the server
      prints from, on the lines' identities (the server re-prices). */
   const editDiff: OrderLinesDiff | null = useMemo(
@@ -996,7 +995,7 @@ export default function PosScreen({
     setName("");
     setPhone("");
     setChannel("phone");
-    setScheduled("");
+    setScheduled("asap");
     setPaymentNote("");
     setStaffNote("");
     setLunchOverride(false);
@@ -1124,7 +1123,7 @@ export default function PosScreen({
             ...(name.trim() ? { name: name.trim() } : {}),
             ...(phone.trim() ? { phone: phone.trim() } : {}),
           },
-          pickup: { time: scheduled || "asap" },
+          pickup: { time: scheduled },
           ...(paymentNote.trim() ? { paymentNote: paymentNote.trim() } : {}),
           ...(staffNote.trim() ? { staffNote: staffNote.trim() } : {}),
           ...(lunchOverride && hasLunchLine && !lunchNow ? { lunchOverride: true } : {}),
@@ -1951,8 +1950,8 @@ export default function PosScreen({
                 </div>
               )}
 
-              {/* Optional. Empty is ASAP and prints no time; a time set here
-                  prints as 預訂 SCHEDULED under the phone number. */}
+              {/* 盡快 ASAP first and preselected; it prints 盡快. A time set
+                  here prints as 預訂 SCHEDULED under the phone number. */}
               <label>
                 <span className={label}>{t("pos.scheduledFor")}</span>
                 <select
@@ -1961,12 +1960,10 @@ export default function PosScreen({
                   data-field="scheduled"
                   className={field}
                 >
-                  <option value="">{t("pos.scheduledNone")}</option>
-                  {scheduled !== "" && !scheduledLabel && (
-                    // The chosen time has passed: keep it visible, unselectable.
-                    <option value={scheduled} disabled>
-                      {scheduled}
-                    </option>
+                  <option value="asap">{t("pos.scheduledNone")}</option>
+                  {scheduled !== "asap" && !scheduledSlots.some((x) => x.value === scheduled) && (
+                    // The chosen time has just passed: keep it, still chosen.
+                    <option value={scheduled}>{scheduledLabel}</option>
                   )}
                   {scheduledSlots.map((x) => (
                     <option key={x.value} value={x.value}>

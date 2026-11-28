@@ -63,6 +63,8 @@ export const TICKET_LABELS = {
   pickup: "取餐時間",
   /** A store order staff scheduled for a time: 預訂 SCHEDULED 5:30 PM. */
   scheduled: "預訂",
+  /** A staff order taken as ASAP: 取餐時間 PICKUP / 盡快 ASAP. */
+  asap: "盡快",
   note: "備註",
   customer: "客人",
   phone: "電話",
