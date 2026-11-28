@@ -443,3 +443,55 @@ retries, no failures, and no stage left behind on any order. Tap-to-paper is
 unchanged within noise, as the Step 1 numbers predicted: the ~20 s of b+c is
 the printer downloading and printing, which fixes 1, 3 and 5 do not touch.
 No web orders have printed on the online printer since the deploy.
+
+## The B-053 tests: the 16 s is TLS setup for the job download (2026-11-27)
+
+All on the store printer, reprinting B-053 (92,734 bytes, 1784 px, 2 copies)
+with `PRINT_COMPACT_BLANK_ROWS` on, plus one real order that printed during
+Test 2. Times are from `wrangler tail` and `print_deliveries` (seconds after
+the poll that answered `jobReady`).
+
+| Run | Job URL | offered | GET arrived | confirmed |
+|---|---|---:|---:|---:|
+| B-053 original, 18:54 | `https://print-jobs.…` (R2 direct) | 0 | not visible | 20.5 |
+| B-053 reprint, compact on | `https://print-jobs.…` (R2 direct) | 0 | not visible | 23.4 |
+| **Test 1**: B-053 reprint | `https://newmandarincantonii.com/…` (same host, Worker serves R2 bytes) | 0 | **15.5** | 21.4 |
+| **Test 2**: B-054, real order | `http://newmandarincantonii.com/…` | 0 | **1.4** | 5.4 |
+| **Test 2**: B-053 reprint | `http://newmandarincantonii.com/…` | 0 | **1.0** | 5.4 |
+
+**What it shows.**
+- **Smaller tickets were not the fix.** 28% fewer bytes changed nothing
+  (20.5 s, then 23.4 s).
+- **The second hostname was not the fix.** On the same host it polls, over
+  https, the printer still went silent for 15.5 s before its GET arrived. It
+  stopped polling during that time too.
+- **TLS was.** Over plain http, the same printer asks within about a second,
+  and download, print and confirmation then take about 4 s.
+
+The TSP143IV (CloudPRNT/5.1 firmware 3.3) appears to open a fresh TLS
+connection for every job GET, and that handshake costs it about 14 s. Its polls
+are not affected, presumably because they reuse a kept-alive connection.
+
+**B-054, a real phone order: 5.6 s from order stored to the printer's
+confirmation**, against a 22.5 s store median before. That one ticket meets
+the under-5 s goal for first paper, with the confirmation landing just after.
+
+**Why this is not the 520 case.** The 520s came from a body rendered on the fly
+and sent through OpenNext's re-streamed, chunked response. The proxy serves an
+already-finished R2 object, and `custom-worker.ts` re-sends it as one buffer
+with a fixed `Content-Length`. Verified locally: `200`, `Content-Length` set,
+no chunking, no redirect, `Content-Encoding: identity`, and bytes that decode
+to the same 2-copy job.
+
+**Proposal: plain http for job bodies only** (`PRINT_FETCH_PROXY=http`),
+keeping the poll and the DELETE on https.
+- **Single use.** The URL is per delivery: its token is unguessable, and the
+  GET answers 410 once the delivery is confirmed or superseded.
+- **The trade-off.** The ticket body travels unencrypted between Cloudflare and
+  the printer, and it carries the customer's name and phone number. Anyone on
+  that network path could read a ticket in flight; they could not create, alter
+  or confirm one.
+
+It is live now as a Worker secret. The code default is still off, pending your
+decision. Test 1's https setting is the same switch with a different value;
+there is no separate code to revert.
