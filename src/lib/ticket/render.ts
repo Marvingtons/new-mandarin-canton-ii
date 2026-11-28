@@ -972,6 +972,7 @@ async function renderCutCopies(
   copies: number,
   maxHeight: number | null,
   segment: number,
+  compactBlankRows = false,
 ): Promise<TicketJob> {
   const width = TICKET_WIDTH_PX;
 
@@ -1079,7 +1080,7 @@ async function renderCutCopies(
       }
     }
 
-    const body = Buffer.from(encodeStarPrntCopies(parts));
+    const body = Buffer.from(encodeStarPrntCopies(parts, { compactBlankRows }));
 
     /* LAST LINE OF DEFENCE, and it must never fire. The plan is sized with
        the byte-exact encoder model, so this is here to catch the model
@@ -1128,6 +1129,8 @@ export interface TicketJobOptions {
   /** The printer's OWN declared height ceiling, or null for none. */
   maxHeight?: number | null;
   segment?: number;
+  /** StarPRNT only: send blank rows as 1-byte blocks (PRINT_COMPACT_BLANK_ROWS). */
+  compactBlankRows?: boolean;
 }
 
 /**
@@ -1167,7 +1170,7 @@ export async function renderTicketJob(
   // of paper the body produces is a property of the bytes.
   const copies = Math.max(1, options.copies ?? 1);
   if (format === "starprnt" && copies > 1) {
-    return renderCutCopies(order, options, copies, maxHeight, segment);
+    return renderCutCopies(order, options, copies, maxHeight, segment, job.compactBlankRows === true);
   }
 
   const { pixels, width, height, free } = await rasterizeTicket(order, options);
@@ -1186,7 +1189,11 @@ export async function renderTicketJob(
       // The slice is taken here rather than inside the encoder so both formats
       // are cut at exactly the same rows.
       const slice = pixels.subarray(from * width * 4, (from + rows) * width * 4);
-      body = Buffer.from(encodeStarPrntCopies([{ pixels: slice, width, height: rows }]));
+      body = Buffer.from(
+        encodeStarPrntCopies([{ pixels: slice, width, height: rows }], {
+          compactBlankRows: job.compactBlankRows === true,
+        }),
+      );
     } else {
       body = Buffer.from(await encodeMonochromePng(pixels, width, height, from, rows));
     }

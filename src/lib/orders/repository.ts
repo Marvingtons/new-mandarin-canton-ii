@@ -652,6 +652,58 @@ export async function claimNextPrintJob(
   }));
 }
 
+/** PRINTABLE_STATUSES as an SQL literal, so the planner can use the partial queue indexes. */
+const PRINTABLE_SQL = `array[${PRINTABLE_STATUSES.map((s) => `'${s.replace(/'/g, "''")}'`).join(",")}]::text[]`;
+
+/**
+ * DOES THIS PRINTER HAVE ANY WORK? The cheap no-job path of the poll
+ * (docs/print-latency.md, Step 2 fix 3).
+ *
+ * True when any order needs paper from these stations, queued OR in flight
+ * (needsPaperFrom, split into its three arms so each meets its partial index),
+ * or a 日結 report is queued or offered to them. That is a superset of what
+ * currentPrintJob, claimNextPrintJob and the report path could act on, so
+ * false means the full path would have answered "no job" too, and the poll
+ * may answer it without running them. Anything time-based (an expiring
+ * delivery, a report window) is in flight and therefore true here.
+ *
+ * A PLAIN READ, NO LOCKS. FOR UPDATE SKIP LOCKED skips any row another session
+ * holds a lock on, so a locking read here, run on every poll by two printers,
+ * would make the claim skip tickets. verify:claim-no-skip runs this alongside
+ * the board and the cron and checks that no claim is skipped.
+ *
+ * Fails open: any error (a database without the report table, a timeout)
+ * answers true, and the poll does the full work exactly as before.
+ */
+export async function printerHasWork(
+  tenantId: string,
+  serves: readonly Station[],
+): Promise<boolean> {
+  const orderArms = [
+    `${SERVES_FIRST(PRINTABLE_SQL)} and orders.print_station = any($2::text[])`,
+    `${SERVES_CHANGE(PRINTABLE_SQL)} and orders.print_station = any($2::text[])`,
+    `${SERVES_REPRINT()} and exists (
+       select 1 from print_deliveries r
+        where r.id = orders.reprint_delivery_id and r.station = any($2::text[]))`,
+  ].map((arm) => `exists (select 1 from orders where orders.tenant_id = $1 and ${arm})`);
+  try {
+    const { rows } = await ordersPool().query(
+      `select ${orderArms.join(" or ")}
+           or exists (select 1 from report_prints
+                       where tenant_id = $1 and station = any($2::text[])
+                         and status in ('QUEUED', 'OFFERED')) as has_work`,
+      [tenantId, [...serves]],
+    );
+    return rows[0]?.has_work !== false;
+  } catch (err) {
+    console.warn(
+      "[cloudprnt] has-work check failed, doing the full poll: " +
+        (err instanceof Error ? err.message : "unknown error"),
+    );
+    return true;
+  }
+}
+
 /**
  * The job a printer is mid-transaction on: already claimed (attempts > 0) but
  * not yet confirmed by a DELETE. Returned so a repeated poll or GET before the
@@ -825,6 +877,36 @@ export async function recordDeliveryFetch(
     [tenantId, deliveryId],
   );
   return rows.length > 0 ? Number(rows[0].fetch_count) : null;
+}
+
+/**
+ * Count one fetch of a delivery's job URL and say whether it may be served:
+ * the first fetch, within `maxAgeSeconds` of the hand-over (database clock).
+ * One statement, so two GETs racing for one delivery cannot both be first.
+ * Null for an unknown delivery.
+ */
+export async function claimDeliveryFetch(
+  tenantId: string,
+  deliveryId: string,
+  maxAgeSeconds: number,
+): Promise<{ fetchCount: number; expired: boolean; ageSeconds: number } | null> {
+  if (!isDeliveryId(deliveryId)) return null;
+  const { rows } = await ordersPool().query(
+    `update print_deliveries
+        set fetch_count = fetch_count + 1,
+            fetched_at  = coalesce(fetched_at, now())
+      where tenant_id = $1 and id = $2
+      returning fetch_count,
+                extract(epoch from now() - offered_at) as age,
+                now() - offered_at > make_interval(secs => $3) as expired`,
+    [tenantId, deliveryId, maxAgeSeconds],
+  );
+  if (rows.length === 0) return null;
+  return {
+    fetchCount: Number(rows[0].fetch_count),
+    expired: rows[0].expired === true,
+    ageSeconds: Number(rows[0].age),
+  };
 }
 
 /** What confirmPrintDelivery did — one line per outcome for the log. */
@@ -1140,6 +1222,73 @@ export async function recordPrintSegments(
       where tenant_id = $1 and id = $2`,
     [tenantId, orderId, segments],
   );
+}
+
+/** A kitchen ticket rendered and uploaded at order creation (migration 018). */
+export interface StagedPrintJob {
+  key: string;
+  segments: number;
+  fingerprint: string;
+}
+
+/**
+ * Remember the body rendered at creation. Only while the order has never been
+ * handed over: a stage that loses the race to the printer's first poll writes
+ * nothing, and the object it uploaded is collected by the bucket lifecycle.
+ */
+export async function stagePrintJob(
+  tenantId: string,
+  orderId: number,
+  staged: StagedPrintJob,
+): Promise<boolean> {
+  const { rowCount } = await ordersPool().query(
+    `update orders set print_prerender = $3::jsonb
+      where tenant_id = $1 and id = $2 and print_attempts = 0 and print_job_key is null`,
+    [tenantId, orderId, JSON.stringify(staged)],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Take the staged body for a hand-over whose render inputs hash to
+ * `fingerprint`. ONE statement: the stage is cleared whatever happens (it is
+ * single-use, so no later delivery can be handed the same URL), and when it
+ * matches, print_job_key and print_segments are recorded exactly as
+ * publishJobBody records them after a render. Returns what was staged (the
+ * caller compares the fingerprint, and deletes the object when it does not
+ * match), or null when nothing was, including (never a throw) a database
+ * without 018.
+ */
+export async function takeStagedPrintJob(
+  tenantId: string,
+  orderId: number,
+  fingerprint: string,
+): Promise<StagedPrintJob | null> {
+  try {
+    const { rows } = await ordersPool().query(
+      `with old as (
+         select id, print_prerender as p from orders
+          where tenant_id = $1 and id = $2 and print_prerender is not null
+          for update
+       )
+       update orders o
+          set print_prerender = null,
+              print_job_key  = case when old.p->>'fingerprint' = $3 then old.p->>'key' else o.print_job_key end,
+              print_segments = case when old.p->>'fingerprint' = $3 then (old.p->>'segments')::int else o.print_segments end,
+              updated_at = now()
+         from old
+        where o.id = old.id
+        returning old.p as staged`,
+      [tenantId, orderId, fingerprint],
+    );
+    return (rows[0]?.staged as StagedPrintJob | undefined) ?? null;
+  } catch (err) {
+    console.warn(
+      "[cloudprnt] staged body unavailable (migration 018 not applied?): " +
+        (err instanceof Error ? err.message : "unknown error"),
+    );
+    return null;
+  }
 }
 
 /**

@@ -536,6 +536,67 @@ export function printFetchViaWorker(): boolean {
   return raw === "true" || raw === "1" || raw === "on";
 }
 
+/**
+ * Send a ticket's blank rows as 1-byte ESC GS S blocks instead of 72 zero
+ * bytes each (lib/ticket/starprnt.ts, compactRasterBlocks). About 25% fewer
+ * bytes for the printer to download, the same paper. OFF by default: Star
+ * documents the command's 1..128 byte range but not this firmware's handling
+ * of a 1-byte block, so confirm on ONE live ticket (it prints, same length,
+ * no gaps) before leaving it on. Turning it off again needs only this var.
+ */
+/**
+ * HOW THE PRINTER DOWNLOADS A TICKET BODY (docs/print-latency.md, the B-053
+ * tests). The poll and the DELETE are always https; this is the job body only.
+ *
+ *   "http" (default)  the poll advertises its own GET as plain http, and that
+ *                     GET answers with the finished R2 object's bytes (no
+ *                     redirect, a fixed Content-Length). Measured: the
+ *                     TSP143IV opens a new TLS connection for every job GET
+ *                     and spends ~14 s on the handshake; over http it asks
+ *                     within ~1 s, and tap to paper fell from ~23 s to ~5.5 s.
+ *   "https"           the printer fetches the R2 object directly over https,
+ *                     the path used before 2026-11-27.
+ *
+ * The trade-off of "http": the ticket (customer name and phone) is readable in
+ * flight between Cloudflare and the printer. The URL is single use: it answers
+ * once, within JOB_URL_TTL_SECONDS of the hand-over, and 410 after that.
+ *
+ * Not the 520 path: that one rendered on the fly and left through OpenNext's
+ * re-streamed, chunked response. This serves a finished object, and
+ * custom-worker.ts re-sends it at a fixed length outside that layer.
+ */
+export function printJobBodyScheme(): "http" | "https" {
+  return env("PRINT_JOB_BODY_SCHEME") === "https" ? "https" : "http";
+}
+
+/**
+ * SERVE THE JOB BODY FROM THE POLL'S OWN HOST (docs/print-latency.md, the
+ * B-053 test). The printer is silent for ~16 s after jobReady whatever the
+ * job's size, so the suspect is connection setup to the second host
+ * (print-jobs.…). With this on, the poll advertises its own GET as
+ * jobGetUrl and that GET answers with the finished R2 object's bytes: no
+ * redirect, a fixed Content-Length, no render.
+ *
+ *   unset / "off"     the printer fetches R2 directly (the proven path)
+ *   "1" / "https"     same host, https, the same scheme as the poll
+ *   "http"            same host, plain http (job bodies only; the poll stays https)
+ *
+ * Not the 520 path: that one rendered on the fly and left through OpenNext's
+ * re-streamed, chunked response. This serves an already-finished object, and
+ * custom-worker.ts re-sends it at a fixed length outside that layer.
+ */
+export function printFetchProxy(): "off" | "https" | "http" {
+  const raw = env("PRINT_FETCH_PROXY");
+  if (raw === null || raw === "off" || raw === "0" || raw === "false") return "off";
+  return raw === "http" ? "http" : "https";
+}
+
+export function printCompactBlankRows(): boolean {
+  const raw = env("PRINT_COMPACT_BLANK_ROWS");
+  if (raw === null) return false;
+  return raw === "true" || raw === "1" || raw === "on";
+}
+
 export function verifiedPhoneTtlDays(): number {
   const days = intEnv("VERIFIED_PHONE_TTL_DAYS", 90);
   return Number.isFinite(days) && days > 0 ? days : 0;

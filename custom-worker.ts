@@ -86,7 +86,20 @@ const worker = {
     env: Parameters<typeof handler.fetch>[1],
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const response = await handler.fetch(request, env, ctx);
+    let response = await handler.fetch(request, env, ctx);
+    // A print job body served by the Worker (PRINT_JOB_BODY_SCHEME). OpenNext
+    // hands its route responses back as a stream, which leaves as chunked
+    // transfer with no Content-Length: the 520 the printer could not use. So
+    // this one response is read to the end and re-sent as a single buffer,
+    // which the runtime sends with a fixed Content-Length.
+    if (response.headers.get("x-nmc-fixed-length") === "1") {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const headers = new Headers(response.headers);
+      headers.delete("x-nmc-fixed-length");
+      headers.delete("transfer-encoding");
+      headers.set("content-length", String(bytes.byteLength));
+      response = new Response(bytes, { status: response.status, headers });
+    }
     if (isProductionHost(new URL(request.url).hostname)) return response;
     const tagged = new Response(response.body, response);
     tagged.headers.set("X-Robots-Tag", "noindex, nofollow");

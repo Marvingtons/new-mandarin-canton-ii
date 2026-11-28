@@ -348,9 +348,9 @@ export default function OrderHistory({
                   <span className="col-span-3 min-w-0 xl:col-span-1">
                     {/* A historical dine_in row shows its stored name ("Table 4") like any other. */}
                     {o.customer.name.trim() && <span className="block truncate text-staff-body font-medium">{o.customer.name}</span>}
-                    {o.customer.phone && (
-                      <span className="block truncate text-staff-caption text-staff-soft">{formatPhoneNational(o.customer.phone)}</span>
-                    )}
+                    <span className="block truncate text-staff-caption text-staff-soft">
+                      {o.customer.phone ? formatPhoneNational(o.customer.phone) : t("card.noPhone")}
+                    </span>
                   </span>
                   <span className="flex flex-wrap gap-1">
                     <StationBadge station={o.station} />

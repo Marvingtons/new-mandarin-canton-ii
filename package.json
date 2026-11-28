@@ -54,6 +54,9 @@
     "verify:station-migrations": "tsx --conditions=react-server scripts/verify-station-migrations.ts",
     "verify:board-poll": "tsx --conditions=react-server scripts/verify-board-poll.ts",
     "verify:test-mode-route": "tsx --conditions=react-server scripts/verify-test-mode-route.ts",
+    "verify:starprnt-compact": "tsx --conditions=react-server scripts/verify-starprnt-compact.ts",
+    "verify:print-prerender": "tsx --conditions=react-server scripts/verify-print-prerender.ts",
+    "measure:print-latency": "tsx scripts/print-latency.ts",
     "measure:board-poll": "tsx --conditions=react-server scripts/measure-board-poll.ts",
     "doctor": "react-doctor . --lint --verbose"
   },

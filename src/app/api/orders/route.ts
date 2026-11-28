@@ -16,6 +16,7 @@ import { formatReadyWindow, readyWindow } from "@/lib/order/readyWindow";
 import { composeOrder } from "@/lib/orders/compose";
 import { OrderRequestSchema, type OrderRequest } from "@/lib/orders/requestSchema";
 import { countOrdersForPhone, createOrder } from "@/lib/orders/repository";
+import { schedulePrerender } from "@/lib/print/prerender";
 import { businessDateFor, pickupInstant } from "@/lib/orders/businessDate";
 import {
   readRememberedPhoneFromRequest,
@@ -260,6 +261,12 @@ export async function POST(request: Request): Promise<Response> {
       err instanceof Error ? err.message : "unknown error",
     );
     return bad("We couldn't take your order just now. Please try again. · 目前無法接受訂單，請重試。", 503);
+  }
+
+  // Render the kitchen ticket now, after this response, so the printer's
+  // hand-over does not have to (lib/print/prerender.ts).
+  if (result.created) {
+    schedulePrerender({ tenantId: tenant.tenantId, timezone: tenant.timezone }, result.order);
   }
 
   // A bypassed order is a TEST order and must never be mistaken for a real one

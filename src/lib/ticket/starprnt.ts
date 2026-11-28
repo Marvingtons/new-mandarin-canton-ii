@@ -118,7 +118,9 @@ function framingBytes(rows: number, bandRows: number): number {
 
 /**
  * EXACT size of the job `encodeStarPrntCopies` would produce for these
- * parts. Not an estimate — it counts the same bytes the encoder writes.
+ * parts at full width. Not an estimate — it counts the same bytes the encoder
+ * writes. With compactBlankRows the real job is never larger (see
+ * compactRasterBlocks), so this is then an upper bound and still sizes the plan.
  *
  * `framingBytes` above models ONE init and ONE cut, which is correct for
  * a single raster and undercounts every multi-part job: the encoder emits
@@ -180,6 +182,7 @@ function rasterBlocks(
   width: number,
   height: number,
   bandRowsOption?: number,
+  compactBlankRows = false,
 ): Uint8Array {
   const expected = width * height * 4;
   if (rgba.length < expected) {
@@ -195,6 +198,7 @@ function rasterBlocks(
     );
   }
   const bandRows = Math.max(1, bandRowsOption ?? DEFAULT_BAND_ROWS);
+  if (compactBlankRows) return compactRasterBlocks(rgba, width, height, rowBytes, bandRows);
 
   const blocks: Uint8Array[] = [];
   for (let top = 0; top < height; top += bandRows) {
@@ -218,6 +222,74 @@ function rasterBlocks(
 
   const total = blocks.reduce((n, b) => n + b.length, 0);
   const out = new Uint8Array(total);
+  let at = 0;
+  for (const b of blocks) {
+    out.set(b, at);
+    at += b.length;
+  }
+  return out;
+}
+
+/**
+ * BLANK ROWS AS ONE-BYTE-WIDE BLOCKS (docs/print-latency.md, Step 2 fix 2).
+ *
+ * About a quarter of every ticket's rows carry no ink, and each was sent as
+ * rowBytes (72) zero bytes. The printer downloads the job at roughly 12KB/s,
+ * so those zeros cost seconds. Here every run of blank rows becomes its own
+ * ESC GS S block with xL+xH*256 = 1 (Rev. 4.01 §2.3.12 defines the range as
+ * 1..128), carrying one zero byte per row.
+ *
+ * The SAME command, the same m=1 / n=0, the same one dot line per row of
+ * data: a block of y rows feeds y dots whatever its width, exactly as the
+ * 256-row bands already butt together today. And a zero row fires no dot
+ * wherever it is placed, so the question this file cannot cite an answer to
+ * (where a raster narrower than the head lands) never arises: ink rows keep
+ * the full width. Paper is pixel-identical; decodeStarPrntRaster proves it.
+ *
+ * Never larger than the full-width encoding: a run of n blank rows saves
+ * 71n bytes and costs at most two 9-byte headers (its own, and the ink band
+ * it splits), and 71n > 18 for every n >= 1. So starPrntJobBytes, which
+ * models the full-width encoding, stays a true upper bound and the segment
+ * plan (and therefore which pieces an order prints as) is unchanged.
+ *
+ * Off unless PRINT_COMPACT_BLANK_ROWS is set: Star documents the range but not
+ * this firmware's behaviour with a 1-byte block, so it is confirmed on one
+ * live ticket before it is left on.
+ */
+function compactRasterBlocks(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  rowBytes: number,
+  bandRows: number,
+): Uint8Array {
+  const packed = new Uint8Array(rowBytes * height);
+  const blank = new Uint8Array(height);
+  for (let y = 0; y < height; y++) {
+    packRow(rgba, width, y, packed, y * rowBytes, true);
+    let any = 0;
+    for (let i = y * rowBytes, end = i + rowBytes; i < end; i++) any |= packed[i];
+    blank[y] = any === 0 ? 1 : 0;
+  }
+
+  const blocks: Uint8Array[] = [];
+  const header = (xBytes: number, rows: number) =>
+    [...ESC_GS_S, 0x01, xBytes & 0xff, (xBytes >> 8) & 0xff, rows & 0xff, (rows >> 8) & 0xff, 0x00];
+  for (let top = 0; top < height; ) {
+    const isBlank = blank[top] === 1;
+    let end = top;
+    while (end < height && end - top < bandRows && (blank[end] === 1) === isBlank) end++;
+    const rows = end - top;
+    const xBytes = isBlank ? 1 : rowBytes;
+    const block = new Uint8Array(9 + xBytes * rows);
+    block.set(header(xBytes, rows), 0);
+    // A blank block's data is already zero; an ink block copies its rows.
+    if (!isBlank) block.set(packed.subarray(top * rowBytes, end * rowBytes), 9);
+    blocks.push(block);
+    top = end;
+  }
+
+  const out = new Uint8Array(blocks.reduce((n, b) => n + b.length, 0));
   let at = 0;
   for (const b of blocks) {
     out.set(b, at);
@@ -278,12 +350,12 @@ export function starPrntCut(): Uint8Array {
  */
 export function encodeStarPrntCopies(
   rasters: { pixels: Uint8Array; width: number; height: number }[],
-  options: { bandRows?: number } = {},
+  options: { bandRows?: number; compactBlankRows?: boolean } = {},
 ): Uint8Array {
   if (rasters.length === 0) throw new Error("no copies to encode");
   const parts: Uint8Array[] = [starPrntInit()];
   for (const r of rasters) {
-    parts.push(rasterBlocks(r.pixels, r.width, r.height, options.bandRows));
+    parts.push(rasterBlocks(r.pixels, r.width, r.height, options.bandRows, options.compactBlankRows));
     parts.push(starPrntCut());
   }
   const total = parts.reduce((n, p) => n + p.length, 0);
@@ -478,12 +550,22 @@ export function decodeStarPrntRaster(data: Uint8Array, width: number): StarPrntR
     at += 2;
     const n = data[at++];
     if (n !== 0x00) throw new Error(`ESC GS S n=${n}, expected 0`);
-    if (xBytes !== rowBytes) {
-      throw new Error(`block declares ${xBytes} bytes/row, expected ${rowBytes}`);
-    }
-    for (let r = 0; r < yDots; r++) {
-      rows.push(data.subarray(at, at + xBytes));
-      at += xBytes;
+    if (xBytes === rowBytes) {
+      for (let r = 0; r < yDots; r++) {
+        rows.push(data.subarray(at, at + xBytes));
+        at += xBytes;
+      }
+    } else if (xBytes === 1) {
+      // A compacted blank run (compactRasterBlocks): legal only when every
+      // byte is zero, because a zero row is the one row whose placement on
+      // the head cannot matter. Ink in a narrow block is refused.
+      for (let r = 0; r < yDots; r++) {
+        if (data[at] !== 0) throw new Error(`1-byte block carries ink at offset ${at}`);
+        rows.push(new Uint8Array(rowBytes));
+        at += 1;
+      }
+    } else {
+      throw new Error(`block declares ${xBytes} bytes/row, expected ${rowBytes} or a 1-byte blank run`);
     }
     blocks++;
   }

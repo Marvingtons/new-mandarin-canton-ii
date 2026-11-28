@@ -81,7 +81,29 @@ interface Placed {
   totalCents: number;
   /** The printer it went to (store, unless reprinted elsewhere). */
   station: Station;
+  /** This tablet's clock when Print was tapped: the live count starts here. */
+  tappedAt?: number;
 }
+
+/**
+ * Where the order just printed is, from the board poll the screen already
+ * runs (KitchenLive, every 4 s): 已送出 waiting for the printer's next poll,
+ * 列印中 handed to the printer and not yet confirmed, 已列印 confirmed by the
+ * printer's DELETE. 未印出 when it gave up or is past the board's "did not
+ * print" threshold, so the line never says "sent" about a ticket that is lost.
+ */
+type PrintTrack = "sent" | "printing" | "printed" | "failed";
+
+function printTrack(o: Order | undefined): PrintTrack {
+  if (!o) return "sent";
+  if (o.printedAt) return "printed";
+  if (o.status === "PRINT_FAILED" || o.printStuck) return "failed";
+  if (o.printDeliveryId) return "printing";
+  return "sent";
+}
+
+/** Stop counting after this long: the board's own banner has taken over. */
+const TRACK_MAX_SECONDS = 600;
 
 interface PastOrder {
   id: number;
@@ -444,7 +466,7 @@ export default function PosScreen({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reprinting, setReprinting] = useState<Placed | null>(null);
-  const { act, refresh: refreshLive } = useKitchenLive();
+  const { act, refresh: refreshLive, orders: liveOrders, recentlyDone } = useKitchenLive();
   const { toast } = useToast();
 
   // The rice and size strip is gone (docs/kitchen-design.md, Revision 3).
@@ -500,7 +522,6 @@ export default function PosScreen({
 
   const missing: KitchenKey[] = [];
   if (lines.length === 0) missing.push(editing ? "edit.emptyLines" : "pos.missing.lines");
-  if (!editing && channel === "phone" && !phoneE164) missing.push("pos.missing.phone");
   if (!editing && now && !scheduledOk) missing.push("pos.missing.scheduled");
   /* 改單: what moved, against the order as loaded. Same diff the server
      prints from, on the lines' identities (the server re-prices). */
@@ -1089,6 +1110,7 @@ export default function PosScreen({
       return;
     }
     if (!canSubmit) return;
+    const tappedAt = Date.now();
     setSubmitting(true);
     setError(null);
     try {
@@ -1128,7 +1150,7 @@ export default function PosScreen({
         );
         return;
       }
-      setPlaced(data.order);
+      setPlaced({ ...data.order, tappedAt });
       setJustNow(data.order);
       // The board, the header's count and the printer strip learn about it
       // now rather than on the next poll.
@@ -1144,6 +1166,32 @@ export default function PosScreen({
       setSubmitting(false);
     }
   }
+
+  // THE PRINT STATUS LINE: the placed order as the board poll last saw it.
+  const placedLive = placed
+    ? (liveOrders.find((o) => o.id === placed.id) ?? recentlyDone.find((o) => o.id === placed.id))
+    : undefined;
+  const track = printTrack(placedLive);
+  const trackDone = track === "printed" || track === "failed";
+  const [trackNow, setTrackNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!placed?.tappedAt || trackDone) return;
+    const started = placed.tappedAt;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setTrackNow(now);
+      if (now - started > TRACK_MAX_SECONDS * 1000) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [placed?.tappedAt, trackDone]);
+  // Printed: the server's own two timestamps, order stored to printer's
+  // confirmation. Otherwise this tablet's count since the tap.
+  const trackSeconds =
+    !placed?.tappedAt || track === "failed"
+      ? null
+      : track === "printed" && placedLive?.printedAt
+        ? Math.max(0, Math.round((Date.parse(placedLive.printedAt) - Date.parse(placedLive.createdAt)) / 1000))
+        : Math.min(TRACK_MAX_SECONDS, Math.max(0, Math.round((trackNow - placed.tappedAt) / 1000)));
 
   // The "just now" chip lives for two minutes after the order it names.
   useEffect(() => {
@@ -1256,10 +1304,16 @@ export default function PosScreen({
 
   /* ---- ticket header: the order type and who or which table, strongest on screen ---- */
   const placedStatus = placed && (
-    <div role="status" className={s.status}>
-      <Icon name="check" size={24} />
+    <div role="status" className={s.status} data-print-track={track}>
+      <Icon name={track === "printed" ? "check" : "printer"} size={24} />
       <span className={`${s.big} ${s.num}`}>{placed.orderNumber}</span>
-      <span>{t("pos.sent")}</span>
+      <span>{t(`pos.track.${track}` as KitchenKey)}</span>
+      {trackSeconds !== null && (
+        // Not announced every second; the state change is what is read out.
+        <span className={s.num} aria-hidden="true" data-print-seconds={trackSeconds}>
+          {t("pos.track.seconds", { n: String(trackSeconds) })}
+        </span>
+      )}
     </div>
   );
 
@@ -1317,8 +1371,8 @@ export default function PosScreen({
           </span>
         ) : (
           <>
-        {/* Who it is for: a name if staff took one (optional), the phone a
-            phone order needs, and the scheduled time if it has one. */}
+        {/* Who it is for: a name and a phone if staff took them (both
+            optional), and the scheduled time if it has one. */}
         <button
           type="button"
           data-context="takeout"
@@ -1725,7 +1779,7 @@ export default function PosScreen({
           <span className={s.barWho}>
             <span className={s.key}>{editing ? t("edit.titleZh", { number: editing.orderNumber }) : t(`channel.${channel}`)}</span>
             <span className={`${s.soft} ${s.one}`}>
-              {placed ? `${placed.orderNumber} · ${t("pos.sent")}` : customerSummary || t("pos.addCustomerEn")}
+              {placed ? `${placed.orderNumber} · ${t(`pos.track.${track}` as KitchenKey)}` : customerSummary || t("pos.addCustomerEn")}
             </span>
           </span>
           <span className={`${s.barTotal} ${s.num}`}>
@@ -1837,11 +1891,12 @@ export default function PosScreen({
               </label>
 
               <label>
-                <span className={label}>{channel === "phone" ? t("pos.phone") : t("pos.phoneOptional")}</span>
+                <span className={label}>{t("pos.phone")}</span>
                 <input
                   type="tel"
                   inputMode="tel"
                   autoComplete="off"
+                  placeholder={t("pos.phoneOptional")}
                   value={phone}
                   onChange={(e) => setPhone(formatPhoneAsTyped(e.target.value))}
                   aria-invalid={phoneBad}
