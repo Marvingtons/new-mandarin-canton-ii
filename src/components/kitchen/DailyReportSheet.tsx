@@ -215,10 +215,10 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
           {data && data.prints.length > 0 && (
             <section className="flex flex-col gap-1">
               <h3 className="text-staff-caption font-semibold text-staff-soft">{t("report.earlier")}</h3>
-              <ul className="flex flex-col gap-1 text-staff-caption tabular-nums">
+              <ul className="flex flex-col gap-1 text-staff-caption tabular-nums" data-testid="report-earlier">
                 {data.prints.map((p) => (
                   <li key={p.sequence} className="flex flex-wrap gap-x-2">
-                    <span className="font-semibold">#{p.sequence}</span>
+                    <span className="font-semibold" data-testid="report-earlier-seq">#{p.sequence}</span>
                     <span>{t(`station.${p.station}`)}</span>
                     <span>{t(`report.status.${p.status}`)}</span>
                     <span className="text-staff-soft">{p.code}</span>

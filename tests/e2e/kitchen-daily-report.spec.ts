@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { E2E_BYPASS, E2E_DB_PORT, E2E_KITCHEN_PASSWORD } from "./env";
 import { enableTestMode } from "./testMode";
@@ -17,7 +17,13 @@ import { formatCents } from "../../src/lib/money";
  *           Nothing on the report is optional (日結 v2), so the sheet has no
  *           block toggles and neither the preview nor Print sends any
  *   PRINT   Print enqueues exactly ONE report print, however it is pressed,
- *           and the sheet moves on to the next #N
+ *           and the sheet moves on to the next #N. The kitchen-tablet and
+ *           kitchen-ipad projects share one database and one business day,
+ *           so another project may print the same day at the same moment:
+ *           the #N expected is read from the sheet's own "Printed for this
+ *           day" list just before pressing, and a press that loses the race
+ *           (409, "another tablet just printed") is pressed again on the
+ *           refreshed sheet, as staff would
  *   LAYOUT  with the sheet open: no sideways page scroll, no target under
  *           44px, at four tablet viewports
  *
@@ -133,6 +139,15 @@ async function setPrinters(store: "ok" | "paper-out"): Promise<void> {
   }
 }
 
+/**
+ * The highest #N in the sheet's "Printed for this day" list, or 0 when the
+ * day has no prints yet (the list is then not rendered).
+ */
+async function lastPrinted(dialog: Locator): Promise<number> {
+  const seqs = await dialog.locator('[data-testid="report-earlier-seq"]').allTextContents();
+  return seqs.reduce((n, s) => Math.max(n, Number(s.replace("#", ""))), 0);
+}
+
 /** Open the sheet on TODAY (it opens on yesterday before 4am). */
 async function openSheet(page: Page): Promise<void> {
   await page.locator('[data-testid="day-report-open"]').click();
@@ -164,13 +179,16 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(String(all.count));
   await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(formatCents(all.totalCents));
 
-  // The preview asks the renderer for exactly this day and the next #N.
+  // The preview asks the renderer for exactly this day and the next #N: one
+  // past the last print the sheet lists (the other project may have printed
+  // since `seeded` was read, so the sheet's own list is the reference).
   const preview = dialog.locator('[data-testid="report-preview"]');
   await expect(preview).toBeVisible();
+  const listed = await lastPrinted(dialog);
   const src = new URL((await preview.getAttribute("src"))!, "http://x");
   expect(src.pathname).toBe("/api/kitchen/reports/daily/preview");
   expect(src.searchParams.get("date")).toBe(today);
-  expect(src.searchParams.get("sequence")).toBe(String(seeded.nextSequence));
+  expect(src.searchParams.get("sequence")).toBe(String(listed + 1));
   expect(src.searchParams.get("station")).toBe("store");
   expect(src.searchParams.has("blocks")).toBe(false);
   // No optional-block toggles: the only pressed-state buttons left are the
@@ -185,7 +203,7 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   const pngPath = info.outputPath("day-report-preview.png");
   const { stdout } = await promisify(execFile)(
     "npx",
-    ["tsx", "--conditions=react-server", "scripts/report-preview.ts", today, String(seeded.nextSequence), pngPath],
+    ["tsx", "--conditions=react-server", "scripts/report-preview.ts", today, String(listed + 1), pngPath],
     { env: { ...process.env, DATABASE_URL: `postgresql://postgres:postgres@localhost:${E2E_DB_PORT}/nmc_e2e` } },
   );
   await info.attach("day report preview", { path: pngPath, contentType: "image/png" });
@@ -201,25 +219,78 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   expect(new Set(drawn.top.map((d) => d.name)).size).toBe(drawn.top.length);
   for (const d of drawn.top) expect(d.name).not.toMatch(/[A-Za-z]/);
 
-  // Print, pressed twice in quick succession: one job. The body carries no
-  // `blocks`: there is nothing left to choose.
-  const printBody = page.waitForRequest(
-    (r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/kitchen/reports/daily/print",
-  );
+  // Print, pressed twice in quick succession: one job, numbered one past the
+  // last print the sheet lists, and the request carries that number. The
+  // body carries no `blocks`: there is nothing left to choose. A press that
+  // loses the #N to the other project is refused (409) and the sheet moves
+  // on; press again, as staff would, at most three times.
   const print = dialog.locator('[data-testid="report-print"]');
-  await expect(print).toBeEnabled();
-  await expect(print).toContainText(`#${seeded.nextSequence}`);
-  await print.click();
-  await print.click({ force: true, trial: false }).catch(() => undefined);
-  await expect(dialog.locator('[data-testid="report-notice"]')).toContainText(`#${seeded.nextSequence}`);
-  const sent = (await printBody).postDataJSON() as Record<string, unknown>;
-  expect(Object.keys(sent).sort()).toEqual(["date", "requestKey", "sequence", "station"]);
+  const isPrintPost = (url: string) => new URL(url).pathname === "/api/kitchen/reports/daily/print";
+  let printed: { sequence: number; requestKey: string } | null = null;
+  for (let attempt = 1; attempt <= 3 && !printed; attempt++) {
+    await expect(print).toBeEnabled();
+    const previous = await lastPrinted(dialog);
+    await expect(print).toContainText(`#${previous + 1}`);
+    const keys: string[] = [];
+    const collect = (r: import("@playwright/test").Request) => {
+      if (r.method() === "POST" && isPrintPost(r.url())) keys.push((r.postDataJSON() as { requestKey: string }).requestKey);
+    };
+    page.on("request", collect);
+    const request = page.waitForRequest((r) => r.method() === "POST" && isPrintPost(r.url()));
+    const response = page.waitForResponse((r) => r.request().method() === "POST" && isPrintPost(r.url()));
+    // A real double tap: both clicks in one browser task, before React has
+    // re-rendered the button busy, so both run the handler. Two separate
+    // Playwright clicks can straddle the first response and become two
+    // presses (two prints), which is not what this checks.
+    await print.evaluate((el: HTMLElement) => {
+      el.click();
+      el.click();
+    });
+    const sent = (await request).postDataJSON() as { sequence: number; requestKey: string };
+    expect(Object.keys(sent).sort()).toEqual(["date", "requestKey", "sequence", "station"]);
+    expect(sent.sequence, "the Print request carries previous + 1").toBe(previous + 1);
+    const status = (await response).status();
+    await expect.poll(() => keys.length, { message: "both taps reached the server" }).toBe(2);
+    page.off("request", collect);
+    expect(new Set(keys).size, "both taps sent the same request key (the second is a replay)").toBe(1);
+    if (status === 409) {
+      // Lost the race: the sheet says so and refreshes past the other print.
+      await expect(dialog.locator('[data-testid="report-notice"]')).toBeVisible();
+      await expect(print).not.toContainText(`#${previous + 1}`);
+      continue;
+    }
+    expect(status).toBe(200);
+    await expect(dialog.locator('[data-testid="report-notice"]')).toContainText(`#${previous + 1}`);
+    printed = sent;
+  }
+  expect(printed, "a print was queued within three presses").not.toBeNull();
+  const mine = printed!;
 
-  const after = await sheetJson(page, today);
-  expect(after.prints.length).toBe(seeded.prints.length + 1);
-  expect(after.prints[0]).toMatchObject({ sequence: seeded.nextSequence, status: "QUEUED", station: "store" });
-  expect(after.nextSequence).toBe(seeded.nextSequence + 1);
-  await expect(print).toContainText(`#${seeded.nextSequence + 1}`);
+  // Exactly one row for this press (the second tap sent the same request
+  // key, a replay), at that #N, QUEUED for the store printer.
+  const db = new Client({ host: "localhost", port: E2E_DB_PORT, user: "postgres", password: "postgres", database: "nmc_e2e" });
+  await db.connect();
+  try {
+    const { rows } = await db.query(
+      `select sequence, status, station from report_prints where request_key = $1`,
+      [mine.requestKey],
+    );
+    expect(rows).toEqual([{ sequence: mine.sequence, status: "QUEUED", station: "store" }]);
+    const { rows: at } = await db.query(
+      `select count(*)::int as n from report_prints where business_date = $1::date and sequence = $2`,
+      [today, mine.sequence],
+    );
+    expect(at[0].n, "one print per #N").toBe(1);
+  } finally {
+    await db.end();
+  }
+
+  // The sheet lists it and offers a later #N (later still if the other
+  // project printed meanwhile).
+  await expect(dialog.locator('[data-testid="report-earlier-seq"]', { hasText: new RegExp(`^#${mine.sequence}$`) })).toHaveCount(1);
+  expect(await lastPrinted(dialog)).toBeGreaterThanOrEqual(mine.sequence);
+  const offered = Number((await print.textContent())?.match(/#(\d+)/)?.[1]);
+  expect(offered).toBeGreaterThan(mine.sequence);
   await page.context().close();
 });
 
