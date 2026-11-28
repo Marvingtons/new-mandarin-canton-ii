@@ -17,7 +17,35 @@ through the real ticket renderer.
 | Normal Saturday | Slow Monday | 3 cancellations | Empty day |
 | --- | --- | --- | --- |
 | ![](daily-report/1-saturday.png) | ![](daily-report/2-slow-monday.png) | ![](daily-report/3-cancellations.png) | ![](daily-report/4-empty-day.png) |
-| 115 counted, 182 mm (v1 218) | 12 counted, no trays, 176 mm (v1 193) | 48 counted, Top 5 merges 陳皮雞 8+7 and 蒙古牛肉 8+5, 182 mm (v1 207) | 0 orders, 146 mm (v1 141) |
+| 115 counted, 187 mm (v1 218) | 12 counted, no trays, 181 mm (v1 193) | 48 counted, Top 5 merges 陳皮雞 8+7 and 蒙古牛肉 8+5, 188 mm (v1 207) | 0 orders, 152 mm (v1 141) |
+
+Each is about 6 mm longer than the first v2 cut: the 範圍 Scope line under
+the date (below).
+
+### 範圍 Scope
+
+The sheet has a 範圍 Scope control: **全部 All** (the default), **網上 Online
+only** (web) and **店內 Store only** (phone + walk-in, and dine-in on a day
+before 2026-11-14). Scope is by CHANNEL (config/stations CHANNEL_STATION),
+never by which printer printed a ticket, and it filters EVERY section: the
+counts and money, Top 5, trays and the order window. The header says which,
+under the date (`範圍：店內 Store only`, bold when it is not All). Inside a
+scope the ORDERS block shows that scope's breakdown: All prints Online and
+Store; Online only prints Online; Store only prints 電話 Phone and 到店
+Walk-in. A scoped report has its own code (the scope is hashed in; All hashes
+exactly as before, so old codes still match). The scope travels inside the
+stored report snapshot, so no migration: a print stored before scopes reads as
+All. verify:daily-report proves, on every fixture day, that the SQL equals the
+model at each scope and that Online + Store = All on every printable row.
+
+| Saturday, Online only | Saturday, Store only |
+| --- | --- |
+| ![](daily-report/1-saturday-online.png) | ![](daily-report/1-saturday-store.png) |
+
+**Which printer.** Until the printer pool ships (docs/printer-pool.md, then
+this control goes away), the sheet preselects the printer that confirmed
+FEWER kitchen tickets today, never one that is blocked, store on a tie, and
+says so under the picker. Staff can still pick the other.
 
 **Paper length.** The v2 brief asked for about half the v1 length. At this
 type size that is not reachable with what the report keeps: about 18 body
