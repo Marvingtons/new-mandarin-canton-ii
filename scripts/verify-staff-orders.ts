@@ -839,6 +839,57 @@ async function s8_perPhoneCap(m: Mods): Promise<void> {
   }
 }
 
+async function s10_beverages(m: Mods): Promise<void> {
+  console.log("\n10. 飲品 beverages: alcohol is POS-only, drinks print in their own block");
+  await resetTenant(m);
+  const web = m.catalog.websiteMenu();
+  const staff = m.catalog.staffCatalogMenu();
+  const webIds = new Set(web.categories.flatMap((c) => c.items.map((i) => i.id)));
+  const staffIds = new Set(staff.categories.flatMap((c) => c.items.map((i) => i.id)));
+  const alcohol = ["american-beer", "imported-beer", "house-wine-glass"];
+  check("the website menu carries no alcohol", alcohol.every((id) => !webIds.has(id)));
+  check("the POS menu carries all three alcohol items", alcohol.every((id) => staffIds.has(id)));
+  check("tea, soft drink and wonton chips are on both menus", ["hot-or-iced-tea", "soft-drink", "wonton-chips"].every((id) => webIds.has(id) && staffIds.has(id)));
+  const webBev = web.categories.find((c) => c.id === "beverages");
+  check("the website Beverages tab holds tea and soft drink only", JSON.stringify(webBev?.items.map((i) => i.id)) === JSON.stringify(["hot-or-iced-tea", "soft-drink"]), JSON.stringify(webBev?.items.map((i) => i.id)));
+  check("Beverages is 飲品", webBev?.nameZh === "飲品", String(webBev?.nameZh));
+
+  /* Straight through composeOrder: even against a menu that carries the
+     beer, a web order (no allowStaffOnly) is refused. */
+  const beer = defaultLine(m, "american-beer");
+  const direct = m.compose.composeOrder(m.catalog.catalogMenu(), [beer], { taxRateBps: 875, lunchAllowed: true });
+  check("composeOrder refuses a beer without allowStaffOnly", !direct.ok && direct.reason === "item_unavailable", JSON.stringify(direct).slice(0, 160));
+
+  const webBeer = await webPost(m, [beer], "(619) 555-0301");
+  check("POST /api/orders refuses a beer", webBeer.status !== 200 || webBeer.body.ok !== true, `status=${webBeer.status}`);
+  check("  with item_unavailable", webBeer.body.reason === "item_unavailable", JSON.stringify(webBeer.body).slice(0, 160));
+  const webWine = await webPost(m, [defaultLine(m, "house-wine-glass")], "(619) 555-0302");
+  check("POST /api/orders refuses a house wine", webWine.status !== 200 || webWine.body.ok !== true, `status=${webWine.status}`);
+
+  const tea = { itemId: "hot-or-iced-tea", sizeId: "regular", modifierIds: ["tea-iced"], quantity: 2 };
+  const noTea = await webPost(m, [{ ...tea, modifierIds: [] }], "(619) 555-0303");
+  check("a tea with no hot/iced pick is refused (required, no default)", noTea.status !== 200 || noTea.body.ok !== true, `status=${noTea.status}`);
+  const webTea = await webPost(m, [tea, defaultLine(m, "soft-drink"), defaultLine(m, "wonton-chips")], "(619) 555-0304");
+  check("the web accepts iced tea, a soft drink and wonton chips", webTea.status === 200 && webTea.body.ok === true, JSON.stringify(webTea.body).slice(0, 200));
+
+  const wine = { itemId: "house-wine-glass", sizeId: "regular", modifierIds: ["wine-white-zinfandel"], quantity: 1 };
+  const posOrder = await staffPost(m, staffBody([beer, defaultLine(m, "kung-pao-chicken"), wine, defaultLine(m, "imported-beer"), defaultLine(m, "wonton-chips")]));
+  check("the POS accepts beer and wine", posOrder.status === 200 && posOrder.body.ok === true, JSON.stringify(posOrder.body).slice(0, 200));
+  const id = Number((posOrder.body.order as { id: number } | undefined)?.id);
+  const order = await m.repo.getOrderById(TENANT, id);
+  check("beer and wine priced from the menu: 7.25 + 7.50 + 7.25", order?.items.filter((l) => alcohol.includes(l.itemId)).map((l) => l.lineCents).join(",") === "725,750,725");
+  const lines = (await m.render.composeTicketSvg(order!, { timezone: TIMEZONE })).lines.map((l) => l.text);
+  const heading = lines.indexOf("飲品 DRINKS");
+  const at = (t: string) => lines.indexOf(t);
+  check("the ticket has one 飲品 DRINKS heading", heading >= 0 && lines.filter((t) => t === "飲品 DRINKS").length === 1, lines.join(" | ").slice(0, 300));
+  check("food prints above it, in order", at("Kung Pao Chicken") >= 0 && at("Kung Pao Chicken") < at("Wonton Chips") && at("Wonton Chips") < heading);
+  check("drinks print below it, in the order rung", heading < at("American Beers") && at("American Beers") < at("粉紅餐酒") && at("粉紅餐酒") < at("Imported Beers"), lines.slice(heading).join(" | ").slice(0, 200));
+  check("the wine pick prints on the item line, 粉紅餐酒", lines.includes("粉紅餐酒"));
+
+  const foodOnly = (await m.render.composeTicketSvg({ ...order!, items: order!.items.filter((l) => !alcohol.includes(l.itemId)) }, { timezone: TIMEZONE })).lines.map((l) => l.text);
+  check("a ticket with no drinks prints no 飲品 heading", !foodOnly.some((t) => t.includes("DRINKS")));
+}
+
 async function s9_noTimeLimits(m: Mods): Promise<void> {
   console.log("\n9. staff orders have NO time limits; the web still does (clock pinned, no bypass)");
   await resetTenant(m);
@@ -975,6 +1026,7 @@ async function main(): Promise<void> {
     await s7_cancelAndValidation(m);
     await s8_perPhoneCap(m);
     await s9_noTimeLimits(m);
+    await s10_beverages(m);
   } finally {
     await pool.closeOrdersPool();
     console.log("\nstopping postgres…");

@@ -16,6 +16,7 @@ import { formatCents } from "@/lib/money";
 import { formatPhoneNational } from "@/lib/phone";
 import { stationForChannel } from "@/config/stations";
 import { isPreparationModifierId } from "@/lib/menu/preparation";
+import { splitBeverages } from "@/lib/menu/beverages";
 import type { Order, OrderLine } from "@/lib/orders/types";
 import type { ChangedLine, OrderChangeTicket } from "@/lib/orders/revisionDiff";
 import { SURCHARGE_MODIFIER_ID } from "@/lib/kitchen/customCharge";
@@ -814,7 +815,18 @@ export async function composeTicketSvg(
   if (change) {
     drawChangeBlocks(c, change, coverage, profile.linePrices);
   } else {
-    for (const line of order.items) drawLine(c, line, coverage, profile.linePrices);
+    /* Drinks print last, in their own 飲品 DRINKS block, so the wok reads
+       its dishes without a tea in the middle (lib/menu/beverages.ts). The
+       lines themselves draw exactly as before. */
+    const { food, drinks } = splitBeverages(order.items);
+    for (const line of food) drawLine(c, line, coverage, profile.linePrices);
+    if (drinks.length > 0) {
+      if (food.length > 0) c.rule();
+      const zh = zhIfPrintable(L.drinks, coverage);
+      c.text(zh ? `${zh} DRINKS` : "DRINKS", { size: 26, weight: 700, marginTop: food.length > 0 ? 8 : 0 });
+      c.space(8);
+      for (const line of drinks) drawLine(c, line, coverage, profile.linePrices);
+    }
   }
 
   c.rule(5);

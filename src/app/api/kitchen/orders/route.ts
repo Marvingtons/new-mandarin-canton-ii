@@ -7,7 +7,7 @@ import { businessDateFor } from "@/lib/orders/businessDate";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { createOrder } from "@/lib/orders/repository";
 import { schedulePrerender } from "@/lib/print/prerender";
-import { getMenu } from "@/lib/menu/source";
+import { getStaffMenu } from "@/lib/menu/source";
 import { composeOrder, staffLunchAllowed } from "@/lib/orders/compose";
 import { StaffOrderRequestSchema, type StaffOrderRequest } from "@/lib/orders/requestSchema";
 import type { PickupOptions } from "@/lib/order/pickup";
@@ -106,7 +106,7 @@ function refuse(code: StaffOrderError, message: string, status = 400): Response 
  *
  * ONE PIPELINE. This is the web checkout minus the OTP, and nothing else:
  *
- *   - priced by the same composeOrder() against the same getMenu(), at the
+ *   - priced by the same composeOrder() against getStaffMenu() (getMenu() plus the staff-only drinks), at the
  *     same TENANT_TAX_RATE_BPS, so the body carries no money and a body that
  *     tries is a hard 400 (the schema is .strict());
  *   - stored by the same createOrder(): the same daily A-xxx counter, the same
@@ -181,7 +181,7 @@ export async function POST(request: Request): Promise<Response> {
   // only the lunch window: staff pickup has no clock to skip.
   const bypass = isGateBypassRequest(request);
 
-  const composed = composeOrder(await getMenu(), body.lines, {
+  const composed = composeOrder(await getStaffMenu(), body.lines, {
     taxRateBps: tenant.taxRateBps,
     lunchAllowed: staffLunchAllowed({
       now,

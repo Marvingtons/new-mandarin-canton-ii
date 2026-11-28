@@ -107,6 +107,16 @@ export function composeOrder(
           "An item in your cart is no longer available. Please rebuild your cart. · 購物車中有項目已下架，請重新下單。",
         reason: "item_unavailable",
       };
+    /* STAFF-ONLY ITEMS (alcohol) are sold on the POS only. getMenu() leaves
+       them out of the website's menu already, so a web order reaches this
+       line only against a menu that still carries them; refused the same
+       way as an unavailable item, with the same reason. */
+    if (item.staffOnly && !options.allowStaffOnly)
+      return {
+        ok: false,
+        error: `"${item.nameEn}" is sold in the store only. · 此項目只限店內。`,
+        reason: "item_unavailable",
+      };
     if (!isAvailable(item))
       return {
         ok: false,

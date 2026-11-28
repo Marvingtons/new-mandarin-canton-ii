@@ -1,6 +1,6 @@
 import "server-only";
 
-import { catalogMenu } from "@/lib/menu/catalog";
+import { catalogMenu, websiteMenu } from "@/lib/menu/catalog";
 import type { Menu } from "@/lib/menu/types";
 
 /**
@@ -17,5 +17,16 @@ import type { Menu } from "@/lib/menu/types";
  * a future remote source could slot in here without touching a caller.
  */
 export async function getMenu(): Promise<Menu> {
+  // The WEBSITE's menu: no staff-only items (alcohol). The safe default, so
+  // a new customer page that calls getMenu() cannot sell a beer.
+  return websiteMenu();
+}
+
+/**
+ * The menu the STAFF order routes price against: everything getMenu() has,
+ * plus the staff-only items (beer, house wine) the POS sells. Hidden (86'd)
+ * items are still absent, exactly as on the web.
+ */
+export async function getStaffMenu(): Promise<Menu> {
   return catalogMenu();
 }

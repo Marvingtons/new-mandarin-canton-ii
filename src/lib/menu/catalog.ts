@@ -136,6 +136,7 @@ function modifierGroupsFor(
 
 let cached: Menu | null = null;
 let cachedStaff: Menu | null = null;
+let cachedWebsite: Menu | null = null;
 
 /**
  * The full orderable menu. Pure and synchronous — the catalogue is a module in
@@ -162,6 +163,28 @@ export function staffCatalogMenu(): Menu {
   return cachedStaff;
 }
 
+/**
+ * The menu the WEBSITE shows and sells: catalogMenu() without the staff-only
+ * items (alcohol). What getMenu() serves, so every customer page, the JSON-LD
+ * menu graph and POST /api/orders see the same catalogue, and a beer has no
+ * id there to be ordered by. composeOrder refuses a staffOnly item on a web
+ * order as well, so the gate holds even against a menu that still carries it.
+ *
+ * The staff order routes price against catalogMenu(), where the items exist.
+ */
+export function websiteMenu(): Menu {
+  cachedWebsite ??= (() => {
+    const full = catalogMenu();
+    return {
+      ...full,
+      categories: full.categories
+        .map((c) => ({ ...c, items: c.items.filter((i) => !i.staffOnly) }))
+        .filter((c) => c.items.length > 0),
+    };
+  })();
+  return cachedWebsite;
+}
+
 function buildMenu(includeHidden: boolean): Menu {
   const categories: MenuCategory[] = catalog.map((category, index) => {
     const items: MenuItem[] = category.items.map((item) => {
@@ -183,6 +206,7 @@ function buildMenu(includeHidden: boolean): Menu {
         vegetarian: override?.vegetarian ?? false,
         chefSpecial: override?.chefSpecial ?? false,
         available: override?.hidden ? false : true,
+        ...(item.staffOnly ? { staffOnly: true } : {}),
       };
     });
 

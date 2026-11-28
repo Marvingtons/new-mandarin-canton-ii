@@ -29,7 +29,7 @@
  */
 
 import { menu } from "@/data/menu";
-import { catalogMenu } from "@/lib/menu/catalog";
+import { websiteMenu } from "@/lib/menu/catalog";
 import { isAvailable } from "@/lib/menu/types";
 import {
   directionsUrl,
@@ -204,7 +204,7 @@ export function breadcrumbNode(
  * tray prices are included where the printed menu prints one.
  *
  * ONLY WHAT THE GRID SHOWS. Items pass the menu grid's own filter (in
- * catalogMenu(), and isAvailable), so a soft-removed dish (Roasted Duck,
+ * websiteMenu(), and isAvailable), so a staff-only drink (beer, wine) and a soft-removed dish (Roasted Duck,
  * 2026-08) is never marked up with prices the page no longer offers.
  *
  * ⚠️ NO `alternateName`, and it is the one thing here that hurts to
@@ -217,7 +217,7 @@ export function breadcrumbNode(
  */
 export function menuGraph(): Node {
   const shown = new Set(
-    catalogMenu()
+    websiteMenu()
       .categories.flatMap((c) => c.items)
       .filter(isAvailable)
       .map((i) => i.id),
