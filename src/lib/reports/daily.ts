@@ -20,6 +20,8 @@ import {
   type ReportColumn,
   type ReportOrderRow,
   type TopItem,
+  scopeChannels,
+  type ChannelScope,
 } from "@/lib/reports/dailyModel";
 import { CHANNEL_STATION } from "@/config/stations";
 import { isOrderChannel, isOrderStatus, type OrderChannel } from "@/lib/orders/types";
@@ -62,6 +64,7 @@ with o as (
     from orders
    where tenant_id = $1
      and business_date = $2::date
+     and channel = any($12::text[])
 ),
 l as (
   select o.id, o.kind, o.created_at, x.ord,
@@ -184,6 +187,8 @@ export interface ReportScope {
   /** Restaurant-local YYYY-MM-DD. */
   businessDate: string;
   timezone: string;
+  /** 範圍: which channels count (dailyModel CHANNEL_SCOPES). Default all. */
+  channels?: ChannelScope;
 }
 
 /** The day's report, summed by Postgres. See the header for what each part is. */
@@ -200,6 +205,7 @@ export async function readDailyReport(scope: ReportScope): Promise<DailyReport> 
     [...TRAY_SIZE_IDS],
     [...familyDinnerItemIds()],
     TOP_ITEMS,
+    scopeChannels(scope.channels ?? "all"),
   ]);
   return mapReport(rows[0], scope);
 }
@@ -241,8 +247,10 @@ function mapReport(row: QueryResultRow, scope: ReportScope): DailyReport {
     totalCents: Number(h.total),
   }));
 
+  const channelScope = scope.channels ?? "all";
   const report: Omit<DailyReport, "code"> = {
     tenantId: scope.tenantId,
+    ...(channelScope === "all" ? {} : { scope: channelScope }),
     businessDate: scope.businessDate,
     timezone: scope.timezone,
     firstOrderAt: iso(row.first_at),
@@ -268,8 +276,9 @@ export async function readReportRows(scope: ReportScope): Promise<ReportOrderRow
     `select channel, status, is_addon, items, totals, created_at
        from orders
       where tenant_id = $1 and business_date = $2::date
+        and channel = any($3::text[])
       order by created_at, id`,
-    [scope.tenantId, scope.businessDate],
+    [scope.tenantId, scope.businessDate, scopeChannels(scope.channels ?? "all")],
   );
   return rows.flatMap((r) =>
     isOrderChannel(r.channel) && isOrderStatus(r.status)

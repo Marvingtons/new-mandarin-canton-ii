@@ -36,7 +36,8 @@ import { formatCents } from "../../src/lib/money";
 interface Sheet {
   date: string;
   today: string;
-  report: { columns: { all: { count: number; totalCents: number } } };
+  report: { scope?: string; code: string; columns: { all: { count: number; totalCents: number } } };
+  suggestedStation: "online" | "store";
   nextSequence: number;
   prints: Array<{ sequence: number; status: string; station: string }>;
 }
@@ -189,11 +190,18 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   expect(src.pathname).toBe("/api/kitchen/reports/daily/preview");
   expect(src.searchParams.get("date")).toBe(today);
   expect(src.searchParams.get("sequence")).toBe(String(listed + 1));
-  expect(src.searchParams.get("station")).toBe("store");
+  // The printer the sheet preselects is the server's suggestion: the one that
+  // printed fewer tickets today (other specs print to the store printer).
+  const station = (await sheetJson(page, today)).suggestedStation;
+  expect(src.searchParams.get("station")).toBe(station);
+  await expect(dialog.locator('[data-testid="report-printer-suggested"]')).toBeVisible();
   expect(src.searchParams.has("blocks")).toBe(false);
-  // No optional-block toggles: the only pressed-state buttons left are the
-  // printer picker's two, and the 加印 Include group is gone.
-  await expect(dialog.locator("button[aria-pressed]")).toHaveCount(2);
+  // 範圍 All is the default, and sends no scope.
+  expect(src.searchParams.has("scope")).toBe(false);
+  // No optional-block toggles: the pressed-state buttons are the 範圍 Scope
+  // three and the printer picker's two, and the 加印 Include group is gone.
+  await expect(dialog.locator("button[aria-pressed]")).toHaveCount(5);
+  await expect(dialog.locator('[data-testid="report-scope"] button[aria-pressed="true"]')).toHaveText(/全部|All/);
   await expect(dialog.getByRole("button", { name: /^(餐盤|熱賣 10|時段|Trays|Top 10|By hour)$/ })).toHaveCount(0);
   await expect(dialog.getByText(/加印|Include/)).toHaveCount(0);
 
@@ -247,7 +255,8 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
       el.click();
     });
     const sent = (await request).postDataJSON() as { sequence: number; requestKey: string };
-    expect(Object.keys(sent).sort()).toEqual(["date", "requestKey", "sequence", "station"]);
+    expect(Object.keys(sent).sort()).toEqual(["date", "requestKey", "scope", "sequence", "station"]);
+    expect((sent as unknown as { scope: string }).scope).toBe("all");
     expect(sent.sequence, "the Print request carries previous + 1").toBe(previous + 1);
     const status = (await response).status();
     await expect.poll(() => keys.length, { message: "both taps reached the server" }).toBe(2);
@@ -275,7 +284,7 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
       `select sequence, status, station from report_prints where request_key = $1`,
       [mine.requestKey],
     );
-    expect(rows).toEqual([{ sequence: mine.sequence, status: "QUEUED", station: "store" }]);
+    expect(rows).toEqual([{ sequence: mine.sequence, status: "QUEUED", station }]);
     const { rows: at } = await db.query(
       `select count(*)::int as n from report_prints where business_date = $1::date and sequence = $2`,
       [today, mine.sequence],
@@ -294,12 +303,51 @@ test("the sheet previews today's totals and Print enqueues exactly one job", asy
   await page.context().close();
 });
 
+test("範圍 Scope: Online only + Store only add up to All, and the preview follows it", async ({ browser }) => {
+  await setPrinters("ok");
+  const page = await login(browser);
+  await seedSoldOrder(page, 1);
+  const { today } = await sheetJson(page);
+  const json = async (scope: string) =>
+    (await page.evaluate(
+      async ([d, s]) => (await fetch(`/api/kitchen/reports/daily?date=${d}&scope=${s}`, { cache: "no-store" })).json(),
+      [today, scope] as const,
+    )) as Sheet;
+  const [all, online, store] = [await json("all"), await json("online"), await json("store")];
+  expect(online.report.columns.all.count + store.report.columns.all.count).toBe(all.report.columns.all.count);
+  expect(online.report.columns.all.totalCents + store.report.columns.all.totalCents).toBe(all.report.columns.all.totalCents);
+  expect(store.report.columns.all.count).toBeGreaterThan(0);
+
+  await openSheet(page);
+  const dialog = page.getByRole("dialog");
+  const scope = dialog.locator('[data-testid="report-scope"]');
+  await scope.getByRole("button", { name: "店內" }).click();
+  await expect(scope.getByRole("button", { name: "店內" })).toHaveAttribute("aria-pressed", "true");
+  const preview = dialog.locator('[data-testid="report-preview"]');
+  await expect.poll(async () => new URL((await preview.getAttribute("src"))!, "http://x").searchParams.get("scope")).toBe("store");
+  await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(String(store.report.columns.all.count));
+  await expect(dialog.locator('[data-testid="report-summary"]')).toContainText(formatCents(store.report.columns.all.totalCents));
+  const png = await page.evaluate(async (src) => {
+    const res = await fetch(src);
+    return { status: res.status, code: res.headers.get("x-report-code") };
+  }, (await preview.getAttribute("src"))!);
+  expect(png.status).toBe(200);
+  expect(png.code).not.toBe(all.report.code);
+  await page.context().close();
+});
+
 test("Print is disabled, with the reason, while the store printer is out of paper", async ({ browser }) => {
   await setPrinters("paper-out");
   try {
     const page = await login(browser);
     await openSheet(page);
     const dialog = page.getByRole("dialog");
+    // The suggestion never lands on a printer that cannot print: it opens on
+    // the online printer, with Print on.
+    await expect(dialog.getByRole("button", { name: "網上打印機" })).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.locator('[data-testid="report-print"]')).toBeEnabled();
+    // Picking the store printer by hand: Print is off, and says why.
+    await dialog.getByRole("button", { name: "店內打印機" }).click();
     await expect(dialog.locator('[data-testid="report-print"]')).toBeDisabled();
     await expect(dialog.getByRole("note")).toContainText("缺紙");
     // The online printer is fine: choosing it enables Print again.

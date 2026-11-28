@@ -290,6 +290,52 @@ async function s2_fixtureDays(m: Mods): Promise<void> {
     eq(`${day.slug}: invariants hold`, m.model.reportProblems(sql), []);
     const names = m.model.topDishes(sql).map((d) => d.name);
     check(`${day.slug}: no two Top lines share a nameZh`, new Set(names).size === names.length, names.join(", "));
+
+    /* 範圍 SCOPE. Each scoped report is the SQL = model pair again, and
+       Online + Store = All on every row the paper can print. */
+    const scoped = {} as Record<"online" | "store", DailyReport>;
+    for (const which of ["online", "store"] as const) {
+      const s = await m.daily.readDailyReport({ ...scope, channels: which });
+      const ms = m.model.summarizeDay(day.rows, { ...scope, familyItemIds: family, scope: which });
+      const sameScoped = isDeepStrictEqual(s, ms);
+      check(`${day.slug}: scope ${which}: SQL = model`, sameScoped, sameScoped ? "" : firstDifference(s, ms));
+      eq(`${day.slug}: scope ${which}: invariants hold`, m.model.reportProblems(s), []);
+      check(`${day.slug}: scope ${which} has its own code`, s.code !== sql.code, `${s.code} vs ${sql.code}`);
+      scoped[which] = s;
+    }
+    const { online: on, store: st } = scoped;
+    const bucketKeys = ["count", "subtotalCents", "chargesCents", "taxCents", "tipCents", "totalCents"] as const;
+    const rowsOf = (r: DailyReport): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const k of bucketKeys) {
+        for (const c of m.model.REPORT_CHANNELS) out[`channels.${c}.${k}`] = r.channels[c][k];
+        for (const c of m.model.REPORT_COLUMNS) out[`columns.${c}.${k}`] = r.columns[c][k];
+        out[`cancelled.${k}`] = r.cancelled[k];
+        out[`unprinted.${k}`] = r.unprinted[k];
+      }
+      out["trays.halfTray"] = r.trays.halfTray;
+      out["trays.partyTray"] = r.trays.partyTray;
+      out["trays.familyDinners"] = r.trays.familyDinners;
+      for (const h of r.hours) {
+        out[`hours.${h.hour}.count`] = h.count;
+        out[`hours.${h.hour}.total`] = h.totalCents;
+      }
+      return out;
+    };
+    const all = rowsOf(sql);
+    const a = rowsOf(on);
+    const b = rowsOf(st);
+    const keys = new Set([...Object.keys(all), ...Object.keys(a), ...Object.keys(b)]);
+    const bad = [...keys].filter((k) => (a[k] ?? 0) + (b[k] ?? 0) !== (all[k] ?? 0));
+    check(`${day.slug}: scope Online + scope Store = scope All on all ${keys.size} rows`, bad.length === 0, bad.slice(0, 5).join(", "));
+    check(`${day.slug}: scope Online has no Store money, scope Store no Online money`,
+      on.columns.store.totalCents === 0 && on.columns.store.count === 0 && st.columns.online.totalCents === 0 && st.columns.online.count === 0);
+    check(`${day.slug}: the scoped order windows sit inside All's`,
+      [on, st].every((r) => r.firstOrderAt === null || (Date.parse(r.firstOrderAt) >= Date.parse(sql.firstOrderAt!) && Date.parse(r.lastOrderAt!) <= Date.parse(sql.lastOrderAt!))));
+    const topQty = (r: DailyReport) => new Map(r.top.map((t) => [t.itemId, t.quantity]));
+    const [ta, tb, tall] = [topQty(on), topQty(st), topQty(sql)];
+    const topBad = [...tall].filter(([id, q]) => ta.has(id) && tb.has(id) && ta.get(id)! + tb.get(id)! !== q);
+    check(`${day.slug}: a dish in both scopes' top lists sums to All's`, topBad.length === 0, topBad.map(([id]) => id).join(", "));
   }
 }
 
@@ -436,6 +482,27 @@ async function s5_routes(m: Mods): Promise<void> {
     count: 5, subtotalCents: 27300, chargesCents: 500, taxCents: 2434, tipCents: 0, totalCents: 30234,
   });
   check("GET says #1 is next and printing is set up", body.nextSequence === 1 && body.printable);
+  const onlineRes = await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}&scope=online`));
+  const storeRes = await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}&scope=store`));
+  const onlineBody = (await onlineRes.json()) as { report: DailyReport };
+  const storeBody = (await storeRes.json()) as { report: DailyReport };
+  check("GET ?scope=online answers the Online-only report", onlineRes.status === 200 && onlineBody.report.scope === "online");
+  check("GET ?scope=store answers the Store-only report", storeRes.status === 200 && storeBody.report.scope === "store");
+  check(
+    "  and Online + Store = All, count and total",
+    onlineBody.report.columns.all.count + storeBody.report.columns.all.count === body.report.columns.all.count &&
+      onlineBody.report.columns.all.totalCents + storeBody.report.columns.all.totalCents === body.report.columns.all.totalCents,
+  );
+  check("GET refuses a bad scope", (await m.sheet.GET(req(`/api/kitchen/reports/daily?date=${SAT}&scope=dine_in`))).status === 400);
+  const sheetBody = body as unknown as { suggestedStation: string; ticketsToday: { online: number; store: number } };
+  check("GET suggests a printer, with today's counts", (sheetBody.suggestedStation === "store" || sheetBody.suggestedStation === "online") &&
+    typeof sheetBody.ticketsToday?.online === "number", JSON.stringify([sheetBody.suggestedStation, sheetBody.ticketsToday]));
+  const { suggestStation } = await import("../src/lib/reports/sheet");
+  const ok = (station: "online" | "store", blocked = false) => ({ station, health: blocked ? "paper-out" : "ok", blocked }) as never;
+  check("suggest: fewer tickets wins (online 40, store 55 -> online)", suggestStation({ online: 40, store: 55 }, [ok("online"), ok("store")]) === "online");
+  check("suggest: fewer tickets wins (online 60, store 55 -> store)", suggestStation({ online: 60, store: 55 }, [ok("online"), ok("store")]) === "store");
+  check("suggest: a tie is store", suggestStation({ online: 9, store: 9 }, [ok("online"), ok("store")]) === "store");
+  check("suggest: never a blocked printer, however few it printed", suggestStation({ online: 0, store: 90 }, [ok("online", true), ok("store")]) === "store");
   check("GET refuses a future day", (await m.sheet.GET(req("/api/kitchen/reports/daily?date=2099-01-01"))).status === 400);
   check("GET refuses a malformed day", (await m.sheet.GET(req("/api/kitchen/reports/daily?date=2026-02-30"))).status === 400);
 
@@ -448,6 +515,14 @@ async function s5_routes(m: Mods): Promise<void> {
       png.headers.get("x-report-code") === body.report.code,
     `status=${png.status} code=${png.headers.get("x-report-code")}`,
   );
+
+  const scopedPng = await m.preview.GET(req(`/api/kitchen/reports/daily/preview?date=${SAT}&station=store&sequence=1&scope=store`));
+  check("the scoped preview carries the scoped code", scopedPng.status === 200 && scopedPng.headers.get("x-report-code") === storeBody.report.code);
+  const header = (await m.render.composeReportSvg(storeBody.report, { printedAt: new Date().toISOString(), station: "store", sequence: 1, timezone: TIMEZONE })).lines.map((l) => l.text);
+  check("a Store-only report prints 範圍：店內 Store only", header.includes("範圍：店內 Store only"), header.slice(0, 8).join(" | "));
+  check("  and its ORDERS rows are 電話 Phone and 到店 Walk-in", header.includes("電話 Phone") && header.includes("到店 Walk-in") && !header.includes("網上 Online"));
+  const allHeader = (await m.render.composeReportSvg(body.report, { printedAt: new Date().toISOString(), station: "store", sequence: 1, timezone: TIMEZONE })).lines.map((l) => l.text);
+  check("an All report prints 範圍：全部 All and the Online / Store rows", allHeader.includes("範圍：全部 All") && allHeader.includes("網上 Online") && allHeader.includes("店內 Store"));
 
   const press = (sequence: number, requestKey: string, extra: Record<string, unknown> = {}) =>
     m.print.POST(req("/api/kitchen/reports/daily/print", {

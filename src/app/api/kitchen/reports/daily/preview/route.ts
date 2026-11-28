@@ -1,11 +1,11 @@
 import { isStation } from "@/config/stations";
 import { publicTenant } from "@/config/tenant.server";
 import { readDailyReport } from "@/lib/reports/daily";
-import { parseReportDate, sheetGuard } from "@/lib/reports/sheet";
+import { parseReportDate, parseScope, sheetGuard } from "@/lib/reports/sheet";
 import { renderReportPng } from "@/lib/ticket/report";
 
 /**
- * GET /api/kitchen/reports/daily/preview?date=&station=&sequence=
+ * GET /api/kitchen/reports/daily/preview?date=&station=&sequence=&scope=
  *
  * The sheet's live preview: the report as the printer's own 1-bit PNG, drawn
  * by the SAME renderer as the paper (lib/ticket/report.ts), so what the
@@ -24,6 +24,8 @@ export async function GET(request: Request): Promise<Response> {
   if (!day.ok) return Response.json({ ok: false, error: day.error }, { status: 400 });
   const station = params.get("station") ?? "store";
   if (!isStation(station)) return Response.json({ ok: false, error: "bad station" }, { status: 400 });
+  const scope = parseScope(params.get("scope"));
+  if (!scope) return Response.json({ ok: false, error: "bad scope" }, { status: 400 });
   const sequence = Number.parseInt(params.get("sequence") ?? "1", 10);
   if (!Number.isFinite(sequence) || sequence < 1 || sequence > 999) {
     return Response.json({ ok: false, error: "bad sequence" }, { status: 400 });
@@ -33,6 +35,7 @@ export async function GET(request: Request): Promise<Response> {
       tenantId: tenant.tenantId,
       businessDate: day.date,
       timezone: tenant.timezone,
+      channels: scope,
     });
     const { png } = await renderReportPng(report, {
       printedAt: new Date().toISOString(),

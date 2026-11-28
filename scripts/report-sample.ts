@@ -39,12 +39,20 @@ async function main(): Promise<void> {
   const family = familyDinnerItemIds();
   let failures = 0;
 
-  for (const day of await reportFixtureDays()) {
+  // The four days at 範圍 All, then the Saturday at Online only and Store only.
+  const days = await reportFixtureDays();
+  const runs = [
+    ...days.map((day) => ({ day, scope: "all" as const, slug: day.slug })),
+    { day: days[0], scope: "online" as const, slug: `${days[0].slug}-online` },
+    { day: days[0], scope: "store" as const, slug: `${days[0].slug}-store` },
+  ];
+  for (const { day, scope, slug } of runs) {
     const report = summarizeDay(day.rows, {
       tenantId: "fixture",
       businessDate: day.businessDate,
       timezone: TIMEZONE,
       familyItemIds: family,
+      scope,
     });
 
     const problems = reportProblems(report);
@@ -65,12 +73,12 @@ async function main(): Promise<void> {
         `drawn as .notdef (re-run npm run build:ticket-font): ${missing.map((cp) => String.fromCodePoint(cp)).join("")}`,
       );
     }
-    const file = join(OUT, `${day.slug}.png`);
+    const file = join(OUT, `${slug}.png`);
     await writeFile(file, png);
 
     const all = report.columns.all;
     console.log(
-      `${problems.length ? "FAIL" : "ok  "} ${day.slug.padEnd(16)} ${String(all.count).padStart(3)} orders  ` +
+      `${problems.length ? "FAIL" : "ok  "} ${slug.padEnd(18)} ${String(all.count).padStart(3)} orders  ` +
         `${formatMoney(all.totalCents).padStart(10)}  cancelled ${report.cancelled.count}  ` +
         `unprinted ${report.unprinted.count}  ${height}px (${(height / 8).toFixed(0)}mm)  code ${report.code}`,
     );

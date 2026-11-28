@@ -130,6 +130,15 @@ export const REPORT_LABELS = {
   cash: "現金",
   /** Full-width colon, as 中文 sets it. */
   colon: "：",
+  /**
+   * 範圍 SCOPE, under the date: 範圍：全部 All / 網上 Online only / 店內 Store
+   * only. Online and Store reuse `online` and `store` above.
+   */
+  scope: "範圍",
+  scopeAll: "全部",
+  /** The ORDERS rows of a Store-only report: the two counter channels. */
+  phone: "電話",
+  walkIn: "到店",
 } as const;
 
 /**

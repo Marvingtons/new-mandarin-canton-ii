@@ -18,9 +18,17 @@ import {
   topDishes,
   TOP_DISHES,
   type Bucket,
+  type ChannelScope,
   type DailyReport,
   type ReportPrint,
 } from "@/lib/reports/dailyModel";
+
+/** The header's 範圍 line: 範圍：全部 All, 範圍：網上 Online only, 範圍：店內 Store only. */
+export function scopeLine(scope: ChannelScope): string {
+  const name =
+    scope === "online" ? `${R.online} Online only` : scope === "store" ? `${R.store} Store only` : `${R.scopeAll} All`;
+  return `${R.scope}${R.colon}${name}`;
+}
 
 /**
  * 日結 DAILY REPORT renderer: DailyReport -> 80mm PNG.
@@ -174,15 +182,32 @@ export async function composeReportSvg(
       : `${R.none}${R.orders} No orders`;
   c.text(formatBusinessDate(report.businessDate), { size: BODY, weight: 700, lineHeight: ROW_LH, marginTop: 8 });
   c.text(`${window} · #${options.sequence}`, { size: BODY, lineHeight: ROW_LH });
+  // 範圍 SCOPE: every number below is for these orders only. Bold when it
+  // is not All, so a half-day report is never read as the whole day.
+  const scope = report.scope ?? "all";
+  c.text(scopeLine(scope), { size: BODY, weight: scope === "all" ? 400 : 700, lineHeight: ROW_LH });
 
   /* ------------------------------------------------------------- ORDERS -- */
 
   // Two tills, not three channels: Store is phone + walk-in (and dine-in on a
   // day from before 2026-11-14), the TOTALS column the owner counts at the counter.
+  //
+  // Within a scope the rows are that scope's breakdown: Online only has its
+  // one channel; Store only splits into its two counter channels (a dine-in
+  // order from before 2026-11-14 sits with walk-in, both taken at the counter).
   const { online, store, all } = report.columns;
   section(`${R.orders} ORDERS`);
-  row(`${R.online} Online`, countMoney(online));
-  row(`${R.store} Store`, countMoney(store));
+  if (scope === "all") {
+    row(`${R.online} Online`, countMoney(online));
+    row(`${R.store} Store`, countMoney(store));
+  } else if (scope === "online") {
+    row(`${R.online} Online`, countMoney(online));
+  } else {
+    const counter = { ...report.channels.walk_in };
+    for (const k of Object.keys(counter) as (keyof Bucket)[]) counter[k] += report.channels.dine_in[k];
+    row(`${R.phone} Phone`, countMoney(report.channels.phone));
+    row(`${R.walkIn} Walk-in`, countMoney(counter));
+  }
   c.rule(MIN_RULE_PX, 4, 4);
   row(`${R.all} All`, countMoney(all), { weight: 700 });
 

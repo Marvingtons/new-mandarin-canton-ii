@@ -60,6 +60,25 @@ export type ReportColumn = (typeof REPORT_COLUMNS)[number];
 /** How many dishes 熱賣 TOP lists. */
 export const TOP_ITEMS = 10;
 
+/**
+ * 範圍 SCOPE: which orders the report is about. 全部 All, 網上 Online only (web),
+ * 店內 Store only (phone + walk-in, and dine-in on an old day). By CHANNEL,
+ * through CHANNEL_STATION, never by which printer printed a ticket. Scope
+ * filters EVERY section: the counts, the money, Top 5, trays and the order
+ * window. Online + Store = All on every row (verify:daily-report).
+ */
+export const CHANNEL_SCOPES = ["all", "online", "store"] as const;
+export type ChannelScope = (typeof CHANNEL_SCOPES)[number];
+
+export function isChannelScope(value: unknown): value is ChannelScope {
+  return typeof value === "string" && (CHANNEL_SCOPES as readonly string[]).includes(value);
+}
+
+/** The channels a scope keeps. */
+export function scopeChannels(scope: ChannelScope): OrderChannel[] {
+  return REPORT_CHANNELS.filter((c) => scope === "all" || CHANNEL_STATION[c] === scope);
+}
+
 /* ------------------------------------------------------------------ shape -- */
 
 /** Count and money for one row. Every amount is stored, never recomputed. */
@@ -95,6 +114,11 @@ export interface HourRow {
 /** Everything the printed report shows. Rendering reads this and nothing else. */
 export interface DailyReport {
   tenantId: string;
+  /**
+   * 範圍 SCOPE the numbers were summed over. Absent on a report stored before
+   * scopes existed (report_prints.report), which was All.
+   */
+  scope?: ChannelScope;
   /** Restaurant-local YYYY-MM-DD: orders.business_date. */
   businessDate: string;
   timezone: string;
@@ -208,7 +232,11 @@ export function localHour(iso: string, timezone: string): number {
  * trust. Sync and dependency-free so the preview computes it too.
  */
 export function reportCode(report: Omit<DailyReport, "code">): string {
+  // A scoped report is a different report: its scope is part of the code. All
+  // adds nothing, so a day's All code is the same as before scopes existed.
+  const scoped = report.scope && report.scope !== "all" ? [report.scope] : [];
   const canonical = JSON.stringify([
+    ...scoped,
     report.tenantId,
     report.businessDate,
     REPORT_CHANNELS.map((c) => report.channels[c]),
@@ -272,6 +300,8 @@ export interface SummarizeOptions {
   timezone: string;
   /** Item ids that count as 家庭餐 Family dinners. See familyDinnerItemIds. */
   familyItemIds: ReadonlySet<string>;
+  /** 範圍: which channels' orders count. Default all. */
+  scope?: ChannelScope;
 }
 
 /**
@@ -298,7 +328,12 @@ export function summarizeDay(rows: readonly ReportOrderRow[], opts: SummarizeOpt
   let first: string | null = null;
   let last: string | null = null;
 
+  const scope = opts.scope ?? "all";
+  const kept = new Set(scopeChannels(scope));
   for (const row of rows) {
+    // 範圍: a row outside the scope is not part of this report at all, not in
+    // the counts, the money, Top 5, the trays or the order window.
+    if (!kept.has(row.channel)) continue;
     const t = Date.parse(row.createdAt);
     if (first === null || t < Date.parse(first)) first = row.createdAt;
     if (last === null || t > Date.parse(last)) last = row.createdAt;
@@ -362,6 +397,7 @@ export function summarizeDay(rows: readonly ReportOrderRow[], opts: SummarizeOpt
 
   const report: Omit<DailyReport, "code"> = {
     tenantId: opts.tenantId,
+    ...(scope === "all" ? {} : { scope }),
     businessDate: opts.businessDate,
     timezone: opts.timezone,
     firstOrderAt: first,
