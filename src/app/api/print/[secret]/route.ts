@@ -17,7 +17,14 @@ import {
 } from "@/lib/print/entitlement";
 import { readPrinterCondition } from "@/lib/print/printerStatus";
 import { configuredStations, printerIdentity } from "@/lib/print/printerIdentity";
-import { failoverStations, printFailoverAfterSeconds } from "@/config/stations";
+import {
+  OTHER_STATION,
+  STATIONS,
+  failoverStations,
+  printFailoverAfterSeconds,
+  printPoolIntervalMs,
+  printerPoolEnabled,
+} from "@/config/stations";
 import type { PrinterScope } from "@/lib/orders/repository";
 import { recordPoll, untrackedTransition, type PollTransition } from "@/lib/print/healthStore";
 import {
@@ -40,6 +47,7 @@ import {
 } from "@/lib/print/cloudprnt";
 import {
   claimNextPrintJob,
+  takeOverStaleDelivery,
   confirmPrintDelivery,
   currentPrintJob,
   getOrderById,
@@ -308,11 +316,17 @@ export async function POST(
       silentSeconds: transition.othersSilentSeconds,
       windowSeconds: printFailoverAfterSeconds(),
     });
+    // 印表機 PRINTER POOL (docs/printer-pool.md): one queue, any idle printer
+    // claims the oldest ticket, with the alternation preference. This
+    // printer's OWN in-flight job is the one stamped with its station.
+    const pool = printerPoolEnabled();
     const scope: PrinterScope = {
       station: printer.station,
       serves: [...new Set([...printer.serves, ...failoverFrom])],
       failoverFrom,
+      ...(pool ? { pool: { intervalMs: printPoolIntervalMs() } } : {}),
     };
+    const own: readonly Station[] = pool ? [printer.station] : scope.serves;
 
     // THE CHEAP NO-JOB PATH. Most polls find nothing, and the full path below
     // costs a report settle, a locking in-flight read, a claim transaction and
@@ -320,7 +334,7 @@ export async function POST(
     // queued or in flight for this printer's stations (failover included,
     // because scope.serves already includes them) means none of that can
     // find work either. See printerHasWork for why the read must not lock.
-    if (!(await printerHasWork(tenant.tenantId, scope.serves))) {
+    if (!(await printerHasWork(tenant.tenantId, pool ? STATIONS : scope.serves))) {
       return Response.json(NO_JOB);
     }
 
@@ -339,14 +353,14 @@ export async function POST(
     // out is FAILED here and NEVER re-offered (lib/reports/prints.ts): a person
     // reprints it. A report is only ever offered when no ticket is in flight
     // or waiting (below), so this cannot hold a ticket that is mid-print.
-    if (await reportHolds(tenant.tenantId, printer.serves, tag)) {
+    if (await reportHolds(tenant.tenantId, pool ? own : printer.serves, tag)) {
       return Response.json(NO_JOB);
     }
 
     // A job already handed over and not yet confirmed wins: re-offering the
     // same ticket is correct WHEN WE ARE ENTITLED TO, and handing out a second
     // while the first is unaccounted for would double-print.
-    let job = await currentPrintJob(tenant.tenantId, scope.serves);
+    let job = await currentPrintJob(tenant.tenantId, own);
 
     // ENTITLEMENT — the thing that stops one order printing its copy-set over
     // and over. The rule and its reasoning live in lib/print/entitlement.ts;
@@ -410,7 +424,7 @@ export async function POST(
           "retry",
           superseded,
           printer.station,
-          scope.failoverFrom,
+          pool ? [] : scope.failoverFrom,
         );
         if (!reoffered) {
           console.warn(
@@ -423,12 +437,29 @@ export async function POST(
         job = reoffered;
       }
     } else {
-      job = await claimNextPrintJob(tenant.tenantId, freshWindow, scope);
+      // POOL: first a ticket the OTHER printer holds whose window ran out
+      // (never fetched: at once; fetched: only under timed failover, with
+      // 轉自), then the oldest claimable ticket.
+      if (pool) {
+        job = await takeOverStaleDelivery(tenant.tenantId, printer.station, {
+          windowSeconds: freshWindow,
+          cap,
+          failover: failoverFrom.includes(OTHER_STATION[printer.station]),
+          fetchesCounted: printJobBodyScheme() === "http" || printFetchViaWorker() || !printJobStoreReady(),
+        });
+        if (job) {
+          console.warn(
+            `${tag} verdict=pool-takeover ${job.orderNumber} from ${OTHER_STATION[printer.station]} printer` +
+              (job.reroutedFrom ? " (REROUTED: it had fetched the body)" : " (never fetched)"),
+          );
+        }
+      }
+      job ??= await claimNextPrintJob(tenant.tenantId, freshWindow, scope);
     }
 
     // No ticket in flight and none waiting: this printer's turn for a 日結
     // report, if one is queued for it.
-    if (!job) return offerReport(request, tenant, printer, reportWindow, tag);
+    if (!job) return offerReport(request, tenant, printer, reportWindow, tag, pool);
 
     // Every offer path above stamps a delivery id in the same statement. If it
     // is somehow absent, refuse rather than hand over an unidentifiable job.
@@ -590,13 +621,21 @@ async function offerReport(
   printer: { station: Station; serves: readonly Station[] },
   windowSeconds: number,
   tag: string,
+  /** 印表機 PRINTER POOL: any queued report, stamped with this printer. */
+  pool = false,
 ): Promise<Response> {
   // Its OWN served stations, never a failover's: a report for a silent
   // printer waits (the sheet says that printer is offline) rather than coming
   // out of the other one unannounced.
   let print: ReportPrint | null;
   try {
-    print = await claimNextReportPrint(tenant.tenantId, printer.serves, printer.station, windowSeconds);
+    print = await claimNextReportPrint(
+      tenant.tenantId,
+      pool ? STATIONS : printer.serves,
+      printer.station,
+      windowSeconds,
+      pool,
+    );
   } catch (err) {
     if (!isMissingReportTable(err)) {
       console.error(`${tag} report claim failed:`, err instanceof Error ? err.message : err);
@@ -914,10 +953,11 @@ export async function GET(
     // current job of THAT printer, never the other one's.
     const printer = printerIdentity(url.searchParams.get("mac"));
     if (!printer) return notFound();
-    job = await currentPrintJob(tenant.tenantId, printer.serves);
+    const own: readonly Station[] = printerPoolEnabled() ? [printer.station] : printer.serves;
+    job = await currentPrintJob(tenant.tenantId, own);
     if (!job) {
       // No ticket: maybe this printer's 日結 report is the job in flight.
-      const held = await reportInFlight(tenant.tenantId, printer.serves);
+      const held = await reportInFlight(tenant.tenantId, own);
       if (held?.deliveryId) return serveReport(url, tenant, held, held.deliveryId, null);
     }
     // Nothing in flight. 404 is the honest answer; the printer re-polls.

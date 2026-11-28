@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STATIONS, type Station } from "@/config/stations";
 import { formatCents } from "@/lib/money";
-import { CHANNEL_SCOPES, type ChannelScope, type DailyReport } from "@/lib/reports/dailyModel";
+import {
+  CHANNEL_SCOPES,
+  type ChannelScope,
+  type DailyReport,
+} from "@/lib/reports/dailyModel";
 import type { PrinterHealth } from "@/lib/print/printerStatus";
 import Icon from "@/components/kitchen/Icon";
 import { useKitchenI18n } from "@/components/kitchen/KitchenI18n";
@@ -31,14 +35,30 @@ interface SheetData {
   defaultDate: string;
   report: DailyReport;
   nextSequence: number;
-  prints: Array<{ sequence: number; station: Station; status: "QUEUED" | "OFFERED" | "PRINTED" | "FAILED"; code: string; requestedAt: string }>;
-  printers: Array<{ station: Station; health: PrinterHealth; blocked: boolean; printedBy: Station }>;
+  prints: Array<{
+    sequence: number;
+    station: Station;
+    status: "QUEUED" | "OFFERED" | "PRINTED" | "FAILED";
+    code: string;
+    requestedAt: string;
+  }>;
+  printers: Array<{
+    station: Station;
+    health: PrinterHealth;
+    blocked: boolean;
+    printedBy: Station;
+  }>;
   suggestedStation: Station;
   ticketsToday: Record<Station, number>;
+  /** 印表機 PRINTER POOL on: no printer to pick (docs/printer-pool.md section 5). */
+  pool: boolean;
   printable: boolean;
 }
 
-const SHORT: Record<PrinterHealth, "ok" | "offline" | "paperOut" | "coverOpen" | "unknown" | "notSetUp"> = {
+const SHORT: Record<
+  PrinterHealth,
+  "ok" | "offline" | "paperOut" | "coverOpen" | "unknown" | "notSetUp"
+> = {
   ok: "ok",
   offline: "offline",
   "paper-out": "paperOut",
@@ -75,25 +95,34 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
   // same print, never a second (the route is idempotent on it).
   const pressKey = useRef<string | null>(null);
 
-  const load = useCallback(async (day: string | null, which: ChannelScope) => {
-    try {
-      const q = new URLSearchParams({ ...(day ? { date: day } : {}), ...(which === "all" ? {} : { scope: which }) });
-      const res = await fetch(`/api/kitchen/reports/daily${q.size ? `?${q.toString()}` : ""}`, { cache: "no-store" });
-      if (res.status === 401) {
-        window.location.reload();
-        return;
-      }
-      const body = (await res.json()) as SheetData | { ok: false };
-      if (!body.ok) {
+  const load = useCallback(
+    async (day: string | null, which: ChannelScope) => {
+      try {
+        const q = new URLSearchParams({
+          ...(day ? { date: day } : {}),
+          ...(which === "all" ? {} : { scope: which }),
+        });
+        const res = await fetch(
+          `/api/kitchen/reports/daily${q.size ? `?${q.toString()}` : ""}`,
+          { cache: "no-store" },
+        );
+        if (res.status === 401) {
+          window.location.reload();
+          return;
+        }
+        const body = (await res.json()) as SheetData | { ok: false };
+        if (!body.ok) {
+          setError(t("report.loadFailed"));
+          return;
+        }
+        setData(body);
+        setError(null);
+      } catch {
         setError(t("report.loadFailed"));
-        return;
       }
-      setData(body);
-      setError(null);
-    } catch {
-      setError(t("report.loadFailed"));
-    }
-  }, [t]);
+    },
+    [t],
+  );
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -103,14 +132,29 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
   const station: Station = picked ?? data?.suggestedStation ?? "store";
 
   const day = data?.date ?? requested;
+  const pool = data?.pool === true;
   const printer = data?.printers.find((p) => p.station === station) ?? null;
-  const printerName = t("station.printer", { station: t(`station.${station}`) });
+  const printerName = pool
+    ? t("report.anyPrinter")
+    : t("station.printer", { station: t(`station.${station}`) });
+  // In the pool, Print is off only while BOTH printers cannot print.
+  const bothBlocked =
+    pool &&
+    (data?.printers.length ?? 0) > 0 &&
+    data!.printers.every((p) => p.blocked);
   const blockedReason =
     data && !data.printable
       ? t("report.notSetUp")
-      : printer?.blocked
-        ? t("report.unavailable", { printer: printerName, reason: t(`printer.short.${SHORT[printer.health]}`) })
-        : null;
+      : pool
+        ? bothBlocked
+          ? t("report.bothUnavailable")
+          : null
+        : printer?.blocked
+          ? t("report.unavailable", {
+              printer: printerName,
+              reason: t(`printer.short.${SHORT[printer.health]}`),
+            })
+          : null;
 
   const previewSrc = data
     ? `/api/kitchen/reports/daily/preview?${new URLSearchParams({
@@ -143,16 +187,23 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           date: data.date,
-          station,
+          ...(pool ? {} : { station }),
           scope,
           sequence: data.nextSequence,
           requestKey: pressKey.current,
         }),
       });
-      const body = (await res.json()) as { ok: boolean; print?: { sequence: number }; nextSequence?: number; error?: string };
+      const body = (await res.json()) as {
+        ok: boolean;
+        print?: { sequence: number };
+        nextSequence?: number;
+        error?: string;
+      };
       if (body.ok && body.print) {
         pressKey.current = null;
-        setNotice(t("report.sent", { n: body.print.sequence, printer: printerName }));
+        setNotice(
+          t("report.sent", { n: body.print.sequence, printer: printerName }),
+        );
         await load(data.date, scope);
       } else if (res.status === 409 && body.nextSequence) {
         pressKey.current = null;
@@ -175,7 +226,9 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
       <div className="grid gap-6 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,25rem)]">
         <div className="flex min-w-0 flex-col gap-5">
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-2 text-staff-body font-semibold">{t("report.date")}</legend>
+            <legend className="mb-2 text-staff-body font-semibold">
+              {t("report.date")}
+            </legend>
             <div className="flex items-center gap-2">
               <Button
                 iconOnly
@@ -199,53 +252,90 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
               />
             </div>
             {data && (
-              <p className="text-staff-body tabular-nums" data-testid="report-summary">
-                {t("report.summary", { n: data.report.columns.all.count, total: formatCents(data.report.columns.all.totalCents) })}
+              <p
+                className="text-staff-body tabular-nums"
+                data-testid="report-summary"
+              >
+                {t("report.summary", {
+                  n: data.report.columns.all.count,
+                  total: formatCents(data.report.columns.all.totalCents),
+                })}
               </p>
             )}
           </fieldset>
 
           <fieldset className="flex flex-col gap-2" data-testid="report-scope">
-            <legend className="mb-2 text-staff-body font-semibold">{t("report.scope")}</legend>
+            <legend className="mb-2 text-staff-body font-semibold">
+              {t("report.scope")}
+            </legend>
             <Segmented
               label={t("report.scope")}
               value={scope}
               onChange={setScope}
-              options={CHANNEL_SCOPES.map((s) => ({ value: s, label: t(`report.scope.${s}`) }))}
+              options={CHANNEL_SCOPES.map((s) => ({
+                value: s,
+                label: t(`report.scope.${s}`),
+              }))}
             />
           </fieldset>
 
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-2 text-staff-body font-semibold">{t("report.printer")}</legend>
-            <Segmented
-              label={t("report.printer")}
-              value={station}
-              onChange={setPicked}
-              options={STATIONS.map((s) => ({
-                value: s,
-                label: (
-                  <>
-                    <Icon name={s === "online" ? "globe" : "store"} size={20} />
-                    {t("station.printer", { station: t(`station.${s}`) })}
-                  </>
-                ),
-              }))}
-            />
-            {data && picked === null && (
-              <p className="text-staff-caption text-staff-soft" data-testid="report-printer-suggested">
-                {t("report.printerSuggested", { online: data.ticketsToday.online, store: data.ticketsToday.store })}
-              </p>
-            )}
-          </fieldset>
+          {!pool && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-2 text-staff-body font-semibold">
+                {t("report.printer")}
+              </legend>
+              <Segmented
+                label={t("report.printer")}
+                value={station}
+                onChange={setPicked}
+                options={STATIONS.map((s) => ({
+                  value: s,
+                  label: (
+                    <>
+                      <Icon
+                        name={s === "online" ? "globe" : "store"}
+                        size={20}
+                      />
+                      {t("station.printer", { station: t(`station.${s}`) })}
+                    </>
+                  ),
+                }))}
+              />
+              {data && picked === null && (
+                <p
+                  className="text-staff-caption text-staff-soft"
+                  data-testid="report-printer-suggested"
+                >
+                  {t("report.printerSuggested", {
+                    online: data.ticketsToday.online,
+                    store: data.ticketsToday.store,
+                  })}
+                </p>
+              )}
+            </fieldset>
+          )}
 
           {data && data.prints.length > 0 && (
             <section className="flex flex-col gap-1">
-              <h3 className="text-staff-caption font-semibold text-staff-soft">{t("report.earlier")}</h3>
-              <ul className="flex flex-col gap-1 text-staff-caption tabular-nums" data-testid="report-earlier">
+              <h3 className="text-staff-caption font-semibold text-staff-soft">
+                {t("report.earlier")}
+              </h3>
+              <ul
+                className="flex flex-col gap-1 text-staff-caption tabular-nums"
+                data-testid="report-earlier"
+              >
                 {data.prints.map((p) => (
                   <li key={p.sequence} className="flex flex-wrap gap-x-2">
-                    <span className="font-semibold" data-testid="report-earlier-seq">#{p.sequence}</span>
-                    <span>{t(`station.${p.station}`)}</span>
+                    <span
+                      className="font-semibold"
+                      data-testid="report-earlier-seq"
+                    >
+                      #{p.sequence}
+                    </span>
+                    {/* In the pool a queued report has no printer yet. */}
+                    {!(pool && p.status === "QUEUED") && (
+                      <span>{t(`station.${p.station}`)}</span>
+                    )}
                     <span>{t(`report.status.${p.status}`)}</span>
                     <span className="text-staff-soft">{p.code}</span>
                   </li>
@@ -254,9 +344,25 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
             </section>
           )}
 
-          {error && <p role="alert" className="text-staff-body">{error}</p>}
-          {notice && <p role="status" className="text-staff-body font-semibold" data-testid="report-notice">{notice}</p>}
-          {blockedReason && <p role="note" className="text-staff-body">{blockedReason}</p>}
+          {error && (
+            <p role="alert" className="text-staff-body">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p
+              role="status"
+              className="text-staff-body font-semibold"
+              data-testid="report-notice"
+            >
+              {notice}
+            </p>
+          )}
+          {blockedReason && (
+            <p role="note" className="text-staff-body">
+              {blockedReason}
+            </p>
+          )}
 
           <div className={`${ui.dialogActions} mt-auto`}>
             <Button variant="secondary" onClick={onClose}>
@@ -273,11 +379,15 @@ export default function DailyReportSheet({ onClose }: { onClose: () => void }) {
               {t("report.print", { n: data?.nextSequence ?? 1 })}
             </Button>
           </div>
-          <p className="text-staff-caption text-staff-soft">{t("report.asOf")}</p>
+          <p className="text-staff-caption text-staff-soft">
+            {t("report.asOf")}
+          </p>
         </div>
 
         <figure className="flex min-w-0 flex-col gap-2">
-          <figcaption className="text-staff-caption font-semibold text-staff-soft">{t("report.preview")}</figcaption>
+          <figcaption className="text-staff-caption font-semibold text-staff-soft">
+            {t("report.preview")}
+          </figcaption>
           <div className="max-h-[70svh] overflow-y-auto overflow-x-hidden rounded-staff-control bg-staff-sunken p-3">
             {previewSrc ? (
               // A same-origin PNG the server renders per request; next/image's

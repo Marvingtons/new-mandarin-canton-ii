@@ -254,6 +254,11 @@ export async function claimNextReportPrint(
   /** The printer being handed it, for the delivery row. */
   printer: Station,
   windowSeconds: number,
+  /**
+   * 印表機 PRINTER POOL: the report's station becomes the printer that
+   * claimed it ("printed by"), so its in-flight settle finds it.
+   */
+  stampPrinter = false,
 ): Promise<ReportPrint | null> {
   return withTransaction(async (client) => {
     const deliveryId = randomUUID();
@@ -262,6 +267,7 @@ export async function claimNextReportPrint(
           set status = 'OFFERED',
               delivery_id = $3,
               delivery_expires_at = now() + make_interval(secs => $4),
+              station = case when $6 then $5 else station end,
               updated_at = now()
         where id = (
           select id from report_prints
@@ -272,7 +278,7 @@ export async function claimNextReportPrint(
         )
           and status = 'QUEUED'
         returning ${COLUMNS}`,
-      [tenantId, [...stations], deliveryId, windowSeconds],
+      [tenantId, [...stations], deliveryId, windowSeconds, printer, stampPrinter],
     );
     if (rows.length === 0) return null;
     await client.query(

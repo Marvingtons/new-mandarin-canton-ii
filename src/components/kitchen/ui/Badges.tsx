@@ -18,15 +18,38 @@ const STATION_LOOK: Record<Station, string> = {
 };
 
 /**
- * Which PRINTER this order's ticket is on: Online (gold) or Store (ink),
- * always with the printer icon, so it never reads as the channel badge.
+ * Which LANE the order is in: Online (gold) or Store (ink), by its channel
+ * (lib/kitchen/lane.ts). Always with the lane's icon, so it never reads as
+ * the channel badge or the printer.
  */
 export function StationBadge({ station }: { station: Station }) {
   const t = useKT();
   return (
-    <span className={`${ui.pill} ${STATION_LOOK[station]}`}>
-      <Icon name="printer" size={16} />
+    <span className={`${ui.pill} ${STATION_LOOK[station]}`} data-lane={station}>
+      <Icon name={station === "online" ? "globe" : "store"} size={16} />
       {t(`station.${station}`)}
+    </span>
+  );
+}
+
+/**
+ * The printer that printed it (or is printing it): a small printer icon and
+ * the printer's name, quiet, once a printer has taken the ticket. With the
+ * printer pool either printer prints any ticket; this is where staff look
+ * for the paper.
+ */
+export function PrintedOnBadge({ station }: { station: Station | null }) {
+  const t = useKT();
+  if (!station) return null;
+  return (
+    <span
+      className="inline-flex min-h-7 items-center gap-1 text-staff-caption text-staff-soft"
+      data-printed-on={station}
+      title={t("card.printedOn", { station: t(`station.${station}`) })}
+    >
+      <Icon name="printer" size={14} />
+      <span className="sr-only">{t("card.printedOn", { station: t(`station.${station}`) })}</span>
+      <span aria-hidden="true">{t(`station.${station}`)}</span>
     </span>
   );
 }

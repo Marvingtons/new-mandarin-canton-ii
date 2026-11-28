@@ -595,6 +595,9 @@ async function main(): Promise<void> {
   process.env.TENANT_ID = TENANT;
   process.env.CLOUDPRNT_SECRET = SECRET;
   delete process.env.CLOUDPRNT_PRINTER_MAC;
+  // Routing BY CHANNEL, the PRINTER_POOL=off path. The pool has its own
+  // verifier (verify:printer-pool); this one keeps the default pinned.
+  delete process.env.PRINTER_POOL;
   process.env.CLOUDPRNT_PRINTER_MAC_ONLINE = MAC_ONLINE;
   process.env.CLOUDPRNT_PRINTER_MAC_STORE = MAC_STORE;
   process.env.CRON_SECRET = CRON;

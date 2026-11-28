@@ -201,6 +201,70 @@ async function run(m: Mods, extra?: () => Promise<unknown>): Promise<RunResult> 
   return result;
 }
 
+/**
+ * 印表機 PRINTER POOL (docs/printer-pool.md): BOTH printers claim from ONE
+ * queue at the same time, with the readers looping. Each printer polls
+ * (stamps its health row), claims with the pool's alternation, and "prints"
+ * what it got before claiming again, as the route's one-job-per-printer rule
+ * makes it. No ticket may be claimed twice, none may be left behind, and
+ * every claim is the oldest ticket it was allowed to take.
+ */
+async function poolClaims(m: Mods): Promise<void> {
+  console.log(`\n5. the printer pool: two printers claim ${ROUNDS} x ${TICKETS_PER_ROUND} tickets from one queue, at once`);
+  const claimedBy = new Map<number, string[]>();
+  let reads = 0;
+  for (let round = 0; round < ROUNDS; round++) {
+    await seedQueue();
+    const readers = startReaders(m);
+    const printer = async (station: "online" | "store") => {
+      let idle = 0;
+      while (idle < 20) {
+        await db.query(
+          `insert into printer_station_status (tenant_id, station, last_seen_at, online)
+           values ($1, $2, now(), true)
+           on conflict (tenant_id, station) do update set last_seen_at = now(), online = true`,
+          [TENANT, station],
+        );
+        const got = await m.repo.claimNextPrintJob(TENANT, 90, {
+          station,
+          serves: [station],
+          failoverFrom: [],
+          pool: { intervalMs: 30 },
+        });
+        if (!got) {
+          idle++;
+          await new Promise((r) => setTimeout(r, 5));
+          continue;
+        }
+        idle = 0;
+        claimedBy.set(got.id, [...(claimedBy.get(got.id) ?? []), station]);
+        // Printed: the confirmation's end state, so the printer is idle again.
+        await db.query(
+          `update orders set status = 'PRINTED', print_delivery_id = null, print_delivery_expires_at = null where id = $1`,
+          [got.id],
+        );
+      }
+    };
+    try {
+      await Promise.all([printer("online"), printer("store")]);
+    } finally {
+      reads += await readers.stop();
+    }
+    const { rows } = await db.query(
+      `select count(*)::int as n from orders where tenant_id = $1 and status = 'QUEUED'`,
+      [TENANT],
+    );
+    check(`round ${round + 1}: nothing left in the queue`, rows[0].n === 0, `${rows[0].n} left`);
+  }
+  const twice = [...claimedBy].filter(([, s]) => s.length > 1);
+  check("no ticket was claimed by both printers, or twice", twice.length === 0, `${twice.length} of ${claimedBy.size}`);
+  check(`all ${ROUNDS * TICKETS_PER_ROUND} tickets were claimed`, claimedBy.size === ROUNDS * TICKETS_PER_ROUND, `${claimedBy.size}`);
+  const online = [...claimedBy.values()].filter((s) => s[0] === "online").length;
+  check("both printers took a share", online > 0 && online < claimedBy.size, `online ${online}, store ${claimedBy.size - online}`);
+  check("the readers ran alongside", reads > 0, `${reads} reads`);
+  await db.query(`delete from printer_station_status where tenant_id = $1`, [TENANT]);
+}
+
 /** One QUEUED ticket for a station, nothing claimed. */
 async function oneOrder(station: "online" | "store"): Promise<number> {
   await db.query(`delete from report_prints where tenant_id = $1`, [TENANT]);
@@ -404,6 +468,7 @@ async function main(): Promise<void> {
 
     await hasWorkAnswers(m);
     await emptyPollIsCheap(m, pool);
+    await poolClaims(m);
   } finally {
     await db.end();
     await pool.closeOrdersPool();

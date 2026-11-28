@@ -89,6 +89,8 @@ Enumerated from source (`src/config/tenant.server.ts` plus every direct
 | `CRON_SECRET` | — | unset leaves the cron endpoint open; it returns counts only, never order data |
 | `CLOUDPRNT_PRINTER_MAC_ONLINE` | — | printer A (web orders); set in step 5 after its MAC is known. The old `CLOUDPRNT_PRINTER_MAC` still works as this |
 | `CLOUDPRNT_PRINTER_MAC_STORE` | — | printer B (phone, walk-in); see step 5.5. Unset = printer A prints the store's tickets too |
+| `PRINTER_POOL` | `off` | `on`: one queue for both printers. Any idle printer prints the oldest ticket of any channel, alternating when both are idle (docs/printer-pool.md). Off = tickets print on their channel's printer, as before. Flip it back off to roll back; no migration either way |
+| `PRINT_POOL_INTERVAL_MS` | `3000` | the printers' poll interval: the longest the alternation may hold a ticket back. Match it to the printers' CloudPRNT setting |
 | `PRINT_FAILOVER_AFTER_SECONDS` | `90` | a printer with a MAC set that has not polled for this long has its new tickets printed by the other printer, marked REROUTED; one owner text at start, one when it is back. `0` = off |
 | `CLOUDPRNT_BUZZER` | `off` | `drawer` for this restaurant's DK-port buzzer; see step 6 |
 
@@ -325,6 +327,14 @@ rather than a seek to the end of it.
    needs no PIN. History marks each PIN cancel 主管取消 Manager cancel, and the
    CSV has a `cancelled_by` column. Rollback: deploy the previous code, then
    `down_019_to_018.sql`.
+9. **印表機 Printer pool.** No migration. Deploy with `PRINTER_POOL` unset
+   (off: nothing changes). Bench test with both printers side by side: set
+   `PRINTER_POOL=on`, send a few web and phone orders, and check that both
+   printers print, alternating, that the board card's small printer icon
+   names the one that printed, and that the 日結 sheet has no printer picker.
+   Pull one printer's paper: the other prints everything. Roll back by
+   unsetting it; tickets already printed keep their printer in
+   `print_station`. See docs/printer-pool.md.
 
 ---
 
