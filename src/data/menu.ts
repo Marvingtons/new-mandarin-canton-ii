@@ -139,6 +139,12 @@ export interface MenuItem {
    */
   eitherOr?: MenuItemEitherOr;
   spicy?: boolean;
+  /**
+   * POS only: never on the website, refused by POST /api/orders. Alcohol
+   * (beer, house wine), which this licence may not sell online for pickup.
+   * See MenuItem.staffOnly in lib/menu/types.ts.
+   */
+  staffOnly?: boolean;
   tags?: string[];
 }
 
@@ -1223,6 +1229,74 @@ export const menu: MenuCategory[] = [
         // wired (preparationGroup); both options are $0 today, so a "fried costs
         // more" answer is a one-value change there, not here.
         preparationChoice: true,
+      },
+      {
+        // The menu's other à la carte side, beside #116. A bag of fried wonton
+        // wrappers: no rice, no tray, the same on both channels. 炸雲吞皮 in
+        // the menu's own vocabulary (炸 as in 炸忌廉芝士雲吞, 雲吞 as in
+        // 雲吞湯); 皮 because it is the wrapper alone, no filling.
+        // TODO(confirm): owner to approve the 中文.
+        id: "wonton-chips",
+        name: "Wonton Chips",
+        chineseName: "炸雲吞皮",
+        priceCents: 300,
+      },
+    ],
+  },
+  {
+    // 飲品 Beverages, printed menu page 7 ("M C"). Last of the à la carte
+    // sections, so it sits after Fried Rice / Noodles / Sides and before the
+    // combos catalogMenu() appends. Nothing here is a rice dish (beverages
+    // is not in RICE_CATEGORY_IDS), long prep or tray-sized. The kitchen
+    // ticket prints these lines in their own 飲品 block at the bottom
+    // (lib/menu/beverages.ts), so the wok reads its dishes uninterrupted.
+    //
+    // ALCOHOL IS POS-ONLY (`staffOnly`): American Beers, Imported Beers and
+    // House Wine are never on the website and POST /api/orders refuses them.
+    // Tea and soft drinks are on both channels.
+    //
+    // TODO(confirm): the drink 中文 are trade terms, not transcribed from the
+    // printed menu, which prints this page in English only.
+    id: "beverages",
+    name: "Beverages",
+    items: [
+      {
+        id: "hot-or-iced-tea",
+        name: "Hot Tea or Iced Tea",
+        chineseName: "熱茶／凍茶",
+        priceCents: 275,
+        // Hot or iced is a required pick with no default; the chosen tea
+        // prints ON the item line, as #116's rice and the "or" dishes do.
+        eitherOr: {
+          label: "Hot or iced",
+          labelZh: "熱定凍",
+          labelKey: "choice.hotOrIced",
+          options: [
+            { id: "tea-hot", name: "Hot Tea", chineseName: "熱茶" },
+            { id: "tea-iced", name: "Iced Tea", chineseName: "凍茶" },
+          ],
+        },
+      },
+      { id: "soft-drink", name: "Soft Drink", chineseName: "汽水", priceCents: 275 },
+      { id: "american-beer", name: "American Beers", chineseName: "美國啤酒", priceCents: 725, staffOnly: true },
+      { id: "imported-beer", name: "Imported Beers", chineseName: "進口啤酒", priceCents: 725, staffOnly: true },
+      {
+        id: "house-wine-glass",
+        name: "House Wine (Glass)",
+        chineseName: "餐酒（杯）",
+        priceCents: 750,
+        staffOnly: true,
+        // The wine prints on the line: 白餐酒 Chardonnay / 粉紅餐酒 White
+        // Zinfandel (a blush wine, hence 粉紅).
+        eitherOr: {
+          label: "Which wine",
+          labelZh: "邊款酒",
+          labelKey: "choice.whichWine",
+          options: [
+            { id: "wine-chardonnay", name: "House Wine Chardonnay", chineseName: "白餐酒" },
+            { id: "wine-white-zinfandel", name: "House Wine White Zinfandel", chineseName: "粉紅餐酒" },
+          ],
+        },
       },
     ],
   },

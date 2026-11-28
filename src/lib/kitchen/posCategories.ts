@@ -27,6 +27,7 @@ export type CategoryTint =
   | "rice"
   | "noodles"
   | "sides"
+  | "drinks"
   | "family"
   | "bigfamily";
 
@@ -50,6 +51,7 @@ const POS_CATEGORIES: Record<string, PosCategory> = {
   "fried-rice": { tint: "rice" },
   noodles: { tint: "noodles" },
   sides: { tint: "sides" },
+  beverages: { tint: "drinks" },
   "lunch-specials": { tint: "lunch", zh: "午餐" },
   "family-dinners": { tint: "family", zh: "家庭餐" },
   "big-family-dinner": { tint: "bigfamily", zh: "大家庭", en: "Big Family" },

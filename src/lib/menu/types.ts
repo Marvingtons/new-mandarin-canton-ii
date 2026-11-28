@@ -107,6 +107,15 @@ export interface MenuItem {
    * 20–30 minute pickup estimate instead of the standard 15–20.
    */
   longPrep?: boolean;
+  /**
+   * Sold on the staff POS only (alcohol: American / Imported Beers, House
+   * Wine). The same contract as MenuModifier.staffOnly, one level up: the
+   * website catalogue (websiteMenu(), what getMenu() serves) omits the item,
+   * POST /api/orders refuses it in composeOrder, and the POS shows and sells
+   * it. California ABC: this licence does not cover alcohol sold online for
+   * off-premise pickup, so a beer is never an Add button on the website.
+   */
+  staffOnly?: boolean;
 }
 
 export interface MenuCategory {

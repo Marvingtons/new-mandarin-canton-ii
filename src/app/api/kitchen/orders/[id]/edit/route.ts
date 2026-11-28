@@ -3,7 +3,7 @@ import { kitchenSessionKey } from "@/lib/auth/kitchenSession";
 import { isOrdersDbConfigured } from "@/lib/db/postgres";
 import { checkRateLimit, rateLimitResponse } from "@/lib/http/rateLimit";
 import { previewOrderingBlocked } from "@/lib/http/deployHost";
-import { getMenu } from "@/lib/menu/source";
+import { getStaffMenu } from "@/lib/menu/source";
 import { formatCents } from "@/lib/money";
 import { isGateBypassRequest } from "@/lib/order/bypass";
 import type { PickupOptions } from "@/lib/order/pickup";
@@ -131,7 +131,7 @@ export async function POST(
     leadMinutes: tenant.pickupLeadMinutes,
     intervalMinutes: tenant.pickupSlotIntervalMinutes,
   };
-  const priced = priceEdit(await getMenu(), order.items, body.lines, {
+  const priced = priceEdit(await getStaffMenu(), order.items, body.lines, {
     taxRateBps: tenant.taxRateBps,
     // Lunch is judged at the ORIGINAL order's time, not now.
     lunchAllowed: staffLunchAllowed({

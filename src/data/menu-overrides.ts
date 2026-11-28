@@ -87,6 +87,7 @@ const RAW_CATEGORY_ZH: Record<string, string> = {
   "Fried Rice": "炒飯",
   Noodles: "麵類",
   Sides: "配菜",
+  Beverages: "飲品",
   "Mandarin Specialties": "招牌菜",
   Appetizers: "前菜",
   Soup: "湯類",

@@ -98,6 +98,8 @@ export const TICKET_LABELS = {
   newTotal: "新合計",
   was: "原",
   revised: "已改",
+  /** The drinks block at the bottom of the items: 飲品 DRINKS. */
+  drinks: "飲品",
 } as const;
 
 /**
