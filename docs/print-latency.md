@@ -287,3 +287,43 @@ own block, only as wide as its rightmost ink, would make tickets about 45%
 smaller than today. It depends on a narrower raster printing at the left
 margin, which this repo has no citation for. It needs that page of the manual,
 or a bench test, before it is built.
+
+## Step 2, fix 3: poll interval and a cheap no-job path
+
+**The cheap no-job path.** Right after the health write, every poll now makes
+one lock-free read, `printerHasWork`. Is any order queued or in flight for this
+printer's stations (failover included), or any 日結 report queued or offered?
+If not, the poll answers `jobReady:false` at once. Before, an empty poll ran
+the report settle, the locking in-flight read (`for update`), the claim
+transaction and the report claim transaction just to say the same thing. Now
+it is **2 statements** (health write + has-work read), counted through the
+real route.
+
+The read is a superset of what the full path can act on, built from the same
+`needsPaperFrom` arms, so "false" never hides a ticket. Anything time-based
+(an expiring delivery, a report window) is in flight and therefore "true". It
+fails open: any error does the full poll.
+
+It takes **no row locks**, which is the property that matters: the claim's
+`for update skip locked` skips any locked row. `verify:claim-no-skip` now runs
+five has-work readers in the stress mix (20 readers, 200 claims, about 14,700
+reads, 0 skips), keeps its control (a `for share` reader does cause skips),
+and checks the answer for queued, in-flight, printed, change-ticket, 重印,
+report and other-station states (19 checks).
+
+**Poll interval.** The setting lives on the printer, not the server: Star's
+"Polling time" (web configuration, CloudPRNT settings), default 5 s; both
+printers are measured at 3.0 s. Star documents no minimum. Hop a (1.7 s p50) is
+about half the interval plus the claim, and the confirming DELETE waits for a
+tick too, so each second off the interval is worth about one second of tap to
+paper.
+
+| Polling time | Hop a p50 (est.) | Polls per day, 2 printers |
+|---:|---:|---:|
+| 3 s (today) | 1.7 s | 57,600 |
+| 2 s | ≈1.2 s | 86,400 |
+| 1 s | ≈0.7 s | 172,800 |
+
+Advice: **2 s**, which saves ≈1 s (≈0.5 s on hop a, ≈0.5 s on the DELETE
+tick) and stays under the Workers free plan's 100,000 requests a day. **1 s** only
+on a paid Workers plan. Not measured until the printers' setting is changed.

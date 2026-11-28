@@ -45,6 +45,7 @@ import {
   printBodyFor,
   getPrintDelivery,
   printSegmentState,
+  printerHasWork,
   recordDeliveryFetch,
   recordPrintAttempt,
   recordPrintJobKey,
@@ -310,6 +311,16 @@ export async function POST(
       serves: [...new Set([...printer.serves, ...failoverFrom])],
       failoverFrom,
     };
+
+    // THE CHEAP NO-JOB PATH. Most polls find nothing, and the full path below
+    // costs a report settle, a locking in-flight read, a claim transaction and
+    // a report claim to say so. One lock-free read answers first: nothing
+    // queued or in flight for this printer's stations (failover included,
+    // because scope.serves already includes them) means none of that can
+    // find work either. See printerHasWork for why the read must not lock.
+    if (!(await printerHasWork(tenant.tenantId, scope.serves))) {
+      return Response.json(NO_JOB);
+    }
 
     // Config read once. The fresh-claim window assumes a whole ticket (one
     // piece); a re-offer uses the decision's window, which knows the split.

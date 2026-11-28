@@ -652,6 +652,58 @@ export async function claimNextPrintJob(
   }));
 }
 
+/** PRINTABLE_STATUSES as an SQL literal, so the planner can use the partial queue indexes. */
+const PRINTABLE_SQL = `array[${PRINTABLE_STATUSES.map((s) => `'${s.replace(/'/g, "''")}'`).join(",")}]::text[]`;
+
+/**
+ * DOES THIS PRINTER HAVE ANY WORK? The cheap no-job path of the poll
+ * (docs/print-latency.md, Step 2 fix 3).
+ *
+ * True when any order needs paper from these stations, queued OR in flight
+ * (needsPaperFrom, split into its three arms so each meets its partial index),
+ * or a 日結 report is queued or offered to them. That is a superset of what
+ * currentPrintJob, claimNextPrintJob and the report path could act on, so
+ * false means the full path would have answered "no job" too, and the poll
+ * may answer it without running them. Anything time-based (an expiring
+ * delivery, a report window) is in flight and therefore true here.
+ *
+ * A PLAIN READ, NO LOCKS. FOR UPDATE SKIP LOCKED skips any row another session
+ * holds a lock on, so a locking read here, run on every poll by two printers,
+ * would make the claim skip tickets. verify:claim-no-skip runs this alongside
+ * the board and the cron and checks that no claim is skipped.
+ *
+ * Fails open: any error (a database without the report table, a timeout)
+ * answers true, and the poll does the full work exactly as before.
+ */
+export async function printerHasWork(
+  tenantId: string,
+  serves: readonly Station[],
+): Promise<boolean> {
+  const orderArms = [
+    `${SERVES_FIRST(PRINTABLE_SQL)} and orders.print_station = any($2::text[])`,
+    `${SERVES_CHANGE(PRINTABLE_SQL)} and orders.print_station = any($2::text[])`,
+    `${SERVES_REPRINT()} and exists (
+       select 1 from print_deliveries r
+        where r.id = orders.reprint_delivery_id and r.station = any($2::text[]))`,
+  ].map((arm) => `exists (select 1 from orders where orders.tenant_id = $1 and ${arm})`);
+  try {
+    const { rows } = await ordersPool().query(
+      `select ${orderArms.join(" or ")}
+           or exists (select 1 from report_prints
+                       where tenant_id = $1 and station = any($2::text[])
+                         and status in ('QUEUED', 'OFFERED')) as has_work`,
+      [tenantId, [...serves]],
+    );
+    return rows[0]?.has_work !== false;
+  } catch (err) {
+    console.warn(
+      "[cloudprnt] has-work check failed, doing the full poll: " +
+        (err instanceof Error ? err.message : "unknown error"),
+    );
+    return true;
+  }
+}
+
 /**
  * The job a printer is mid-transaction on: already claimed (attempts > 0) but
  * not yet confirmed by a DELETE. Returned so a repeated poll or GET before the
